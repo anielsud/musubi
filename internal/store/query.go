@@ -135,7 +135,7 @@ func (s *Store) keywordIDs(sc sensitivity.Scope, q SearchQuery, depth int) ([]in
 	vis, vargs := visSQL(sc, "il", "cl", "c.item_id")
 	ts, targs := timeSQL(q)
 	query := `SELECT c.id FROM chunks_fts f JOIN chunks c ON c.id = f.rowid JOIN items i ON i.id = c.item_id` + chunkVisJoin +
-		`WHERE chunks_fts MATCH ? AND ` + vis + ts + ` ORDER BY bm25(chunks_fts, 1.0, 0.5) LIMIT ?`
+		`WHERE chunks_fts MATCH ? AND ` + vis + ts + ` ORDER BY bm25(chunks_fts, 1.0, 0.5, 0.5) LIMIT ?`
 	args := append([]any{match}, vargs...)
 	args = append(append(args, targs...), depth)
 	return s.ids(query, args...)
@@ -176,7 +176,7 @@ func (s *Store) ids(query string, args ...any) ([]int64, error) {
 // the title of the calendar event it was linked to.
 func (s *Store) hit(sc sensitivity.Scope, chunkID int64) (*Hit, error) {
 	vis, vargs := visSQL(sc, "il", "cl", "c.item_id")
-	q := `SELECT c.id, c.item_id, i.kind, coalesce(e.title, i.title), i.occurred_at, c.seq, c.start_s, c.end_s, c.speakers, c.text,
+	q := `SELECT c.id, c.item_id, i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END, i.occurred_at, c.seq, c.start_s, c.end_s, c.speakers, c.text,
 		max(il.level, coalesce(cl.level, 0)), (il.categories | coalesce(cl.categories, 0)), coalesce(cl.reason, il.reason)
 		FROM chunks c JOIN items i ON i.id = c.item_id
 		LEFT JOIN item_links lk ON lk.item_id = i.id AND lk.rel = 'occurred_as'
@@ -275,7 +275,7 @@ func (s *Store) FindEntities(sc sensitivity.Scope, q string) ([]EntityRef, error
 }
 
 func (s *Store) entityVisible(sc sensitivity.Scope, e Entity) (bool, error) {
-	if e.Level > sc.MaxLevel || (len(sc.Audience) > 0 && e.Level > sensitivity.OpenLevel) {
+	if e.Level > sc.MaxLevel || (len(sc.Audience) > 0 && e.Level > sc.Open) {
 		return false, nil
 	}
 	if e.Origin == "registry" || e.Origin == "directory" {
@@ -403,7 +403,7 @@ func (s *Store) EntityGraph(sc sensitivity.Scope, entityID string, exclude []str
 			var id, typ, name string
 			var lvl int
 			rows.Scan(&id, &typ, &name, &lvl)
-			if l := sensitivity.Level(lvl); l > sc.MaxLevel || (len(sc.Audience) > 0 && l > sensitivity.OpenLevel) {
+			if l := sensitivity.Level(lvl); l > sc.MaxLevel || (len(sc.Audience) > 0 && l > sc.Open) {
 				continue
 			}
 			add(id, typ, name, it.ID)

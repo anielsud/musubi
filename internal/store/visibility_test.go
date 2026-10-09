@@ -22,6 +22,7 @@ func TestScopeFilterMatchesVisible(t *testing.T) {
 	defer s.Close()
 
 	owner, lee, dana := "owner@corp.example", "lee@corp.example", "dana@corp.example"
+	corp := []string{"corp.example"}
 	audiences := [][]string{{owner}, {owner, lee}, {owner, lee, dana}}
 	cats := []sensitivity.Categories{0, sensitivity.HR, sensitivity.DealTerms, sensitivity.HR | sensitivity.DealTerms}
 	escalations := []*sensitivity.Label{nil, {Level: sensitivity.Restricted, Categories: sensitivity.Compensation}, {Level: sensitivity.Confidential}}
@@ -69,11 +70,13 @@ func TestScopeFilterMatchesVisible(t *testing.T) {
 
 	scopes := []sensitivity.Scope{
 		sensitivity.Owner(), sensitivity.SharedScreen(), sensitivity.Cloud(),
-		sensitivity.ReplyTo(lee), sensitivity.ReplyTo(lee, dana), sensitivity.ReplyTo("tom@customer.example"),
+		sensitivity.ReplyTo(corp, lee), sensitivity.ReplyTo(corp, lee, dana), sensitivity.ReplyTo(corp, "tom@customer.example"),
+		sensitivity.ReplyTo(corp, lee, "tom@customer.example"),
 		{Name: "confidential-no-categories", MaxLevel: sensitivity.Confidential},
 		{Name: "restricted-dealterms-only", MaxLevel: sensitivity.Restricted, Allowed: sensitivity.DealTerms},
 		{Name: "public-only", MaxLevel: sensitivity.Public},
-		{Name: "audience-limited-level", MaxLevel: sensitivity.Confidential, Allowed: sensitivity.AllCategories, Audience: []string{lee}},
+		{Name: "audience-limited-level", MaxLevel: sensitivity.Confidential, Allowed: sensitivity.AllCategories, Audience: []string{lee}, Open: sensitivity.Internal},
+		{Name: "audience-public-open", MaxLevel: sensitivity.Restricted, Allowed: sensitivity.AllCategories, Audience: []string{lee}, Open: sensitivity.Public},
 	}
 	for _, sc := range scopes {
 		hits, err := s.Search(sc, SearchQuery{Text: "probe", K: 10000, Mode: ModeKeyword})

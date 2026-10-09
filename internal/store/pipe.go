@@ -119,12 +119,12 @@ func (s *Store) SetGlobalStamp(step, hash string) error {
 }
 
 type Chunk struct {
-	ID             int64
-	ItemID         string
-	Seq            int
-	SegFrom, SegTo int
-	Start, End     float64
-	Speakers, Text string
+	ID                    int64
+	ItemID                string
+	Seq                   int
+	SegFrom, SegTo        int
+	Start, End            float64
+	Speakers, Title, Text string
 }
 
 // ReplaceChunks swaps an item's chunks. Vectors and mentions of the old
@@ -136,8 +136,8 @@ func (s *Store) ReplaceChunks(itemID, version, hash string, chunks []Chunk) erro
 			return err
 		}
 		for _, c := range chunks {
-			if _, err := tx.Exec(`INSERT INTO chunks(item_id, seq, seg_from, seg_to, start_s, end_s, speakers, text) VALUES (?,?,?,?,?,?,?,?)`,
-				itemID, c.Seq, c.SegFrom, c.SegTo, c.Start, c.End, c.Speakers, c.Text); err != nil {
+			if _, err := tx.Exec(`INSERT INTO chunks(item_id, seq, seg_from, seg_to, start_s, end_s, speakers, title, text) VALUES (?,?,?,?,?,?,?,?,?)`,
+				itemID, c.Seq, c.SegFrom, c.SegTo, c.Start, c.End, c.Speakers, c.Title, c.Text); err != nil {
 				return err
 			}
 		}
@@ -146,7 +146,7 @@ func (s *Store) ReplaceChunks(itemID, version, hash string, chunks []Chunk) erro
 }
 
 func (s *Store) Chunks(itemID string) ([]Chunk, error) {
-	rows, err := s.db.Query(`SELECT id, item_id, seq, seg_from, seg_to, start_s, end_s, speakers, text FROM chunks WHERE item_id = ? ORDER BY seq`, itemID)
+	rows, err := s.db.Query(`SELECT id, item_id, seq, seg_from, seg_to, start_s, end_s, speakers, title, text FROM chunks WHERE item_id = ? ORDER BY seq`, itemID)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func (s *Store) Chunks(itemID string) ([]Chunk, error) {
 	var out []Chunk
 	for rows.Next() {
 		var c Chunk
-		if err := rows.Scan(&c.ID, &c.ItemID, &c.Seq, &c.SegFrom, &c.SegTo, &c.Start, &c.End, &c.Speakers, &c.Text); err != nil {
+		if err := rows.Scan(&c.ID, &c.ItemID, &c.Seq, &c.SegFrom, &c.SegTo, &c.Start, &c.End, &c.Speakers, &c.Title, &c.Text); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -511,4 +511,31 @@ func (s *Store) ItemLabels(itemID string) (map[int]sensitivity.Label, error) {
 		out[seq] = l
 	}
 	return out, rows.Err()
+}
+
+// ResolveItemID expands an id prefix to the one item it names.
+func (s *Store) ResolveItemID(prefix string) (string, error) {
+	rows, err := s.db.Query(`SELECT id FROM items WHERE id = ? OR id LIKE ? || '%' LIMIT 2`, prefix, prefix)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	switch len(ids) {
+	case 0:
+		return "", fmt.Errorf("no item %q", prefix)
+	case 1:
+		return ids[0], nil
+	}
+	for _, id := range ids {
+		if id == prefix {
+			return id, nil
+		}
+	}
+	return "", fmt.Errorf("item prefix %q is ambiguous", prefix)
 }

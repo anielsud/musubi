@@ -26,9 +26,9 @@ import (
 
 // TranslatorVersion changes when item translation changes, so unchanged raw
 // records get re-translated.
-const TranslatorVersion = "t1"
+const TranslatorVersion = "t3"
 
-const LinkVersion = "l1"
+const LinkVersion = "l2"
 
 type Runner struct {
 	Cfg        config.Config
@@ -153,6 +153,7 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 	}
 
 	matcher := stages.NewMatcher(reg.Aliases)
+	prox := stages.NewProximity(items, reg)
 	type embedJob struct {
 		it     *item.Item
 		e      provider.Embedder
@@ -167,9 +168,13 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 		}
 		it := &items[i]
 		ch := it.ContentHash()
-		chunkHash := hashOf("chunk", stages.ChunkVersion, ch)
+		title := it.Title
+		if l := linked(it.ID); l != nil {
+			title = l.Title
+		}
+		chunkHash := hashOf("chunk", stages.ChunkVersion, ch, title)
 		chunks, err := r.ensure("chunk", it.ID, stages.ChunkVersion, chunkHash, st, func() error {
-			return r.Store.ReplaceChunks(it.ID, stages.ChunkVersion, chunkHash, stages.Chunk(*it))
+			return r.Store.ReplaceChunks(it.ID, stages.ChunkVersion, chunkHash, stages.Chunk(*it, title))
 		})
 		if err != nil {
 			return err
@@ -180,16 +185,19 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 			}
 		}
 		lk := linkKey(it.ID)
-		clsHash := hashOf("classify", stages.ClassifyVersion, chunkHash, reg.Hash, lk)
+		minAud := r.Cfg.Sensitivity.InternalMinAudience
+		clsHash := hashOf("classify", stages.ClassifyVersion, chunkHash, reg.Hash, lk, fmt.Sprint(minAud))
 		if _, err := r.ensure("classify", it.ID, stages.ClassifyVersion, clsHash, st, func() error {
-			il, cls, aud := stages.Classify(*it, linked(it.ID), chunks, reg, r.Cfg.Owner.InternalDomains)
+			il, cls, aud := stages.Classify(*it, linked(it.ID), chunks, reg, r.Cfg.Owner.InternalDomains, minAud)
 			return r.Store.ReplaceLabels(it.ID, stages.ClassifyVersion, clsHash, il, cls, aud)
 		}); err != nil {
 			return err
 		}
+		// reg.Hash covers every item's participants, so it also covers the
+		// proximity counts.
 		resHash := hashOf("resolve", stages.ResolveVersion, chunkHash, reg.Hash, lk)
 		if _, err := r.ensure("resolve", it.ID, stages.ResolveVersion, resHash, st, func() error {
-			ms, ies := stages.Resolve(*it, linked(it.ID), chunks, reg, matcher)
+			ms, ies := stages.Resolve(*it, linked(it.ID), chunks, reg, matcher, prox)
 			return r.Store.ReplaceMentions(it.ID, stages.ResolveVersion, resHash, ms, ies)
 		}); err != nil {
 			return err
@@ -315,7 +323,7 @@ func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
 		switch {
 		case it.Kind == item.KindMeeting:
 			meetings = append(meetings, it)
-		case it.Kind == item.KindEvent && it.Native["cancelled"] != "true":
+		case it.Kind == item.KindEvent && linkable(it):
 			events = append(events, it)
 		default:
 			continue
@@ -353,6 +361,20 @@ func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil)[:16]), out
+}
+
+// linkable excludes calendar entries that aren't meetings: all-day or very
+// long blocks ("No internal meetings", travel), and free or cancelled
+// entries. Linking a recording to one would hand it the block's attendee
+// list, and with it a label that is too open.
+func linkable(e item.Item) bool {
+	switch {
+	case e.Native["cancelled"] == "true", e.Native["allDay"] == "true", e.Native["showAs"] == "free":
+		return false
+	case e.EndedAt.Sub(e.OccurredAt) > 4*time.Hour:
+		return false
+	}
+	return true
 }
 
 func hashOf(parts ...string) string {

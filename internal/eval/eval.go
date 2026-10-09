@@ -112,9 +112,11 @@ type Report struct {
 }
 
 type Harness struct {
-	Store    *store.Store
-	Embedder provider.Embedder // nil: keyword only
-	Modes    []store.SearchMode
+	Store *store.Store
+	// InternalDomains decide whether a reply scope's audience is internal.
+	InternalDomains []string
+	Embedder        provider.Embedder // nil: keyword only
+	Modes           []store.SearchMode
 }
 
 // searchDepth is how deep forbidden targets are looked for; deeper than any
@@ -174,7 +176,7 @@ func (h *Harness) Run(ctx context.Context, s *Suite) (*Report, error) {
 }
 
 func (h *Harness) searchHits(ctx context.Context, c Case, mode store.SearchMode, rep *Report) ([]store.Hit, error) {
-	sc, err := sensitivity.ParseScope(c.Scope)
+	sc, err := sensitivity.ParseScope(c.Scope, h.InternalDomains)
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +257,11 @@ func anyMatch(ts []Target, hit store.Hit) bool {
 
 // findChunk returns the first chunk of the target item containing the phrase.
 func (h *Harness) findChunk(t Target) (*store.Chunk, error) {
-	chunks, err := h.Store.Chunks(t.Item)
+	id, err := h.Store.ResolveItemID(t.Item)
+	if err != nil {
+		return nil, err
+	}
+	chunks, err := h.Store.Chunks(id)
 	if err != nil {
 		return nil, err
 	}
@@ -294,20 +300,32 @@ func (h *Harness) classify(c Case) (Result, error) {
 	return r, nil
 }
 
+// resolve looks for the mention in every chunk matching the target, since
+// the phrase can also appear in a speaker label, where mentions aren't taken.
 func (h *Harness) resolve(c Case) (Result, error) {
 	r := Result{ID: c.ID, Kind: c.Kind}
-	ch, err := h.findChunk(c.Target)
+	id, err := h.Store.ResolveItemID(c.Target.Item)
 	if err != nil {
 		r.Detail = err.Error()
 		return r, nil
 	}
-	ms, err := h.Store.Mentions(c.Target.Item)
+	chunks, err := h.Store.Chunks(id)
+	if err != nil {
+		return r, err
+	}
+	seqs := map[int]bool{}
+	for _, ch := range chunks {
+		if c.Target.matches(ch.ItemID, ch.Text) {
+			seqs[ch.Seq] = true
+		}
+	}
+	ms, err := h.Store.Mentions(id)
 	if err != nil {
 		return r, err
 	}
 	var found *store.Mention
 	for i, m := range ms {
-		if m.ChunkSeq == ch.Seq && strings.EqualFold(m.Surface, c.Surface) {
+		if seqs[m.ChunkSeq] && strings.EqualFold(m.Surface, c.Surface) {
 			found = &ms[i]
 			break
 		}
@@ -343,7 +361,7 @@ func orAmbiguous(m store.Mention) string {
 
 func (h *Harness) graph(c Case, rep *Report) (Result, error) {
 	r := Result{ID: c.ID, Kind: c.Kind, Pass: true}
-	sc, err := sensitivity.ParseScope(c.Scope)
+	sc, err := sensitivity.ParseScope(c.Scope, h.InternalDomains)
 	if err != nil {
 		return r, err
 	}

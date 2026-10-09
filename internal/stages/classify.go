@@ -19,7 +19,7 @@ const broadcastSize = 15
 // Classify labels an item and escalates individual chunks. linked is the
 // calendar event a meeting was matched to, if any: its attendees join the
 // audience and its markings and title count as the meeting's.
-func Classify(it item.Item, linked *item.Item, chunks []store.Chunk, reg *registry.Registry, internal []string) (sensitivity.Label, map[int]sensitivity.Label, []string) {
+func Classify(it item.Item, linked *item.Item, chunks []store.Chunk, reg *registry.Registry, internal []string, internalMinAudience int) (sensitivity.Label, map[int]sensitivity.Label, []string) {
 	aud := map[string]bool{}
 	if p := reg.OwnerPrincipal(); p != "" {
 		aud[p] = true
@@ -57,7 +57,7 @@ func Classify(it item.Item, linked *item.Item, chunks []store.Chunk, reg *regist
 	sort.Strings(audience)
 
 	facts := sensitivity.ItemFacts{
-		Kind: it.Kind, Title: title, Native: native, Audience: audience, InternalDomains: internal,
+		Kind: it.Kind, Title: title, Native: native, Audience: audience, InternalDomains: internal, InternalMinAudience: internalMinAudience,
 		UnknownParticipants: it.Native["unknown_participants"] == "true" && linked == nil,
 		Broadcast:           len(audience) >= broadcastSize || hasListAddress(&it, linked),
 	}

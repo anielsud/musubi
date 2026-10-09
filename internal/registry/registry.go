@@ -22,7 +22,7 @@ import (
 )
 
 // Version changes when the way entities or aliases are derived changes.
-const Version = "g1"
+const Version = "g2"
 
 // Curated is registry.toml: what the owner (or a directory export) knows.
 type Curated struct {
@@ -64,7 +64,38 @@ type Registry struct {
 	internal []string
 }
 
-var freeMail = map[string]bool{"gmail.com": true, "outlook.com": true, "hotmail.com": true, "yahoo.com": true, "icloud.com": true, "me.com": true, "proton.me": true}
+// notOrgs are domains that never stand for a customer or partner: personal
+// mail, and meeting or recording tools that join calls as attendees.
+var notOrgs = map[string]bool{
+	"gmail.com": true, "outlook.com": true, "hotmail.com": true, "yahoo.com": true, "icloud.com": true, "me.com": true, "proton.me": true,
+	"zoom.us": true, "zoom.com": true, "gong.io": true, "zmail.com": true, "calendly.com": true, "teams.microsoft.com": true,
+	"onmicrosoft.com": true, "otter.ai": true, "fireflies.ai": true, "read.ai": true,
+}
+
+// minNameAlias is the shortest first or last name used on its own. Shorter
+// ones ("K", "Ha") match initials and interjections far more than people.
+const minNameAlias = 3
+
+// isPersonAddress reports whether an address looks like one person's
+// (first.last), as opposed to a list, room or shared mailbox (sdr@, cms-team@).
+func isPersonAddress(email string) bool {
+	local := strings.Split(email, "@")[0]
+	parts := strings.Split(local, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" {
+			return false
+		}
+		for _, r := range p {
+			if !unicode.IsLetter(r) && r != '-' && r != '\'' {
+				return false
+			}
+		}
+	}
+	return true
+}
 
 // Build derives the registry from config, the curated file (may be absent)
 // and every item's participants.
@@ -113,7 +144,11 @@ func Build(cfg config.Config, curatedPath string, items []item.Item) (*Registry,
 			if name == "" {
 				name = nameFromEmail(email)
 			}
-			e = addEnt(id, "person", name, origin)
+			typ := "person"
+			if origin != "registry" && !isPersonAddress(email) {
+				typ = "group"
+			}
+			e = addEnt(id, typ, name, origin)
 			r.byEmail[email] = id
 		} else if origin == "registry" {
 			e.Name, e.Origin = name, origin
@@ -174,7 +209,7 @@ func Build(cfg config.Config, curatedPath string, items []item.Item) (*Registry,
 			}
 			person(p.Email, p.Name, "directory")
 			dom := domainOf(p.Email)
-			if dom == "" || r.isInternal(dom) || freeMail[dom] || r.orgByDom[dom] != "" {
+			if dom == "" || r.isInternal(dom) || ignoredDomain(dom) || r.orgByDom[dom] != "" {
 				continue
 			}
 			id := "org:" + dom
@@ -210,13 +245,7 @@ func Build(cfg config.Config, curatedPath string, items []item.Item) (*Registry,
 		if split := splitCamel(e.Name); split != e.Name {
 			alias(split, id, "full")
 		}
-		parts := strings.Fields(full)
-		if len(parts) >= 2 {
-			alias(parts[0], id, "first")
-			if len(parts[len(parts)-1]) >= 3 {
-				alias(parts[len(parts)-1], id, "last")
-			}
-		}
+		nameAliases(alias, full, id)
 	}
 	for k, ids := range nameIDs {
 		if len(ids) == 1 {
@@ -240,13 +269,7 @@ func Build(cfg config.Config, curatedPath string, items []item.Item) (*Registry,
 			if r.ents[id] == nil {
 				addEnt(id, "person", p.Name, "speaker")
 				alias(p.Name, id, "full")
-				parts := strings.Fields(store.NormalizeAlias(p.Name))
-				if len(parts) >= 2 {
-					alias(parts[0], id, "first")
-					if len(parts[len(parts)-1]) >= 3 {
-						alias(parts[len(parts)-1], id, "last")
-					}
-				}
+				nameAliases(alias, store.NormalizeAlias(p.Name), id)
 			}
 		}
 	}
@@ -315,13 +338,29 @@ func (r *Registry) Principal(entityID string) string {
 // OrgFor returns the organisation an email address belongs to, if external.
 func (r *Registry) OrgFor(email string) string { return r.orgByDom[domainOf(email)] }
 
-func (r *Registry) isInternal(dom string) bool {
-	for _, d := range r.internal {
+func (r *Registry) isInternal(dom string) bool { return sensitivity.InternalDomain(dom, r.internal) }
+
+func ignoredDomain(dom string) bool {
+	for d := range notOrgs {
 		if dom == d || strings.HasSuffix(dom, "."+d) {
 			return true
 		}
 	}
 	return false
+}
+
+// nameAliases adds first and last names on their own, when long enough.
+func nameAliases(alias func(a, id, kind string), full, id string) {
+	parts := strings.Fields(full)
+	if len(parts) < 2 {
+		return
+	}
+	if len(parts[0]) >= minNameAlias {
+		alias(parts[0], id, "first")
+	}
+	if last := parts[len(parts)-1]; len(last) >= minNameAlias {
+		alias(last, id, "last")
+	}
 }
 
 func domainOf(email string) string {

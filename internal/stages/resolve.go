@@ -11,7 +11,7 @@ import (
 	"github.com/anielsud/musubi/internal/store"
 )
 
-const ResolveVersion = "m1"
+const ResolveVersion = "m2"
 
 // Matcher finds alias mentions in text. Built once per registry.
 type Matcher struct {
@@ -32,19 +32,30 @@ func NewMatcher(as []store.Alias) *Matcher {
 
 // commonWords are first names that are also ordinary words. They match only
 // when capitalised mid-sentence, and never in lower-case (live) text.
-var commonWords = map[string]bool{
-	"will": true, "mark": true, "may": true, "bill": true, "june": true, "april": true, "grant": true, "chase": true,
-	"frank": true, "rich": true, "pat": true, "sue": true, "joy": true, "hope": true, "max": true, "art": true,
-	"august": true, "dawn": true, "summer": true, "faith": true, "ray": true, "rob": true, "drew": true, "jack": true,
-	"sky": true, "lane": true, "page": true, "long": true, "young": true, "little": true, "new": true, "best": true,
-	"day": true, "case": true, "price": true, "rose": true, "wood": true, "white": true, "black": true, "brown": true,
-	"green": true, "king": true, "hill": true, "sun": true, "li": true, "ha": true, "an": true, "do": true, "to": true,
-}
+// commonWords are names that are also ordinary English words. As a single
+// word they match only when capitalised mid-sentence in cased text, and
+// never in lower-case text.
+var commonWords = func() map[string]bool {
+	m := map[string]bool{}
+	for _, w := range strings.Fields(`will mark may bill june april grant chase frank rich pat sue joy hope max art august dawn summer faith ray rob drew jack
+sky lane page long young little new best day case price rose wood white black brown green king hill sun ha an do to
+all per line cat can not and the for but are was one two man kit guy win won dot rod job bud dale dell duke fern
+ford gray hall hart holly hunter ivy jade jewel judge lark lily love major marsh mercy miles moon north ocean park
+penny pearl rain reed river robin rock rush sage stone storm street strong swift ward wells west wolf woods chip
+trip lucky sunny sandy say set sign soon stern teal true wade walker wren wise lion more most many much first last
+next well good great free fair happy just less mid mini top bay field glass lake mill moss pool sparks power bright
+frost gold noble rice snow star sweet bell bond bush camp carter clay cook cross fox fry hale hay heath hood house
+lamb lord meadows mills small spring stamp steel tower turner vine wall waters weeks while wing winter`) {
+		m[w] = true
+	}
+	return m
+}()
 
 type word struct {
 	norm       string
 	start, end int
 	upper      bool // first letter upper case
+	allCaps    bool // every letter upper case, two or more letters: an acronym
 	sentStart  bool
 }
 
@@ -70,10 +81,23 @@ func tokenize(s string) []word {
 		norm := strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(raw, "'s"), "'"))
 		before := strings.TrimRight(s[:i], " \t")
 		sent := before == "" || strings.HasSuffix(before, ".") || strings.HasSuffix(before, "?") || strings.HasSuffix(before, "!") || strings.HasSuffix(before, ":") || strings.HasSuffix(before, "\n")
-		out = append(out, word{norm: norm, start: i, end: j, upper: unicode.IsUpper(r), sentStart: sent})
+		out = append(out, word{norm: norm, start: i, end: j, upper: unicode.IsUpper(r), allCaps: isAllCaps(raw), sentStart: sent})
 		i = j
 	}
 	return out
+}
+
+func isAllCaps(s string) bool {
+	n := 0
+	for _, r := range s {
+		if unicode.IsLetter(r) {
+			if !unicode.IsUpper(r) {
+				return false
+			}
+			n++
+		}
+	}
+	return n >= 2
 }
 
 func hasUpper(s string) bool {
@@ -92,10 +116,11 @@ type Candidate struct {
 	Aliases    []store.Alias
 }
 
-// Find returns longest-match alias mentions in text.
-func (m *Matcher) Find(text string) []Candidate {
+// Find returns longest-match alias mentions in text. cased says whether the
+// source writes capitals at all (a live transcript may not); it is decided
+// per item, since one short segment without capitals proves nothing.
+func (m *Matcher) Find(text string, cased bool) []Candidate {
 	ws := tokenize(text)
-	cased := hasUpper(text)
 	var out []Candidate
 	for i := 0; i < len(ws); {
 		matched := 0
@@ -136,6 +161,9 @@ func filterSingle(as []store.Alias, w word, cased bool) []store.Alias {
 			if cased && !w.upper {
 				continue
 			}
+			if (a.Kind == "first" || a.Kind == "last") && w.allCaps {
+				continue
+			}
 			if commonWords[w.norm] && (!cased || w.sentStart) {
 				continue
 			}
@@ -149,7 +177,7 @@ var kindRank = map[string]int{"full": 4, "domain": 3, "last": 2, "first": 1}
 
 // Resolve finds mentions in an item's chunks and the entities taking part
 // in it. Ambiguous mentions are kept with their candidates and no entity.
-func Resolve(it item.Item, linked *item.Item, chunks []store.Chunk, reg *registry.Registry, m *Matcher) ([]store.Mention, []store.ItemEntity) {
+func Resolve(it item.Item, linked *item.Item, chunks []store.Chunk, reg *registry.Registry, m *Matcher, prox *Proximity) ([]store.Mention, []store.ItemEntity) {
 	parts := map[string]bool{}
 	var ies []store.ItemEntity
 	seenIE := map[[2]string]bool{}
@@ -181,20 +209,81 @@ func Resolve(it item.Item, linked *item.Item, chunks []store.Chunk, reg *registr
 			seqOf[s] = c.Seq
 		}
 	}
+	cased := false
+	for _, seg := range it.Segments {
+		if hasUpper(seg.Text) {
+			cased = true
+			break
+		}
+	}
+	others := make([]string, 0, len(parts))
+	for id := range parts {
+		if id != reg.Owner() {
+			others = append(others, id)
+		}
+	}
 	var out []store.Mention
 	for si, seg := range it.Segments {
 		seq, ok := seqOf[si]
 		if !ok {
 			continue
 		}
-		for _, c := range m.Find(seg.Text) {
-			out = append(out, pick(c, seq, si, parts))
+		for _, c := range m.Find(seg.Text, cased) {
+			out = append(out, pick(c, seq, si, parts, prox, others))
 		}
 	}
 	return out, ies
 }
 
-func pick(c Candidate, seq, seg int, parts map[string]bool) store.Mention {
+// Proximity counts, for each pair of people, the items both took part in.
+// It breaks ties between same-named people: the Mark who keeps meeting this
+// meeting's participants is the likelier Mark.
+type Proximity struct {
+	pairs map[[2]string]int
+}
+
+// NewProximity builds pair counts from every item's resolved participants,
+// leaving out the owner, who is in everything and would swamp the signal.
+// Very large items (all-hands) are skipped for the same reason.
+func NewProximity(items []item.Item, reg *registry.Registry) *Proximity {
+	p := &Proximity{pairs: map[[2]string]int{}}
+	for _, it := range items {
+		ids := map[string]bool{}
+		for _, pt := range it.Participants {
+			if id := reg.Participant(pt); id != "" && id != reg.Owner() {
+				ids[id] = true
+			}
+		}
+		if len(ids) > 25 {
+			continue
+		}
+		list := make([]string, 0, len(ids))
+		for id := range ids {
+			list = append(list, id)
+		}
+		for i := range list {
+			for j := range list {
+				if i != j {
+					p.pairs[[2]string{list[i], list[j]}]++
+				}
+			}
+		}
+	}
+	return p
+}
+
+func (p *Proximity) score(cand string, others []string) int {
+	if p == nil {
+		return 0
+	}
+	n := 0
+	for _, o := range others {
+		n += p.pairs[[2]string{cand, o}]
+	}
+	return n
+}
+
+func pick(c Candidate, seq, seg int, parts map[string]bool, prox *Proximity, others []string) store.Mention {
 	type opt struct {
 		id    string
 		score int
@@ -222,6 +311,27 @@ func pick(c Candidate, seq, seg int, parts map[string]bool) store.Mention {
 	})
 	m := store.Mention{ChunkSeq: seq, Surface: c.Surface, Seg: seg, Start: c.Start, End: c.End}
 	if len(opts) > 1 && opts[0].score == opts[1].score {
+		// Tie: take the candidate with clearly the most shared meetings with
+		// this item's participants (at least two, and twice the runner-up).
+		var tied []opt
+		for _, o := range opts {
+			if o.score == opts[0].score {
+				tied = append(tied, o)
+			}
+		}
+		best, second, bestID := 0, 0, ""
+		for _, o := range tied {
+			switch n := prox.score(o.id, others); {
+			case n > best:
+				best, second, bestID = n, best, o.id
+			case n > second:
+				second = n
+			}
+		}
+		if best >= 2 && best >= 2*second {
+			m.EntityID, m.Confidence = bestID, 0.55
+			return m
+		}
 		for _, o := range opts {
 			if o.score == opts[0].score {
 				m.Candidates = append(m.Candidates, o.id)

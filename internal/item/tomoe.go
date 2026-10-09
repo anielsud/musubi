@@ -35,7 +35,7 @@ func tomoeSpeaker(s string) (name string, owner, known bool) {
 	if m := tomoeNamed.FindStringSubmatch(s); m != nil {
 		n := strings.TrimSpace(m[1])
 		// A meeting-room device stands for an unknown number of people.
-		if strings.HasPrefix(n, "Room") {
+		if l := strings.ToLower(n); strings.HasPrefix(l, "room") || strings.HasSuffix(l, " room") || strings.Contains(l, " room ") {
 			return n, false, false
 		}
 		return n, false, true

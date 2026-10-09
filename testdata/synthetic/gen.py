@@ -117,6 +117,13 @@ session("11111111-0000-4000-8000-000000000004", at(16, 15, 30), [
     ("You", "Then we need a per-tenant retention setting. Let's write that up before their onboarding call."),
 ], platform=None, title="Session 2026-09-16 15:30")
 
+# An all-day focus block over the ad-hoc call (T4): must never be linked, or
+# the call would inherit its tiny internal attendee list and look internal.
+g = lambda t: {"dateTime": t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.0000000"), "timeZone": "UTC"}
+drop("calendar", "event", "e9", {"subject": "Focus day: no internal meetings", "organizer": P["jordan"][1],
+     "attendees": [P["jordan"][1], P["dana"][1], P["priya"][1]], "start": g(at(16, 0)), "end": g(at(17, 0)),
+     "isAllDay": True, "isCancelled": False, "showAs": "tentative", "sensitivity": ""})
+
 # A customer kickoff, so the customer contact is known from the calendar.
 event("e5", "Bluegill onboarding kickoff", at(11, 13), 45, ["jordan", "samo"], extra=[P["nina"][1]],
       summary="Kickoff for the Bluegill Bank rollout: timeline, data retention requirements, SSO.")

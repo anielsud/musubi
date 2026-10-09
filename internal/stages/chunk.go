@@ -10,7 +10,7 @@ import (
 	"github.com/anielsud/musubi/internal/store"
 )
 
-const ChunkVersion = "c1"
+const ChunkVersion = "c2"
 
 // Chunk sizes in words. Passages around 150 words keep one topic in a
 // meeting while carrying enough context to embed well; a passage closes at a
@@ -22,8 +22,11 @@ const (
 )
 
 // Chunk groups an item's segments into retrieval passages. Each line of a
-// passage is "Speaker: text" so search can match on who said it.
-func Chunk(it item.Item) []store.Chunk {
+// passage is "Speaker: text" so search can match on who said it. title is
+// the item's display title (for a meeting, its calendar event's subject);
+// every chunk carries it so keyword search and embeddings know which
+// meeting a passage is from.
+func Chunk(it item.Item, title string) []store.Chunk {
 	var out []store.Chunk
 	var cur *store.Chunk
 	var lines []string
@@ -35,6 +38,7 @@ func Chunk(it item.Item) []store.Chunk {
 			return
 		}
 		cur.SegTo = to
+		cur.Title = title
 		cur.Text = strings.Join(lines, "\n")
 		cur.Speakers = strings.Join(spkOrder, ", ")
 		out = append(out, *cur)
@@ -68,9 +72,5 @@ func Chunk(it item.Item) []store.Chunk {
 		words += n
 	}
 	flush(len(it.Segments))
-	// Give events and emails their subject as context in the first passage.
-	if len(out) > 0 && it.Kind != item.KindMeeting && it.Title != "" && !strings.HasPrefix(out[0].Text, it.Title) {
-		out[0].Text = it.Title + "\n" + out[0].Text
-	}
 	return out
 }

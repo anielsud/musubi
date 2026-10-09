@@ -24,6 +24,14 @@ import (
 //go:embed schema.sql
 var schema string
 
+// schemaVersion changes when schema.sql changes incompatibly. Everything
+// except the forget list and the audit log is rebuilt from the raw store, so
+// an upgrade drops the derived tables and the next update refills them.
+const schemaVersion = 2
+
+// kept survive a schema upgrade: they are not derived from raw.
+var kept = map[string]bool{"forgotten": true, "audit": true}
+
 type Store struct{ db *sql.DB }
 
 func init() { sqlite_vec.Auto() }
@@ -41,6 +49,10 @@ func Open(path string) (*Store, error) {
 	// One writer at a time is SQLite's model; a single connection also keeps
 	// transactions from interleaving between goroutines.
 	db.SetMaxOpenConns(1)
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schema: %w", err)
@@ -49,6 +61,42 @@ func Open(path string) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+func migrate(db *sql.DB) error {
+	var v int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	if v == schemaVersion {
+		return nil
+	}
+	rows, err := db.Query(`SELECT type, name FROM sqlite_master WHERE type IN ('table', 'trigger') AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'chunks_fts_%'`)
+	if err != nil {
+		return err
+	}
+	var drop [][2]string
+	for rows.Next() {
+		var typ, name string
+		rows.Scan(&typ, &name)
+		if !kept[name] {
+			drop = append(drop, [2]string{typ, name})
+		}
+	}
+	rows.Close()
+	if _, err := db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+		return err
+	}
+	for _, d := range drop {
+		if _, err := db.Exec(fmt.Sprintf(`DROP %s IF EXISTS "%s"`, strings.ToUpper(d[0]), d[1])); err != nil {
+			return err
+		}
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		return err
+	}
+	_, err = db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion))
+	return err
+}
 
 // visArgs builds the SQL that limits rows to scope. il and cl are the
 // aliases of the item-level and chunk-level labels rows; cl may be "" for
@@ -67,7 +115,7 @@ func visSQL(sc sensitivity.Scope, il, cl, itemCol string) (string, []any) {
 		ph := strings.TrimSuffix(strings.Repeat("?,", n), ",")
 		q += fmt.Sprintf(" AND ((%s <= ? AND %s = 0) OR (SELECT count(*) FROM item_audience aud WHERE aud.item_id = %s AND aud.principal IN (%s)) = ?)",
 			level, cats, itemCol, ph)
-		args = append(args, int(sensitivity.OpenLevel))
+		args = append(args, int(sc.Open))
 		for _, a := range sc.Audience {
 			args = append(args, a)
 		}

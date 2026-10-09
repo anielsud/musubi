@@ -146,9 +146,12 @@ func searchCmd() *cobra.Command {
 				return err
 			}
 			defer st.Close()
-			sc, err := sensitivity.ParseScope(scope)
+			sc, err := sensitivity.ParseScope(scope, cfg.Owner.InternalDomains)
 			if err != nil {
 				return err
+			}
+			if sc.Name != "owner" {
+				st.Audit(sc, "search", strings.Join(args, " "))
 			}
 			q := store.SearchQuery{Text: strings.Join(args, " "), K: k, Mode: store.SearchMode(mode)}
 			if since != "" {
@@ -209,7 +212,7 @@ func graphCmd() *cobra.Command {
 				return err
 			}
 			defer st.Close()
-			sc, err := sensitivity.ParseScope(scope)
+			sc, err := sensitivity.ParseScope(scope, cfg.Owner.InternalDomains)
 			if err != nil {
 				return err
 			}
@@ -436,7 +439,7 @@ the cases. Exits non-zero on any leak.`,
 					name = e.Model()
 				}
 				fmt.Printf("=== %s ===\n", name)
-				h := &eval.Harness{Store: st, Embedder: e, Modes: ms}
+				h := &eval.Harness{Store: st, Embedder: e, Modes: ms, InternalDomains: cfg.Owner.InternalDomains}
 				rep, err := h.Run(cmd.Context(), suite)
 				if err != nil {
 					return err

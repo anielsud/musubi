@@ -15,14 +15,14 @@ type Scope struct {
 	// other category is hidden.
 	Allowed Categories
 	// Audience, when set, limits results to what every member was party to,
-	// plus open material (OpenLevel or below with no categories). This is how
-	// a drafted reply to someone avoids repeating what they weren't told.
+	// plus open material (Open or below with no categories). This is how a
+	// drafted reply to someone avoids repeating what they weren't told.
 	Audience []string
+	// Open is the highest level shown to an audience that wasn't party to
+	// the source: Internal for colleagues, Public once anyone outside the
+	// company is in the audience.
+	Open Level
 }
-
-// OpenLevel is the highest level that audience-scoped reads may show to
-// people who were not party to the source.
-const OpenLevel = Internal
 
 // Owner sees everything. Used by the owner's own explorer and by audits.
 func Owner() Scope {
@@ -35,13 +35,55 @@ func SharedScreen() Scope {
 	return Scope{Name: "shared-screen", MaxLevel: Internal}
 }
 
-// ReplyTo is for text drafted to the given people.
-func ReplyTo(principals ...string) Scope {
+// ReplyTo is for text drafted to the given people. internal lists the
+// company's email domains; if any recipient is outside them, only public
+// material is open to them.
+func ReplyTo(internal []string, principals ...string) Scope {
 	aud := make([]string, len(principals))
+	open := Internal
 	for i, p := range principals {
 		aud[i] = NormalizePrincipal(p)
+		if !isInternalPrincipal(aud[i], internal) {
+			open = Public
+		}
 	}
-	return Scope{Name: "reply:" + strings.Join(aud, ","), MaxLevel: Restricted, Allowed: AllCategories, Audience: aud}
+	return Scope{Name: "reply:" + strings.Join(aud, ","), MaxLevel: Restricted, Allowed: AllCategories, Audience: aud, Open: open}
+}
+
+// isInternalPrincipal: name-only principals are unknown, so treated as external.
+func isInternalPrincipal(p string, internal []string) bool {
+	at := strings.LastIndex(p, "@")
+	if at < 0 {
+		return false
+	}
+	return InternalDomain(p[at+1:], internal)
+}
+
+// InternalDomain reports whether dom belongs to the company, including its
+// other country domains: if x.com is internal, so are x.no and x.co.uk, but
+// not x.agency.com, which anyone could register.
+func InternalDomain(dom string, internal []string) bool {
+	dom = strings.ToLower(dom)
+	for _, d := range internal {
+		d = strings.ToLower(d)
+		if dom == d || strings.HasSuffix(dom, "."+d) || sibling(dom, d) {
+			return true
+		}
+	}
+	return false
+}
+
+func sibling(dom, d string) bool {
+	dl, il := strings.Split(dom, "."), strings.Split(d, ".")
+	if len(dl) < 2 || dl[0] != il[0] {
+		return false
+	}
+	for _, l := range dl[1:] {
+		if len(l) > 3 {
+			return false
+		}
+	}
+	return true
 }
 
 // Cloud is the default policy for text sent to a cloud provider.
@@ -50,7 +92,7 @@ func Cloud() Scope {
 }
 
 // ParseScope reads the CLI form: owner, shared-screen, cloud, reply:<email>[,<email>].
-func ParseScope(s string) (Scope, error) {
+func ParseScope(s string, internal []string) (Scope, error) {
 	switch {
 	case s == "" || s == "owner":
 		return Owner(), nil
@@ -63,7 +105,7 @@ func ParseScope(s string) (Scope, error) {
 		if len(ps) == 0 || ps[0] == "" {
 			return Scope{}, fmt.Errorf("reply scope needs at least one address")
 		}
-		return ReplyTo(ps...), nil
+		return ReplyTo(internal, ps...), nil
 	}
 	return Scope{}, fmt.Errorf("unknown scope %q (owner, shared-screen, cloud, reply:<email>)", s)
 }
@@ -90,7 +132,7 @@ func Visible(l Label, audience []string, s Scope) bool {
 	if len(s.Audience) == 0 {
 		return true
 	}
-	if l.Level <= OpenLevel && l.Categories == 0 {
+	if l.Level <= s.Open && l.Categories == 0 {
 		return true
 	}
 	have := make(map[string]bool, len(audience))

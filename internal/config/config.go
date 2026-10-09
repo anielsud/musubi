@@ -16,8 +16,17 @@ type Config struct {
 	// TomoeSessions is Tomoe's session directory; empty disables the source.
 	TomoeSessions string `toml:"tomoe_sessions"`
 
-	Owner Owner `toml:"owner"`
-	Embed Embed `toml:"embed"`
+	Owner       Owner       `toml:"owner"`
+	Embed       Embed       `toml:"embed"`
+	Sensitivity Sensitivity `toml:"sensitivity"`
+}
+
+type Sensitivity struct {
+	// InternalMinAudience is the audience size from which an all-internal
+	// meeting, mail or chat is labelled internal instead of confidential.
+	// The default (15) means only broadcasts are internal; 3 restores the
+	// first behaviour, where any internal group of three was internal.
+	InternalMinAudience int `toml:"internal_min_audience"`
 }
 
 // Owner identifies whose knowledge base this is. "You" in a Tomoe
@@ -42,6 +51,7 @@ func DefaultConfig() Config {
 		DataDir:       filepath.Join(home, ".local", "share", "musubi"),
 		TomoeSessions: filepath.Join(home, ".local", "share", "tomoe", "sessions"),
 		Embed:         Embed{Provider: "ollama", Model: "nomic-embed-text", URL: "http://127.0.0.1:11434"},
+		Sensitivity:   Sensitivity{InternalMinAudience: 15},
 	}
 }
 

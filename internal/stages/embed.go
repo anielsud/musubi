@@ -7,7 +7,7 @@ import (
 	"github.com/anielsud/musubi/internal/store"
 )
 
-const EmbedVersion = "e1"
+const EmbedVersion = "e2"
 
 const embedBatch = 32
 
@@ -18,7 +18,12 @@ func Embed(ctx context.Context, e provider.Embedder, chunks []store.Chunk) (map[
 		batch := chunks[i:min(i+embedBatch, len(chunks))]
 		texts := make([]string, len(batch))
 		for k, c := range batch {
+			// The title gives a passage its context: "renewal" means more
+			// inside "Acme Freight renewal" than on its own.
 			texts[k] = c.Text
+			if c.Title != "" {
+				texts[k] = c.Title + "\n" + c.Text
+			}
 		}
 		vecs, err := e.Embed(ctx, texts, false)
 		if err != nil {

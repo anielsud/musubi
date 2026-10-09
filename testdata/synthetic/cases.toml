@@ -166,6 +166,30 @@ query = "Q4 kickoff October 20"
 scope = "shared-screen"
 expect = [{ item = "mail:m3" }, { item = "tomoe:11111111-0000-4000-8000-000000000006" }]
 
+[[case]]
+id = "L10"
+kind = "leak"
+note = "internal broadcasts are for employees, not customers"
+query = "Q4 kickoff October 20 roadmap"
+scope = "reply:tom.becker@acmefreight.example"
+forbid = [{ item = "mail:m3" }, { item = "tomoe:11111111-0000-4000-8000-000000000006" }]
+
+[[case]]
+id = "L11"
+kind = "leak"
+note = "a small working group's discussion isn't open to colleagues who weren't there"
+query = "batching fix latency index migration"
+scope = "reply:sam.whitfield@northwind.example"
+forbid = [{ item = "tomoe:11111111-0000-4000-8000-000000000001" }, { item = "tomoe:11111111-0000-4000-8000-000000000007" }]
+
+[[case]]
+id = "L12"
+kind = "leak"
+note = "the meeting title is searchable for the people who were there"
+query = "Acme Freight renewal"
+scope = "reply:tom.becker@acmefreight.example"
+expect = [{ item = "tomoe:11111111-0000-4000-8000-000000000003" }]
+
 # ---------- classification ----------
 
 [[case]]
@@ -185,8 +209,9 @@ level = "confidential"
 [[case]]
 id = "K03"
 kind = "classify"
+note = "a working group below internal_min_audience is confidential"
 target = { item = "tomoe:11111111-0000-4000-8000-000000000001", contains = "batching" }
-level = "internal"
+level = "confidential"
 
 [[case]]
 id = "K04"

@@ -8,7 +8,7 @@ import (
 
 // RulesVersion changes whenever rule behavior changes, so the classify stage
 // re-runs everything it labelled with older rules.
-const RulesVersion = "r1"
+const RulesVersion = "r3"
 
 // ItemFacts is what the item-level rules look at.
 type ItemFacts struct {
@@ -25,6 +25,11 @@ type ItemFacts struct {
 	// Broadcast is true for mail to distribution lists or very wide audiences.
 	Broadcast       bool
 	InternalDomains []string
+	// InternalMinAudience is the audience size from which an all-internal
+	// group is labelled Internal rather than Confidential. Group size is a
+	// weak signal (an executive team meeting is a group), so the default
+	// keeps every non-broadcast conversation Confidential.
+	InternalMinAudience int
 }
 
 // ClassifyItem assigns the item-level label. When nothing determines the
@@ -48,8 +53,10 @@ func ClassifyItem(f ItemFacts) Label {
 		l.Level, l.Reason = Confidential, fmt.Sprintf("%d external participant(s)", external)
 	case len(f.Audience) <= 2:
 		l.Level, l.Reason = Confidential, "one-to-one"
-	default:
+	case f.InternalMinAudience > 0 && len(f.Audience) >= f.InternalMinAudience:
 		l.Level, l.Reason = Internal, fmt.Sprintf("internal group of %d", len(f.Audience))
+	default:
+		l.Level, l.Reason = Confidential, fmt.Sprintf("working group of %d", len(f.Audience))
 	}
 	if c := matchCategories(f.Title); c != 0 {
 		l.Categories |= c
@@ -107,14 +114,7 @@ func externalCount(audience, internal []string) int {
 		if at < 0 {
 			continue // name-only principals: unknown domain, counted by UnknownParticipants
 		}
-		dom := p[at+1:]
-		ok := false
-		for _, d := range internal {
-			if dom == strings.ToLower(d) || strings.HasSuffix(dom, "."+strings.ToLower(d)) {
-				ok = true
-			}
-		}
-		if !ok {
+		if !InternalDomain(p[at+1:], internal) {
 			n++
 		}
 	}
@@ -179,7 +179,8 @@ func rx(s string) *regexp.Regexp { return regexp.MustCompile(`(?i)\b(?:` + s + `
 // measured by the eval harness on real data before rules get looser.
 var textRules = []textRule{
 	{cat: Compensation, re: rx(`salary|salaries|pay raise|merit increase|bonus(?:es)? (?:payout|target|pool)|equity (?:grant|refresh)|stock options|RSUs?|comp(?:ensation)? (?:band|review|package|adjustment|increase)|base pay|pay band|offer letter|raise to \$?\d[\d,.]*k?`)},
-	{cat: HR, re: rx(`performance (?:review|improvement plan|issue|concern)s?|PIP|disciplinary|terminat(?:e|ed|ing|ion) (?:him|her|them|employment|his|her|their)|let (?:him|her|them) go|laid off|layoffs?|RIF|reduction in force|harassment|grievance|resign(?:ed|ation)|notice period|promotion case|HR (?:complaint|investigation|case)`)},
+	{cat: HR, re: regexp.MustCompile(`\bPIP\b`)},
+	{cat: HR, re: rx(`performance (?:review|improvement plan|issue|concern)s?|disciplinary|terminat(?:e|ed|ing|ion) (?:him|her|them|employment|his|her|their)|let (?:him|her|them) go|laid off|layoffs?|RIF|reduction in force|harassment|grievance|resign(?:ed|ation)|notice period|promotion case|HR (?:complaint|investigation|case)`)},
 	{cat: Legal, re: rx(`litigation|lawsuit|sued|subpoena|legal hold|attorney[- ]client|privileged and confidential|outside counsel|settlement agreement|cease and desist`)},
 	{cat: Health, re: rx(`medical leave|sick leave|diagnos(?:is|ed)|surgery|maternity leave|paternity leave|mental health|disability|FMLA`)},
 	{cat: Strategy, re: rx(`acqui(?:re|ring|sition)s?|M&A|merger|due diligence|term sheet|board (?:meeting|deck)|reorg(?:anization)?|codename`), not: rx(`customer|user|lead|talent|data|traffic|new logo|client`)},

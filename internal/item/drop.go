@@ -95,6 +95,7 @@ func dropEvent(b []byte) ([]Item, error) {
 		RawStart    graphTime `json:"start"`
 		RawEnd      graphTime `json:"end"`
 		IsCancelled bool      `json:"isCancelled"`
+		IsAllDay    bool      `json:"isAllDay"`
 		ShowAs      string    `json:"showAs"`
 		Sensitivity string    `json:"sensitivity"`
 		Location    string    `json:"location"`
@@ -115,6 +116,9 @@ func dropEvent(b []byte) ([]Item, error) {
 	}}
 	if e.IsCancelled {
 		it.Native["cancelled"] = "true"
+	}
+	if e.IsAllDay {
+		it.Native["allDay"] = "true"
 	}
 	if txt := strings.TrimSpace(e.Summary); txt != "" || e.Subject != "" {
 		it.Segments = []Segment{{Text: strings.TrimSpace(e.Subject + "\n" + txt)}}

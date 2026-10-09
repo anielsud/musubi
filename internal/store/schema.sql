@@ -65,18 +65,19 @@ CREATE TABLE IF NOT EXISTS chunks (
 	start_s  REAL NOT NULL,
 	end_s    REAL NOT NULL,
 	speakers TEXT NOT NULL,
+	title    TEXT NOT NULL,
 	text     TEXT NOT NULL,
 	UNIQUE (item_id, seq)
 );
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-	text, speakers, content='chunks', content_rowid='id', tokenize='porter unicode61'
+	text, speakers, title, content='chunks', content_rowid='id', tokenize='porter unicode61'
 );
 CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON chunks BEGIN
-	INSERT INTO chunks_fts(rowid, text, speakers) VALUES (new.id, new.text, new.speakers);
+	INSERT INTO chunks_fts(rowid, text, speakers, title) VALUES (new.id, new.text, new.speakers, new.title);
 END;
 CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
-	INSERT INTO chunks_fts(chunks_fts, rowid, text, speakers) VALUES ('delete', old.id, old.text, old.speakers);
+	INSERT INTO chunks_fts(chunks_fts, rowid, text, speakers, title) VALUES ('delete', old.id, old.text, old.speakers, old.title);
 END;
 
 -- Vectors for several models can coexist, so models can be compared on the

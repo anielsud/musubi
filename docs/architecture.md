@@ -10,7 +10,11 @@ sources, and serves that knowledge two ways:
 - **Explore:** a graph, timeline, topic map and trend view across time, people,
   business area, customer and topic.
 
-Status: design. Nothing below is implemented yet unless a package says so.
+Status (2026-10-09): the first milestone is built: Tomoe and inbox ingest,
+calendar linking, classify / chunk / embed / resolve, scoped search and
+graph from the CLI, and the eval harness ([evaluation.md](evaluation.md)).
+Facts, topics, trends, the live lane and the UI are still design. Findings:
+[research-log.md](research-log.md).
 
 ## Principles
 
@@ -114,6 +118,18 @@ Reads derived data; never edits it.
   spreading across business areas.
 - **Importance:** recency-weighted centrality on the graph.
 
+**Calendar linking.** A Tomoe recording is linked to the calendar event
+that contains its start (15 minutes' slack) and overlaps at least 30% of the
+shorter of the two. All-day, longer-than-4-hour, free and cancelled entries
+are never linked: a recording linked to a focus block would inherit the
+block's tiny attendee list and look less sensitive than it is. The linked
+event gives the meeting its title and attendees.
+
+**Ambiguous names.** When a first name fits several people, the one who has
+shared the most meetings with this item's participants wins, if the evidence
+is clear (at least two shared meetings, twice the runner-up; the owner is left
+out of the count). Otherwise the mention stays ambiguous with its candidates.
+
 ### 5. Hot lane
 
 The live path never writes. Tomoe streams lines over an opt-in local socket (a
@@ -131,10 +147,18 @@ derived data. The raw store is a directory of blobs beside it.
 | Need | Mechanism |
 |---|---|
 | Keyword search | FTS5 |
-| Semantic search, topic clustering | sqlite-vec |
+| Semantic search, topic clustering | sqlite-vec; exact cosine over the scope-filtered rows (no approximate index, so the scope filter can't be bypassed; milliseconds at this scale) |
 | Graph | `entities` and `edges` tables (typed, timestamped, weighted, with provenance); traversal by recursive CTEs |
 | Facets across dimensions | person, customer, business area, project and topic are all entity types; a facet is a join through `edges`, with time as a filter |
 | Trends | time-bucketed aggregate tables; DuckDB can attach the SQLite file for heavier analysis |
+
+Chunks carry their item's title (for a meeting, the calendar subject). It is
+searchable and is prepended when embedding, so a passage keeps the context of
+the meeting it came from.
+
+The schema has a version. Because everything except the forget list and the
+audit log is rebuilt from the raw store, an incompatible schema change drops
+the derived tables and the next update refills them.
 
 A dedicated graph database is not warranted at this scale (thousands of items
 and entities). The schema is plain relational behind a `store` interface so it
@@ -160,7 +184,14 @@ A label has three parts:
 - **Audience**: the principals who were party to the source (meeting attendees,
   email recipients, chat members). This is "need to know" taken from provenance:
   something learned in a 1:1 with one person is not automatically shareable with
-  another, even at `internal`.
+  another.
+
+**Default levels.** Only broadcasts (an audience of 15 or more, or a company
+list) are `internal`. One-to-ones, working groups, anything with an external
+participant, and anything with unidentified participants are `confidential`.
+Group size is a poor proxy for sensitivity (an executive team meeting is a
+group), so working groups default closed; `internal_min_audience` changes the
+threshold.
 
 Each label records its origin (`native`, `rule`, `model`, `user`), confidence
 and reason. Precedence: `user` > `native` > `rule` > `model`. An item with no
@@ -170,8 +201,9 @@ confident label is treated as `confidential`; the default is to fail closed.
 
 1. **Native labels:** Purview/MIP sensitivity labels on mail, calendar private
    flags, Salesforce object types.
-2. **Rules:** source defaults (1:1s and HR-team meetings start higher), sender
-   or recipient groups, subject and keyword patterns, external participants.
+2. **Rules:** audience size and makeup, external participants, subject and
+   keyword patterns. Keyword rules catch formal terms well and conversation
+   about people poorly; see the research log.
 3. **Local model:** a classifier over item text for level and categories,
    applied where rules are silent or to raise a level, never to lower one.
 4. **User overrides** from the UI, stored as labels with origin `user`.
@@ -186,9 +218,10 @@ on `restricted` and on the categories matters more than precision.
 - A **fact** supported by several sources can be disclosed in a scope if *any*
   supporting source is visible in that scope. Each disclosure cites only the
   visible sources.
-- **Entities and edges** carry labels too: an entity's existence can itself be
-  sensitive (a project codename, an acquisition target). An entity created only
-  from restricted sources is restricted.
+- **Entities** carry a level too: an entity's existence can itself be
+  sensitive (a project codename, an acquisition target), set in the curated
+  registry. An entity not in the registry or directory is visible only where
+  some visible item links to it.
 - **Aggregates and topics** compute per scope, or carry the highest label of
   their inputs, so counts and trend lines can't leak what the rows hide.
 
@@ -197,15 +230,19 @@ on `restricted` and on the categories matters more than precision.
 `store` exposes no query without a `Scope`:
 
 ```
-scope: purpose, audience[], max_level, allowed_categories[], provider (local|cloud:<name>)
+scope: name, max_level, allowed_categories, audience[], open_level
 ```
+
+`open_level` is what an audience may see from sources they weren't party to:
+`internal` when every recipient is an employee, `public` as soon as anyone
+outside the company is included.
 
 | Purpose | Scope |
 |---|---|
 | Owner explores alone | everything, with labels shown |
 | Side panel, normal | everything, with cards marked when other attendees weren't party to the source |
 | Side panel, screen shared | `internal` and below, no categories; Tomoe already detects sharing windows |
-| Drafted reply to X | items where X is in the audience, plus `public` / `internal` with no categories |
+| Drafted reply to X | items where X is in the audience, plus uncategorised `internal` (X an employee) or `public` (X external) |
 | Sending text to a cloud provider | the per-source egress policy, e.g. no email to cloud |
 
 Egress to a cloud LLM is just another scope, so provider policy and
@@ -238,6 +275,10 @@ stale.
 Findings go in `docs/` research notes, dated, with the numbers.
 
 ## Packages
+
+As built, with names that differ from the plan: per-item stages live in
+`internal/stages`; resolution and mentions are one stage (`resolve`).
+
 
 ```
 cmd/musubi/          CLI: ingest, process, search, ask, graph, trends, replay, forget

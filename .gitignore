@@ -1,0 +1,14 @@
+# Real data, references and eval output never enter the repo.
+/testdata/private/
+/eval-*/
+/replay-*/
+*.db
+*.db-wal
+*.db-shm
+.env
+
+/bin/
+/dist/
+frontend/node_modules/
+frontend/dist/
+.DS_Store

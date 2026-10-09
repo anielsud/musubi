@@ -1,0 +1,366 @@
+# Eval cases for the synthetic corpus (gen.py). Item ids: tomoe:<session id>,
+# calendar:eN, mail:mN, chat:cN. Meetings T1..T8 are tomoe:11111111-0000-4000-8000-00000000000N.
+#
+# Kinds:
+#   search   expect: any target in top k (default 5); forbid: none at any depth
+#   leak     a search under a narrow scope; forbid is the point, expect checks
+#            that open material still comes through
+#   classify the chunk containing target.contains has exactly level/categories
+#   resolve  the mention `surface` in that chunk resolves to `entity`
+#            ("ambiguous" or "none" allowed)
+#   graph    entity neighbours and items under a scope
+
+# Every search/leak query is also run under these scopes for the invariant check.
+probe_scopes = ["shared-screen", "cloud", "reply:lee.chen@northwind.example", "reply:tom.becker@acmefreight.example", "reply:nina.patel@bluegill.example"]
+
+# ---------- retrieval (owner) ----------
+
+[[case]]
+id = "S01"
+kind = "search"
+query = "why did search latency regress"
+expect = [{ item = "tomoe:11111111-0000-4000-8000-000000000001", contains = "index migration" }]
+
+[[case]]
+id = "S02"
+kind = "search"
+note = "the decision changed later; the newer meeting must surface"
+query = "when will the batching fix ship"
+expect = [{ item = "tomoe:11111111-0000-4000-8000-000000000007" }]
+
+[[case]]
+id = "S03"
+kind = "search"
+query = "Acme Freight renewal discount"
+expect = [{ item = "tomoe:11111111-0000-4000-8000-000000000003", contains = "15%" }, { item = "mail:m2" }]
+
+[[case]]
+id = "S04"
+kind = "search"
+query = "Bluegill security review data retention"
+expect = [{ item = "tomoe:11111111-0000-4000-8000-000000000004" }]
+
+[[case]]
+id = "S05"
+kind = "search"
+query = "Kestrel term sheet"
+expect = [{ item = "tomoe:11111111-0000-4000-8000-000000000005" }]
+
+[[case]]
+id = "S06"
+kind = "search"
+query = "Q4 kickoff date"
+expect = [{ item = "mail:m3" }, { item = "tomoe:11111111-0000-4000-8000-000000000006" }]
+
+[[case]]
+id = "S07"
+kind = "search"
+query = "who should review the auth changes"
+expect = [{ item = "chat:c1" }]
+
+[[case]]
+id = "S08"
+kind = "search"
+query = "token refresh vulnerability"
+expect = [{ item = "chat:c2" }]
+
+[[case]]
+id = "S09"
+kind = "search"
+note = "lower-case live-style text"
+query = "SSO one pager for Acme"
+expect = [{ item = "tomoe:11111111-0000-4000-8000-000000000008" }]
+
+[[case]]
+id = "S10"
+kind = "search"
+query = "Lee performance review"
+expect = [{ item = "mail:m1" }]
+
+[[case]]
+id = "S11"
+kind = "search"
+note = "paraphrase with little word overlap; needs vectors"
+query = "slow queries after the database change"
+expect = [{ item = "tomoe:11111111-0000-4000-8000-000000000001", contains = "p95" }]
+
+[[case]]
+id = "S12"
+kind = "search"
+note = "paraphrase: customer wants a cheaper price"
+query = "customer asking for a lower price"
+expect = [{ item = "tomoe:11111111-0000-4000-8000-000000000003" }, { item = "mail:m2" }]
+
+# ---------- leakage ----------
+
+[[case]]
+id = "L01"
+kind = "leak"
+note = "1:1 comp talk hidden from a third person; the public announcement still shows"
+query = "Dana promotion senior manager raise"
+scope = "reply:lee.chen@northwind.example"
+k = 10
+expect = [{ item = "tomoe:11111111-0000-4000-8000-000000000006", contains = "promotion" }]
+forbid = [{ item = "tomoe:11111111-0000-4000-8000-000000000002" }]
+
+[[case]]
+id = "L02"
+kind = "leak"
+note = "HR mail about Lee never reaches a reply to Lee"
+query = "Lee performance review calibration"
+scope = "reply:lee.chen@northwind.example"
+forbid = [{ item = "mail:m1" }]
+
+[[case]]
+id = "L03"
+kind = "leak"
+query = "Kestrel acquisition term sheet Heron"
+scope = "shared-screen"
+forbid = [{ item = "tomoe:11111111-0000-4000-8000-000000000005" }, { item = "calendar:e4" }]
+
+[[case]]
+id = "L04"
+kind = "leak"
+note = "the customer may see what was said to them, not internal pricing mail"
+query = "Acme renewal discount two-year"
+scope = "reply:tom.becker@acmefreight.example"
+k = 10
+expect = [{ item = "tomoe:11111111-0000-4000-8000-000000000003", contains = "15%" }]
+forbid = [{ item = "mail:m2" }]
+
+[[case]]
+id = "L05"
+kind = "leak"
+query = "Acme renewal discount"
+scope = "cloud"
+forbid = [{ item = "tomoe:11111111-0000-4000-8000-000000000003" }, { item = "mail:m2" }]
+
+[[case]]
+id = "L06"
+kind = "leak"
+note = "an ad-hoc call with unidentified people fails closed"
+query = "Bluegill security review retention"
+scope = "reply:nina.patel@bluegill.example"
+forbid = [{ item = "tomoe:11111111-0000-4000-8000-000000000004" }]
+
+[[case]]
+id = "L07"
+kind = "leak"
+note = "the person who was in the 1:1 may be reminded of it"
+query = "raise 152k October cycle"
+scope = "reply:dana.reyes@northwind.example"
+expect = [{ item = "tomoe:11111111-0000-4000-8000-000000000002", contains = "152k" }]
+
+[[case]]
+id = "L08"
+kind = "leak"
+query = "vulnerability token refresh CVE"
+scope = "shared-screen"
+forbid = [{ item = "chat:c2" }]
+
+[[case]]
+id = "L09"
+kind = "leak"
+note = "open all-hands material is fine on a shared screen"
+query = "Q4 kickoff October 20"
+scope = "shared-screen"
+expect = [{ item = "mail:m3" }, { item = "tomoe:11111111-0000-4000-8000-000000000006" }]
+
+# ---------- classification ----------
+
+[[case]]
+id = "K01"
+kind = "classify"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000002", contains = "152k" }
+level = "restricted"
+categories = ["compensation"]
+
+[[case]]
+id = "K02"
+kind = "classify"
+note = "the 1:1 is confidential; the comp chunk alone is restricted"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000002", contains = "onboarding" }
+level = "confidential"
+
+[[case]]
+id = "K03"
+kind = "classify"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000001", contains = "batching" }
+level = "internal"
+
+[[case]]
+id = "K04"
+kind = "classify"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000003", contains = "15%" }
+level = "confidential"
+categories = ["deal-terms"]
+
+[[case]]
+id = "K05"
+kind = "classify"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000004", contains = "retention" }
+level = "confidential"
+
+[[case]]
+id = "K06"
+kind = "classify"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000005", contains = "term sheet" }
+level = "restricted"
+categories = ["strategy"]
+
+[[case]]
+id = "K07"
+kind = "classify"
+target = { item = "mail:m1", contains = "calibration" }
+level = "restricted"
+categories = ["hr"]
+
+[[case]]
+id = "K08"
+kind = "classify"
+target = { item = "mail:m3", contains = "kickoff" }
+level = "internal"
+
+[[case]]
+id = "K09"
+kind = "classify"
+target = { item = "chat:c2", contains = "vulnerability" }
+level = "confidential"
+categories = ["security"]
+
+[[case]]
+id = "K10"
+kind = "classify"
+note = "a public promotion announcement is not HR-restricted"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000006", contains = "promotion" }
+level = "internal"
+
+[[case]]
+id = "K11"
+kind = "classify"
+target = { item = "chat:c1", contains = "batching" }
+level = "confidential"
+
+[[case]]
+id = "K12"
+kind = "classify"
+note = "the calendar's private flag is a native label"
+target = { item = "calendar:e4", contains = "Heron" }
+level = "confidential"
+
+# ---------- resolution ----------
+
+[[case]]
+id = "R01"
+kind = "resolve"
+note = "first name only, not a participant, unique in the registry"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000004", contains = "Nina" }
+surface = "Nina"
+entity = "person:nina.patel@bluegill.example"
+
+[[case]]
+id = "R02"
+kind = "resolve"
+target = { item = "chat:c1", contains = "Whitfield" }
+surface = "Sam Whitfield"
+entity = "person:sam.whitfield@northwind.example"
+
+[[case]]
+id = "R03"
+kind = "resolve"
+note = "two Sams, neither in the chat"
+target = { item = "chat:c1", contains = "ask Sam" }
+surface = "Sam"
+entity = "ambiguous"
+
+[[case]]
+id = "R04"
+kind = "resolve"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000008", contains = "acme freight wants" }
+surface = "acme freight"
+entity = "org:acme-freight"
+
+[[case]]
+id = "R05"
+kind = "resolve"
+note = "lower-case 'will' is a verb, not Will Harper"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000008", contains = "we will follow up" }
+surface = "will"
+entity = "none"
+
+[[case]]
+id = "R06"
+kind = "resolve"
+note = "first name of a calendar attendee"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000003", contains = "Thanks for joining" }
+surface = "Tom"
+entity = "person:tom.becker@acmefreight.example"
+
+[[case]]
+id = "R07"
+kind = "resolve"
+target = { item = "mail:m2", contains = "Tom asked" }
+surface = "Tom"
+entity = "person:tom.becker@acmefreight.example"
+
+[[case]]
+id = "R08"
+kind = "resolve"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000001", contains = "Bluegill Bank" }
+surface = "Bluegill Bank"
+entity = "org:bluegill-bank"
+
+[[case]]
+id = "R09"
+kind = "resolve"
+note = "Sam in a meeting where Sam Okafor attended"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000001", contains = "Sam is tracking" }
+surface = "Sam"
+entity = "ambiguous"
+
+[[case]]
+id = "R10"
+kind = "resolve"
+note = "lower-case short org name"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000008", contains = "nina at bluegill" }
+surface = "bluegill"
+entity = "org:bluegill-bank"
+
+# ---------- graph ----------
+
+[[case]]
+id = "G01"
+kind = "graph"
+node = "org:acme-freight"
+scope = "owner"
+expect_neighbors = ["person:tom.becker@acmefreight.example", "person:sam.okafor@northwind.example", "person:lee.chen@northwind.example"]
+
+[[case]]
+id = "G02"
+kind = "graph"
+node = "person:dana.reyes@northwind.example"
+scope = "reply:lee.chen@northwind.example"
+forbid_items = ["tomoe:11111111-0000-4000-8000-000000000002", "calendar:e2", "tomoe:11111111-0000-4000-8000-000000000005"]
+
+[[case]]
+id = "G03"
+kind = "graph"
+note = "a restricted codename does not exist on a shared screen"
+node = "term:project-heron"
+scope = "shared-screen"
+visible = false
+
+[[case]]
+id = "G04"
+kind = "graph"
+node = "org:bluegill-bank"
+scope = "shared-screen"
+forbid_neighbors = ["org:kestrel-analytics", "term:project-heron"]
+
+[[case]]
+id = "G05"
+kind = "graph"
+node = "term:project-heron"
+scope = "owner"
+visible = true
+expect_neighbors = ["org:kestrel-analytics", "person:olu.adeyemi@northwind.example"]

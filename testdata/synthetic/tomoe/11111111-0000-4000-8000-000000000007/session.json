@@ -1,0 +1,39 @@
+{
+ "id": "11111111-0000-4000-8000-000000000007",
+ "title": "Teams Meeting 2026-09-21 10:01",
+ "platform": "Teams",
+ "language": "en",
+ "created_at": "2026-09-21T10:01:00-04:00",
+ "ended_at": "2026-09-21T10:01:21.800000-04:00",
+ "duration": 21.799999999999997,
+ "sources": [
+  "mic",
+  "monitor"
+ ],
+ "segments": [
+  {
+   "id": "seg-1",
+   "speaker": "You",
+   "text": "Status on the batching fix?",
+   "start_time": 2.0,
+   "end_time": 4.0,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-2",
+   "speaker": "Person 3 (Priya Natarajan)",
+   "text": "It slipped. The batching fix will now ship on September 29 because we had to roll back the index migration on Thursday and re-run it.",
+   "start_time": 4.6,
+   "end_time": 14.6,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-3",
+   "speaker": "Person 4 (Lee Chen)",
+   "text": "The Acme Freight webhook backoff is live and their failures dropped to zero since Tuesday.",
+   "start_time": 15.2,
+   "end_time": 21.2,
+   "source": "monitor"
+  }
+ ]
+}

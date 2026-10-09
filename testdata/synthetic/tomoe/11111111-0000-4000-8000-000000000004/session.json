@@ -1,0 +1,47 @@
+{
+ "id": "11111111-0000-4000-8000-000000000004",
+ "title": "Session 2026-09-16 15:30",
+ "platform": null,
+ "language": "en",
+ "created_at": "2026-09-16T15:30:00-04:00",
+ "ended_at": "2026-09-16T15:30:29.200000-04:00",
+ "duration": 29.200000000000003,
+ "sources": [
+  "mic",
+  "monitor"
+ ],
+ "segments": [
+  {
+   "id": "seg-1",
+   "speaker": "You",
+   "text": "Quick one on Bluegill Bank onboarding. What's the risk?",
+   "start_time": 2.0,
+   "end_time": 5.6,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-2",
+   "speaker": "Person 2",
+   "text": "Their security review flagged our data retention policy. They want customer data deleted after ninety days instead of a year.",
+   "start_time": 6.2,
+   "end_time": 14.2,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-3",
+   "speaker": "Person 3",
+   "text": "Nina from Bluegill said it's a hard requirement from their compliance team, so we can't negotiate it away.",
+   "start_time": 14.8,
+   "end_time": 22.0,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-4",
+   "speaker": "You",
+   "text": "Then we need a per-tenant retention setting. Let's write that up before their onboarding call.",
+   "start_time": 22.6,
+   "end_time": 28.6,
+   "source": "monitor"
+  }
+ ]
+}

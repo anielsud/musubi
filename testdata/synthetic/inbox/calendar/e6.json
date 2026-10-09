@@ -1,0 +1,27 @@
+{
+ "kind": "event",
+ "source": "calendar",
+ "ref": "e6",
+ "record": {
+  "subject": "Northwind all-hands",
+  "summary": "",
+  "organizer": "olu.adeyemi@northwind.example",
+  "attendees": [
+   "olu.adeyemi@northwind.example",
+   "jordan.pike@northwind.example",
+   "all@northwind.example"
+  ],
+  "start": {
+   "dateTime": "2026-09-21T20:00:00.0000000",
+   "timeZone": "UTC"
+  },
+  "end": {
+   "dateTime": "2026-09-21T20:45:00.0000000",
+   "timeZone": "UTC"
+  },
+  "isCancelled": false,
+  "showAs": "busy",
+  "sensitivity": "",
+  "location": "Microsoft Teams Meeting"
+ }
+}

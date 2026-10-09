@@ -1,0 +1,39 @@
+{
+ "id": "11111111-0000-4000-8000-000000000006",
+ "title": "Teams Meeting 2026-09-21 16:00",
+ "platform": "Teams",
+ "language": "en",
+ "created_at": "2026-09-21T16:00:00-04:00",
+ "ended_at": "2026-09-21T16:00:23.800000-04:00",
+ "duration": 23.8,
+ "sources": [
+  "mic",
+  "monitor"
+ ],
+ "segments": [
+  {
+   "id": "seg-1",
+   "speaker": "Person 8 (Olu Adeyemi)",
+   "text": "Welcome everyone. A few announcements. Congratulations to Dana Reyes on her promotion to senior manager.",
+   "start_time": 2.0,
+   "end_time": 8.0,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-2",
+   "speaker": "Person 8 (Olu Adeyemi)",
+   "text": "The Q4 kickoff will be on October 20 in the main office. Please block the whole day.",
+   "start_time": 8.6,
+   "end_time": 15.4,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-3",
+   "speaker": "You",
+   "text": "From engineering: search latency is back under three hundred milliseconds, and the Bluegill Bank launch is on schedule.",
+   "start_time": 16.0,
+   "end_time": 23.2,
+   "source": "monitor"
+  }
+ ]
+}

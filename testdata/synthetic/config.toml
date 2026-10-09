@@ -1,0 +1,6 @@
+# Config for the synthetic corpus. data_dir and tomoe_sessions are set by
+# the eval harness.
+[owner]
+email = "jordan.pike@northwind.example"
+name = "Jordan Pike"
+internal_domains = ["northwind.example"]

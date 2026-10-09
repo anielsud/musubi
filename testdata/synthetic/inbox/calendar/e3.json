@@ -1,0 +1,27 @@
+{
+ "kind": "event",
+ "source": "calendar",
+ "ref": "e3",
+ "record": {
+  "subject": "Acme Freight renewal",
+  "summary": "",
+  "organizer": "jordan.pike@northwind.example",
+  "attendees": [
+   "jordan.pike@northwind.example",
+   "sam.okafor@northwind.example",
+   "tom.becker@acmefreight.example"
+  ],
+  "start": {
+   "dateTime": "2026-09-15T18:00:00.0000000",
+   "timeZone": "UTC"
+  },
+  "end": {
+   "dateTime": "2026-09-15T18:45:00.0000000",
+   "timeZone": "UTC"
+  },
+  "isCancelled": false,
+  "showAs": "busy",
+  "sensitivity": "",
+  "location": "Microsoft Teams Meeting"
+ }
+}

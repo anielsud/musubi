@@ -1,0 +1,45 @@
+{
+ "kind": "chat",
+ "source": "chat",
+ "ref": "c1",
+ "record": {
+  "chatId": "c1",
+  "topic": "",
+  "members": [
+   {
+    "name": "Jordan Pike",
+    "email": "jordan.pike@northwind.example"
+   },
+   {
+    "name": "Priya Natarajan",
+    "email": "priya.natarajan@northwind.example"
+   }
+  ],
+  "messages": [
+   {
+    "from": {
+     "name": "Priya Natarajan",
+     "email": "priya.natarajan@northwind.example"
+    },
+    "sentAt": "2026-09-18T11:00:00-04:00",
+    "text": "The batching fix PR is up for review."
+   },
+   {
+    "from": {
+     "name": "Jordan Pike",
+     "email": "jordan.pike@northwind.example"
+    },
+    "sentAt": "2026-09-18T11:01:00-04:00",
+    "text": "Nice. Can we get Sam Whitfield to review the auth changes in it?"
+   },
+   {
+    "from": {
+     "name": "Priya Natarajan",
+     "email": "priya.natarajan@northwind.example"
+    },
+    "sentAt": "2026-09-18T11:02:00-04:00",
+    "text": "Sure. Also ask Sam about the Acme renewal call, I missed it."
+   }
+  ]
+ }
+}

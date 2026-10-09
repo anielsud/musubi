@@ -1,0 +1,31 @@
+# Curated entities for the synthetic corpus.
+
+[[org]]
+id = "acme-freight"
+name = "Acme Freight"
+domains = ["acmefreight.example"]
+aliases = ["Acme"]
+
+[[org]]
+id = "bluegill-bank"
+name = "Bluegill Bank"
+domains = ["bluegill.example"]
+aliases = ["Bluegill"]
+
+# An acquisition target: its existence is itself restricted.
+[[org]]
+id = "kestrel-analytics"
+name = "Kestrel Analytics"
+aliases = ["Kestrel"]
+level = "restricted"
+
+[[term]]
+name = "Project Heron"
+type = "project"
+aliases = ["Heron"]
+level = "restricted"
+
+[[term]]
+name = "single sign-on"
+type = "topic"
+aliases = ["SSO"]

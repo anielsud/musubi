@@ -1,0 +1,20 @@
+{
+ "kind": "email",
+ "source": "mail",
+ "ref": "m3",
+ "record": {
+  "subject": "Q4 kickoff",
+  "from": {
+   "name": "Olu Adeyemi",
+   "email": "olu.adeyemi@northwind.example"
+  },
+  "to": [
+   "all@northwind.example"
+  ],
+  "cc": [],
+  "sentAt": "2026-09-18T08:00:00-04:00",
+  "body": "Team,\n\nQ4 kickoff is October 20 in the main office. Agenda: product roadmap, the Bluegill Bank launch, and hiring plans.\n\nOlu",
+  "threadId": "m3",
+  "sensitivity": ""
+ }
+}

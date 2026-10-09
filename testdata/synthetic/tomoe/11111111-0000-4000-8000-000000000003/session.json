@@ -1,0 +1,63 @@
+{
+ "id": "11111111-0000-4000-8000-000000000003",
+ "title": "Teams Meeting 2026-09-15 14:00",
+ "platform": "Teams",
+ "language": "en",
+ "created_at": "2026-09-15T14:00:00-04:00",
+ "ended_at": "2026-09-15T14:00:52-04:00",
+ "duration": 52.0,
+ "sources": [
+  "mic",
+  "monitor"
+ ],
+ "segments": [
+  {
+   "id": "seg-1",
+   "speaker": "Person 5 (Sam Okafor)",
+   "text": "Thanks for joining, Tom. We wanted to cover the webhook problems and then the renewal.",
+   "start_time": 2.0,
+   "end_time": 8.0,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-2",
+   "speaker": "Person 10 (Tom Becker)",
+   "text": "Appreciated. The webhook retries have been failing for two weeks. Our operations team noticed missing shipment updates.",
+   "start_time": 8.6,
+   "end_time": 15.4,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-3",
+   "speaker": "You",
+   "text": "We found the cause. Our retries were hitting your endpoint too quickly. Lee is adding backoff this week, so it should be resolved by Friday.",
+   "start_time": 16.0,
+   "end_time": 26.0,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-4",
+   "speaker": "Person 10 (Tom Becker)",
+   "text": "Good. On the renewal, our contract value is up for review in November and finance wants a better number.",
+   "start_time": 26.6,
+   "end_time": 34.2,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-5",
+   "speaker": "Person 5 (Sam Okafor)",
+   "text": "We can do a 15% discount if you sign a two-year renewal. That keeps the same feature set and adds priority support.",
+   "start_time": 34.800000000000004,
+   "end_time": 43.60000000000001,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-6",
+   "speaker": "Person 10 (Tom Becker)",
+   "text": "I'll take that to finance. A two-year term is probably fine if the webhook issue is really fixed.",
+   "start_time": 44.2,
+   "end_time": 51.400000000000006,
+   "source": "monitor"
+  }
+ ]
+}

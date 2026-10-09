@@ -1,0 +1,26 @@
+{
+ "kind": "event",
+ "source": "calendar",
+ "ref": "e2",
+ "record": {
+  "subject": "Jordan / Dana 1:1",
+  "summary": "",
+  "organizer": "jordan.pike@northwind.example",
+  "attendees": [
+   "jordan.pike@northwind.example",
+   "dana.reyes@northwind.example"
+  ],
+  "start": {
+   "dateTime": "2026-09-15T13:00:00.0000000",
+   "timeZone": "UTC"
+  },
+  "end": {
+   "dateTime": "2026-09-15T13:30:00.0000000",
+   "timeZone": "UTC"
+  },
+  "isCancelled": false,
+  "showAs": "busy",
+  "sensitivity": "",
+  "location": "Microsoft Teams Meeting"
+ }
+}

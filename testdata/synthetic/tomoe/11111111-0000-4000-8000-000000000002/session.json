@@ -1,0 +1,79 @@
+{
+ "id": "11111111-0000-4000-8000-000000000002",
+ "title": "Teams Meeting 2026-09-15 09:02",
+ "platform": "Teams",
+ "language": "en",
+ "created_at": "2026-09-15T09:02:00-04:00",
+ "ended_at": "2026-09-15T09:03:20.400000-04:00",
+ "duration": 80.4,
+ "sources": [
+  "mic",
+  "monitor"
+ ],
+ "segments": [
+  {
+   "id": "seg-1",
+   "speaker": "You",
+   "text": "How is the team doing this week?",
+   "start_time": 2.0,
+   "end_time": 4.800000000000001,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-2",
+   "speaker": "Person 2 (Dana Reyes)",
+   "text": "Pretty well. Lee's onboarding is going smoothly. He already shipped two fixes and he's picking up the webhook work. The hiring plan for the platform team is on track, we have two final interviews next week and one offer out.",
+   "start_time": 5.4,
+   "end_time": 21.4,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-3",
+   "speaker": "Person 2 (Dana Reyes)",
+   "text": "The Bluegill single sign-on estimate is about three sprints if we reuse the identity service. Priya thinks two if we skip the admin console for the first release.",
+   "start_time": 22.0,
+   "end_time": 33.2,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-4",
+   "speaker": "You",
+   "text": "Two sprints without the console seems fine for a first release. Let's propose that to them and keep the console as a follow-up item in the roadmap.",
+   "start_time": 33.8,
+   "end_time": 44.599999999999994,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-5",
+   "speaker": "Person 2 (Dana Reyes)",
+   "text": "Okay, I'll write that up and send it to Sam so he can share it with the customer before the end of the month.",
+   "start_time": 45.199999999999996,
+   "end_time": 54.8,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-6",
+   "speaker": "You",
+   "text": "Great. Now, I have news on your side. I put in your raise to 152k and the promotion to senior manager. It should land in the October cycle. Olu signed off yesterday.",
+   "start_time": 55.4,
+   "end_time": 68.2,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-7",
+   "speaker": "Person 2 (Dana Reyes)",
+   "text": "That's wonderful, thank you. Should I keep this quiet until it's announced?",
+   "start_time": 68.8,
+   "end_time": 73.6,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-8",
+   "speaker": "You",
+   "text": "Yes, keep it between us until the all-hands. Marta will send the formal letter.",
+   "start_time": 74.2,
+   "end_time": 79.8,
+   "source": "monitor"
+  }
+ ]
+}

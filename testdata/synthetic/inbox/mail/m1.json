@@ -1,0 +1,23 @@
+{
+ "kind": "email",
+ "source": "mail",
+ "ref": "m1",
+ "record": {
+  "subject": "Performance review for Lee Chen",
+  "from": {
+   "name": "Marta Kowalski",
+   "email": "marta.kowalski@northwind.example"
+  },
+  "to": [
+   {
+    "name": "Jordan Pike",
+    "email": "jordan.pike@northwind.example"
+   }
+  ],
+  "cc": [],
+  "sentAt": "2026-09-16T09:00:00-04:00",
+  "body": "Hi Jordan,\n\nLee's performance review is due Friday. Please flag any performance concerns before the calibration meeting.\n\nThanks,\nMarta",
+  "threadId": "m1",
+  "sensitivity": ""
+ }
+}

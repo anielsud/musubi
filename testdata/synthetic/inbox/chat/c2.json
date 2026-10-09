@@ -1,0 +1,49 @@
+{
+ "kind": "chat",
+ "source": "chat",
+ "ref": "c2",
+ "record": {
+  "chatId": "c2",
+  "topic": "security",
+  "members": [
+   {
+    "name": "Jordan Pike",
+    "email": "jordan.pike@northwind.example"
+   },
+   {
+    "name": "Sam Whitfield",
+    "email": "sam.whitfield@northwind.example"
+   },
+   {
+    "name": "Priya Natarajan",
+    "email": "priya.natarajan@northwind.example"
+   }
+  ],
+  "messages": [
+   {
+    "from": {
+     "name": "Sam Whitfield",
+     "email": "sam.whitfield@northwind.example"
+    },
+    "sentAt": "2026-09-19T11:00:00-04:00",
+    "text": "We found a vulnerability in the token refresh endpoint. CVE request is pending."
+   },
+   {
+    "from": {
+     "name": "Priya Natarajan",
+     "email": "priya.natarajan@northwind.example"
+    },
+    "sentAt": "2026-09-19T11:01:00-04:00",
+    "text": "Is it exploitable from outside?"
+   },
+   {
+    "from": {
+     "name": "Sam Whitfield",
+     "email": "sam.whitfield@northwind.example"
+    },
+    "sentAt": "2026-09-19T11:02:00-04:00",
+    "text": "Only with a valid session. Patch is ready, deploying tonight."
+   }
+  ]
+ }
+}

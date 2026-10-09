@@ -1,0 +1,28 @@
+{
+ "kind": "event",
+ "source": "calendar",
+ "ref": "e7",
+ "record": {
+  "subject": "Eng weekly sync",
+  "summary": "",
+  "organizer": "jordan.pike@northwind.example",
+  "attendees": [
+   "jordan.pike@northwind.example",
+   "dana.reyes@northwind.example",
+   "priya.natarajan@northwind.example",
+   "lee.chen@northwind.example"
+  ],
+  "start": {
+   "dateTime": "2026-09-21T14:00:00.0000000",
+   "timeZone": "UTC"
+  },
+  "end": {
+   "dateTime": "2026-09-21T14:30:00.0000000",
+   "timeZone": "UTC"
+  },
+  "isCancelled": false,
+  "showAs": "busy",
+  "sensitivity": "",
+  "location": "Microsoft Teams Meeting"
+ }
+}

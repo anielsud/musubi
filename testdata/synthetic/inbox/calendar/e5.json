@@ -1,0 +1,27 @@
+{
+ "kind": "event",
+ "source": "calendar",
+ "ref": "e5",
+ "record": {
+  "subject": "Bluegill onboarding kickoff",
+  "summary": "Kickoff for the Bluegill Bank rollout: timeline, data retention requirements, SSO.",
+  "organizer": "jordan.pike@northwind.example",
+  "attendees": [
+   "jordan.pike@northwind.example",
+   "sam.okafor@northwind.example",
+   "nina.patel@bluegill.example"
+  ],
+  "start": {
+   "dateTime": "2026-09-11T17:00:00.0000000",
+   "timeZone": "UTC"
+  },
+  "end": {
+   "dateTime": "2026-09-11T17:45:00.0000000",
+   "timeZone": "UTC"
+  },
+  "isCancelled": false,
+  "showAs": "busy",
+  "sensitivity": "",
+  "location": "Microsoft Teams Meeting"
+ }
+}

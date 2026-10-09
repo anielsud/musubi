@@ -1,0 +1,87 @@
+{
+ "id": "11111111-0000-4000-8000-000000000001",
+ "title": "Teams Meeting 2026-09-14 10:01",
+ "platform": "Teams",
+ "language": "en",
+ "created_at": "2026-09-14T10:01:00-04:00",
+ "ended_at": "2026-09-14T10:02:25.400000-04:00",
+ "duration": 85.39999999999999,
+ "sources": [
+  "mic",
+  "monitor"
+ ],
+ "segments": [
+  {
+   "id": "seg-1",
+   "speaker": "You",
+   "text": "Morning everyone. First item is the search latency regression. Priya, what did you find?",
+   "start_time": 2.0,
+   "end_time": 7.6000000000000005,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-2",
+   "speaker": "Person 3 (Priya Natarajan)",
+   "text": "The p95 went from about three hundred milliseconds to nine hundred after the index migration. The new index writes one document at a time, so every update pays a full round trip and the queue backs up during peak hours.",
+   "start_time": 8.2,
+   "end_time": 24.2,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-3",
+   "speaker": "Person 3 (Priya Natarajan)",
+   "text": "My proposal is batching the writes. We collect updates for fifty milliseconds and send them together. In staging that brought p95 back to two hundred eighty.",
+   "start_time": 24.8,
+   "end_time": 35.2,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-4",
+   "speaker": "Person 2 (Dana Reyes)",
+   "text": "That sounds right. Are there risks with ordering? Some customers depend on updates landing in sequence.",
+   "start_time": 35.8,
+   "end_time": 42.199999999999996,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-5",
+   "speaker": "Person 3 (Priya Natarajan)",
+   "text": "Ordering is preserved inside a batch and batches are sequential, so no change there.",
+   "start_time": 42.8,
+   "end_time": 48.4,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-6",
+   "speaker": "You",
+   "text": "Good. Decision then: we ship the batching fix on September 22. Priya owns it, Dana reviews.",
+   "start_time": 49.0,
+   "end_time": 55.4,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-7",
+   "speaker": "Person 4 (Lee Chen)",
+   "text": "On my side, the Acme Freight webhook retries keep failing. Their endpoint times out after five seconds and we retry immediately, which makes it worse. I'll add exponential backoff this week.",
+   "start_time": 56.0,
+   "end_time": 68.4,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-8",
+   "speaker": "Person 2 (Dana Reyes)",
+   "text": "One more thing from accounts. Bluegill Bank wants single sign-on before they roll out to their branches, ideally by Q4. Sam is tracking the request.",
+   "start_time": 69.0,
+   "end_time": 79.0,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-9",
+   "speaker": "You",
+   "text": "Let's scope SSO next week then. Lee, take the webhook backoff. Thanks all.",
+   "start_time": 79.6,
+   "end_time": 84.8,
+   "source": "monitor"
+  }
+ ]
+}

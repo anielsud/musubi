@@ -1,0 +1,28 @@
+{
+ "kind": "email",
+ "source": "mail",
+ "ref": "m2",
+ "record": {
+  "subject": "Acme Freight renewal pricing",
+  "from": {
+   "name": "Sam Okafor",
+   "email": "sam.okafor@northwind.example"
+  },
+  "to": [
+   {
+    "name": "Jordan Pike",
+    "email": "jordan.pike@northwind.example"
+   }
+  ],
+  "cc": [
+   {
+    "name": "Priya Natarajan",
+    "email": "priya.natarajan@northwind.example"
+   }
+  ],
+  "sentAt": "2026-09-15T16:00:00-04:00",
+  "body": "Tom asked for a 15% discount on a two-year renewal. List price stays at 120k ACV. I think we should accept if they commit to two years.\n\nOn Tue, Tom Becker wrote:\n> can you share pricing options?",
+  "threadId": "m2",
+  "sensitivity": ""
+ }
+}

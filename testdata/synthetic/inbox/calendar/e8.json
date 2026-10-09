@@ -1,0 +1,27 @@
+{
+ "kind": "event",
+ "source": "calendar",
+ "ref": "e8",
+ "record": {
+  "subject": "Sales sync",
+  "summary": "",
+  "organizer": "jordan.pike@northwind.example",
+  "attendees": [
+   "jordan.pike@northwind.example",
+   "sam.okafor@northwind.example",
+   "will.harper@northwind.example"
+  ],
+  "start": {
+   "dateTime": "2026-09-22T17:00:00.0000000",
+   "timeZone": "UTC"
+  },
+  "end": {
+   "dateTime": "2026-09-22T17:30:00.0000000",
+   "timeZone": "UTC"
+  },
+  "isCancelled": false,
+  "showAs": "busy",
+  "sensitivity": "",
+  "location": "Microsoft Teams Meeting"
+ }
+}

@@ -1,0 +1,27 @@
+{
+ "kind": "email",
+ "source": "mail",
+ "ref": "m4",
+ "record": {
+  "subject": "Webhook retry failures",
+  "from": {
+   "name": "Tom Becker",
+   "email": "tom.becker@acmefreight.example"
+  },
+  "to": [
+   {
+    "name": "Jordan Pike",
+    "email": "jordan.pike@northwind.example"
+   },
+   {
+    "name": "Sam Okafor",
+    "email": "sam.okafor@northwind.example"
+   }
+  ],
+  "cc": [],
+  "sentAt": "2026-09-14T17:00:00-04:00",
+  "body": "Hi both,\n\nOur operations team is still seeing missing shipment updates from the webhooks. Can you confirm when the fix ships?\n\nTom",
+  "threadId": "m4",
+  "sensitivity": ""
+ }
+}

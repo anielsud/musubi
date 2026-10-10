@@ -50,18 +50,26 @@ func (m *Meeting) Lines() []Segment {
 	return out
 }
 
-// Recent returns the last window seconds as "Speaker: text" lines.
-func (m *Meeting) Recent(window float64) string {
+// RecentLines returns the lines ending in the last window seconds.
+func (m *Meeting) RecentLines(window float64) []Segment {
 	lines := m.Lines()
 	if len(lines) == 0 {
-		return ""
+		return nil
 	}
 	end := lines[len(lines)-1].End
-	var b strings.Builder
+	var out []Segment
 	for _, s := range lines {
-		if s.End < end-window || strings.TrimSpace(s.Text) == "" {
-			continue
+		if s.End >= end-window && strings.TrimSpace(s.Text) != "" {
+			out = append(out, s)
 		}
+	}
+	return out
+}
+
+// Recent returns the last window seconds as "Speaker: text" lines.
+func (m *Meeting) Recent(window float64) string {
+	var b strings.Builder
+	for _, s := range m.RecentLines(window) {
 		fmt.Fprintf(&b, "%s: %s\n", speakerName(s.Speaker), s.Text)
 	}
 	return b.String()

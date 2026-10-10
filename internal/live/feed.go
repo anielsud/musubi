@@ -21,6 +21,14 @@ type Segment struct {
 	Source  string  `json:"source"`
 	// Status: "live" (draft), "pending", "" (final), "removed".
 	Status string `json:"status"`
+	// Words carry per-word times (seconds from the session start).
+	Words []Word `json:"words,omitempty"`
+}
+
+type Word struct {
+	T string  `json:"t"`
+	S float64 `json:"s"`
+	E float64 `json:"e"`
 }
 
 type Session struct {

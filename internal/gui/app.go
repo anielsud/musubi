@@ -227,6 +227,22 @@ func (a *App) Item(itemID, scope string) (*store.ItemView, error) {
 
 func (a *App) LiveStatus() live.Status { return a.live.Status() }
 
+// Traces returns the live panel's recent processing steps.
+func (a *App) Traces() []live.Trace { return a.live.Traces() }
+
+// SetDiagnostics widens the window to make room for the diagnostics view,
+// or narrows it back.
+func (a *App) SetDiagnostics(on bool) {
+	w, h := wruntime.WindowGetSize(a.ctx)
+	const extra = 560
+	if on {
+		w += extra
+	} else if w-extra >= 360 {
+		w -= extra
+	}
+	wruntime.WindowSetSize(a.ctx, w, h)
+}
+
 // SetSharing narrows the live panel to what may be on a shared screen.
 func (a *App) SetSharing(on bool) error {
 	if on {

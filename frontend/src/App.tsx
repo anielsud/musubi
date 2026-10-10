@@ -6,6 +6,7 @@ import { AskView } from './components/AskView';
 import { ExploreView } from './components/ExploreView';
 import { StatusView } from './components/StatusView';
 import { SourceDrawer, type SourceRef } from './components/SourceDrawer';
+import { DiagPanel } from './components/DiagPanel';
 
 type View = 'live' | 'ask' | 'explore' | 'status';
 
@@ -16,6 +17,7 @@ export function App() {
   const [source, setSource] = useState<SourceRef | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [onTop, setOnTop] = useState(false);
+  const [diag, setDiag] = useState(false);
   const [toast, setToast] = useState('');
 
   const refresh = useCallback(() => {
@@ -52,7 +54,8 @@ export function App() {
   const openEntity = (id: string) => { setFocus(id); setView('explore'); };
 
   return (
-    <div className="app">
+    <div className={'app' + (diag ? ' with-diag' : '')}>
+      <div className="app-main">
       <header className="titlebar" style={{ ['--wails-draggable' as string]: 'drag' }}>
         <div className="brand"><span className="mark">結</span> Musubi</div>
         <div className="dots">
@@ -66,6 +69,8 @@ export function App() {
           </button>
           <button className={'icon-btn' + (onTop ? ' on' : '')} title="Keep on top"
             onClick={() => { api.setOnTop(!onTop); setOnTop(!onTop); }}>📌</button>
+          <button className={'icon-btn' + (diag ? ' on' : '')} title="Diagnostics: how Musubi is processing"
+            onClick={() => { api.setDiagnostics(!diag); setDiag(!diag); }}>⚙︎</button>
         </div>
       </header>
 
@@ -90,6 +95,8 @@ export function App() {
 
       {source && <SourceDrawer src={source} onClose={() => setSource(null)} />}
       {toast && <div className="toast">{toast}</div>}
+      </div>
+      {diag && <DiagPanel />}
     </div>
   );
 }

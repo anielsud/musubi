@@ -110,3 +110,29 @@ app's replay) at 8–30× speed; local model qwen3:8b on Apple silicon.
 - Not yet measured: whether suggestions arrive early enough to be useful,
   and how often the top two are the right two. Next: score replays against
   a hand-marked list of "moments worth a lookup" per meeting.
+
+## 2026-10-10: replay timing model and diagnostics
+
+Replay now reconstructs when each version of a line would have reached
+Musubi live (`internal/live/schedule.go`). The constants come from Tomoe's
+settings and measurements:
+- drafts refresh every 0.5 s, rebuilt from the saved word timings (lower
+  case, unpunctuated, and without the live model's mishearings);
+- a turn closes after a 2 s pause, or when the other side starts talking;
+- Cohere then decodes it in about 7.9% of its length.
+
+On one replay with audio:
+- final text reached the panel 2.1–2.4 s after speech ended;
+- the model took 1.1–2.2 s to suggest queries and 0.8–1.4 s to summarise;
+- a brief was ready a median 22–24 s after its topic was first said.
+
+That last figure is dominated by the 20 s suggestion cadence plus "the
+window must have changed". It is the obvious lever if hints feel late.
+
+The diagnostics view (⚙︎ in the app) shows each cycle step by step:
+- what was read, and the model's prompt and reply;
+- which names and phrases were recognised;
+- the ranking, with when each topic was said, and why each suggestion was
+  or wasn't looked up;
+- the search results with scores and labels;
+- the summary verdict.

@@ -109,10 +109,26 @@ func init() {
 	}
 }
 
+// PhraseScore is a distinctive phrase with its score and how often it was
+// said in the window.
+type PhraseScore struct {
+	Phrase string
+	Score  float64
+	Count  int
+}
+
 // Phrases returns distinctive phrases: words and short runs that are rare in
 // the knowledge base (so likely specific) yet present in it (so a search can
 // find something), weighted by how often they were just said.
 func (s *Suggester) Phrases(text string, n int) []string {
+	var out []string
+	for _, p := range s.PhraseScores(text, n) {
+		out = append(out, p.Phrase)
+	}
+	return out
+}
+
+func (s *Suggester) PhraseScores(text string, n int) []PhraseScore {
 	if s.docs == 0 {
 		return nil
 	}
@@ -171,17 +187,17 @@ func (s *Suggester) Phrases(text string, n int) []string {
 		}
 		return all[i].p < all[j].p
 	})
-	var out []string
+	var out []PhraseScore
 	for _, x := range all {
 		dup := false
 		for _, o := range out {
-			if strings.Contains(o, x.p) || strings.Contains(x.p, o) {
+			if strings.Contains(o.Phrase, x.p) || strings.Contains(x.p, o.Phrase) {
 				dup = true
 				break
 			}
 		}
 		if !dup {
-			out = append(out, x.p)
+			out = append(out, PhraseScore{Phrase: x.p, Score: math.Round(x.s*100) / 100, Count: tf[x.p]})
 		}
 		if len(out) == n {
 			break
@@ -196,8 +212,9 @@ Suggest up to 3 short search queries (3-8 words each) that would surface useful 
 
 Reply as JSON: {"queries":[{"q":"...","why":"one short reason"}]}`
 
-// FromLLM asks the chat model for queries.
-func (s *Suggester) FromLLM(ctx context.Context, chat *provider.Chat, recent string, spotted []Spotted) ([]Suggestion, error) {
+// FromLLM asks the chat model for queries. It also returns the model's raw
+// reply and the prompt it was given, for the diagnostics view.
+func (s *Suggester) FromLLM(ctx context.Context, chat *provider.Chat, owner, recent string, spotted []Spotted) ([]Suggestion, string, string, error) {
 	// Saying what each name is keeps the model from inventing, say, a
 	// "Reyes project" out of a person's surname.
 	var names []string
@@ -212,13 +229,18 @@ func (s *Suggester) FromLLM(ctx context.Context, chat *provider.Chat, recent str
 		names = append(names, e.Name+" ("+kind+")")
 	}
 	user := "Conversation:\n" + recent
+	if owner != "" {
+		// Speech recognition mangles the user's own name too ("Anil"); left
+		// unsaid, the model takes it for a third person worth looking up.
+		user += "\nThe user (\"You\") is " + owner + "; recognition may misspell the name. Never suggest looking up the user."
+	}
 	if len(names) > 0 {
 		user += "\nKnown names mentioned: " + strings.Join(names, ", ")
 	}
 	out, err := chat.Complete(ctx, []provider.Message{{Role: "system", Content: suggestPrompt}, {Role: "user", Content: user}},
 		provider.ChatOptions{JSON: true, Temperature: 0.3, MaxTokens: 300}, nil)
 	if err != nil {
-		return nil, err
+		return nil, out, user, err
 	}
 	var parsed struct {
 		Queries []struct {
@@ -227,7 +249,7 @@ func (s *Suggester) FromLLM(ctx context.Context, chat *provider.Chat, recent str
 		} `json:"queries"`
 	}
 	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
-		return nil, nil
+		return nil, out, user, nil
 	}
 	var res []Suggestion
 	for i, q := range parsed.Queries {
@@ -236,5 +258,5 @@ func (s *Suggester) FromLLM(ctx context.Context, chat *provider.Chat, recent str
 		}
 		res = append(res, Suggestion{Query: strings.TrimSpace(q.Q), Why: q.Why, Kind: "llm", Score: 3 - float64(i)*0.1})
 	}
-	return res, nil
+	return res, out, user, nil
 }

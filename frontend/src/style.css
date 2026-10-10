@@ -40,7 +40,10 @@ input, select, textarea {
 input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94, 234, 212, 0.12); }
 [hidden] { display: none !important; }
 
-.app { display: flex; flex-direction: column; height: 100%; }
+.app { display: flex; height: 100%; }
+.app-main { display: flex; flex-direction: column; height: 100%; flex: 1; min-width: 0; position: relative; }
+.app.with-diag .app-main { flex: 0 0 460px; border-right: 1px solid var(--line); }
+.app.with-diag .drawer-backdrop { position: absolute; }
 
 /* Title bar: the window has a hidden inset title bar; leave room for the
    traffic lights on the left. */
@@ -278,3 +281,45 @@ main > div { height: 100%; }
 .audiobar { display: flex; gap: 8px; align-items: center; }
 .audiobar audio { flex: 1; height: 34px; min-width: 0; }
 .audiobar select { padding: 4px 6px; }
+
+/* Diagnostics */
+.diag { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-2); }
+.diag-head { padding: 12px 14px 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+.diag-title { font-weight: 700; }
+.diag-filters { display: flex; gap: 2px; }
+.diag-filters button { font-size: 12px; padding: 3px 9px; border-radius: 999px; color: var(--text-dim); }
+.diag-filters button.on { background: var(--surface-2); color: var(--text); }
+.diag-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border-bottom: 1px solid var(--line); }
+.stat { background: var(--bg-2); padding: 7px 10px; }
+.stat-v { font-weight: 600; font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.stat-l { color: var(--text-faint); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+.diag-list { flex: 1; overflow-y: auto; padding: 10px 12px 30px; display: flex; flex-direction: column; gap: 8px; }
+.diag-cycle { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; }
+.diag-cycle-head { display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left; padding: 7px 10px; background: var(--surface-2); font-size: 12.5px; }
+.diag-cycle-head .dim { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chev { color: var(--text-faint); }
+.clk { font-family: var(--mono); font-size: 11px; color: var(--text-faint); min-width: 38px; }
+.step { border-top: 1px solid var(--line); }
+.diag-list > .step { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.step-head { display: flex; gap: 8px; align-items: baseline; width: 100%; text-align: left; padding: 5px 10px; font-size: 12.5px; }
+.step-head:hover { background: rgba(255,255,255,0.02); }
+.step-title { flex: 1; }
+.ms { font-family: var(--mono); font-size: 11px; color: var(--gold); }
+.kind { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--text-dim); min-width: 62px; text-align: center; }
+.kind-llm, .kind-summary { color: var(--accent-2); background: rgba(167,139,250,0.12); }
+.kind-search, .kind-rank { color: var(--gold); background: rgba(245,201,122,0.1); }
+.kind-brief { color: var(--accent); background: rgba(94,234,212,0.12); }
+.kind-error { color: var(--lvl-restricted); background: rgba(244,63,94,0.12); }
+.kind-feed, .kind-cycle { color: var(--lvl-internal); background: rgba(96,165,250,0.1); }
+.step-body { padding: 4px 10px 10px 56px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.kvline { color: var(--text-dim); }
+.pre-label { color: var(--accent); font-size: 11.5px; }
+.pre pre { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 11.5px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 260px; overflow: auto; color: var(--text-dim); margin-top: 3px; }
+.dt { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.dt th { text-align: left; color: var(--text-faint); font-weight: 500; padding: 3px 6px; border-bottom: 1px solid var(--line); }
+.dt td { padding: 4px 6px; border-bottom: 1px dashed var(--line); vertical-align: top; }
+.dt tr.hl td { color: var(--accent); }
+.dt.hits td.ex { color: var(--text-dim); }
+/* Scrolling flex columns: children keep their height instead of being
+   squashed to fit. */
+.diag-list > *, .view > *, .turns > * { flex-shrink: 0; }

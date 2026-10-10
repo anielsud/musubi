@@ -31,6 +31,7 @@ export const api = {
   replayClock: (t: number): Promise<void> => app().ReplayClock(t),
   hasAudio: (ref: string): Promise<boolean> => app().HasAudio(ref),
   setOnTop: (on: boolean): Promise<void> => app().SetOnTop(on),
+  setDiagnostics: (on: boolean): Promise<void> => app().SetDiagnostics(on),
 };
 
 export function on<T>(event: string, fn: (data: T) => void): () => void {

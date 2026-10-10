@@ -241,16 +241,20 @@ function ReplayPicker({ onAudio }: { onAudio: (ref: string) => void }) {
 function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: (h: Hit) => void }) {
   const [open, setOpen] = useState(false);
   const hits = brief.hits ?? [];
-  // Without a model summary, the passages are the brief.
+  // Until (or without) a model summary, the passages are the brief.
   const showHits = open !== (brief.state === 'done' && !brief.summary);
+  const lag = brief.spokenAgo >= 0 ? `${brief.spokenAgo.toFixed(1)}s after it was said` : '';
   return (
     <article className={'brief state-' + brief.state}>
       <header>
         <span className={'glyph k-' + brief.kind}>{kindGlyph[brief.kind] ?? '·'}</span>
         <span className="brief-q">{brief.query}</span>
-        {brief.state === 'loading' && <Spinner />}
+        {(brief.state === 'loading' || brief.summarizing) && <Spinner />}
       </header>
-      {brief.why && <div className="brief-why">{brief.why}</div>}
+      {(brief.why && brief.why !== 'model') || lag ? (
+        <div className="brief-why">{[brief.why !== 'model' ? brief.why : '', lag].filter(Boolean).join(' · ')}</div>
+      ) : null}
+      {brief.summarizing && <div className="brief-why">summarising…</div>}
       {brief.summary && (
         <p className="brief-sum"><CitedText text={brief.summary} hits={hits} onCite={onOpen} /></p>
       )}

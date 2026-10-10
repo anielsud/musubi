@@ -70,25 +70,67 @@ type SearchHitTrace struct {
 	Excerpt string  `json:"excerpt"`
 }
 
-// evidenceAt is when the conversation first said something the query is
-// about: the start of the earliest line in the window sharing a content word
-// with it. -1 if none (the model inferred the topic).
+// evidenceAt is when the conversation last said something the query is
+// about: the end of the latest word sharing a content word with it (a
+// speaker's name included), or the start of the line without word timings.
+// Latency is measured from there: a topic discussed for a minute counts
+// from its latest mention, not its first. -1 if never said as such (the
+// model inferred it).
 func evidenceAt(query string, lines []Segment) float64 {
+	keys := contentWords(query)
+	at := -1.0
+	for _, s := range lines {
+		for _, w := range words(speakerName(s.Speaker)) {
+			if keys[w] && s.Start > at {
+				at = s.Start
+			}
+		}
+		if len(s.Words) == 0 {
+			for _, w := range words(s.Text) {
+				if keys[w] && s.Start > at {
+					at = s.Start
+				}
+			}
+			continue
+		}
+		for _, wt := range s.Words {
+			for _, w := range words(wt.T) {
+				if keys[w] && wt.E > at {
+					at = wt.E
+				}
+			}
+		}
+	}
+	return at
+}
+
+func contentWords(q string) map[string]bool {
 	keys := map[string]bool{}
-	for _, w := range words(query) {
+	for _, w := range words(q) {
 		if len(w) >= 3 && !stop[w] {
 			keys[w] = true
 		}
 	}
-	for _, s := range lines {
-		// A speaker's name counts: someone talking is in the conversation.
-		for _, w := range words(speakerName(s.Speaker) + " " + s.Text) {
-			if keys[w] {
-				return s.Start
-			}
+	return keys
+}
+
+// overlap is the share of the smaller query's content words found in the
+// other: "45 days patching SLAs" and "patching policy 45 days" overlap.
+func overlap(a, b map[string]bool) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+	small, big := a, b
+	if len(b) < len(a) {
+		small, big = b, a
+	}
+	n := 0
+	for w := range small {
+		if big[w] {
+			n++
 		}
 	}
-	return -1
+	return float64(n) / float64(len(small))
 }
 
 func excerpt(s string, n int) string {

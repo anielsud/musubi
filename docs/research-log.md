@@ -136,3 +136,48 @@ The diagnostics view (⚙︎ in the app) shows each cycle step by step:
   or wasn't looked up;
 - the search results with scores and labels;
 - the summary verdict.
+
+## 2026-10-10: a couple of seconds, not twenty
+
+The 20 s cycle is gone. What changed:
+
+| | before | after |
+|---|---|---|
+| trigger | a timer every 20 s | every line; the model reruns on new final text, or on drafts every 1.5 s |
+| model reply | queries with a reason each | queries only |
+| lookups | every rephrasing a new lookup | skipped if half its content words overlap a recent one |
+| summary | before anything showed | after the passages are on screen |
+
+Model timing (qwen3:8b, Apple silicon, measured with the suggestion
+prompt): reply length is nearly all of it (prompt reading 0.01 s).
+
+| | reasons in reply | short reasons | queries only |
+|---|---|---|---|
+| qwen3:8b | 1.8 s | 1.2 s | 0.5–0.6 s |
+| qwen3:1.7b | 0.7 s | 0.65 s | not tried: queries vaguer |
+| qwen3:4b-instruct | 1.8 s | 1.1 s | not tried: broke the JSON format 2 times out of 3 |
+
+Search is under 0.05 s; a summary is 1.5–2 s.
+
+Measured from the latest mention of a topic to its passages on screen,
+replaying two meetings in real time:
+
+| | before | after |
+|---|---|---|
+| new topics (looked up within 10 s of being said) | — | median ~3 s (1–1.5 s often) |
+| all lookups | median 25 s (cycle-bound) | median 3.8–4.0 s |
+| summary | +2 s | median +2 s after the passages |
+
+- **The long tail is not delay.** It is the model returning to an earlier
+  thread with a new angle ("previous discussions on X", 13 s after the
+  mention). The diagnostics view now reports new topics and follow-up
+  angles separately.
+- **The floor is speech recognition:** a word reaches Musubi as a draft
+  about 0.5–1 s after it is said, final text about 2.3 s after.
+- **The fast lane (names in a single line) rarely fires on real meetings.**
+  People are mostly named by first name, and first names are ambiguous in
+  the directory; unambiguous customer names would fire it.
+- **Phrase lookups from single lines were mostly fragments** ("moves the
+  bar", "nine must occur"), so they are off (`phrase_lookups`).
+- **Queries about the owner** (with their name misrecognised) are now
+  dropped by name and near-misspellings.

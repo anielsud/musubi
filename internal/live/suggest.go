@@ -210,7 +210,7 @@ const suggestPrompt = `You help someone during a live meeting by suggesting what
 
 Suggest up to 3 short search queries (3-8 words each) that would surface useful background right now: what was said or decided before about the people, customers, projects, problems or commitments being discussed. Use words actually spoken; prefer specific names and topics over generic ones. A person's name is a person, not a project. Skip small talk. If nothing is worth looking up, return an empty list.
 
-Reply as JSON: {"queries":[{"q":"...","why":"one short reason"}]}`
+Reply as JSON: {"queries":["...","..."]}`
 
 // FromLLM asks the chat model for queries. It also returns the model's raw
 // reply and the prompt it was given, for the diagnostics view.
@@ -242,21 +242,79 @@ func (s *Suggester) FromLLM(ctx context.Context, chat *provider.Chat, owner, rec
 	if err != nil {
 		return nil, out, user, err
 	}
+	// Queries come as plain strings: generating a reason for each roughly
+	// doubled the reply, and reply length is nearly all of the model's time
+	// (measured 2026-10-10: 1.8 s with reasons, about 1 s without).
+	// Objects with "q" are accepted too.
 	var parsed struct {
-		Queries []struct {
-			Q   string `json:"q"`
-			Why string `json:"why"`
-		} `json:"queries"`
+		Queries []json.RawMessage `json:"queries"`
 	}
 	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
 		return nil, out, user, nil
 	}
 	var res []Suggestion
-	for i, q := range parsed.Queries {
-		if strings.TrimSpace(q.Q) == "" || i == 3 {
+	for _, raw := range parsed.Queries {
+		var q string
+		if json.Unmarshal(raw, &q) != nil {
+			var o struct {
+				Q string `json:"q"`
+			}
+			json.Unmarshal(raw, &o)
+			q = o.Q
+		}
+		q = strings.TrimSpace(q)
+		if q == "" || len(res) == 3 {
 			continue
 		}
-		res = append(res, Suggestion{Query: strings.TrimSpace(q.Q), Why: q.Why, Kind: "llm", Score: 3 - float64(i)*0.1})
+		res = append(res, Suggestion{Query: q, Why: "model", Kind: "llm", Score: 3 - float64(len(res))*0.1})
 	}
 	return res, out, user, nil
+}
+
+// dropOwner removes queries about the owner. Recognition misspells their
+// name ("Anil" for "Aniel"), so a word within one edit of a name part of
+// four or more letters counts, as does an exact match of a shorter part.
+func dropOwner(qs []Suggestion, owner string) (keep []Suggestion, dropped []string) {
+	parts := words(owner)
+	if len(parts) == 0 {
+		return qs, nil
+	}
+	for _, q := range qs {
+		hit := false
+		for _, w := range words(q.Query) {
+			w = strings.TrimSuffix(w, "'s")
+			for _, p := range parts {
+				if w == p || (len(p) >= 4 && len(w) >= 3 && editDistance(w, p) <= 1) {
+					hit = true
+				}
+			}
+		}
+		if hit {
+			dropped = append(dropped, q.Query)
+		} else {
+			keep = append(keep, q)
+		}
+	}
+	return keep, dropped
+}
+
+func editDistance(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	prev := make([]int, len(rb)+1)
+	cur := make([]int, len(rb)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		cur[0] = i
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev, cur = cur, prev
+	}
+	return prev[len(rb)]
 }

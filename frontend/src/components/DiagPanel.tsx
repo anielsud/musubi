@@ -13,12 +13,12 @@ export interface Trace {
   detail?: any;
 }
 
-const kinds = ['feed', 'cycle', 'entities', 'llm', 'phrases', 'rank', 'search', 'summary', 'brief', 'error'];
+const kinds = ['feed', 'line', 'cycle', 'entities', 'llm', 'phrases', 'rank', 'search', 'summary', 'brief', 'error'];
 const filters: Record<string, string[]> = {
   all: kinds,
   model: ['llm', 'summary'],
   search: ['rank', 'search', 'brief'],
-  input: ['feed', 'cycle', 'entities', 'phrases'],
+  input: ['feed', 'line', 'cycle', 'entities', 'phrases'],
 };
 
 export function mmss(s: number): string {
@@ -67,14 +67,14 @@ export function DiagPanel() {
       </header>
 
       <section className="diag-stats">
-        <Stat label="cycles" v={String(stats.cycles)} />
+        <Stat label="model runs" v={String(stats.cycles)} />
         <Stat label="lines in" v={`${stats.finals} final · ${stats.drafts} draft`} />
         <Stat label="final text lag" v={stats.finalLag !== null ? `${stats.finalLag.toFixed(1)}s` : '–'} hint="speech end → final text arrives" />
         <Stat label="model: suggest" v={stats.llmMs !== null ? `${(stats.llmMs / 1000).toFixed(1)}s` : '–'} />
         <Stat label="model: summary" v={stats.sumMs !== null ? `${(stats.sumMs / 1000).toFixed(1)}s` : '–'} />
-        <Stat label="briefs" v={`${stats.shown} shown · ${stats.dropped} dropped · ${stats.empty} empty`} />
-        <Stat label="said → brief" v={stats.spoken !== null ? `${stats.spoken.toFixed(0)}s median` : '–'} hint="from when the topic was said to the brief being ready (meeting time)" />
-        <Stat label="model busy" v={String(stats.busy)} hint="cycles where the model was still working, so only names and phrases were used" />
+        <Stat label="briefs" v={`${stats.shown} summarised · ${stats.dropped} dropped · ${stats.empty} empty`} />
+        <Stat label="said → passages, new topics" v={stats.fresh !== null ? `${stats.fresh.toFixed(1)}s median (${stats.freshN})` : '–'} hint="from the latest mention to passages on screen, for lookups within 10 s of the mention (meeting time)" />
+        <Stat label="follow-up angles" v={String(stats.followups)} hint="lookups about something mentioned more than 10 s earlier: the model returning to a thread" />
       </section>
 
       <div className="diag-list">
@@ -84,7 +84,7 @@ export function DiagPanel() {
             <div key={g.key} className="diag-cycle">
               <button className="diag-cycle-head" onClick={() => setOpen((o) => ({ ...o, [g.cycle]: !o[g.cycle] }))}>
                 <span className="clk">{mmss(g.items[g.items.length - 1].clock)}</span>
-                <b>Cycle {g.cycle}</b>
+                <b>{g.items.some((t) => t.kind === 'line') ? 'Line' : 'Model run'} #{g.cycle}</b>
                 <span className="dim">{cycleSummary(g.items)}</span>
                 <span className="chev">{open[g.cycle] === false ? '▸' : '▾'}</span>
               </button>
@@ -122,6 +122,13 @@ function Step({ t }: { t: Trace }) {
 function Detail({ t }: { t: Trace }) {
   const d = t.detail;
   switch (t.kind) {
+    case 'line':
+      return (
+        <>
+          <div className="kvline">{d.status} line from <b>{d.speaker}</b></div>
+          <Pre label="Line" text={d.text} />
+        </>
+      );
     case 'cycle':
       return (
         <>
@@ -146,6 +153,8 @@ function Detail({ t }: { t: Trace }) {
       return (
         <>
           {d.error && <div className="error small">{d.error}</div>}
+          {d.waitedForModelMs > 50 && <div className="kvline">waited {(d.waitedForModelMs / 1000).toFixed(1)}s for the model to be free</div>}
+          {d.droppedAboutOwner?.length > 0 && <div className="kvline">dropped as about you: {d.droppedAboutOwner.join(', ')}</div>}
           {d.prompt && <Pre label={`Sent to ${d.model}`} text={d.prompt} collapsed />}
           {d.raw !== undefined && <Pre label="Model replied" text={pretty(d.raw)} />}
         </>
@@ -201,8 +210,8 @@ function Detail({ t }: { t: Trace }) {
     case 'brief':
       return (
         <div className="kvline">
-          {d.outcome} · ready at {mmss(d.readyAt)}
-          {d.saidAt !== undefined && <> · first said at {mmss(d.saidAt)} → <b>{d.spokenAgo.toFixed(0)}s later</b></>}
+          {d.stage === 'summary' ? 'summary' : 'passages'}: {d.outcome} · ready at {mmss(d.readyAt)}
+          {d.saidAt !== undefined && <> · last said at {mmss(d.saidAt)} → <b>{d.spokenAgo.toFixed(1)}s later</b></>}
           {' '}· {(d.totalMs / 1000).toFixed(1)}s to look up and summarise
         </div>
       );
@@ -245,8 +254,8 @@ function median(xs: number[]): number | null {
 }
 
 function summarize(ts: Trace[]) {
-  let drafts = 0, finals = 0, shown = 0, dropped = 0, empty = 0, busy = 0;
-  const lags: number[] = [], llm: number[] = [], sums: number[] = [], spoken: number[] = [];
+  let drafts = 0, finals = 0, shown = 0, dropped = 0, empty = 0, followups = 0;
+  const lags: number[] = [], llm: number[] = [], sums: number[] = [], fresh: number[] = [];
   let cycles = 0;
   for (const t of ts) {
     if (t.kind === 'cycle' && t.cycle > 0) {
@@ -259,17 +268,19 @@ function summarize(ts: Trace[]) {
       }
     }
     if (t.kind === 'llm' && t.ms) llm.push(t.ms);
-    if (t.kind === 'llm' && t.title.startsWith('model busy')) busy++;
     if (t.kind === 'summary' && t.ms) sums.push(t.ms);
     if (t.kind === 'brief') {
       const o = t.detail?.outcome;
-      if (o === 'shown') shown++;
+      if (o === 'summary shown') shown++;
       else if (o === 'dropped') dropped++;
-      else empty++;
-      if (typeof t.detail?.spokenAgo === 'number') spoken.push(t.detail.spokenAgo);
+      else if (o === 'nothing found') empty++;
+      if (t.detail?.stage === 'passages' && typeof t.detail?.spokenAgo === 'number') {
+        if (t.detail.spokenAgo <= 10) fresh.push(t.detail.spokenAgo);
+        else followups++;
+      }
     }
   }
   const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
-  return { cycles, drafts, finals, finalLag: avg(lags), llmMs: avg(llm), sumMs: avg(sums), shown, dropped, empty, busy, spoken: median(spoken) };
+  return { cycles, drafts, finals, finalLag: avg(lags), llmMs: avg(llm), sumMs: avg(sums), shown, dropped, empty, followups, fresh: median(fresh), freshN: fresh.length };
 }
 

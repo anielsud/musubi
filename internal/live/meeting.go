@@ -12,9 +12,12 @@ type Meeting struct {
 	order   []string
 	segs    map[string]Segment
 	// version increases with every change, so the suggester can tell
-	// whether anything new was said.
+	// whether anything new was said; finals counts final lines applied.
 	version int
+	finals  int
 }
+
+func (m *Meeting) Finals() int { return m.finals }
 
 func NewMeeting(s Session) *Meeting {
 	return &Meeting{Session: s, segs: map[string]Segment{}}
@@ -34,6 +37,9 @@ func (m *Meeting) Apply(s Segment) {
 	}
 	m.segs[s.ID] = s
 	m.version++
+	if s.Status == "" {
+		m.finals++
+	}
 }
 
 func (m *Meeting) Version() int { return m.version }

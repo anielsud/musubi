@@ -43,6 +43,8 @@ type Brief struct {
 	// SpokenAgo is how long before the brief was ready the topic was first
 	// said (meeting seconds); -1 when the words weren't said as such.
 	SpokenAgo float64 `json:"spokenAgo"`
+	// Summarizing: passages are shown and a summary is on its way.
+	Summarizing bool `json:"summarizing"`
 }
 
 // Card summarises an entity named in the conversation.
@@ -67,8 +69,6 @@ type Live struct {
 	mode      string
 	scope     string
 	sug       *Suggester
-	lastVer   int
-	lastRun   time.Time
 	briefed   map[string]time.Time
 	onSaved   func()
 
@@ -80,6 +80,14 @@ type Live struct {
 
 	llmBusy sync.Mutex
 
+	ctx             context.Context
+	lastModelFinals int
+	wake            chan struct{}
+	sumQ            chan sumJob
+	chips           []Suggestion
+	lastModelVer    int
+	lastModelRun    time.Time
+
 	traceMu sync.Mutex
 	traces  []Trace
 	seq     int
@@ -88,7 +96,8 @@ type Live struct {
 }
 
 func New(eng *engine.Engine, emit Emit, onSaved func()) *Live {
-	return &Live{eng: eng, emit: emit, mode: "idle", scope: "owner", briefed: map[string]time.Time{}, onSaved: onSaved}
+	return &Live{eng: eng, emit: emit, mode: "idle", scope: "owner", briefed: map[string]time.Time{}, onSaved: onSaved,
+		ctx: context.Background(), wake: make(chan struct{}, 1), sumQ: make(chan sumJob, 16)}
 }
 
 // Reload rebuilds the suggester from the store (after an update).
@@ -172,15 +181,19 @@ func (l *Live) SetScope(name string) error {
 	l.mu.Lock()
 	l.scope = name
 	l.briefed = map[string]time.Time{}
-	l.lastVer = -1
+	l.lastModelVer = -1
 	l.mu.Unlock()
 	l.trace(0, "cycle", "scope set to "+name, 0, nil)
 	l.pushStatus()
 	return nil
 }
 
-// Run follows Tomoe's feed and runs the suggestion loop until ctx ends.
+// Run follows Tomoe's feed and runs the model lane and the summariser until
+// ctx ends.
 func (l *Live) Run(ctx context.Context) {
+	l.mu.Lock()
+	l.ctx = ctx
+	l.mu.Unlock()
 	if err := l.Reload(); err != nil {
 		l.emit("live:error", err.Error())
 	}
@@ -195,16 +208,8 @@ func (l *Live) Run(ctx context.Context) {
 		l.trace(0, "feed", state+" Tomoe", 0, nil)
 		l.pushStatus()
 	})
-	t := time.NewTicker(time.Second)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			l.tick(ctx)
-		}
-	}
+	go l.summarizer(ctx)
+	l.modelLoop(ctx)
 }
 
 // handle applies a feed (or replay) event.
@@ -233,7 +238,8 @@ func (l *Live) handle(ev Event, mode string) {
 			l.meeting = NewMeeting(*ev.Session)
 			l.mode = mode
 			l.briefed = map[string]time.Time{}
-			l.lastVer = 0
+			l.chips = nil
+			l.lastModelVer = 0
 			l.mu.Unlock()
 			l.resetTraces()
 			l.trace(0, "feed", "meeting started ("+mode+")", 0, map[string]any{"tomoeTitle": tomoeTitle, "calendarTitle": ev.Session.Title, "id": ev.Session.ID})
@@ -280,107 +286,253 @@ func (l *Live) handle(ev Event, mode string) {
 		}
 		l.traceMu.Unlock()
 		l.emit("live:segment", ev.Segment)
+		if ev.Segment.Status != "removed" {
+			select {
+			case l.wake <- struct{}{}:
+			default:
+			}
+			if l.eng.Cfg.Live.FastLane {
+				seg := *ev.Segment
+				go l.fastLane(seg)
+			}
+		}
 	}
 }
 
-// tick refreshes suggestions when enough new speech has arrived.
-func (l *Live) tick(ctx context.Context) {
-	l.mu.Lock()
-	m, sug := l.meeting, l.sug
-	if m == nil || sug == nil || m.Version() == l.lastVer {
-		l.mu.Unlock()
-		return
+// claimLocked marks a query as looked up, unless it, or one mostly about
+// the same words, was in the last few minutes. The model rephrases a
+// running topic every run; without this each rephrasing is a new lookup.
+func (l *Live) claimLocked(q string) (bool, string) {
+	key := normalize(q)
+	cw := contentWords(q)
+	for k, at := range l.briefed {
+		if time.Since(at) >= briefTTL {
+			continue
+		}
+		if k == key || overlap(cw, contentWords(k)) >= 0.5 {
+			return false, k
+		}
 	}
-	every := time.Duration(max(5, l.eng.Cfg.Live.SuggestEvery)) * time.Second
-	// In a replay the meeting clock can run faster than the wall clock.
-	if l.replay != nil && l.replaySpeed > 1 {
-		every = time.Duration(float64(every) / l.replaySpeed)
-	}
-	if l.lastVer > 0 && time.Since(l.lastRun) < every {
-		l.mu.Unlock()
-		return
-	}
-	l.lastVer, l.lastRun = m.Version(), time.Now()
-	window := float64(max(30, l.eng.Cfg.Live.Window))
-	recent := m.Recent(window)
-	lines := m.RecentLines(window)
-	exclude := []string{"tomoe:" + m.Session.ID}
-	scopeName := l.scope
-	l.mu.Unlock()
-	if strings.TrimSpace(recent) == "" {
-		return
-	}
+	l.briefed[key] = time.Now()
+	return true, ""
+}
+
+const (
+	briefTTL = 5 * time.Minute
+	// minLinePhrase is how distinctive a phrase in a single line must be
+	// to be looked up on its own (sum of word rarities, weighted by count).
+	minLinePhrase = 7.0
+	// staleSummary: a summary still queued this long after its passages
+	// were shown is skipped; the conversation has moved on.
+	staleSummary = 25 * time.Second
+	// draftRerun: with no new final text, the model reruns on drafts at
+	// most this often.
+	draftRerun = 1500 * time.Millisecond
+)
+
+func (l *Live) nextCycle() int {
 	l.traceMu.Lock()
+	defer l.traceMu.Unlock()
 	l.cycle++
-	cycle := l.cycle
+	return l.cycle
+}
+
+// fastLane looks up what a single line names, as soon as it arrives:
+// people and organisations in drafts or final text, and very distinctive
+// phrases in final text. No model is involved, so the passages appear well
+// within a second; a summary follows from the summariser.
+func (l *Live) fastLane(seg Segment) {
+	t0 := time.Now()
+	l.mu.Lock()
+	sug, m, scopeName, ctx := l.sug, l.meeting, l.scope, l.ctx
+	l.mu.Unlock()
+	if sug == nil || m == nil {
+		return
+	}
+	spotted := sug.Entities(seg.Text)
+	var phrases []PhraseScore
+	if seg.Status == "" && l.eng.Cfg.Live.PhraseLookups {
+		for _, p := range sug.PhraseScores(seg.Text, 2) {
+			if p.Score >= minLinePhrase && strings.Contains(p.Phrase, " ") {
+				phrases = append(phrases, p)
+			}
+		}
+	}
+	var todo []Suggestion
+	l.mu.Lock()
+	for _, e := range spotted {
+		if e.ID == l.eng.OwnerEntity() || len(todo) == 2 {
+			continue
+		}
+		if ok, _ := l.claimLocked(e.Name); ok {
+			todo = append(todo, Suggestion{Query: e.Name, Why: "just mentioned", Kind: "entity", EntityID: e.ID, Score: 2})
+		}
+	}
+	for _, p := range phrases {
+		if len(todo) == 2 {
+			break
+		}
+		if ok, _ := l.claimLocked(p.Phrase); ok {
+			todo = append(todo, Suggestion{Query: p.Phrase, Why: "distinctive phrase", Kind: "phrase", Score: 1})
+		}
+	}
+	window := float64(max(30, l.eng.Cfg.Live.Window))
+	lines := l.meeting.RecentLines(window)
+	recent := l.meeting.Recent(window)
+	exclude := []string{"tomoe:" + l.meeting.Session.ID}
+	l.mu.Unlock()
+	if len(todo) == 0 {
+		return
+	}
+	id := l.nextCycle()
+	status := "final"
+	if seg.Status == "live" {
+		status = "draft"
+	}
+	var names []string
+	for _, s := range todo {
+		names = append(names, s.Query)
+	}
+	l.trace(id, "line", fmt.Sprintf("%s line names %s", status, strings.Join(names, ", ")), time.Since(t0).Milliseconds(),
+		map[string]any{"status": status, "speaker": speakerName(seg.Speaker), "text": seg.Text, "spotted": spotted, "phrases": phrases})
+	l.addChips(todo...)
+	if sc, err := l.eng.Scope(scopeName); err == nil {
+		l.emit("live:entities", l.cards(sc, sug.Entities(recent), exclude))
+	}
+	for _, s := range todo {
+		go l.brief(ctx, id, s, exclude, scopeName, lines)
+	}
+}
+
+// addChips puts suggestions at the front of the chip row.
+func (l *Live) addChips(s ...Suggestion) {
+	l.mu.Lock()
+	all := dedupe(append(append([]Suggestion(nil), s...), l.chips...))
+	if len(all) > 8 {
+		all = all[:8]
+	}
+	l.chips = all
+	l.mu.Unlock()
+	l.emit("live:suggestions", all)
+}
+
+// modelLoop asks the model for queries whenever new speech has arrived,
+// one run after another (no fixed cadence unless suggest_every is set).
+func (l *Live) modelLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-l.wake:
+		}
+		// A burst of draft updates becomes one run.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(150 * time.Millisecond):
+		}
+		l.mu.Lock()
+		m, sug := l.meeting, l.sug
+		if m == nil || sug == nil || m.Version() == l.lastModelVer {
+			l.mu.Unlock()
+			continue
+		}
+		// Run on new final text; on draft changes alone only every few
+		// seconds, or the model reruns on every partial word.
+		if m.Finals() == l.lastModelFinals && time.Since(l.lastModelRun) < draftRerun {
+			wait := draftRerun - time.Since(l.lastModelRun)
+			l.mu.Unlock()
+			go func() {
+				time.Sleep(wait)
+				select {
+				case l.wake <- struct{}{}:
+				default:
+				}
+			}()
+			continue
+		}
+		l.lastModelFinals = m.Finals()
+		gap := time.Duration(l.eng.Cfg.Live.SuggestEvery) * time.Second
+		if l.replay != nil && l.replaySpeed > 1 {
+			gap = time.Duration(float64(gap) / l.replaySpeed)
+		}
+		if wait := gap - time.Since(l.lastModelRun); gap > 0 && wait > 0 {
+			l.mu.Unlock()
+			go func() {
+				time.Sleep(wait)
+				select {
+				case l.wake <- struct{}{}:
+				default:
+				}
+			}()
+			continue
+		}
+		l.lastModelVer, l.lastModelRun = m.Version(), time.Now()
+		window := float64(max(30, l.eng.Cfg.Live.Window))
+		recent, lines := m.Recent(window), m.RecentLines(window)
+		exclude := []string{"tomoe:" + m.Session.ID}
+		scopeName := l.scope
+		l.mu.Unlock()
+		if strings.TrimSpace(recent) != "" {
+			l.modelCycle(ctx, sug, recent, lines, exclude, scopeName)
+		}
+	}
+}
+
+// modelCycle runs one model suggestion and briefs on its top queries. With
+// the fast lane off it also does the names and phrases, as a whole cycle.
+func (l *Live) modelCycle(ctx context.Context, sug *Suggester, recent string, lines []Segment, exclude []string, scopeName string) {
+	id := l.nextCycle()
+	l.traceMu.Lock()
 	fs := l.feed.summary()
 	l.feed = feedStats{}
 	l.traceMu.Unlock()
-	l.trace(cycle, "cycle", fmt.Sprintf("cycle %d: read the last %.0fs (%d lines)", cycle, window, len(lines)), 0, map[string]any{
+	l.trace(id, "cycle", fmt.Sprintf("model run: reading the last %ds (%d lines)", max(30, l.eng.Cfg.Live.Window), len(lines)), 0, map[string]any{
 		"feed": fs, "window": recent, "scope": scopeName, "exclude": exclude,
 	})
-	go l.suggest(ctx, cycle, sug, recent, lines, exclude, scopeName)
-}
-
-func (l *Live) suggest(ctx context.Context, cycle int, sug *Suggester, recent string, lines []Segment, exclude []string, scopeName string) {
 	sc, err := l.eng.Scope(scopeName)
 	if err != nil {
 		return
 	}
-	t0 := time.Now()
-	spotted := sug.Entities(recent)
-	cards := l.cards(sc, spotted, exclude)
-	var shown []string
-	for _, c := range cards {
-		shown = append(shown, c.Name)
-	}
-	l.trace(cycle, "entities", fmt.Sprintf("%d names recognised, %d cards visible", len(spotted), len(cards)), time.Since(t0).Milliseconds(),
-		map[string]any{"spotted": spotted, "cards": shown})
-	l.emit("live:entities", cards)
-
 	var out []Suggestion
-	// The model reads the conversation; a cloud model may not.
+	if !l.eng.Cfg.Live.FastLane {
+		spotted := sug.Entities(recent)
+		l.emit("live:entities", l.cards(sc, spotted, exclude))
+		for i, e := range spotted {
+			if i == 2 {
+				break
+			}
+			out = append(out, Suggestion{Query: e.Name, Why: fmt.Sprintf("mentioned %d×", e.Count), Kind: "entity", EntityID: e.ID, Score: 2 - float64(i)*0.1})
+		}
+		for i, p := range sug.PhraseScores(recent, 3) {
+			out = append(out, Suggestion{Query: p.Phrase, Why: "distinctive phrase", Kind: "phrase", Score: 1 - float64(i)*0.1})
+		}
+	}
 	switch {
 	case l.eng.Chat == nil || !l.eng.Cfg.Live.LLMSuggestions:
-		l.trace(cycle, "llm", "model suggestions off", 0, nil)
+		l.trace(id, "llm", "model suggestions off", 0, nil)
 	case !l.eng.Chat.Local():
-		l.trace(cycle, "llm", "model suggestions skipped: the model isn't local", 0, nil)
-	case !l.llmBusy.TryLock():
-		l.trace(cycle, "llm", "model busy; this cycle uses names and phrases only", 0, nil)
+		// The model would read the conversation; a cloud model may not.
+		l.trace(id, "llm", "model suggestions skipped: the model isn't local", 0, nil)
 	default:
 		t1 := time.Now()
-		qs, raw, prompt, err := sug.FromLLM(ctx, l.eng.Chat, l.eng.Cfg.Owner.Name, recent, spotted)
+		l.llmBusy.Lock()
+		waited := time.Since(t1)
+		t2 := time.Now()
+		qs, raw, prompt, err := sug.FromLLM(ctx, l.eng.Chat, l.eng.Cfg.Owner.Name, recent, nil)
 		l.llmBusy.Unlock()
-		detail := map[string]any{"model": l.eng.Chat.Model, "prompt": prompt, "raw": raw}
+		var aboutOwner []string
+		qs, aboutOwner = dropOwner(qs, l.eng.Cfg.Owner.Name)
+		detail := map[string]any{"model": l.eng.Chat.Model, "prompt": prompt, "raw": raw, "waitedForModelMs": waited.Milliseconds(), "droppedAboutOwner": aboutOwner}
 		if err != nil {
 			detail["error"] = err.Error()
 			l.emit("live:error", "suggestions: "+err.Error())
 		}
-		l.trace(cycle, "llm", fmt.Sprintf("model suggested %d queries", len(qs)), time.Since(t1).Milliseconds(), detail)
+		l.trace(id, "llm", fmt.Sprintf("model suggested %d queries", len(qs)), time.Since(t2).Milliseconds(), detail)
 		out = append(out, qs...)
 	}
-	for i, e := range spotted {
-		if i == 2 {
-			break
-		}
-		out = append(out, Suggestion{Query: e.Name, Why: fmt.Sprintf("mentioned %d×", e.Count), Kind: "entity", EntityID: e.ID, Score: 2 - float64(i)*0.1})
-	}
-	t2 := time.Now()
-	phrases := sug.PhraseScores(recent, 3)
-	var ptrace []map[string]any
-	for i, p := range phrases {
-		out = append(out, Suggestion{Query: p.Phrase, Why: "distinctive phrase", Kind: "phrase", Score: 1 - float64(i)*0.1})
-		ptrace = append(ptrace, map[string]any{"phrase": p.Phrase, "score": p.Score, "said": p.Count})
-	}
-	l.trace(cycle, "phrases", fmt.Sprintf("%d distinctive phrases", len(phrases)), time.Since(t2).Milliseconds(), ptrace)
 	out = dedupe(out)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
-	if len(out) > 6 {
-		out = out[:6]
-	}
-	l.emit("live:suggestions", out)
-
-	// Brief on the top suggestions not briefed in the last few minutes.
 	type decision struct {
 		Query    string  `json:"query"`
 		Kind     string  `json:"kind"`
@@ -390,28 +542,26 @@ func (l *Live) suggest(ctx context.Context, cycle int, sug *Suggester, recent st
 	}
 	var decisions []decision
 	var todo []Suggestion
+	l.mu.Lock()
 	for _, s := range out {
-		key := normalize(s.Query)
 		d := decision{Query: s.Query, Kind: s.Kind, Score: s.Score, SaidAt: evidenceAt(s.Query, lines)}
-		l.mu.Lock()
-		last, seen := l.briefed[key]
-		fresh := !seen || time.Since(last) > 5*time.Minute
-		switch {
-		case len(todo) >= l.eng.Cfg.Live.AutoBrief:
-			d.Decision = "shown, not looked up (below the top " + fmt.Sprint(l.eng.Cfg.Live.AutoBrief) + ")"
-		case !fresh:
-			d.Decision = fmt.Sprintf("skipped: looked up %s ago", time.Since(last).Round(time.Second))
-		default:
-			l.briefed[key] = time.Now()
+		if len(todo) >= l.eng.Cfg.Live.AutoBrief {
+			d.Decision = fmt.Sprintf("shown, not looked up (below the top %d)", l.eng.Cfg.Live.AutoBrief)
+		} else if ok, like := l.claimLocked(s.Query); !ok {
+			d.Decision = "skipped: like “" + like + "”, looked up recently"
+		} else {
 			d.Decision = "looking up"
 			todo = append(todo, s)
 		}
-		l.mu.Unlock()
 		decisions = append(decisions, d)
 	}
-	l.trace(cycle, "rank", fmt.Sprintf("%d suggestions, %d to look up", len(out), len(todo)), 0, decisions)
+	l.mu.Unlock()
+	if len(out) > 0 {
+		l.addChips(out...)
+	}
+	l.trace(id, "rank", fmt.Sprintf("%d suggestions, %d to look up", len(out), len(todo)), 0, decisions)
 	for _, s := range todo {
-		l.brief(ctx, cycle, s, exclude, scopeName, lines)
+		go l.brief(ctx, id, s, exclude, scopeName, lines)
 	}
 }
 
@@ -425,12 +575,20 @@ func (l *Live) Brief(ctx context.Context, s Suggestion, exclude []string, scopeN
 		}
 		lines = l.meeting.RecentLines(float64(max(30, l.eng.Cfg.Live.Window)))
 	}
+	l.briefed[normalize(s.Query)] = time.Now()
 	l.mu.Unlock()
-	l.brief(ctx, 0, s, exclude, scopeName, lines)
+	l.brief(ctx, l.nextCycle(), s, exclude, scopeName, lines)
 }
 
-// brief searches for a suggestion and, if a local model is available,
-// writes a two-sentence summary of what was found.
+type sumJob struct {
+	cycle int
+	b     Brief
+	said  float64
+	ready time.Time
+}
+
+// brief searches for a suggestion and shows the passages straight away;
+// the summary follows from the summariser.
 func (l *Live) brief(ctx context.Context, cycle int, s Suggestion, exclude []string, scopeName string, lines []Segment) {
 	b := Brief{Query: s.Query, Why: s.Why, Kind: s.Kind, State: "loading", At: time.Now(), SpokenAgo: -1}
 	said := evidenceAt(s.Query, lines)
@@ -461,53 +619,101 @@ func (l *Live) brief(ctx context.Context, cycle int, s Suggestion, exclude []str
 	b.Hits = hits
 	if len(hits) == 0 {
 		b.State = "empty"
-		l.finishBrief(cycle, b, said, "nothing found")
+		l.finishBrief(cycle, b, said, "nothing found", "passages")
 		return
 	}
-	if l.eng.Chat != nil && l.eng.Chat.Local() {
-		t1 := time.Now()
-		l.llmBusy.Lock()
-		waited := time.Since(t1)
-		user := ask.Excerpts(hits) + "\nTopic: " + s.Query
-		sum, err := l.eng.Chat.Complete(ctx, []provider.Message{
-			{Role: "system", Content: briefPrompt},
-			{Role: "user", Content: user},
-		}, provider.ChatOptions{Temperature: 0.2, MaxTokens: 160}, nil)
-		l.llmBusy.Unlock()
-		sum = strings.TrimSpace(sum)
-		verdict := "summary kept"
-		switch {
-		case err != nil:
-			verdict = "model error; showing passages"
-			b.Summary = ""
-		case strings.HasPrefix(strings.ToUpper(sum), "NONE"):
-			verdict = "model said the results aren't about the topic: dropped"
+	b.State = "done"
+	summarise := l.eng.Chat != nil && l.eng.Chat.Local()
+	b.Summarizing = summarise
+	l.finishBrief(cycle, b, said, "passages shown", "passages")
+	if summarise {
+		select {
+		case l.sumQ <- sumJob{cycle: cycle, b: b, said: said, ready: time.Now()}:
 		default:
-			b.Summary = sum
-		}
-		l.trace(cycle, "summary", verdict, time.Since(t1).Milliseconds(), map[string]any{
-			"query": s.Query, "raw": sum, "waitedForModelMs": waited.Milliseconds(), "error": errString(err)})
-		if strings.HasPrefix(strings.ToUpper(sum), "NONE") {
-			b.State, b.Hits = "empty", nil
-			l.finishBrief(cycle, b, said, "dropped")
-			return
+			l.trace(cycle, "summary", "summary queue full; passages only", 0, nil)
+			b.Summarizing = false
+			l.emit("live:brief", b)
 		}
 	}
-	b.State = "done"
-	l.finishBrief(cycle, b, said, "shown")
 }
 
-func (l *Live) finishBrief(cycle int, b Brief, said float64, outcome string) {
+// summarizer writes brief summaries one at a time, newest first, skipping
+// ones the conversation has moved past.
+func (l *Live) summarizer(ctx context.Context) {
+	for {
+		var job sumJob
+		select {
+		case <-ctx.Done():
+			return
+		case job = <-l.sumQ:
+		}
+		// Newest first: take whatever else is waiting and keep the latest.
+		pending := []sumJob{job}
+		for more := true; more; {
+			select {
+			case j := <-l.sumQ:
+				pending = append(pending, j)
+			default:
+				more = false
+			}
+		}
+		for i := len(pending) - 1; i >= 0; i-- {
+			l.summarise(ctx, pending[i])
+		}
+	}
+}
+
+func (l *Live) summarise(ctx context.Context, job sumJob) {
+	b := job.b
+	if age := time.Since(job.ready); age > staleSummary {
+		b.Summarizing = false
+		l.emit("live:brief", b)
+		l.trace(job.cycle, "summary", fmt.Sprintf("“%s”: skipped, %s old", b.Query, age.Round(time.Second)), 0, nil)
+		return
+	}
+	t1 := time.Now()
+	l.llmBusy.Lock()
+	waited := time.Since(t1)
+	t2 := time.Now()
+	sum, err := l.eng.Chat.Complete(ctx, []provider.Message{
+		{Role: "system", Content: briefPrompt},
+		{Role: "user", Content: ask.Excerpts(b.Hits) + "\nTopic: " + b.Query},
+	}, provider.ChatOptions{Temperature: 0.2, MaxTokens: 160}, nil)
+	l.llmBusy.Unlock()
+	sum = strings.TrimSpace(sum)
+	b.Summarizing = false
+	verdict := "summary kept"
+	dropped := false
+	switch {
+	case err != nil:
+		verdict = "model error; passages only"
+	case strings.HasPrefix(strings.ToUpper(sum), "NONE"):
+		verdict = "model said the results aren't about the topic: dropped"
+		dropped = true
+	default:
+		b.Summary = sum
+	}
+	l.trace(job.cycle, "summary", verdict, time.Since(t2).Milliseconds(), map[string]any{
+		"query": b.Query, "raw": sum, "waitedForModelMs": waited.Milliseconds(), "error": errString(err)})
+	if dropped {
+		b.State, b.Hits = "empty", nil
+		l.finishBrief(job.cycle, b, job.said, "dropped", "summary")
+		return
+	}
+	l.finishBrief(job.cycle, b, job.said, "summary shown", "summary")
+}
+
+func (l *Live) finishBrief(cycle int, b Brief, said float64, outcome, stage string) {
 	now := l.clock()
 	if said >= 0 {
 		b.SpokenAgo = now - said
 	}
 	l.emit("live:brief", b)
-	d := map[string]any{"query": b.Query, "outcome": outcome, "readyAt": now, "totalMs": time.Since(b.At).Milliseconds()}
+	d := map[string]any{"query": b.Query, "kind": b.Kind, "outcome": outcome, "stage": stage, "readyAt": now, "totalMs": time.Since(b.At).Milliseconds()}
 	title := fmt.Sprintf("“%s”: %s", b.Query, outcome)
 	if said >= 0 {
 		d["saidAt"], d["spokenAgo"] = said, b.SpokenAgo
-		title += fmt.Sprintf(", %.0fs after it was said", b.SpokenAgo)
+		title += fmt.Sprintf(", %.1fs after it was said", b.SpokenAgo)
 	}
 	l.trace(cycle, "brief", title, time.Since(b.At).Milliseconds(), d)
 }
@@ -676,7 +882,8 @@ func (l *Live) ReplayClock(t float64) {
 		c.next = 0
 		l.meeting = NewMeeting(l.meeting.Session)
 		l.briefed = map[string]time.Time{}
-		l.lastVer = 0
+		l.chips = nil
+		l.lastModelVer = 0
 		c.last = t
 		l.mu.Unlock()
 		l.emit("live:reset", c.session)

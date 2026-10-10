@@ -323,3 +323,4 @@ main > div { height: 100%; }
 /* Scrolling flex columns: children keep their height instead of being
    squashed to fit. */
 .diag-list > *, .view > *, .turns > * { flex-shrink: 0; }
+.kind-line { color: var(--accent); background: rgba(94,234,212,0.08); }

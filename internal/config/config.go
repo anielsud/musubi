@@ -38,8 +38,17 @@ type LLM struct {
 type Live struct {
 	// TomoeSocket is Tomoe's live feed (Tomoe's [meeting] live_feed = true).
 	TomoeSocket string `toml:"tomoe_socket"`
-	// SuggestEvery is how often, in seconds, suggestions are refreshed while
-	// new speech arrives.
+	// FastLane looks up names and distinctive phrases as soon as a line
+	// (or a live draft) contains them, without waiting for the model.
+	// false, with suggest_every = 20, restores the first behaviour: one
+	// cycle every 20 s doing everything.
+	FastLane bool `toml:"fast_lane"`
+	// PhraseLookups looks up distinctive phrases from single lines on
+	// their own. Off: on real meetings they were mostly fragments ("moves
+	// the bar"); the model's queries cover topics better.
+	PhraseLookups bool `toml:"phrase_lookups"`
+	// SuggestEvery is the minimum gap, in seconds, between the model's query
+	// suggestions; 0 runs them back to back while new speech arrives.
 	SuggestEvery int `toml:"suggest_every"`
 	// Window is how many seconds of recent conversation suggestions read.
 	Window int `toml:"window"`
@@ -85,8 +94,8 @@ func DefaultConfig() Config {
 		Sensitivity:   Sensitivity{InternalMinAudience: 15},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
-			TomoeSocket:  filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
-			SuggestEvery: 20, Window: 120, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true,
+			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
+			FastLane:    true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true,
 		},
 	}
 }

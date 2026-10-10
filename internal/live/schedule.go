@@ -50,7 +50,7 @@ func buildSchedule(segs []Segment) []timed {
 				}
 				lastN = n
 				d := g
-				d.Status, d.Words = "live", nil
+				d.Status, d.Words = "live", g.Words[:n]
 				d.Text = draftText(g.Words[:n])
 				out = append(out, timed{At: t, Seg: d})
 			}
@@ -70,9 +70,7 @@ func buildSchedule(segs []Segment) []timed {
 		if decode < minDecodeTime {
 			decode = minDecodeTime
 		}
-		f := g
-		f.Words = nil
-		out = append(out, timed{At: closeAt + decode, Seg: f})
+		out = append(out, timed{At: closeAt + decode, Seg: g})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].At < out[j].At })
 	return out

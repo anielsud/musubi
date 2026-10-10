@@ -31,3 +31,11 @@ func TestScheduleDraftsThenFinalAfterGap(t *testing.T) {
 		}
 	}
 }
+
+func TestDropOwner(t *testing.T) {
+	qs := []Suggestion{{Query: "anil sud meeting schedule"}, {Query: "Aniel's notes"}, {Query: "patch deadline for the bank"}, {Query: "Sudan trip"}}
+	keep, dropped := dropOwner(qs, "Aniel Sud")
+	if len(keep) != 2 || keep[0].Query != "patch deadline for the bank" || keep[1].Query != "Sudan trip" {
+		t.Errorf("keep = %v, dropped = %v", keep, dropped)
+	}
+}

@@ -61,6 +61,8 @@ export interface Brief {
   summary: string;
   hits: Hit[] | null;
   at: string;
+  spokenAgo: number;
+  summarizing: boolean;
 }
 
 export interface Card {

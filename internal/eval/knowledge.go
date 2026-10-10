@@ -45,7 +45,7 @@ func (h *Harness) knowledgeCase(c Case, s *Suite) (Result, error) {
 	case "statement":
 		return h.statementCase(c)
 	case "claim":
-		cv, err := findClaim(v, c.ClaimHas)
+		cv, err := findClaimKind(v, c.ClaimHas, c.ClaimKind)
 		if err != nil {
 			return r, err
 		}
@@ -121,6 +121,42 @@ func (h *Harness) knowledgeCase(c Case, s *Suite) (Result, error) {
 				}
 			}
 		}
+		if len(c.Apart) == 2 {
+			a, err := findClaim(v, c.Apart[0])
+			if err != nil {
+				return r, err
+			}
+			b, err := findClaim(v, c.Apart[1])
+			if err != nil {
+				return r, err
+			}
+			switch {
+			case a == nil || b == nil:
+				r.Pass = false
+				notes = append(notes, fmt.Sprintf("claims not found (%v, %v)", a != nil, b != nil))
+			case a.TopicID == 0 || b.TopicID == 0:
+				r.Pass = false
+				notes = append(notes, fmt.Sprintf("a claim has no topic (%d, %d)", a.TopicID, b.TopicID))
+			case a.TopicID == b.TopicID:
+				r.Pass = false
+				notes = append(notes, fmt.Sprintf("both in topic %d", a.TopicID))
+			case len(c.LinkKinds) > 0:
+				tv, err := v.Topic(a.TopicID)
+				if err != nil {
+					return r, err
+				}
+				found := ""
+				for _, rel := range tv.Related {
+					if rel.ID == b.TopicID {
+						found = rel.Kind
+					}
+				}
+				if !contains(c.LinkKinds, found) {
+					r.Pass = false
+					notes = append(notes, fmt.Sprintf("topics %d and %d related as %q, want %v", a.TopicID, b.TopicID, found, c.LinkKinds))
+				}
+			}
+		}
 		if len(c.LabelLacks) > 0 {
 			ts, err := v.Topics()
 			if err != nil {
@@ -141,9 +177,14 @@ func (h *Harness) knowledgeCase(c Case, s *Suite) (Result, error) {
 	return r, fmt.Errorf("unknown kind")
 }
 
-// findClaim returns the visible claim whose statements contain the words,
-// preferring the one with the most matching statements.
 func findClaim(v knowledge.Views, words []string) (*knowledge.ClaimView, error) {
+	return findClaimKind(v, words, "")
+}
+
+// findClaimKind returns the visible claim (of kind, if given) whose
+// statements contain the words, preferring the one with the most matching
+// statements.
+func findClaimKind(v knowledge.Views, words []string, kind string) (*knowledge.ClaimView, error) {
 	ids, err := v.Store.AllClaimIDs()
 	if err != nil {
 		return nil, err
@@ -155,6 +196,9 @@ func findClaim(v knowledge.Views, words []string) (*knowledge.ClaimView, error) 
 	var best *knowledge.ClaimView
 	bestN := 0
 	for i := range cs {
+		if kind != "" && cs[i].Kind != kind {
+			continue
+		}
 		n := 0
 		for _, st := range cs[i].Statements {
 			if hasAll(st.Text, words) {

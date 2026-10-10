@@ -666,8 +666,13 @@ func knowledgeCmd() *cobra.Command {
 			}
 			start := time.Now()
 			ks, err := r.Knowledge(cmd.Context(), o)
-			fmt.Fprintf(os.Stderr, "knowledge: %d items, %d statements (%d embedded), claims %d new / %d joined / %d judged, %d relations, %d topics; %d items still to extract; %s\n",
-				ks.Items, ks.Statements, ks.Embedded, ks.Link.New, ks.Link.Joined, ks.Link.Judged, ks.Link.Related, ks.Topics, ks.Pending, time.Since(start).Round(time.Second))
+			per := time.Duration(0)
+			if ks.Chunks > 0 {
+				per = ks.ExtractTime / time.Duration(ks.Chunks)
+			}
+			fmt.Fprintf(os.Stderr, "knowledge: %d items (%d passages, extraction %s, %s per passage), %d statements (%d embedded), claims %d new / %d joined / %d judged (linking %s), %d relations, %d topics; %d items still to extract; %s total\n",
+				ks.Items, ks.Chunks, ks.ExtractTime.Round(time.Second), per.Round(100*time.Millisecond), ks.Statements, ks.Embedded,
+				ks.Link.New, ks.Link.Joined, ks.Link.Judged, ks.LinkTime.Round(time.Second), ks.Link.Related, ks.Topics, ks.Pending, time.Since(start).Round(time.Second))
 			return err
 		},
 	}
@@ -725,7 +730,11 @@ func claimsCmd() *cobra.Command {
 				printClaim(c)
 				if verbose {
 					for _, st := range c.Statements {
-						fmt.Printf("       · %s %s (%s, %s, %s) %s#%d\n", st.SaidAt.Format("Jan 2"), st.Holder, st.Kind, st.Certainty, st.Label.Level, st.ItemID, st.ChunkSeq)
+						val := ""
+						if st.Value.Type != "none" && st.Value.Raw != "" {
+							val = fmt.Sprintf(", %s %q", st.Value.Type, st.Value.Raw)
+						}
+						fmt.Printf("       · %s %s (%s, %.0f%% sure%s, %s) %s#%d\n", st.SaidAt.Format("Jan 2"), st.Holder, st.Kind, st.Certainty*100, val, st.Label.Level, st.ItemID, st.ChunkSeq)
 						fmt.Printf("         %s\n", st.Text)
 					}
 				}

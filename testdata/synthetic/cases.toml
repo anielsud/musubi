@@ -434,7 +434,8 @@ text_has = ["promot"]
 id = "KC01"
 kind = "claim"
 note = "a hypothesis later ruled out"
-claim_has = ["load balancer", "might"]
+claim_has = ["load balancer"]
+claim_kind = "hypothesis"
 statuses = ["disproven", "contested"]
 relation = "contradicts"
 related_has = ["load balancer"]
@@ -518,3 +519,18 @@ id = "KT03"
 kind = "topic"
 scope = "reply:tom.becker@acmefreight.example"
 label_lacks = ["Kestrel", "152k", "raise", "performance review", "vulnerability"]
+
+[[case]]
+id = "KC10"
+kind = "claim"
+note = "a value made more precise refines rather than contradicts"
+claim_has = ["mid November"]
+relation = "refines"
+related_has = ["sign-on"]
+
+[[case]]
+id = "KT04"
+kind = "topic"
+note = "the same kind of ask from two customers: separate topics, linked (here also through a line naming both)"
+apart = [["Acme", "SSO"], ["Bluegill", "sign-on"]]
+link_kinds = ["same", "parallel", "similar", "together"]

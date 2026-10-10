@@ -1,7 +1,9 @@
 package store
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -136,8 +138,8 @@ func (s *Store) ReplaceChunks(itemID, version, hash string, chunks []Chunk) erro
 			return err
 		}
 		for _, c := range chunks {
-			if _, err := tx.Exec(`INSERT INTO chunks(item_id, seq, seg_from, seg_to, start_s, end_s, speakers, title, text) VALUES (?,?,?,?,?,?,?,?,?)`,
-				itemID, c.Seq, c.SegFrom, c.SegTo, c.Start, c.End, c.Speakers, c.Title, c.Text); err != nil {
+			if _, err := tx.Exec(`INSERT INTO chunks(item_id, seq, seg_from, seg_to, start_s, end_s, speakers, title, text, text_hash) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+				itemID, c.Seq, c.SegFrom, c.SegTo, c.Start, c.End, c.Speakers, c.Title, c.Text, textHash(c.Text)); err != nil {
 				return err
 			}
 		}
@@ -614,4 +616,9 @@ func (s *Store) EventAt(t time.Time) (string, error) {
 		return "", nil
 	}
 	return title, err
+}
+
+func textHash(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:12])
 }

@@ -153,10 +153,9 @@ export interface Statement {
   text: string;
   holder: string;
   holderId?: string;
-  certainty: string;
+  certainty: number;
   saidAt: string;
-  when?: string;
-  about?: string[];
+  value: { type: string; raw: string; lo: number; hi: number; normalized: boolean };
   itemKind?: string;
   itemTitle?: string;
   label: Label;
@@ -211,7 +210,9 @@ export interface TopicSummary {
 export interface TopicView extends TopicSummary {
   claimList: ClaimView[] | null;
   people: { name: string; id?: string; claims: number }[] | null;
-  related: { id: number; label: string; sim: number; shared: number; unconnected: boolean }[] | null;
+  entities: { id: string; name: string; type: string; claims: number }[] | null;
+  related: { id: number; label: string; sim: number; shared: number; kind: string; via?: string[]; unconnected: boolean }[] | null;
+  events: { at: string; topicId: number; event: string; other?: number; detail: string }[] | null;
 }
 
 export interface KnowledgeCounts {

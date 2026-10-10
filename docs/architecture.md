@@ -185,8 +185,13 @@ statement has:
   question;
 - **text**: self-contained, with names made explicit;
 - **holder**: who said it, resolved to a person through the speaker labels;
-- **certainty** as expressed: high, medium or low;
-- **said_at**, and **when**: the time it refers to ("ship on the 22nd");
+- **certainty** as expressed, from 0 to 1;
+- **said_at**;
+- **value**: the date, amount, number, percentage or duration it turns on,
+  as said ("Q4", "mid November"). It is normalised in code into bounds
+  (Oct–Dec; Nov 10–20), so values compare deterministically: within,
+  contains, same, or differs. "Mid November" within "Q4" refines;
+  "22 Sep" against "29 Sep" differs.
 - **line**: the passage line it came from, so it inherits that passage's
   sensitivity and can be cited exactly.
 
@@ -257,13 +262,79 @@ changing the formula re-scores everything.
 
 ### Topics (`topics` step)
 
+Topics are cross-linked, not nested. A commitment to one customer is linked:
+- to other topics about the same customer;
+- to the same kind of commitment for other customers ("parallel");
+- to the topics it is discussed alongside.
+
+Claims naming different organisations or projects are pushed apart while
+clustering, so those become separate, linked topics.
+
 1. Claims are clustered by centroid (agglomerative, average link).
 2. Each cluster is labelled by the model, with a one-line summary.
 3. Topics keep their ids across runs: a new cluster takes the id of the
    previous topic whose claims it mostly shares.
-4. Topics relate to each other by meaning (centroid similarity) and by being
-   discussed together (sharing items). Similar in meaning but never
-   discussed together is shown as a possible connection nobody has made.
+4. Topics relate to each other, as:
+   - **same**: they share a customer or project;
+   - **together**: they are discussed in the same items;
+   - **parallel**: alike in meaning, about different customers or projects;
+   - **similar**.
+
+   Similar but never discussed together is shown as a possible connection
+   nobody has made.
+5. Each rebuild records lifecycle events: born, grew, shrank, merged, split,
+   absorbed, dissolved.
+
+### Cost and scale
+
+The final corpus is much larger than today's:
+- meetings back to late last year;
+- a year of email;
+- six months of chat;
+- SharePoint.
+
+We optimise for two things, lookup time and storage, and recomputing must
+stay cheap.
+
+- **One expensive step, run once.** Extraction (a model writing statements)
+  is the only costly stage. Everything after it is cheap and recomputes from
+  statements in minutes:
+  - classification rules;
+  - value normalisation (in Go);
+  - entity matching;
+  - linking (incremental);
+  - topics;
+  - belief (computed at read time).
+
+  Its prompt version changes only when unavoidable.
+- **Taxonomy changes without re-extraction.** A new kind is added by
+  re-classifying the affected statements (one word each, many per call), not
+  by re-extracting. Statement ids, claims and judgements stay put.
+  Judgements are anchored to the source line, not the wording.
+- **Extraction by need.**
+  - Meetings and direct email or chat are extracted as they arrive.
+  - The long tail (old mail, newsletters, SharePoint) is chunked, embedded
+    and searchable at once, and extracted lazily, the first time it is
+    retrieved or a topic needs it.
+- **Compact output.** The model writes only what Musubi can't derive:
+  statement, kind, holder, certainty, and a raw value. Entities, normalised
+  values and sensitivity are derived in code. The JSON schema keeps replies
+  well-formed, so a smaller model can be tried.
+- **Vectors are kept full** (float32). Re-embedding is the second costliest
+  recompute, and every compact form can be derived from full vectors without
+  it:
+  - Matryoshka truncation;
+  - int8;
+  - binary codes for a first-pass scan with re-ranking.
+
+  Search stays exact over the scope-filtered rows up to a few hundred
+  thousand chunks. Beyond that, a binary prefilter (96 bytes per vector,
+  tens of milliseconds per million) feeds a float re-rank of the top few
+  hundred. The scope filter still applies before ranking, never after.
+- **Topics at scale.** Full average-link clustering is O(n²). It is fine to
+  roughly 20,000 claims; past that, claims are assigned incrementally to
+  their nearest topic, and re-clustered within organisation and project
+  partitions.
 
 ### Sensitivity in the knowledge layer
 

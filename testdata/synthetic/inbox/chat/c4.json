@@ -1,0 +1,37 @@
+{
+ "kind": "chat",
+ "source": "chat",
+ "ref": "c4",
+ "record": {
+  "chatId": "c4",
+  "topic": "",
+  "members": [
+   {
+    "name": "Jordan Pike",
+    "email": "jordan.pike@northwind.example"
+   },
+   {
+    "name": "Sam Okafor",
+    "email": "sam.okafor@northwind.example"
+   }
+  ],
+  "messages": [
+   {
+    "from": {
+     "name": "Sam Okafor",
+     "email": "sam.okafor@northwind.example"
+    },
+    "sentAt": "2026-09-24T11:00:00-04:00",
+    "text": "Nina confirmed Bluegill Bank needs single sign-on live by mid November, not just sometime in Q4."
+   },
+   {
+    "from": {
+     "name": "Jordan Pike",
+     "email": "jordan.pike@northwind.example"
+    },
+    "sentAt": "2026-09-24T11:01:00-04:00",
+    "text": "Good to know. That fits the two-sprint plan."
+   }
+  ]
+ }
+}

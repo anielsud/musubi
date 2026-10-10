@@ -27,7 +27,7 @@ var schema string
 // schemaVersion changes when schema.sql changes incompatibly. Everything
 // except the forget list and the audit log is rebuilt from the raw store, so
 // an upgrade drops the derived tables and the next update refills them.
-const schemaVersion = 2
+const schemaVersion = 3
 
 // kept survive a schema upgrade: they are not derived from raw.
 var kept = map[string]bool{"forgotten": true, "audit": true, "judgments": true}
@@ -95,7 +95,40 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	_, err = db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion))
-	return err
+	if err != nil {
+		return err
+	}
+	return upgradeKept(db)
+}
+
+// upgradeKept adds columns to kept tables (which a version change doesn't
+// drop) in place.
+func upgradeKept(db *sql.DB) error {
+	cols := map[string]bool{}
+	rows, err := db.Query(`PRAGMA table_info(judgments)`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk)
+		cols[name] = true
+	}
+	rows.Close()
+	if len(cols) == 0 {
+		return nil // created fresh by the schema
+	}
+	for _, c := range []string{"chunk_hash TEXT NOT NULL DEFAULT ''", "line INTEGER NOT NULL DEFAULT 0"} {
+		name := strings.Fields(c)[0]
+		if !cols[name] {
+			if _, err := db.Exec(`ALTER TABLE judgments ADD COLUMN ` + c); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // visArgs builds the SQL that limits rows to scope. il and cl are the

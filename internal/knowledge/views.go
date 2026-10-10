@@ -132,11 +132,17 @@ type TopicSummary struct {
 }
 
 type RelatedTopic struct {
-	ID          int64   `json:"id"`
-	Label       string  `json:"label"`
-	Sim         float64 `json:"sim"`
-	Shared      int     `json:"shared"`
-	Unconnected bool    `json:"unconnected"` // similar in meaning, never discussed together
+	ID     int64   `json:"id"`
+	Label  string  `json:"label"`
+	Sim    float64 `json:"sim"`
+	Shared int     `json:"shared"`
+	// Kind: "same" (shares a customer or project: Via names it),
+	// "together" (discussed in the same items), "parallel" (alike in
+	// meaning, about different customers or projects), "similar" (alike in
+	// meaning).
+	Kind        string   `json:"kind"`
+	Via         []string `json:"via,omitempty"`
+	Unconnected bool     `json:"unconnected"` // never discussed together
 }
 
 type PersonCount struct {
@@ -147,9 +153,11 @@ type PersonCount struct {
 
 type TopicView struct {
 	TopicSummary
-	ClaimList []ClaimView    `json:"claimList"`
-	People    []PersonCount  `json:"people"`
-	Related   []RelatedTopic `json:"related"`
+	ClaimList []ClaimView         `json:"claimList"`
+	People    []PersonCount       `json:"people"`
+	Entities  []store.EntityCount `json:"entities"`
+	Related   []RelatedTopic      `json:"related"`
+	Events    []store.TopicEvent  `json:"events"`
 }
 
 // labelVisible: a label is shown only if the scope could see everything it
@@ -268,6 +276,18 @@ func (v Views) Topic(id int64) (*TopicView, error) {
 		tv.People = append(tv.People, *p)
 	}
 	sort.Slice(tv.People, func(i, j int) bool { return tv.People[i].Claims > tv.People[j].Claims })
+	// Entities, shown only if the scope may know they exist.
+	ents, err := v.Store.TopicEntities(id)
+	if err != nil {
+		return nil, err
+	}
+	names := map[string]string{}
+	for _, e := range ents {
+		if labelVisible(v.Scope, e.Level) {
+			tv.Entities = append(tv.Entities, e)
+			names[e.ID] = e.Name
+		}
+	}
 	infos, err := v.Store.TopicInfos()
 	if err != nil {
 		return nil, err
@@ -278,8 +298,31 @@ func (v Views) Topic(id int64) (*TopicView, error) {
 			if !ok {
 				continue // not visible in scope
 			}
-			tv.Related = append(tv.Related, RelatedTopic{ID: r.B, Label: l, Sim: r.Sim, Shared: r.Shared, Unconnected: r.Shared == 0})
+			rt := RelatedTopic{ID: r.B, Label: l, Sim: r.Sim, Shared: r.Shared, Unconnected: r.Shared == 0}
+			for _, e := range r.Entities {
+				if n, ok := names[e]; ok {
+					rt.Via = append(rt.Via, n)
+				}
+			}
+			switch {
+			case len(rt.Via) > 0:
+				rt.Kind = "same"
+			case r.Shared >= 2:
+				rt.Kind = "together"
+			case len(tv.Entities) > 0 && len(r.Entities) == 0 && r.Sim >= relateAt:
+				rt.Kind = "parallel"
+			default:
+				rt.Kind = "similar"
+			}
+			tv.Related = append(tv.Related, rt)
 		}
+	}
+	sort.SliceStable(tv.Related, func(i, j int) bool {
+		order := map[string]int{"same": 0, "together": 1, "parallel": 2, "similar": 3}
+		return order[tv.Related[i].Kind] < order[tv.Related[j].Kind]
+	})
+	if tv.Events, err = v.Store.TopicEvents(id); err != nil {
+		return nil, err
 	}
 	return tv, nil
 }

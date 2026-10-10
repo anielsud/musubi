@@ -64,9 +64,10 @@ CREATE TABLE IF NOT EXISTS chunks (
 	seg_to   INTEGER NOT NULL,
 	start_s  REAL NOT NULL,
 	end_s    REAL NOT NULL,
-	speakers TEXT NOT NULL,
-	title    TEXT NOT NULL,
-	text     TEXT NOT NULL,
+	speakers  TEXT NOT NULL,
+	title     TEXT NOT NULL,
+	text      TEXT NOT NULL,
+	text_hash TEXT NOT NULL,  -- anchors judgements across re-extraction
 	UNIQUE (item_id, seq)
 );
 
@@ -182,10 +183,13 @@ CREATE TABLE IF NOT EXISTS statements (
 	text       TEXT NOT NULL,
 	holder     TEXT NOT NULL,          -- as written in the passage
 	holder_id  TEXT,                   -- resolved entity, if any
-	certainty  TEXT NOT NULL,
+	certainty  REAL NOT NULL,          -- 0..1, as the speaker expressed it
 	said_at    INTEGER NOT NULL,       -- unix seconds
-	about_when TEXT NOT NULL,
-	about      TEXT NOT NULL           -- JSON list of names and terms
+	value_type TEXT NOT NULL,          -- date, number, money, percent, duration, none
+	value_raw  TEXT NOT NULL,          -- the words, as said
+	value_lo   REAL NOT NULL,          -- normalised bounds (dates: unix seconds)
+	value_hi   REAL NOT NULL,
+	value_ok   INTEGER NOT NULL        -- 1 if the words could be normalised
 );
 CREATE INDEX IF NOT EXISTS statements_item ON statements(item_id);
 CREATE INDEX IF NOT EXISTS statements_chunk ON statements(chunk_id);
@@ -230,21 +234,46 @@ CREATE TABLE IF NOT EXISTS topics (
 	centroid    BLOB,
 	size        INTEGER NOT NULL
 );
+-- Topics cross-link rather than nest: by shared customers, projects and
+-- people ("same customer"), by meaning across different ones ("parallel":
+-- a commit to one customer and a commit to another), and by being
+-- discussed in the same items.
 CREATE TABLE IF NOT EXISTS topic_relations (
-	a      INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-	b      INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-	sim    REAL NOT NULL,
-	shared INTEGER NOT NULL,  -- items discussing both
+	a        INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+	b        INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+	sim      REAL NOT NULL,
+	shared   INTEGER NOT NULL,  -- items discussing both
+	entities TEXT NOT NULL,     -- shared organisation/project entity ids, comma-separated
 	PRIMARY KEY (a, b)
 );
+CREATE TABLE IF NOT EXISTS topic_entities (
+	topic_id  INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+	entity_id TEXT NOT NULL,
+	claims    INTEGER NOT NULL,
+	PRIMARY KEY (topic_id, entity_id)
+);
+-- How topics changed between rebuilds: born, grew, shrank, merged, split,
+-- dissolved.
+CREATE TABLE IF NOT EXISTS topic_events (
+	at       INTEGER NOT NULL,
+	topic_id INTEGER NOT NULL,
+	event    TEXT NOT NULL,
+	other    INTEGER NOT NULL,  -- the other topic in a merge or split, else 0
+	detail   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS topic_events_topic ON topic_events(topic_id);
 
 -- The owner's verdicts. Not derived: kept across rebuilds, keyed by the
 -- statement judged (item and text), and re-attached to its claim.
+-- Anchored to the source (chunk text hash and line) with the text as a
+-- fallback, so a verdict survives re-extraction rewording the statement.
 CREATE TABLE IF NOT EXISTS judgments (
-	item_id TEXT NOT NULL,
-	text    TEXT NOT NULL,
-	verdict TEXT NOT NULL,  -- verified, disputed, false
-	note    TEXT NOT NULL,
-	at      INTEGER NOT NULL,
+	item_id    TEXT NOT NULL,
+	text       TEXT NOT NULL,
+	verdict    TEXT NOT NULL,  -- verified, disputed, false
+	note       TEXT NOT NULL,
+	at         INTEGER NOT NULL,
+	chunk_hash TEXT NOT NULL DEFAULT '',
+	line       INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (item_id, text)
 );

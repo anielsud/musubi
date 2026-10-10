@@ -2,7 +2,6 @@ package store
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -14,21 +13,32 @@ import (
 	"github.com/anielsud/musubi/internal/sensitivity"
 )
 
+// Value is a statement's typed value (a date, amount, number, percentage
+// or duration): the words as said, and bounds normalised from them
+// (knowledge.Normalize).
+type Value struct {
+	Type       string  `json:"type"`
+	Raw        string  `json:"raw"`
+	Lo         float64 `json:"lo"`
+	Hi         float64 `json:"hi"`
+	Normalized bool    `json:"normalized"`
+}
+
 // Statement is one thing someone said or wrote, extracted from a passage.
 type Statement struct {
 	ID        int64     `json:"id"`
 	ItemID    string    `json:"itemId"`
 	ChunkID   int64     `json:"chunkId"`
 	ChunkSeq  int       `json:"chunkSeq"`
+	ChunkHash string    `json:"-"`
 	Line      int       `json:"line"`
 	Kind      string    `json:"kind"`
 	Text      string    `json:"text"`
 	Holder    string    `json:"holder"`
 	HolderID  string    `json:"holderId,omitempty"`
-	Certainty string    `json:"certainty"`
+	Certainty float64   `json:"certainty"`
 	SaidAt    time.Time `json:"saidAt"`
-	When      string    `json:"when,omitempty"`
-	About     []string  `json:"about,omitempty"`
+	Value     Value     `json:"value"`
 	// Set on reads.
 	ItemKind  string            `json:"itemKind,omitempty"`
 	ItemTitle string            `json:"itemTitle,omitempty"`
@@ -46,14 +56,18 @@ func (s *Store) ReplaceStatements(itemID, version, hash string, sts []Statement)
 			return err
 		}
 		for _, st := range sts {
-			about, _ := json.Marshal(st.About)
 			var holder any
 			if st.HolderID != "" {
 				holder = st.HolderID
 			}
-			if _, err := tx.Exec(`INSERT INTO statements(item_id, chunk_id, line, kind, text, holder, holder_id, certainty, said_at, about_when, about)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?)`, itemID, st.ChunkID, st.Line, st.Kind, st.Text, st.Holder, holder, st.Certainty,
-				st.SaidAt.Unix(), st.When, string(about)); err != nil {
+			v := st.Value
+			if v.Type == "" {
+				v.Type = "none"
+			}
+			if _, err := tx.Exec(`INSERT INTO statements(item_id, chunk_id, line, kind, text, holder, holder_id, certainty, said_at,
+				value_type, value_raw, value_lo, value_hi, value_ok) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				itemID, st.ChunkID, st.Line, st.Kind, st.Text, st.Holder, holder, st.Certainty, st.SaidAt.Unix(),
+				v.Type, v.Raw, v.Lo, v.Hi, v.Normalized); err != nil {
 				return err
 			}
 		}
@@ -68,8 +82,8 @@ func (s *Store) UnlinkedStatements() ([]Statement, error) {
 }
 
 func (s *Store) statements(where string, args ...any) ([]Statement, error) {
-	rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
-		st.certainty, st.said_at, st.about_when, st.about, coalesce(sc.claim_id, 0)
+	rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, c.text_hash, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
+		st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, coalesce(sc.claim_id, 0)
 		FROM statements st JOIN chunks c ON c.id = st.chunk_id LEFT JOIN statement_claims sc ON sc.statement_id = st.id `+where, args...)
 	if err != nil {
 		return nil, err
@@ -79,13 +93,11 @@ func (s *Store) statements(where string, args ...any) ([]Statement, error) {
 	for rows.Next() {
 		var st Statement
 		var said int64
-		var about string
-		if err := rows.Scan(&st.ID, &st.ItemID, &st.ChunkID, &st.ChunkSeq, &st.Line, &st.Kind, &st.Text, &st.Holder, &st.HolderID,
-			&st.Certainty, &said, &st.When, &about, &st.ClaimID); err != nil {
+		if err := rows.Scan(&st.ID, &st.ItemID, &st.ChunkID, &st.ChunkSeq, &st.ChunkHash, &st.Line, &st.Kind, &st.Text, &st.Holder, &st.HolderID,
+			&st.Certainty, &said, &st.Value.Type, &st.Value.Raw, &st.Value.Lo, &st.Value.Hi, &st.Value.Normalized, &st.ClaimID); err != nil {
 			return nil, err
 		}
 		st.SaidAt = time.Unix(said, 0)
-		json.Unmarshal([]byte(about), &st.About)
 		out = append(out, st)
 	}
 	return out, rows.Err()
@@ -136,11 +148,13 @@ type ClaimRow struct {
 	Text     string  // its first statement's text, for the judge
 	Holder   string
 	SaidAt   time.Time
+	Value    Value
 }
 
 // Claims loads every claim with its members, for linking and clustering.
 func (s *Store) Claims() ([]ClaimRow, error) {
-	rows, err := s.db.Query(`SELECT c.id, c.kind, c.centroid, sc.statement_id, st.text, st.holder, st.said_at
+	rows, err := s.db.Query(`SELECT c.id, c.kind, c.centroid, sc.statement_id, st.text, st.holder, st.said_at,
+		st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok
 		FROM claims c JOIN statement_claims sc ON sc.claim_id = c.id JOIN statements st ON st.id = sc.statement_id
 		ORDER BY c.id, st.said_at, st.id`)
 	if err != nil {
@@ -152,9 +166,10 @@ func (s *Store) Claims() ([]ClaimRow, error) {
 		var id, sid, said int64
 		var kind, text, holder string
 		var cen []byte
-		rows.Scan(&id, &kind, &cen, &sid, &text, &holder, &said)
+		var v Value
+		rows.Scan(&id, &kind, &cen, &sid, &text, &holder, &said, &v.Type, &v.Raw, &v.Lo, &v.Hi, &v.Normalized)
 		if len(out) == 0 || out[len(out)-1].ID != id {
-			out = append(out, ClaimRow{ID: id, Kind: kind, Centroid: decodeVec(cen), Text: text, Holder: holder, SaidAt: time.Unix(said, 0)})
+			out = append(out, ClaimRow{ID: id, Kind: kind, Centroid: decodeVec(cen), Text: text, Holder: holder, SaidAt: time.Unix(said, 0), Value: v})
 		}
 		c := &out[len(out)-1]
 		c.Members = append(c.Members, sid)
@@ -239,19 +254,33 @@ func (s *Store) Topics() ([]TopicRow, error) {
 
 // TopicRelation links two topics.
 type TopicRelation struct {
-	A, B   int64
-	Sim    float64
-	Shared int
+	A, B     int64
+	Sim      float64
+	Shared   int      // items discussing both
+	Entities []string // organisations and projects both involve
+}
+
+// TopicEvent is a change between rebuilds.
+type TopicEvent struct {
+	At      time.Time `json:"at"`
+	TopicID int64     `json:"topicId"`
+	Event   string    `json:"event"`
+	Other   int64     `json:"other,omitempty"`
+	Detail  string    `json:"detail"`
 }
 
 // ReplaceTopics writes the topic set: topics keep the ids given (stable
-// across runs), claims point at their topic, and relations are rewritten.
-func (s *Store) ReplaceTopics(ts []TopicRow, rels []TopicRelation) error {
+// across runs), claims point at their topic, relations and entities are
+// rewritten, and events are appended.
+func (s *Store) ReplaceTopics(ts []TopicRow, rels []TopicRelation, ents map[int64]map[string]int, events []TopicEvent) error {
 	return s.tx(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`UPDATE claims SET topic_id = NULL`); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM topic_relations`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM topic_entities`); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`DELETE FROM topics`); err != nil {
@@ -270,12 +299,72 @@ func (s *Store) ReplaceTopics(ts []TopicRow, rels []TopicRelation) error {
 			}
 		}
 		for _, r := range rels {
-			if _, err := tx.Exec(`INSERT OR REPLACE INTO topic_relations(a, b, sim, shared) VALUES (?,?,?,?)`, r.A, r.B, r.Sim, r.Shared); err != nil {
+			if _, err := tx.Exec(`INSERT OR REPLACE INTO topic_relations(a, b, sim, shared, entities) VALUES (?,?,?,?,?)`,
+				r.A, r.B, r.Sim, r.Shared, strings.Join(r.Entities, ",")); err != nil {
+				return err
+			}
+		}
+		for tid, es := range ents {
+			for e, n := range es {
+				if _, err := tx.Exec(`INSERT INTO topic_entities(topic_id, entity_id, claims) VALUES (?,?,?)`, tid, e, n); err != nil {
+					return err
+				}
+			}
+		}
+		for _, e := range events {
+			if _, err := tx.Exec(`INSERT INTO topic_events(at, topic_id, event, other, detail) VALUES (?,?,?,?,?)`,
+				e.At.Unix(), e.TopicID, e.Event, e.Other, e.Detail); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+// TopicEntities returns a topic's entities with how many of its claims
+// involve each, most first.
+func (s *Store) TopicEntities(topicID int64) ([]EntityCount, error) {
+	rows, err := s.db.Query(`SELECT te.entity_id, coalesce(e.name, te.entity_id), coalesce(e.type, ''), coalesce(e.level, 0), te.claims
+		FROM topic_entities te LEFT JOIN entities e ON e.id = te.entity_id WHERE te.topic_id = ? ORDER BY te.claims DESC`, topicID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []EntityCount
+	for rows.Next() {
+		var e EntityCount
+		var lvl int
+		rows.Scan(&e.ID, &e.Name, &e.Type, &lvl, &e.Claims)
+		e.Level = sensitivity.Level(lvl)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+type EntityCount struct {
+	ID     string            `json:"id"`
+	Name   string            `json:"name"`
+	Type   string            `json:"type"`
+	Level  sensitivity.Level `json:"-"`
+	Claims int               `json:"claims"`
+}
+
+// TopicEvents returns a topic's history, newest first.
+func (s *Store) TopicEvents(topicID int64) ([]TopicEvent, error) {
+	rows, err := s.db.Query(`SELECT at, topic_id, event, other, detail FROM topic_events WHERE topic_id = ? ORDER BY at DESC, rowid DESC LIMIT 50`, topicID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TopicEvent
+	for rows.Next() {
+		var e TopicEvent
+		var at int64
+		rows.Scan(&at, &e.TopicID, &e.Event, &e.Other, &e.Detail)
+		e.At = time.Unix(at, 0)
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // ClaimItems maps each claim to the items its statements come from, for
@@ -351,11 +440,14 @@ func (s *Store) Judge(statementID int64, verdict, note string) error {
 	default:
 		return fmt.Errorf("verdict must be verified, disputed or false")
 	}
-	var item, text string
-	if err := s.db.QueryRow(`SELECT item_id, text FROM statements WHERE id = ?`, statementID).Scan(&item, &text); err != nil {
+	var item, text, hash string
+	var line int
+	if err := s.db.QueryRow(`SELECT st.item_id, st.text, c.text_hash, st.line FROM statements st JOIN chunks c ON c.id = st.chunk_id WHERE st.id = ?`,
+		statementID).Scan(&item, &text, &hash, &line); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`INSERT OR REPLACE INTO judgments(item_id, text, verdict, note, at) VALUES (?,?,?,?,?)`, item, text, verdict, note, time.Now().Unix())
+	_, err := s.db.Exec(`INSERT OR REPLACE INTO judgments(item_id, text, verdict, note, at, chunk_hash, line) VALUES (?,?,?,?,?,?,?)`,
+		item, text, verdict, note, time.Now().Unix(), hash, line)
 	return err
 }
 
@@ -377,8 +469,8 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 			args = append(args, id)
 		}
 		args = append(args, vargs...)
-		rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
-			st.certainty, st.said_at, st.about_when, st.about, sc.claim_id, i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END,
+		rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, c.text_hash, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
+			st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, sc.claim_id, i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END,
 			max(il.level, coalesce(cl.level, 0)), (il.categories | coalesce(cl.categories, 0))
 			FROM statement_claims sc JOIN statements st ON st.id = sc.statement_id JOIN chunks c ON c.id = st.chunk_id
 			JOIN items i ON i.id = st.item_id`+chunkVisJoin+`WHERE sc.claim_id IN (`+ph+`) AND `+vis+` ORDER BY st.said_at, st.id`, args...)
@@ -388,16 +480,15 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 		for rows.Next() {
 			var st Statement
 			var said int64
-			var about string
 			var lvl int
 			var cats int64
-			if err := rows.Scan(&st.ID, &st.ItemID, &st.ChunkID, &st.ChunkSeq, &st.Line, &st.Kind, &st.Text, &st.Holder, &st.HolderID,
-				&st.Certainty, &said, &st.When, &about, &st.ClaimID, &st.ItemKind, &st.ItemTitle, &lvl, &cats); err != nil {
+			if err := rows.Scan(&st.ID, &st.ItemID, &st.ChunkID, &st.ChunkSeq, &st.ChunkHash, &st.Line, &st.Kind, &st.Text, &st.Holder, &st.HolderID,
+				&st.Certainty, &said, &st.Value.Type, &st.Value.Raw, &st.Value.Lo, &st.Value.Hi, &st.Value.Normalized,
+				&st.ClaimID, &st.ItemKind, &st.ItemTitle, &lvl, &cats); err != nil {
 				rows.Close()
 				return nil, err
 			}
 			st.SaidAt = time.Unix(said, 0)
-			json.Unmarshal([]byte(about), &st.About)
 			st.Label = sensitivity.Label{Level: sensitivity.Level(lvl), Categories: sensitivity.Categories(cats)}
 			out = append(out, st)
 		}
@@ -530,7 +621,10 @@ func (s *Store) Evidence(sc sensitivity.Scope, claimIDs []int64) (map[int64]*Cla
 		for _, st := range e.Statements {
 			var j Judgment
 			var at int64
-			err := s.db.QueryRow(`SELECT verdict, note, at FROM judgments WHERE item_id = ? AND text = ?`, st.ItemID, st.Text).Scan(&j.Verdict, &j.Note, &at)
+			// Anchored by source line first, wording second.
+			err := s.db.QueryRow(`SELECT verdict, note, at FROM judgments WHERE item_id = ?
+				AND ((chunk_hash = ? AND line = ? AND chunk_hash != '') OR text = ?) ORDER BY at DESC LIMIT 1`,
+				st.ItemID, st.ChunkHash, st.Line, st.Text).Scan(&j.Verdict, &j.Note, &at)
 			if err == nil {
 				j.StatementID, j.At = st.ID, time.Unix(at, 0)
 				e.Judgments = append(e.Judgments, j)
@@ -572,19 +666,23 @@ func (s *Store) TopicInfos() (map[int64]*TopicInfo, error) {
 		out[t.ID] = t
 	}
 	rows.Close()
-	rows, err = s.db.Query(`SELECT a, b, sim, shared FROM topic_relations`)
+	rows, err = s.db.Query(`SELECT a, b, sim, shared, entities FROM topic_relations`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var r TopicRelation
-		rows.Scan(&r.A, &r.B, &r.Sim, &r.Shared)
+		var ents string
+		rows.Scan(&r.A, &r.B, &r.Sim, &r.Shared, &ents)
+		if ents != "" {
+			r.Entities = strings.Split(ents, ",")
+		}
 		if t := out[r.A]; t != nil {
 			t.Related = append(t.Related, r)
 		}
 		if t := out[r.B]; t != nil {
-			t.Related = append(t.Related, TopicRelation{A: r.B, B: r.A, Sim: r.Sim, Shared: r.Shared})
+			t.Related = append(t.Related, TopicRelation{A: r.B, B: r.A, Sim: r.Sim, Shared: r.Shared, Entities: r.Entities})
 		}
 	}
 	for _, t := range out {

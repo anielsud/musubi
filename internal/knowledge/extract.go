@@ -15,7 +15,7 @@ import (
 )
 
 // ExtractVersion changes with the prompt or parsing, re-running extraction.
-const ExtractVersion = "x4"
+const ExtractVersion = "x6"
 
 var Kinds = []string{"fact", "opinion", "hypothesis", "decision", "commitment", "requirement", "question"}
 
@@ -23,15 +23,23 @@ const extractPrompt = `You extract the substance of a passage from someone's mee
 
 List what the passage asserts, as separate statements. For each give:
 - "line": the number of the line it comes from
-- "kind": exactly one of these seven: fact (stated as true, including announcements and status), opinion (a judgement or preference), hypothesis (a guess: "I think", "maybe", "might", "probably"), decision (something agreed or decided), commitment (someone will do something), requirement (something must be true or be done), or question (an open question)
-- "text": one sentence that stands on its own without the passage: full names instead of "I", "we", "he", "she", "they"; say what "it" refers to; keep numbers, amounts and dates
+- "kind": fact (stated as true, including announcements and status), opinion (a judgement or preference), hypothesis (a guess: "I think", "maybe", "might", "probably"), decision (something agreed or decided), commitment (someone will do something), requirement (something must be true or be done), or question (an open question)
+- "text": one sentence that stands on its own without the passage: full names instead of "I", "we", "he", "she", "they"; say what "it" refers to; keep numbers, amounts and dates; keep negation and hedging exactly as said ("it is not X" stays "the cause is not X")
 - "holder": who said or holds it, written exactly as the speaker is named in the passage
-- "certainty": high, medium or low, as the speaker expressed it
-- "when": the date or time it refers to, if any, as said ("September 22", "next quarter"), else ""
-- "about": names of the people, organisations, products and projects it involves
+- "certainty": how sure the holder sounded, from 0 to 1 (1: stated as certain; 0.7: fairly sure; 0.5: "I think"; 0.2: a guess)
+- "value": the one date, amount, number, percentage or duration the statement turns on, if any, as {"type": "date", "money", "number", "percent", "duration" or "none", "raw": the words as said, e.g. "Q4", "mid November", "$40M", "15%%", "two years"}
 
-Skip greetings, small talk, filler and talk about the meeting itself, but keep announcements even when phrased as thanks or congratulations ("congratulations to Ana on her promotion" states a promotion). Merge repeats. At most 8 statements; fewer is fine; none is fine.
-Reply as JSON: {"statements":[...]}`
+Skip greetings, small talk, filler and talk about the meeting itself, but keep announcements even when phrased as thanks or congratulations ("congratulations to Ana on her promotion" states a promotion). Merge repeats. At most 8 statements; fewer is fine; none is fine.`
+
+// extractSchema constrains the reply (structured output).
+var extractSchema = json.RawMessage(`{"type":"object","required":["statements"],"properties":{"statements":{"type":"array","items":{
+"type":"object","required":["line","kind","text","holder","certainty","value"],"properties":{
+"line":{"type":"integer"},
+"kind":{"type":"string","enum":["fact","opinion","hypothesis","decision","commitment","requirement","question"]},
+"text":{"type":"string"},
+"holder":{"type":"string"},
+"certainty":{"type":"number"},
+"value":{"type":"object","required":["type","raw"],"properties":{"type":{"type":"string","enum":["date","money","number","percent","duration","none"]},"raw":{"type":"string"}}}}}}}}`)
 
 // Line is one line of a passage as the extractor sees it.
 type Line struct {
@@ -66,13 +74,15 @@ func speakerName(s string) string {
 
 // Extracted is a statement as the model returned it.
 type Extracted struct {
-	Line      int      `json:"line"`
-	Kind      string   `json:"kind"`
-	Text      string   `json:"text"`
-	Holder    string   `json:"holder"`
-	Certainty string   `json:"certainty"`
-	When      string   `json:"when"`
-	About     []string `json:"about"`
+	Line      int     `json:"line"`
+	Kind      string  `json:"kind"`
+	Text      string  `json:"text"`
+	Holder    string  `json:"holder"`
+	Certainty float64 `json:"certainty"`
+	Value     struct {
+		Type string `json:"type"`
+		Raw  string `json:"raw"`
+	} `json:"value"`
 }
 
 // Extract asks the model for the statements in one passage. orgs maps
@@ -97,7 +107,7 @@ func Extract(ctx context.Context, llm provider.LLM, owner, title string, lines [
 	out, err := llm.Complete(ctx, []provider.Message{
 		{Role: "system", Content: fmt.Sprintf(extractPrompt, owner)},
 		{Role: "user", Content: b.String()},
-	}, provider.ChatOptions{JSON: true, Temperature: 0, MaxTokens: 900}, nil)
+	}, provider.ChatOptions{Schema: extractSchema, Temperature: 0, MaxTokens: 900}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -110,15 +120,12 @@ func Extract(ctx context.Context, llm provider.LLM, owner, title string, lines [
 	var keep []Extracted
 	for _, e := range parsed.Statements {
 		e.Kind = normalizeKind(e.Kind)
-		e.Certainty = strings.ToLower(strings.TrimSpace(e.Certainty))
 		e.Text = strings.TrimSpace(e.Text)
 		if e.Text == "" || !validKind(e.Kind) {
 			continue
 		}
-		switch e.Certainty {
-		case "high", "medium", "low":
-		default:
-			e.Certainty = "medium"
+		if e.Certainty <= 0 || e.Certainty > 1 {
+			e.Certainty = 0.7
 		}
 		if e.Line < 1 || e.Line > len(lines) {
 			e.Line = 1
@@ -162,11 +169,12 @@ func validKind(k string) bool {
 	return false
 }
 
-// ToStatement fills a store statement from an extraction.
-func ToStatement(e Extracted, chunk store.Chunk, itemStart time.Time, lines []Line, holderID string) store.Statement {
+// ToStatement fills a store statement from an extraction, normalising its
+// value relative to when it was said.
+func ToStatement(e Extracted, chunk store.Chunk, itemStart time.Time, holderID string) store.Statement {
 	said := itemStart.Add(time.Duration(chunk.Start * float64(time.Second)))
 	return store.Statement{
 		ChunkID: chunk.ID, Line: e.Line, Kind: e.Kind, Text: e.Text, Holder: e.Holder, HolderID: holderID,
-		Certainty: e.Certainty, SaidAt: said, When: e.When, About: e.About,
+		Certainty: e.Certainty, SaidAt: said, Value: Normalize(e.Value.Type, e.Value.Raw, said),
 	}
 }

@@ -229,3 +229,45 @@ the Q4 kickoff and others.
 
 Real data is next. Thresholds (0.97 / 0.72 / 0.70) will need checking
 there: the synthetic corpus is small and tidy.
+
+## 2026-10-10: typed statements, cross-linked topics, judge fixes
+
+Changes, on the synthetic company:
+
+- **Typed extraction.** Certainty is a number from 0 to 1, and each
+  statement has a value (type plus raw words), normalised in Go: "Q4" is
+  Oct–Dec and "mid November" is Nov 10–20. Comparisons are deterministic:
+  same, within, contains, or differs. The JSON schema constrains the reply,
+  and "about" and "when" were dropped from the output (fewer tokens).
+- **Topics as a cross-linked graph.** Claims naming different organisations
+  or projects are pushed apart (−0.15 similarity). Topics link as same
+  customer or project, discussed together, parallel, or similar, and each
+  rebuild records lifecycle events.
+- **Judgements anchored to the source line**, so they survive re-extraction.
+
+Extraction drift observed. Priya's "it is not the load balancer, we ruled
+that out" became "The index migration did not cause the load balancer to be
+the issue": the negation was attached to the wrong thing. The prompt now says
+to keep negation and hedging exactly as said. Drift like this is the main
+risk to linking, and it can only be measured on real data.
+
+Judge failures and fixes:
+
+| Failure | Fix |
+|---|---|
+| answered against the wrong claim index, skipped the rest | asked for one verdict per earlier claim, schema-enforced |
+| misses plain negations | a deterministic note when exactly one statement negates and they share key words |
+| "contradicts" an open question | remapped to "answers" |
+| relates statements about different customers | dropped when both name organisations or projects with none in common |
+
+Relations (36) hand-checked: about 28 sensible, about 8 wrong ("Dana will
+review" contradicts "Priya owns it"; a status update "contradicts" an
+unrelated fact). So expect roughly 75–80% relation precision from qwen3:8b
+until measured on real data.
+
+| | before | now |
+|---|---|---|
+| statement cases | 4/4 | 4/4 |
+| claim cases | 9/9 | 10/10 (adds a value refined: Q4 → mid November) |
+| topic cases | 3/3 | 4/4 (adds parallel customers: separate topics, linked) |
+| leaks | 0 | 0 |

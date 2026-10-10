@@ -15,7 +15,6 @@ var (
 		"fact": 1, "decision": 1, "requirement": 1, "commitment": 0.9,
 		"opinion": 0.5, "hypothesis": 0.3, "question": 0,
 	}
-	certaintyWeight = map[string]float64{"high": 1, "medium": 0.7, "low": 0.4}
 	// sourceWeight: written words are more deliberate than speech.
 	sourceWeight = map[string]float64{"email": 1.2, "document": 1.3, "chat": 1.0, "meeting": 1.0}
 	halfLife     = map[string]time.Duration{
@@ -54,7 +53,11 @@ type Belief struct {
 }
 
 func evidence(st store.Statement, now time.Time) (raw, decayed float64) {
-	raw = kindWeight[st.Kind] * certaintyWeight[st.Certainty]
+	c := st.Certainty
+	if c <= 0 || c > 1 {
+		c = 0.7
+	}
+	raw = kindWeight[st.Kind] * c
 	if w, ok := sourceWeight[st.ItemKind]; ok {
 		raw *= w
 	}

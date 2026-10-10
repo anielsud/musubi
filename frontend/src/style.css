@@ -380,3 +380,7 @@ main > div { height: 100%; }
 .judge { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .judge .chip.on { border-color: var(--accent); color: var(--accent); }
 code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+.value-chip { font-family: var(--mono); font-size: 10.5px; padding: 0 6px; border-radius: 4px; background: rgba(245,201,122,0.12); color: var(--gold); }
+.chip.t-org { border-color: rgba(245,201,122,0.4); }
+.chip.t-project, .chip.t-term, .chip.t-topic { border-color: rgba(167,139,250,0.4); }
+.events { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }

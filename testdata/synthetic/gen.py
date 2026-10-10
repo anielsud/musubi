@@ -200,6 +200,11 @@ chat("c3", ["jordan", "lee"], "", [
     ("lee", "I think the search latency regression might be caused by the new load balancer config. The timing lines up."),
     ("jordan", "Could be. Can you check with Priya before the sync?"),
 ], 12)
+# A value made more precise: "by Q4" becomes "mid November".
+chat("c4", ["jordan", "samo"], "", [
+    ("samo", "Nina confirmed Bluegill Bank needs single sign-on live by mid November, not just sometime in Q4."),
+    ("jordan", "Good to know. That fits the two-sprint plan."),
+], 24)
 chat("c2", ["jordan", "samw", "priya"], "security", [
     ("samw", "We found a vulnerability in the token refresh endpoint. CVE request is pending."),
     ("priya", "Is it exploitable from outside?"),

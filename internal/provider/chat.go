@@ -21,7 +21,10 @@ type Message struct {
 
 type ChatOptions struct {
 	// JSON constrains the reply to a JSON value.
-	JSON        bool
+	JSON bool
+	// Schema, when set, constrains the reply to this JSON schema (structured
+	// output): fewer malformed replies, which lets smaller models do the job.
+	Schema      json.RawMessage `json:",omitempty"`
 	Temperature float64
 	MaxTokens   int
 }
@@ -73,6 +76,9 @@ func (c *Chat) Complete(ctx context.Context, msgs []Message, opt ChatOptions, on
 	}
 	if opt.JSON {
 		body["format"] = "json"
+	}
+	if len(opt.Schema) > 0 {
+		body["format"] = opt.Schema
 	}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST", c.URL+"/api/chat", bytes.NewReader(b))

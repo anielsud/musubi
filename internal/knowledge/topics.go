@@ -3,8 +3,10 @@ package knowledge
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/sensitivity"
@@ -12,7 +14,7 @@ import (
 )
 
 // TopicsVersion changes with clustering or labelling.
-const TopicsVersion = "t2"
+const TopicsVersion = "t3"
 
 // Clustering thresholds on cosine similarity: groups merge while their
 // average similarity is at least joinAt (about the 95th percentile of claim
@@ -33,6 +35,10 @@ Reply as JSON: {"label":"...","summary":"..."}`
 type Topicer struct {
 	Store *store.Store
 	LLM   provider.LLM // nil: labels from the most common words
+	// Entities returns the organisations and projects a text names (entity
+	// ids). Claims about different ones are kept in different topics, which
+	// then link as "parallel"; nil turns this off.
+	Entities func(text string) []string
 }
 
 type topicDraft struct {
@@ -41,8 +47,15 @@ type topicDraft struct {
 	centroid []float32
 }
 
+// entityPenalty is subtracted from the similarity of two claims naming
+// different organisations or projects (and none in common): a commitment to
+// one customer and a commitment to another read alike but are separate
+// topics.
+const entityPenalty = 0.15
+
 // Build reclusters every claim and writes the topics, keeping ids (and
-// labels, when membership barely changed) from the previous run.
+// labels, when membership barely changed) from the previous run, and
+// records how topics changed.
 func (t *Topicer) Build(ctx context.Context) (int, error) {
 	claims, err := t.Store.Claims()
 	if err != nil {
@@ -51,25 +64,53 @@ func (t *Topicer) Build(ctx context.Context) (int, error) {
 	sort.Slice(claims, func(i, j int) bool {
 		return claims[i].SaidAt.Before(claims[j].SaidAt) || (claims[i].SaidAt.Equal(claims[j].SaidAt) && claims[i].ID < claims[j].ID)
 	})
-	cen := map[int64][]float32{}
-	for _, c := range claims {
-		if c.Centroid != nil && len(c.Centroid) > 0 {
-			cen[c.ID] = normalized(c.Centroid)
+
+	// Entities per claim, from all its statements.
+	claimEnts := map[int64]map[string]bool{}
+	if t.Entities != nil {
+		var ids []int64
+		for _, c := range claims {
+			ids = append(ids, c.Members...)
+		}
+		sts, err := t.Store.StatementsByID(ids)
+		if err != nil {
+			return 0, err
+		}
+		for _, c := range claims {
+			es := map[string]bool{}
+			for _, m := range c.Members {
+				for _, e := range t.Entities(sts[m].Text) {
+					es[e] = true
+				}
+			}
+			claimEnts[c.ID] = es
 		}
 	}
+
 	var order []int64
 	var vs [][]float32
 	for _, c := range claims {
-		if v := cen[c.ID]; v != nil {
+		if c.Centroid != nil && len(c.Centroid) > 0 {
 			order = append(order, c.ID)
-			vs = append(vs, v)
+			vs = append(vs, normalized(c.Centroid))
 		}
 	}
-	// A topic needs at least two claims; single claims stay loose.
+	adjust := func(i, j int) float32 {
+		a, b := claimEnts[order[i]], claimEnts[order[j]]
+		if len(a) == 0 || len(b) == 0 {
+			return 0
+		}
+		for e := range a {
+			if b[e] {
+				return 0
+			}
+		}
+		return -entityPenalty
+	}
 	var drafts []*topicDraft
-	for _, members := range hac(vs, joinAt) {
+	for _, members := range hac(vs, joinAt, adjust) {
 		if len(members) < 2 {
-			continue
+			continue // a topic needs at least two claims
 		}
 		d := &topicDraft{}
 		for _, m := range members {
@@ -130,7 +171,20 @@ func (t *Topicer) Build(ctx context.Context) (int, error) {
 		out = append(out, row)
 	}
 
-	// Relations: similar in meaning, and how many items discuss both.
+	// Entities per topic.
+	topicEnts := map[int64]map[string]int{}
+	for _, r := range out {
+		es := map[string]int{}
+		for _, c := range r.Claims {
+			for e := range claimEnts[c] {
+				es[e]++
+			}
+		}
+		topicEnts[r.ID] = es
+	}
+
+	// Relations: shared organisations or projects, meaning across different
+	// ones, and items discussing both.
 	items, err := t.Store.ClaimItems()
 	if err != nil {
 		return 0, err
@@ -154,12 +208,93 @@ func (t *Topicer) Build(ctx context.Context) (int, error) {
 					shared++
 				}
 			}
-			if sim >= relateAt || shared >= 2 {
-				rels = append(rels, store.TopicRelation{A: out[i].ID, B: out[j].ID, Sim: sim, Shared: shared})
+			var common []string
+			for e := range topicEnts[out[i].ID] {
+				if topicEnts[out[j].ID][e] > 0 {
+					common = append(common, e)
+				}
+			}
+			sort.Strings(common)
+			if sim >= relateAt || shared >= 2 || len(common) > 0 {
+				rels = append(rels, store.TopicRelation{A: out[i].ID, B: out[j].ID, Sim: sim, Shared: shared, Entities: common})
 			}
 		}
 	}
-	return len(out), t.Store.ReplaceTopics(out, rels)
+	events := lifecycle(prev, out, time.Now())
+	return len(out), t.Store.ReplaceTopics(out, rels, topicEnts, events)
+}
+
+// lifecycle compares the previous topics with the new ones: births, deaths,
+// merges, splits, growth.
+func lifecycle(prev []store.TopicRow, next []store.TopicRow, now time.Time) []store.TopicEvent {
+	var ev []store.TopicEvent
+	prevByID := map[int64]store.TopicRow{}
+	claimPrev := map[int64]int64{}
+	for _, p := range prev {
+		prevByID[p.ID] = p
+		for _, c := range p.Claims {
+			claimPrev[c] = p.ID
+		}
+	}
+	nextByID := map[int64]store.TopicRow{}
+	claimNext := map[int64]int64{}
+	for _, n := range next {
+		nextByID[n.ID] = n
+		for _, c := range n.Claims {
+			claimNext[c] = n.ID
+		}
+	}
+	for _, n := range next {
+		from := map[int64]int{}
+		for _, c := range n.Claims {
+			if p, ok := claimPrev[c]; ok && p != n.ID {
+				from[p]++
+			}
+		}
+		p, existed := prevByID[n.ID]
+		for pid, k := range from {
+			if k*3 >= len(n.Claims) || k >= 3 {
+				kind := "merged from"
+				if _, still := nextByID[pid]; still {
+					kind = "split from"
+				}
+				ev = append(ev, store.TopicEvent{At: now, TopicID: n.ID, Event: kind, Other: pid, Detail: fmt.Sprintf("%d claims", k)})
+			}
+		}
+		switch {
+		case !existed:
+			ev = append(ev, store.TopicEvent{At: now, TopicID: n.ID, Event: "born", Detail: fmt.Sprintf("%d claims", len(n.Claims))})
+		case len(n.Claims)-len(p.Claims) >= 2:
+			ev = append(ev, store.TopicEvent{At: now, TopicID: n.ID, Event: "grew", Detail: fmt.Sprintf("%d → %d claims", len(p.Claims), len(n.Claims))})
+		case len(p.Claims)-len(n.Claims) >= 2:
+			ev = append(ev, store.TopicEvent{At: now, TopicID: n.ID, Event: "shrank", Detail: fmt.Sprintf("%d → %d claims", len(p.Claims), len(n.Claims))})
+		}
+	}
+	for _, p := range prev {
+		if _, ok := nextByID[p.ID]; ok {
+			continue
+		}
+		into := map[int64]int{}
+		for _, c := range p.Claims {
+			if n, ok := claimNext[c]; ok {
+				into[n]++
+			}
+		}
+		best, bn := int64(0), 0
+		for n, k := range into {
+			if k > bn {
+				best, bn = n, k
+			}
+		}
+		if bn*2 >= len(p.Claims) {
+			ev = append(ev, store.TopicEvent{At: now, TopicID: p.ID, Event: "merged into", Other: best, Detail: fmt.Sprintf("%d claims", len(p.Claims))})
+			// Recorded on the surviving topic too, where it can be seen.
+			ev = append(ev, store.TopicEvent{At: now, TopicID: best, Event: "absorbed", Other: p.ID, Detail: fmt.Sprintf("%d claims", bn)})
+		} else {
+			ev = append(ev, store.TopicEvent{At: now, TopicID: p.ID, Event: "dissolved", Detail: fmt.Sprintf("%d claims", len(p.Claims))})
+		}
+	}
+	return ev
 }
 
 // label writes a topic's label from its most open claims first, and records

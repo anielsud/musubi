@@ -18,6 +18,12 @@ const statusNote: Record<string, string> = {
   stale: 'nothing has reinforced it lately',
 };
 const history = new Set(['superseded', 'disproven', 'stale', 'answered']);
+const relKinds: [string, string][] = [
+  ['same', 'Same customer or project'],
+  ['together', 'Discussed together'],
+  ['parallel', 'The same kind of thing, elsewhere'],
+  ['similar', 'Similar'],
+];
 
 export function StatusPill({ status }: { status: string }) {
   return <span className={'status st-' + status} title={statusNote[status]}>{status}</span>;
@@ -143,6 +149,9 @@ function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope:
       <div className="chips">
         {statusOrder.filter((s) => t.statuses[s]).map((s) => <span key={s} className={'status st-' + s}>{t.statuses[s]} {s}</span>)}
       </div>
+      {(t.entities?.length ?? 0) > 0 && (
+        <div className="chips">{t.entities!.slice(0, 8).map((e) => <span key={e.id} className={'chip t-' + e.type}>{e.name}</span>)}</div>
+      )}
       {(t.people?.length ?? 0) > 0 && (
         <div className="people"><span className="dim">who: </span>{t.people!.slice(0, 8).map((p) => `${p.name} (${p.claims})`).join(' · ')}</div>
       )}
@@ -160,17 +169,32 @@ function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope:
         </>
       )}
 
-      {(t.related?.length ?? 0) > 0 && (
+      {relKinds.map(([kind, title]) => {
+        const rs = (t.related ?? []).filter((r) => r.kind === kind).slice(0, 8);
+        if (!rs.length) return null;
+        return (
+          <div key={kind}>
+            <div className="section-head"><span>{title}</span></div>
+            {rs.map((r) => (
+              <button key={r.id} className="topic-row" onClick={() => onOpen(r.id)}>
+                <span className="topic-label">{r.label}</span>
+                <span className="topic-meta">
+                  {kind === 'same' ? (r.via ?? []).join(', ') : r.unconnected ? <span className="status st-open" title="similar in meaning, but never discussed together">never discussed together</span> : `${r.shared} shared sources`}
+                </span>
+              </button>
+            ))}
+          </div>
+        );
+      })}
+
+      {(t.events?.length ?? 0) > 0 && (
         <>
-          <div className="section-head"><span>Related topics</span></div>
-          {t.related!.slice(0, 10).map((r) => (
-            <button key={r.id} className="topic-row" onClick={() => onOpen(r.id)}>
-              <span className="topic-label">{r.label}</span>
-              <span className="topic-meta">
-                {r.unconnected ? <span className="status st-open" title="similar in meaning, but never discussed together">never discussed together</span> : `${r.shared} shared sources`}
-              </span>
-            </button>
-          ))}
+          <div className="section-head"><span>How this topic changed</span></div>
+          <div className="events">
+            {t.events!.slice(0, 12).map((e, i) => (
+              <div key={i} className="event"><span className="dim">{fmtDate(e.at)}</span> {e.event}{e.other ? ` #${e.other}` : ''} <span className="dim">{e.detail}</span></div>
+            ))}
+          </div>
         </>
       )}
     </div>
@@ -223,7 +247,8 @@ function StatementRow({ s, onSource }: { s: Statement; onSource: (itemId: string
     <button className="stmt" onClick={() => onSource(s.itemId, s.chunkId)} title="Open the source passage">
       <div className="stmt-head">
         <b>{s.holder || 'unknown'}</b>
-        <span className="dim">{s.kind} · {s.certainty} certainty · {fmtDate(s.saidAt)}{s.when ? ` · about ${s.when}` : ''}</span>
+        <span className="dim">{s.kind} · {Math.round(s.certainty * 100)}% sure · {fmtDate(s.saidAt)}</span>
+        {s.value?.type && s.value.type !== 'none' && <span className="value-chip" title={s.value.normalized ? 'read as a ' + s.value.type : 'not understood as a ' + s.value.type}>{s.value.raw}</span>}
         <LabelBadge label={s.label} compact />
       </div>
       <div className="stmt-text">{s.text}</div>

@@ -13,7 +13,7 @@ import (
 )
 
 // LinkVersion changes with the linking rules or judge prompt.
-const LinkVersion = "k3"
+const LinkVersion = "k7"
 
 // Thresholds on cosine similarity between a statement and a claim's
 // centroid (nomic-embed-text). Above sameAt with the same kind family, the
@@ -44,7 +44,10 @@ For each earlier claim, say how the NEW statement relates to it:
 
 Being about the same project, customer or person is NOT enough for any relation: most earlier claims will be unrelated. Choose a relation only when it clearly holds for these two specific statements.
 
-Reply as JSON: {"relations":[{"claim":1,"relation":"..."}]}`
+Give exactly one entry for EVERY earlier claim, in order, each judged on its own.
+Reply as JSON: {"relations":[{"claim":1,"relation":"..."},{"claim":2,"relation":"..."}]}`
+
+var judgeSchema = json.RawMessage(`{"type":"object","required":["relations"],"properties":{"relations":{"type":"array","items":{"type":"object","required":["claim","relation"],"properties":{"claim":{"type":"integer"},"relation":{"type":"string","enum":["same","contradicts","refines","supersedes","answers","unrelated"]}}}}}}`)
 
 type liveClaim struct {
 	store.ClaimRow
@@ -56,6 +59,10 @@ type Linker struct {
 	Store *store.Store
 	LLM   provider.LLM // nil: near-identical matches only
 	Vecs  map[int64][]float32
+	// Entities returns the organisations and projects a text names. Two
+	// statements naming different ones (and none in common) are never
+	// related: a requirement from one customer doesn't refine another's.
+	Entities func(text string) []string
 	// Trace receives one line per decision, for diagnostics and the eval.
 	Trace func(format string, args ...any)
 
@@ -124,7 +131,8 @@ func (k *Linker) Link(ctx context.Context, sts []store.Statement) (LinkStats, er
 		}
 		// Near-identical, the same kind, and the same numbers and dates:
 		// join directly.
-		if len(cands) > 0 && cands[0].sim >= sameAt && cands[0].c.Kind == st.Kind && sameFigures(st.Text, cands[0].c.Text) {
+		if len(cands) > 0 && cands[0].sim >= sameAt && cands[0].c.Kind == st.Kind && sameFigures(st.Text, cands[0].c.Text) &&
+			valuesAgree(st.Value, cands[0].c.Value) {
 			if err := k.join(st, cands[0].c, cands[0].sim, "near-identical"); err != nil {
 				return stats, err
 			}
@@ -172,6 +180,10 @@ func (k *Linker) Link(ctx context.Context, sts []store.Statement) (LinkStats, er
 			if rel == "" || rel == "same" || rel == "unrelated" || c.c.ID == home.ID {
 				continue
 			}
+			if k.differentSubjects(st.Text, c.c.Text) {
+				k.trace("claim %d %s claim %d dropped: about different organisations or projects", home.ID, rel, c.c.ID)
+				continue
+			}
 			if err := k.Store.RelateClaims(home.ID, c.c.ID, rel, st.ID); err != nil {
 				return stats, err
 			}
@@ -180,6 +192,24 @@ func (k *Linker) Link(ctx context.Context, sts []store.Statement) (LinkStats, er
 		}
 	}
 	return stats, nil
+}
+
+func (k *Linker) differentSubjects(a, b string) bool {
+	if k.Entities == nil {
+		return false
+	}
+	ea, eb := k.Entities(a), k.Entities(b)
+	if len(ea) == 0 || len(eb) == 0 {
+		return false
+	}
+	for _, x := range ea {
+		for _, y := range eb {
+			if x == y {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (k *Linker) join(st store.Statement, c *liveClaim, sim float64, how string) error {
@@ -194,10 +224,29 @@ func (k *Linker) judge(ctx context.Context, st store.Statement, cs []*liveClaim)
 	var b strings.Builder
 	fmt.Fprintf(&b, "NEW (%s, %s, said %s): %s\n\nEarlier claims:\n", st.Holder, st.Kind, st.SaidAt.Format("Jan 2 2006"), st.Text)
 	for i, c := range cs {
-		fmt.Fprintf(&b, "%d. (%s, %s, said %s): %s\n", i+1, c.Holder, c.Kind, c.SaidAt.Format("Jan 2 2006"), c.Text)
+		fmt.Fprintf(&b, "%d. (%s, %s, said %s): %s", i+1, c.Holder, c.Kind, c.SaidAt.Format("Jan 2 2006"), c.Text)
+		// Spell out how the values relate; the model is unreliable at
+		// comparing "Q4" with "mid November" itself.
+		switch Compare(st.Value, c.Value) {
+		case "within":
+			fmt.Fprintf(&b, "  [value note: the new %q falls within %q]", st.Value.Raw, c.Value.Raw)
+		case "contains":
+			fmt.Fprintf(&b, "  [value note: the new %q is broader than %q]", st.Value.Raw, c.Value.Raw)
+		case "differs":
+			fmt.Fprintf(&b, "  [value note: the new %q differs from %q]", st.Value.Raw, c.Value.Raw)
+		case "same":
+			fmt.Fprintf(&b, "  [value note: same %s]", c.Value.Type)
+		}
+		// The model misses plain negations ("the cause is not X" against
+		// "the cause is X"); point them out when the two share their
+		// key words.
+		if negated(st.Text) != negated(c.Text) && sharedWords(st.Text, c.Text) >= 2 {
+			b.WriteString("  [note: one of the two says NOT]")
+		}
+		b.WriteString("\n")
 	}
 	out, err := k.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: judgePrompt}, {Role: "user", Content: b.String()}},
-		provider.ChatOptions{JSON: true, Temperature: 0, MaxTokens: 200}, nil)
+		provider.ChatOptions{Schema: judgeSchema, Temperature: 0, MaxTokens: 200}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -220,6 +269,13 @@ func (k *Linker) judge(ctx context.Context, st store.Statement, cs []*liveClaim)
 		for _, x := range relations {
 			ok = ok || rel == x
 		}
+		if ok && r.Claim >= 1 && r.Claim <= len(cs) {
+			// A statement that settles an open question answers it,
+			// whatever else the model called it.
+			if cs[r.Claim-1].Kind == "question" && st.Kind != "question" && (rel == "contradicts" || rel == "supersedes" || rel == "refines") {
+				rel = "answers"
+			}
+		}
 		if ok && r.Claim >= 1 && r.Claim <= len(cs) && fits(rel, st.Kind, cs[r.Claim-1].Kind) {
 			if cur, had := res[r.Claim-1]; !had || rank[rel] > rank[cur] {
 				res[r.Claim-1] = rel
@@ -241,6 +297,49 @@ func fits(rel, newKind, oldKind string) bool {
 		return (newKind == "question") == (oldKind == "question")
 	}
 	return true
+}
+
+var negations = map[string]bool{"not": true, "no": true, "never": true, "isn't": true, "wasn't": true, "aren't": true, "won't": true,
+	"doesn't": true, "didn't": true, "cannot": true, "can't": true, "neither": true, "nor": true, "ruled": true, "unlikely": true}
+
+func negated(s string) bool {
+	for _, w := range strings.Fields(strings.ToLower(s)) {
+		if negations[strings.Trim(w, ".,;:!?\"'")] {
+			return true
+		}
+	}
+	return false
+}
+
+// sharedWords counts content words (four letters or more) both texts use.
+func sharedWords(a, b string) int {
+	set := map[string]bool{}
+	for _, w := range strings.FieldsFunc(strings.ToLower(a), func(r rune) bool { return !(r >= 'a' && r <= 'z') }) {
+		if len(w) >= 4 && !negations[w] {
+			set[w] = true
+		}
+	}
+	n := 0
+	seen := map[string]bool{}
+	for _, w := range strings.FieldsFunc(strings.ToLower(b), func(r rune) bool { return !(r >= 'a' && r <= 'z') }) {
+		if set[w] && !seen[w] {
+			seen[w] = true
+			n++
+		}
+	}
+	return n
+}
+
+// valuesAgree: statements with typed values join without the judge only if
+// the values are the same (or neither has one).
+func valuesAgree(a, b store.Value) bool {
+	switch Compare(a, b) {
+	case "same":
+		return true
+	case "unknown":
+		return (a.Type == "none" || a.Type == "") && (b.Type == "none" || b.Type == "")
+	}
+	return false
 }
 
 // sameFigures reports whether two texts carry the same numbers and date

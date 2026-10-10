@@ -10,6 +10,7 @@ import (
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/registry"
+	"github.com/anielsud/musubi/internal/stages"
 	"github.com/anielsud/musubi/internal/store"
 )
 
@@ -28,6 +29,8 @@ type KnowledgeOptions struct {
 
 type KnowledgeStats struct {
 	Items, Statements, Embedded int
+	Chunks                      int
+	ExtractTime, LinkTime       time.Duration
 	Link                        knowledge.LinkStats
 	Topics                      int
 	Pending                     int // items still to extract (when limited)
@@ -131,6 +134,10 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		ks.Pending = len(jobs) - o.Limit
 		jobs = jobs[:o.Limit]
 	}
+	for _, j := range jobs {
+		ks.Chunks += len(j.chunks)
+	}
+	tExtract := time.Now()
 	workers := r.Workers
 	r.Workers = o.Workers
 	var st Stats
@@ -156,7 +163,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 						} else if e.Holder != "" {
 							holderID = reg.Participant(item.Participant{Name: e.Holder})
 						}
-						sts = append(sts, knowledge.ToStatement(e, c, j.it.OccurredAt, lines, holderID))
+						sts = append(sts, knowledge.ToStatement(e, c, j.it.OccurredAt, holderID))
 					}
 				}
 				return func() error {
@@ -168,6 +175,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		}
 	})
 	r.Workers = workers
+	ks.ExtractTime = time.Since(tExtract)
 	if err != nil {
 		return ks, err
 	}
@@ -203,7 +211,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	if err != nil {
 		return ks, err
 	}
-	lk := &knowledge.Linker{Store: r.Store, LLM: o.LLM, Vecs: vecs, Trace: o.LinkTrace}
+	lk := &knowledge.Linker{Store: r.Store, LLM: o.LLM, Vecs: vecs, Trace: o.LinkTrace, Entities: topicEntities(reg)}
 	if err := lk.Load(); err != nil {
 		return ks, err
 	}
@@ -215,6 +223,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	if ks.Link, err = lk.Link(ctx, unlinked); err != nil {
 		return ks, err
 	}
+	ks.LinkTime = time.Since(t0)
 	if len(unlinked) > 0 {
 		r.logf("link: %d statements (%d new claims, %d joined, %d judged, %d relations) in %s",
 			len(unlinked), ks.Link.New, ks.Link.Joined, ks.Link.Judged, ks.Link.Related, time.Since(t0).Round(time.Second))
@@ -227,7 +236,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	}
 	h := hashOf("topics", knowledge.TopicsVersion, sig, o.LLM.ModelName())
 	if old, _ := r.Store.GlobalStamp("topics"); old != h {
-		tp := &knowledge.Topicer{Store: r.Store, LLM: o.LLM}
+		tp := &knowledge.Topicer{Store: r.Store, LLM: o.LLM, Entities: topicEntities(reg)}
 		if ks.Topics, err = tp.Build(ctx); err != nil {
 			return ks, err
 		}
@@ -235,4 +244,30 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		r.logf("topics: %d", ks.Topics)
 	}
 	return ks, nil
+}
+
+// topicEntities finds the organisations and projects a statement names, for
+// keeping topics about different customers apart and linking topics about
+// the same one. Not people (they run across topics), and not subject terms
+// ("SSO"): a shared subject across customers is what "parallel" means.
+func topicEntities(reg *registry.Registry) func(string) []string {
+	m := stages.NewMatcher(reg.Aliases)
+	types := map[string]string{}
+	for _, e := range reg.Entities {
+		types[e.ID] = e.Type
+	}
+	return func(text string) []string {
+		var out []string
+		seen := map[string]bool{}
+		for _, c := range m.Find(text, true) {
+			for _, a := range c.Aliases {
+				t := types[a.EntityID]
+				if (t == "org" || t == "project") && !seen[a.EntityID] {
+					seen[a.EntityID] = true
+					out = append(out, a.EntityID)
+				}
+			}
+		}
+		return out
+	}
 }

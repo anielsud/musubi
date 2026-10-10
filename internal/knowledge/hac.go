@@ -7,7 +7,9 @@ package knowledge
 // their members are similar on average.
 
 // hac groups vectors (unit length) and returns cluster member indices.
-func hac(vs [][]float32, threshold float64) [][]int {
+// adjust, if set, shifts the similarity of a pair (e.g. apart for claims
+// about different customers).
+func hac(vs [][]float32, threshold float64, adjust func(i, j int) float32) [][]int {
 	n := len(vs)
 	if n == 0 {
 		return nil
@@ -21,7 +23,11 @@ func hac(vs [][]float32, threshold float64) [][]int {
 	sim := make([]float32, n*(n-1)/2)
 	for i := 0; i < n; i++ {
 		for j := i + 1; j < n; j++ {
-			sim[idx(i, j)] = float32(cos(vs[i], vs[j]))
+			v := float32(cos(vs[i], vs[j]))
+			if adjust != nil {
+				v += adjust(i, j)
+			}
+			sim[idx(i, j)] = v
 		}
 	}
 	active := make([]bool, n)

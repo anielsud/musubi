@@ -82,6 +82,7 @@ type Case struct {
 	Holder      string     `toml:"holder"`       // statement: holder entity id or name part
 	TextHas     []string   `toml:"text_has"`     // statement: words the text must contain
 	ClaimHas    []string   `toml:"claim_has"`    // claim: words a visible statement contains
+	ClaimKind   string     `toml:"claim_kind"`   // claim: and of this kind
 	Absent      bool       `toml:"absent"`       // claim: must not be visible in scope
 	Statuses    []string   `toml:"statuses"`     // claim: any of these statuses
 	MinEvidence int        `toml:"min_evidence"` // claim: visible statements
@@ -89,6 +90,8 @@ type Case struct {
 	Relation    string     `toml:"relation"`    // claim: a relation of this kind...
 	RelatedHas  []string   `toml:"related_has"` // ...to a claim containing these words
 	Together    [][]string `toml:"together"`    // topic: claims (by words) in one topic
+	Apart       [][]string `toml:"apart"`       // topic: two claims (by words) in different topics...
+	LinkKinds   []string   `toml:"link_kinds"`  // ...whose topics are related as one of these
 	LabelLacks  []string   `toml:"label_lacks"` // topic: words no visible topic label may contain
 	At          string     `toml:"at"`          // claim: belief time, overriding the suite's
 

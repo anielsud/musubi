@@ -272,3 +272,9 @@ main > div { height: 100%; }
 .passage .who { color: var(--accent); font-weight: 600; font-size: 12px; }
 
 .toast { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: var(--surface-2); border: 1px solid var(--line); padding: 8px 14px; border-radius: 999px; font-size: 12.5px; z-index: 30; animation: rise 0.2s ease-out; }
+
+.secondary { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); color: var(--text-dim); }
+.secondary:hover { color: var(--text); border-color: var(--text-faint); }
+.audiobar { display: flex; gap: 8px; align-items: center; }
+.audiobar audio { flex: 1; height: 34px; min-width: 0; }
+.audiobar select { padding: 4px 6px; }

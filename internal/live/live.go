@@ -67,6 +67,7 @@ type Live struct {
 	lastRun   time.Time
 	briefed   map[string]time.Time
 	replay    context.CancelFunc
+	clocked   *clockedReplay
 	llmBusy   sync.Mutex
 	onSaved   func()
 }
@@ -152,9 +153,12 @@ func (l *Live) handle(ev Event, mode string) {
 			}
 			l.mu.Lock()
 			// A live meeting takes over from a replay.
-			if mode == "live" && l.replay != nil {
-				l.replay()
-				l.replay = nil
+			if mode == "live" {
+				if l.replay != nil {
+					l.replay()
+					l.replay = nil
+				}
+				l.clocked = nil
 			}
 			l.meeting = NewMeeting(*ev.Session)
 			l.mode = mode
@@ -375,6 +379,135 @@ func dedupe(in []Suggestion) []Suggestion {
 	return out
 }
 
+// clockedReplay follows an audio player's position instead of a timer, so
+// what the panel shows matches what is heard, through pauses and seeks.
+type clockedReplay struct {
+	session Session
+	segs    []Segment
+	drafted map[int]bool
+	final   map[int]bool
+	last    float64
+}
+
+// SessionAudio returns the path of a saved session's audio, if it has one.
+func (l *Live) SessionAudio(sessionID string) (string, bool) {
+	if !validSessionID(sessionID) {
+		return "", false
+	}
+	p := filepath.Join(l.eng.Cfg.TomoeSessions, sessionID, "audio.m4a")
+	if _, err := os.Stat(p); err != nil {
+		return "", false
+	}
+	return p, true
+}
+
+// validSessionID accepts Tomoe's session directory names only (UUIDs), so a
+// session id can never reach outside the sessions folder.
+func validSessionID(id string) bool {
+	if len(id) != 36 {
+		return false
+	}
+	for i, r := range id {
+		switch {
+		case i == 8 || i == 13 || i == 18 || i == 23:
+			if r != '-' {
+				return false
+			}
+		case !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f'):
+			return false
+		}
+	}
+	return true
+}
+
+func (l *Live) loadSession(sessionID string) (Session, []Segment, error) {
+	if !validSessionID(sessionID) {
+		return Session{}, nil, fmt.Errorf("not a session id: %q", sessionID)
+	}
+	b, err := os.ReadFile(filepath.Join(l.eng.Cfg.TomoeSessions, sessionID, "session.json"))
+	if err != nil {
+		return Session{}, nil, err
+	}
+	var s struct {
+		Session
+		Segments []Segment `json:"segments"`
+	}
+	if err := json.Unmarshal(b, &s); err != nil {
+		return Session{}, nil, err
+	}
+	var segs []Segment
+	for _, g := range s.Segments {
+		if g.Status == "" && strings.TrimSpace(g.Text) != "" {
+			segs = append(segs, g)
+		}
+	}
+	sort.SliceStable(segs, func(i, j int) bool { return segs[i].Start < segs[j].Start })
+	return s.Session, segs, nil
+}
+
+// ReplayWithAudio starts a replay driven by ReplayClock (the audio
+// player's position) rather than a timer.
+func (l *Live) ReplayWithAudio(sessionID string) error {
+	sess, segs, err := l.loadSession(sessionID)
+	if err != nil {
+		return err
+	}
+	l.mu.Lock()
+	if l.replay != nil {
+		l.replay()
+		l.replay = nil
+	}
+	l.clocked = &clockedReplay{session: sess, segs: segs, drafted: map[int]bool{}, final: map[int]bool{}}
+	l.mu.Unlock()
+	l.handle(Event{V: 1, Type: "session", State: "started", Session: &sess}, "replay")
+	return nil
+}
+
+// ReplayClock moves a clocked replay to t seconds into the meeting: lines
+// appear as drafts halfway through being spoken and become final when they
+// end. Seeking backwards rebuilds the conversation up to t.
+func (l *Live) ReplayClock(t float64) {
+	l.mu.Lock()
+	c := l.clocked
+	if c == nil || l.mode != "replay" {
+		l.mu.Unlock()
+		return
+	}
+	if t < c.last-1 {
+		c.drafted, c.final = map[int]bool{}, map[int]bool{}
+		l.meeting = NewMeeting(l.meeting.Session)
+		l.briefed = map[string]time.Time{}
+		l.lastVer = 0
+		l.mu.Unlock()
+		l.emit("live:reset", c.session)
+		l.mu.Lock()
+	}
+	c.last = t
+	var out []Segment
+	for i, g := range c.segs {
+		if g.Start > t {
+			break
+		}
+		switch {
+		case !c.final[i] && g.End <= t:
+			c.final[i] = true
+			out = append(out, g)
+		case !c.final[i] && !c.drafted[i] && t >= g.Start+(g.End-g.Start)/2 && len(strings.Fields(g.Text)) > 4:
+			c.drafted[i] = true
+			ws := strings.Fields(g.Text)
+			d := g
+			d.Status = "live"
+			d.Text = strings.ToLower(strings.Join(ws[:len(ws)/2], " "))
+			out = append(out, d)
+		}
+	}
+	sid := c.session.ID
+	l.mu.Unlock()
+	for i := range out {
+		l.handle(Event{V: 1, Type: "segment", SessionID: sid, Segment: &out[i]}, "replay")
+	}
+}
+
 // Replay plays a saved Tomoe session through the panel as if it were live,
 // speed times faster, with each line first appearing as a partial draft.
 func (l *Live) Replay(ctx context.Context, sessionID string, speed float64) error {
@@ -452,6 +585,7 @@ func (l *Live) StopReplay() {
 		l.replay()
 		l.replay = nil
 	}
+	l.clocked = nil
 	if l.mode == "replay" {
 		l.mode = "idle"
 	}

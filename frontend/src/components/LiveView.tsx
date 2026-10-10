@@ -19,7 +19,14 @@ export function LiveView({ status, onOpen, onEntity }: Props) {
   const [typed, setTyped] = useState('');
   const [showAll, setShowAll] = useState(false);
   const [err, setErr] = useState('');
+  const [audioRef, setAudioRef] = useState<string | null>(null);
   const tail = useRef<HTMLDivElement>(null);
+
+  // An audio replay ends when the panel leaves replay mode (stopped, or a
+  // live meeting took over).
+  useEffect(() => {
+    if (status && status.mode !== 'replay') setAudioRef(null);
+  }, [status?.mode]);
 
   useEffect(() => {
     const offs = [
@@ -72,7 +79,9 @@ export function LiveView({ status, onOpen, onEntity }: Props) {
     <div className="view live">
       <MeetingHeader status={status} />
 
-      {!active && <ReplayPicker />}
+      {audioRef && status?.mode === 'replay' && <AudioBar ref_={audioRef} />}
+
+      {!active && <ReplayPicker onAudio={setAudioRef} />}
 
       {active && (
         <section className="transcript">
@@ -163,10 +172,31 @@ function MeetingHeader({ status }: { status: LiveStatus | null }) {
   );
 }
 
-function ReplayPicker() {
+// AudioBar plays the replayed meeting's recording; its position drives what
+// the panel shows, so pausing pauses the meeting and seeking moves it.
+function AudioBar({ ref_ }: { ref_: string }) {
+  const el = useRef<HTMLAudioElement>(null);
+  const [rate, setRate] = useState(1);
+  useEffect(() => {
+    if (el.current) el.current.playbackRate = rate;
+  }, [rate]);
+  return (
+    <div className="audiobar">
+      <audio ref={el} src={'/replay-audio/' + ref_} controls autoPlay
+        onTimeUpdate={(e) => api.replayClock((e.target as HTMLAudioElement).currentTime)}
+        onSeeked={(e) => api.replayClock((e.target as HTMLAudioElement).currentTime)} />
+      <select value={rate} onChange={(e) => setRate(Number(e.target.value))} title="Playback speed">
+        {[1, 1.25, 1.5, 2].map((r) => <option key={r} value={r}>{r}×</option>)}
+      </select>
+    </div>
+  );
+}
+
+function ReplayPicker({ onAudio }: { onAudio: (ref: string) => void }) {
   const [meetings, setMeetings] = useState<MeetingRef[]>([]);
   const [pick, setPick] = useState('');
   const [speed, setSpeed] = useState(8);
+  const [audio, setAudio] = useState(false);
   useEffect(() => {
     api.meetings().then((m) => {
       const ok = (m ?? []).filter((x) => x.chunks >= 8);
@@ -174,6 +204,10 @@ function ReplayPicker() {
       if (ok[0]) setPick(ok[0].ref);
     });
   }, []);
+  useEffect(() => {
+    if (pick) api.hasAudio(pick).then(setAudio, () => setAudio(false));
+  }, [pick]);
+  const playAudio = () => api.replayWithAudio(pick).then(() => onAudio(pick));
   const byDay = useMemo(() => meetings, [meetings]);
   return (
     <div className="idle">
@@ -188,13 +222,17 @@ function ReplayPicker() {
           ))}
         </select>
         <div className="row">
-          <label>speed
+          <label>text replay speed
             <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
               {[1, 2, 4, 8, 16, 32].map((n) => <option key={n} value={n}>{n}×</option>)}
             </select>
           </label>
-          <button className="primary" disabled={!pick} onClick={() => api.replay(pick, speed)}>▶ Replay</button>
+          <button className="secondary" disabled={!pick} onClick={() => api.replay(pick, speed)}>Text only</button>
         </div>
+        <button className="primary wide" disabled={!pick || !audio} onClick={playAudio}
+          title={audio ? 'Play the recording; the panel follows it in real time' : 'No recording saved for this meeting'}>
+          ▶ Play with audio
+        </button>
       </div>
     </div>
   );

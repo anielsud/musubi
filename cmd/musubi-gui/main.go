@@ -36,7 +36,7 @@ func main() {
 		MinWidth:         360,
 		MinHeight:        520,
 		BackgroundColour: &options.RGBA{R: 14, G: 17, B: 22, A: 255},
-		AssetServer:      &assetserver.Options{Assets: assets},
+		AssetServer:      &assetserver.Options{Assets: assets, Handler: app.AudioHandler()},
 		OnStartup:        app.Startup,
 		OnShutdown:       app.Shutdown,
 		Bind:             []interface{}{app},

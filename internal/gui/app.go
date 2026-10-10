@@ -5,6 +5,8 @@ package gui
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -248,6 +250,49 @@ func (a *App) Meetings() ([]store.MeetingRef, error) {
 }
 
 func (a *App) Replay(ref string, speed float64) error { return a.live.Replay(a.ctx, ref, speed) }
-func (a *App) StopReplay()                            { a.live.StopReplay() }
+
+// ReplayWithAudio starts a replay that follows the audio player.
+func (a *App) ReplayWithAudio(ref string) error { return a.live.ReplayWithAudio(ref) }
+
+// ReplayClock reports the audio player's position, in seconds.
+func (a *App) ReplayClock(t float64) { a.live.ReplayClock(t) }
+
+// HasAudio reports whether a saved meeting has its recording.
+func (a *App) HasAudio(ref string) bool {
+	_, ok := a.live.SessionAudio(ref)
+	return ok
+}
+
+// AudioHandler serves /replay-audio/<session id> to the app's own webview
+// for audio replays. http.ServeContent handles range requests, so seeking
+// works. Nothing but Tomoe session audio can be served.
+func (a *App) AudioHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := strings.CutPrefix(r.URL.Path, "/replay-audio/")
+		if !ok || a.live == nil {
+			http.NotFound(w, r)
+			return
+		}
+		p, ok := a.live.SessionAudio(id)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		f, err := os.Open(p)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		st, err := f.Stat()
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "audio/mp4")
+		http.ServeContent(w, r, "audio.m4a", st.ModTime(), f)
+	})
+}
+func (a *App) StopReplay() { a.live.StopReplay() }
 
 func (a *App) SetOnTop(on bool) { wruntime.WindowSetAlwaysOnTop(a.ctx, on) }

@@ -158,6 +158,11 @@ func (s *Suggester) Phrases(text string, n int) []string {
 	}
 	var all []ps
 	for p, v := range score {
+		// A lone word is rarely a useful query ("end"): it must be longer
+		// and said more than once to count.
+		if !strings.Contains(p, " ") && (len(p) < 5 || tf[p] < 2) {
+			continue
+		}
 		all = append(all, ps{p, v * math.Log(1+float64(tf[p]))})
 	}
 	sort.Slice(all, func(i, j int) bool {

@@ -27,6 +27,9 @@ export const api = {
   meetings: (): Promise<MeetingRef[] | null> => app().Meetings(),
   replay: (ref: string, speed: number): Promise<void> => app().Replay(ref, speed),
   stopReplay: (): Promise<void> => app().StopReplay(),
+  replayWithAudio: (ref: string): Promise<void> => app().ReplayWithAudio(ref),
+  replayClock: (t: number): Promise<void> => app().ReplayClock(t),
+  hasAudio: (ref: string): Promise<boolean> => app().HasAudio(ref),
   setOnTop: (on: boolean): Promise<void> => app().SetOnTop(on),
 };
 

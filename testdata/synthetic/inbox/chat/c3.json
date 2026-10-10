@@ -1,0 +1,37 @@
+{
+ "kind": "chat",
+ "source": "chat",
+ "ref": "c3",
+ "record": {
+  "chatId": "c3",
+  "topic": "",
+  "members": [
+   {
+    "name": "Jordan Pike",
+    "email": "jordan.pike@northwind.example"
+   },
+   {
+    "name": "Lee Chen",
+    "email": "lee.chen@northwind.example"
+   }
+  ],
+  "messages": [
+   {
+    "from": {
+     "name": "Lee Chen",
+     "email": "lee.chen@northwind.example"
+    },
+    "sentAt": "2026-09-12T11:00:00-04:00",
+    "text": "I think the search latency regression might be caused by the new load balancer config. The timing lines up."
+   },
+   {
+    "from": {
+     "name": "Jordan Pike",
+     "email": "jordan.pike@northwind.example"
+    },
+    "sentAt": "2026-09-12T11:01:00-04:00",
+    "text": "Could be. Can you check with Priya before the sync?"
+   }
+  ]
+ }
+}

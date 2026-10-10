@@ -45,6 +45,18 @@ func TestSyntheticCorpus(t *testing.T) {
 	if err := r.Process(ctx, &s); err != nil {
 		t.Fatal(err)
 	}
+	// The knowledge layer, from recorded model replies (no model in CI).
+	llm, err := provider.NewCachedLLM(filepath.Join(dir, "llm-cache", "chat.json"), "qwen3:8b", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kemb, err := provider.NewCachedEmbedder(filepath.Join(dir, "llm-cache", "embed.json"), "nomic-embed-text", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Knowledge(ctx, pipeline.KnowledgeOptions{LLM: llm, Embedder: kemb, Workers: 1}); err != nil {
+		t.Fatalf("knowledge from recorded replies: %v (re-record with `make eval-record`)", err)
+	}
 	suite, err := Load(filepath.Join(dir, "cases.toml"))
 	if err != nil {
 		t.Fatal(err)

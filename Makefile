@@ -1,4 +1,4 @@
-.PHONY: build test vet fmt licenses eval clean frontend build-gui install-gui-mac
+.PHONY: build test vet fmt licenses eval eval-record clean frontend build-gui install-gui-mac
 
 # FTS5 is compiled into the SQLite driver only with this tag.
 TAGS := -tags sqlite_fts5
@@ -30,9 +30,16 @@ licenses:
 	go run github.com/google/go-licenses@latest check $(CORE) --disallowed_types=forbidden,restricted,unknown \
 		--ignore github.com/anielsud/musubi --ignore github.com/asg017/sqlite-vec-go-bindings
 
-# Synthetic corpus eval with the deterministic embedder: the CI gate.
+# Synthetic corpus eval with the deterministic embedder and recorded model
+# replies: the CI gate.
 eval: build
-	bin/musubi eval --corpus testdata/synthetic --embed hash
+	bin/musubi eval --corpus testdata/synthetic --embed hash --knowledge
+
+# Re-record the model replies the synthetic eval replays (needs Ollama with
+# the configured models). Run after changing a knowledge prompt.
+eval-record: build
+	rm -f testdata/synthetic/llm-cache/chat.json
+	bin/musubi eval --corpus testdata/synthetic --embed hash --knowledge --record
 
 frontend:
 	cd frontend && npm install --silent && npm run build

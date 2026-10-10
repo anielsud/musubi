@@ -43,6 +43,15 @@ func NewChat(c config.LLM) (*Chat, error) {
 	return nil, fmt.Errorf("unknown llm provider %q", c.Provider)
 }
 
+// LLM is what stages need from a chat model; Chat and Cached implement it.
+type LLM interface {
+	Complete(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error)
+	Local() bool
+	ModelName() string
+}
+
+func (c *Chat) ModelName() string { return c.Model }
+
 func (c *Chat) Local() bool {
 	return strings.Contains(c.URL, "127.0.0.1") || strings.Contains(c.URL, "localhost")
 }

@@ -3,6 +3,7 @@ import { api, fmtDate, kindIcon } from '../api';
 import type { EntityRef, Graph, Hit } from '../types';
 import { Empty, HitRow, LabelBadge, Spinner } from './common';
 import { GraphView } from './GraphView';
+import { ClaimResults, TopicsPane } from './Knowledge';
 
 interface Props {
   scope: string;
@@ -20,6 +21,9 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem }: Prop
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [trail, setTrail] = useState<EntityRef[]>([]);
+  const [mode, setMode] = useState<'topics' | 'search'>('topics');
+  const [lastQ, setLastQ] = useState('');
+  const openSource = (itemId: string, chunkId: number) => onOpen({ itemId, chunkId } as unknown as Hit, scope);
 
   useEffect(() => {
     if (!focus) {
@@ -35,6 +39,8 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem }: Prop
 
   const run = async (text: string) => {
     if (!text.trim()) return;
+    setMode('search');
+    setLastQ(text);
     setBusy(true);
     setErr('');
     try {
@@ -49,8 +55,15 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem }: Prop
     }
   };
 
+  if (focus && mode === 'topics') setMode('search');
   return (
     <div className="view explore">
+      <div className="segmented">
+        <button className={mode === 'topics' ? 'on' : ''} onClick={() => { setMode('topics'); setFocus(null); }}>Topics</button>
+        <button className={mode === 'search' ? 'on' : ''} onClick={() => setMode('search')}>Search</button>
+      </div>
+      {mode === 'topics' && <TopicsPane scope={scope} onSource={openSource} />}
+      {mode === 'search' && <>
       <form className="lookup" onSubmit={(e) => { e.preventDefault(); run(q); }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search passages, people, customers…" />
         {busy && <Spinner />}
@@ -116,9 +129,12 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem }: Prop
         </section>
       )}
 
+      {lastQ && <ClaimResults q={lastQ} scope={scope} onSource={openSource} />}
+
       {!hits && !focus && (
         <Empty>Search your meetings, or name a person or customer to see who and what they connect to.</Empty>
       )}
+      </>}
     </div>
   );
 }

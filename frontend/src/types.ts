@@ -142,3 +142,83 @@ export interface AppStatus {
   live: LiveStatus;
   config: Record<string, string>;
 }
+
+export interface Statement {
+  id: number;
+  itemId: string;
+  chunkId: number;
+  chunkSeq: number;
+  line: number;
+  kind: string;
+  text: string;
+  holder: string;
+  holderId?: string;
+  certainty: string;
+  saidAt: string;
+  when?: string;
+  about?: string[];
+  itemKind?: string;
+  itemTitle?: string;
+  label: Label;
+  claimId?: number;
+}
+
+export interface Belief {
+  score: number;
+  support: number;
+  against: number;
+  status: string;
+  holders: number;
+  written: boolean;
+  last: string;
+  verdict?: string;
+  why: string;
+}
+
+export interface RelView {
+  rel: string;
+  direction: 'in' | 'out';
+  claimId: number;
+  text: string;
+  status: string;
+}
+
+export interface ClaimView {
+  id: number;
+  kind: string;
+  text: string;
+  holder: string;
+  topicId: number;
+  first: string;
+  belief: Belief;
+  statements: Statement[] | null;
+  relations: RelView[] | null;
+}
+
+export interface TopicSummary {
+  id: number;
+  label: string;
+  summary: string;
+  keywords: string[] | null;
+  labelHidden: boolean;
+  claims: number;
+  statuses: Record<string, number>;
+  last: string;
+  x: number;
+  y: number;
+}
+
+export interface TopicView extends TopicSummary {
+  claimList: ClaimView[] | null;
+  people: { name: string; id?: string; claims: number }[] | null;
+  related: { id: number; label: string; sim: number; shared: number; unconnected: boolean }[] | null;
+}
+
+export interface KnowledgeCounts {
+  statements: number;
+  claims: number;
+  topics: number;
+  relations: number;
+  extracted: number;
+  extractable: number;
+}

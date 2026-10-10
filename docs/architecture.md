@@ -163,6 +163,139 @@ cold lane like any other source.
 - Only a local model ever reads meeting text; with a cloud model configured,
   Q&A filters passages to the cloud scope and live suggestions are off.
 
+## Knowledge layer
+
+Passages are what was said; knowledge is what it amounts to. Each source
+mixes facts, opinions, hypotheses, decisions and commitments, held by
+different people, with different authority, and they change over time:
+reinforced, clarified, superseded, disproven, or simply going stale.
+
+```
+passages ─▶ statements ─▶ claims ◀── relations ──▶ claims ─▶ topics
+            (who said what,  (one assertion across     (clusters of claims,
+             of what kind)    sources; belief          related to each other)
+                              computed when read)
+```
+
+### Statements (`extract` stage)
+
+A local model reads each passage once and lists what it asserts. Each
+statement has:
+- **kind**: fact, opinion, hypothesis, decision, commitment, requirement, or
+  question;
+- **text**: self-contained, with names made explicit;
+- **holder**: who said it, resolved to a person through the speaker labels;
+- **certainty** as expressed: high, medium or low;
+- **said_at**, and **when**: the time it refers to ("ship on the 22nd");
+- **line**: the passage line it came from, so it inherits that passage's
+  sensitivity and can be cited exactly.
+
+Small talk and procedure are skipped. The stage is versioned by model and
+prompt like any other, so improving the prompt means re-running it.
+
+### Claims (`link` stage)
+
+A claim is one assertion across sources. Statements are linked in the order
+they were made:
+1. Embed the new statement and find the nearest claims by cosine similarity.
+2. A near-identical match (≥ 0.92) joins without asking the model.
+3. For plausible matches (≥ 0.70), the model judges each candidate as one
+   of: same, supports, contradicts, refines, supersedes, answers, unrelated.
+4. Otherwise the statement starts a new claim.
+
+Every statement belongs to exactly one claim (what it says). Relations
+between claims record how it bears on others:
+- contradicts;
+- refines;
+- supersedes: a decision changed;
+- answers: resolves an open question.
+
+A claim's centroid is the mean of its statements' vectors.
+
+### Belief (computed when read, never stored)
+
+Belief is worked out from the visible statements of a claim and its
+relations. Each statement contributes evidence
+
+    e = w(kind) × w(certainty) × w(source) × decay(age, half-life(kind))
+
+and evidence is combined per holder first (repetition by one person adds
+little), then across holders, so independent people count. Contradicting
+claims count against it.
+
+Half-lives:
+
+| kind | half-life |
+|---|---|
+| question | 14 days |
+| hypothesis | 30 days |
+| opinion | 60 days |
+| fact | 90 days |
+| requirement | 180 days |
+| decision | none; it changes by being superseded |
+
+Written sources (email, documents) weigh more than speech.
+
+The owner's judgement overrides: verified, disputed or false. Judgements are
+kept like the forget list (not derived), keyed by the statement judged, so
+they survive rebuilds.
+
+Statuses:
+
+| status | when |
+|---|---|
+| established | high belief and (two or more independent holders, a written source, or verified) |
+| likely | |
+| contested | substantial support and substantial contradiction |
+| speculative | mostly hypotheses or opinions |
+| stale | evidence decayed past two half-lives |
+| superseded | a newer visible claim supersedes it |
+| disproven | judged false, or contradicted by stronger, newer evidence |
+
+Because nothing decayed is stored, belief drifts with time on its own, and
+changing the formula re-scores everything.
+
+### Topics (`topics` step)
+
+1. Claims are clustered by centroid (agglomerative, average link).
+2. Each cluster is labelled by the model, with a one-line summary.
+3. Topics keep their ids across runs: a new cluster takes the id of the
+   previous topic whose claims it mostly shares.
+4. Topics relate to each other by meaning (centroid similarity) and by being
+   discussed together (sharing items). Similar in meaning but never
+   discussed together is shown as a possible connection nobody has made.
+
+### Sensitivity in the knowledge layer
+
+- A statement is visible exactly when its passage is.
+- A claim is visible when any of its statements is, and it shows the text of
+  a visible one.
+- **Belief is computed only from visible statements**, so a confidence or
+  source count can't reveal a hidden meeting.
+- A topic's label records the highest level of the statements used to write
+  it. In a narrower scope the label is replaced by keywords drawn from the
+  visible claims.
+
+### Evaluation
+
+Synthetic scenarios (each with leak checks):
+- a decision changed later (supersedes);
+- a hypothesis later disproven;
+- one person's opinion contradicted by a written fact;
+- a fact confirmed both in a restricted meeting and in the open, whose
+  evidence count must differ by scope;
+- an open question later answered.
+
+Case kinds:
+- `statement`: kind, holder and text extracted from a passage;
+- `claim`: status, relation and evidence count under a scope;
+- `topic`: claims grouped together.
+
+CI replays recorded model replies and embeddings (`testdata/synthetic/llm-cache/`);
+`make eval-record` re-records them locally when prompts change. Model quality
+(extraction precision, linking accuracy) is measured locally on private
+cases.
+
 ## Storage
 
 One SQLite file (`~/.local/share/musubi/musubi.db`, WAL mode) holds all

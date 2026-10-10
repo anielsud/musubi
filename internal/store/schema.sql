@@ -168,3 +168,83 @@ CREATE TABLE IF NOT EXISTS forgotten (
 	at     INTEGER NOT NULL,
 	PRIMARY KEY (source, ref)
 );
+
+-- Knowledge layer (docs/architecture.md). Statements are derived from
+-- chunks and go with them; claims, relations and topics are rebuilt from
+-- statements.
+
+CREATE TABLE IF NOT EXISTS statements (
+	id         INTEGER PRIMARY KEY,
+	item_id    TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	chunk_id   INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+	line       INTEGER NOT NULL,
+	kind       TEXT NOT NULL,
+	text       TEXT NOT NULL,
+	holder     TEXT NOT NULL,          -- as written in the passage
+	holder_id  TEXT,                   -- resolved entity, if any
+	certainty  TEXT NOT NULL,
+	said_at    INTEGER NOT NULL,       -- unix seconds
+	about_when TEXT NOT NULL,
+	about      TEXT NOT NULL           -- JSON list of names and terms
+);
+CREATE INDEX IF NOT EXISTS statements_item ON statements(item_id);
+CREATE INDEX IF NOT EXISTS statements_chunk ON statements(chunk_id);
+
+CREATE TABLE IF NOT EXISTS statement_vecs (
+	statement_id INTEGER PRIMARY KEY REFERENCES statements(id) ON DELETE CASCADE,
+	model        TEXT NOT NULL,
+	vec          BLOB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS claims (
+	id         INTEGER PRIMARY KEY,
+	kind       TEXT NOT NULL,
+	created_at INTEGER NOT NULL,
+	centroid   BLOB,
+	topic_id   INTEGER
+);
+
+-- Every statement belongs to one claim.
+CREATE TABLE IF NOT EXISTS statement_claims (
+	statement_id INTEGER PRIMARY KEY REFERENCES statements(id) ON DELETE CASCADE,
+	claim_id     INTEGER NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+	sim          REAL NOT NULL,
+	how          TEXT NOT NULL  -- new, near-identical, judged
+);
+CREATE INDEX IF NOT EXISTS statement_claims_claim ON statement_claims(claim_id);
+
+-- How a claim bears on another (from → to), established by a statement.
+CREATE TABLE IF NOT EXISTS claim_relations (
+	from_claim   INTEGER NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+	to_claim     INTEGER NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+	rel          TEXT NOT NULL,  -- contradicts, refines, supersedes, answers
+	statement_id INTEGER NOT NULL REFERENCES statements(id) ON DELETE CASCADE,
+	PRIMARY KEY (from_claim, to_claim, rel)
+);
+
+CREATE TABLE IF NOT EXISTS topics (
+	id          INTEGER PRIMARY KEY,
+	label       TEXT NOT NULL,
+	summary     TEXT NOT NULL,
+	label_level INTEGER NOT NULL,  -- highest level of the statements the label was written from
+	centroid    BLOB,
+	size        INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS topic_relations (
+	a      INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+	b      INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+	sim    REAL NOT NULL,
+	shared INTEGER NOT NULL,  -- items discussing both
+	PRIMARY KEY (a, b)
+);
+
+-- The owner's verdicts. Not derived: kept across rebuilds, keyed by the
+-- statement judged (item and text), and re-attached to its claim.
+CREATE TABLE IF NOT EXISTS judgments (
+	item_id TEXT NOT NULL,
+	text    TEXT NOT NULL,
+	verdict TEXT NOT NULL,  -- verified, disputed, false
+	note    TEXT NOT NULL,
+	at      INTEGER NOT NULL,
+	PRIMARY KEY (item_id, text)
+);

@@ -11,6 +11,9 @@
 #   graph    entity neighbours and items under a scope
 
 # Every search/leak query is also run under these scopes for the invariant check.
+# Belief is computed at this time, so decay is deterministic.
+now = "2026-09-25T12:00:00-04:00"
+
 probe_scopes = ["shared-screen", "cloud", "reply:lee.chen@northwind.example", "reply:tom.becker@acmefreight.example", "reply:nina.patel@bluegill.example"]
 
 # ---------- retrieval (owner) ----------
@@ -389,3 +392,129 @@ node = "term:project-heron"
 scope = "owner"
 visible = true
 expect_neighbors = ["org:kestrel-analytics", "person:olu.adeyemi@northwind.example"]
+
+# ---------- knowledge: statements ----------
+# (needs --knowledge; CI replays testdata/synthetic/llm-cache)
+
+[[case]]
+id = "KS01"
+kind = "statement"
+target = { item = "chat:c3", contains = "load balancer" }
+kinds = ["hypothesis"]
+holder = "lee"
+text_has = ["load balancer"]
+
+[[case]]
+id = "KS02"
+kind = "statement"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000001", contains = "September 22" }
+kinds = ["decision", "commitment"]
+text_has = ["September 22"]
+
+[[case]]
+id = "KS03"
+kind = "statement"
+note = "a written decision from the customer"
+target = { item = "mail:m5", contains = "two-year" }
+kinds = ["decision", "fact", "commitment"]
+holder = "tom"
+text_has = ["two-year"]
+
+[[case]]
+id = "KS04"
+kind = "statement"
+note = "an announcement phrased as congratulations is still a statement"
+target = { item = "tomoe:11111111-0000-4000-8000-000000000006", contains = "promotion" }
+kinds = ["fact", "decision"]
+text_has = ["promot"]
+
+# ---------- knowledge: claims and belief ----------
+
+[[case]]
+id = "KC01"
+kind = "claim"
+note = "a hypothesis later ruled out"
+claim_has = ["load balancer", "might"]
+statuses = ["disproven", "contested"]
+relation = "contradicts"
+related_has = ["load balancer"]
+
+[[case]]
+id = "KC02"
+kind = "claim"
+note = "a decision that changed"
+claim_has = ["September 22"]
+statuses = ["superseded"]
+relation = "supersedes"
+related_has = ["September 29"]
+
+[[case]]
+id = "KC03"
+kind = "claim"
+claim_has = ["September 29"]
+statuses = ["likely", "established"]
+
+[[case]]
+id = "KC04"
+kind = "claim"
+note = "one person's guess, contradicted by the customer's written decision"
+claim_has = ["three years"]
+statuses = ["disproven", "contested"]
+
+[[case]]
+id = "KC05"
+kind = "claim"
+note = "the same fact from two sources is one claim with two statements"
+claim_has = ["kickoff", "October 20"]
+min_evidence = 2
+statuses = ["established"]
+
+[[case]]
+id = "KC06"
+kind = "claim"
+note = "comp details from the 1:1 don't exist in a reply to a third person"
+claim_has = ["152k"]
+scope = "reply:lee.chen@northwind.example"
+absent = true
+
+[[case]]
+id = "KC07"
+kind = "claim"
+note = "the promotion is public from the all-hands; only that source counts for Lee"
+claim_has = ["promot", "senior manager"]
+scope = "reply:lee.chen@northwind.example"
+max_evidence = 1
+
+[[case]]
+id = "KC08"
+kind = "claim"
+claim_has = ["Kestrel"]
+scope = "shared-screen"
+absent = true
+
+[[case]]
+id = "KC09"
+kind = "claim"
+claim_has = ["Kestrel"]
+scope = "owner"
+statuses = ["likely", "established"]
+
+# ---------- knowledge: topics ----------
+
+[[case]]
+id = "KT01"
+kind = "topic"
+together = [["batching fix", "September 22"], ["batching fix", "September 29"]]
+
+[[case]]
+id = "KT02"
+kind = "topic"
+note = "topic labels written from restricted material don't show on a shared screen"
+scope = "shared-screen"
+label_lacks = ["Kestrel", "Heron", "152k", "term sheet", "acquisition"]
+
+[[case]]
+id = "KT03"
+kind = "topic"
+scope = "reply:tom.becker@acmefreight.example"
+label_lacks = ["Kestrel", "152k", "raise", "performance review", "vulnerability"]

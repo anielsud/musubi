@@ -18,6 +18,7 @@ import (
 	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/engine"
 	"github.com/anielsud/musubi/internal/eval"
+	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/live"
 	"github.com/anielsud/musubi/internal/pipeline"
 	"github.com/anielsud/musubi/internal/provider"
@@ -45,7 +46,8 @@ func root() *cobra.Command {
 	r := &cobra.Command{Use: "musubi", Short: "Local-first personal knowledge base", SilenceUsage: true}
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
-	r.AddCommand(updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), liveCmd())
+	r.AddCommand(updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), liveCmd(),
+		knowledgeCmd(), claimsCmd(), topicsCmd(), topicCmd(), judgeCmd())
 	return r
 }
 
@@ -366,6 +368,8 @@ func forgetCmd() *cobra.Command {
 
 func evalCmd() *cobra.Command {
 	var cases, corpus, embed, jsonOut, baseline, modes string
+	var withKnowledge, record bool
+	var keep string
 	c := &cobra.Command{
 		Use:   "eval",
 		Short: "Score retrieval, leakage, classification, resolution and graph cases",
@@ -379,11 +383,17 @@ the cases. Exits non-zero on any leak.`,
 			}
 			var st *store.Store
 			if corpus != "" {
-				tmp, err := os.MkdirTemp("", "musubi-eval-")
-				if err != nil {
-					return err
+				tmp := keep
+				if tmp == "" {
+					t, err := os.MkdirTemp("", "musubi-eval-")
+					if err != nil {
+						return err
+					}
+					defer os.RemoveAll(t)
+					tmp = t
+				} else {
+					os.RemoveAll(tmp)
 				}
-				defer os.RemoveAll(tmp)
 				if cfg, err = config.Load(filepath.Join(corpus, "config.toml")); err != nil {
 					return err
 				}
@@ -414,6 +424,11 @@ the cases. Exits non-zero on any leak.`,
 				if err := r.Process(cmd.Context(), &stats); err != nil {
 					return err
 				}
+				if withKnowledge {
+					if err := corpusKnowledge(cmd.Context(), r, cfg, corpus, record); err != nil {
+						return err
+					}
+				}
 			}
 			suite, err := eval.Load(cases)
 			if err != nil {
@@ -443,6 +458,9 @@ the cases. Exits non-zero on any leak.`,
 				}
 				fmt.Printf("=== %s ===\n", name)
 				h := &eval.Harness{Store: st, Embedder: e, Modes: ms, InternalDomains: cfg.Owner.InternalDomains}
+				if !withKnowledge {
+					suite = withoutKnowledge(suite)
+				}
 				rep, err := h.Run(cmd.Context(), suite)
 				if err != nil {
 					return err
@@ -480,6 +498,9 @@ the cases. Exits non-zero on any leak.`,
 	c.Flags().StringVar(&modes, "modes", "hybrid,keyword,vector", "search modes to score")
 	c.Flags().StringVar(&jsonOut, "json", "", "write metrics as JSON (use as a later --baseline)")
 	c.Flags().StringVar(&baseline, "baseline", "", "metrics JSON from an earlier run to compare against")
+	c.Flags().StringVar(&keep, "keep", "", "with --corpus: build the database in this directory and keep it")
+	c.Flags().BoolVar(&withKnowledge, "knowledge", false, "also build and score the knowledge layer (corpus: replays <corpus>/llm-cache)")
+	c.Flags().BoolVar(&record, "record", false, "with --knowledge: call the real models for anything not in the cache, and save it")
 	return c
 }
 
@@ -565,4 +586,252 @@ func liveCmd() *cobra.Command {
 	c.Flags().Float64Var(&speed, "speed", 4, "replay speed")
 	c.Flags().DurationVar(&duration, "for", 2*time.Minute, "how long to run")
 	return c
+}
+
+// corpusKnowledge builds the knowledge layer for a test corpus from its
+// recorded model replies (and, with record, the real models).
+func corpusKnowledge(ctx context.Context, r *pipeline.Runner, cfg config.Config, corpus string, record bool) error {
+	var innerLLM provider.LLM
+	var innerEmb provider.Embedder
+	if record {
+		chat, err := provider.NewChat(config.DefaultConfig().LLM)
+		if err != nil {
+			return err
+		}
+		innerLLM = chat
+		innerEmb, err = provider.New(config.DefaultConfig().Embed)
+		if err != nil {
+			return err
+		}
+	}
+	llm, err := provider.NewCachedLLM(filepath.Join(corpus, "llm-cache", "chat.json"), config.DefaultConfig().LLM.Model, innerLLM, record)
+	if err != nil {
+		return err
+	}
+	emb, err := provider.NewCachedEmbedder(filepath.Join(corpus, "llm-cache", "embed.json"), config.DefaultConfig().Embed.Model, innerEmb, record)
+	if err != nil {
+		return err
+	}
+	ks, err := r.Knowledge(ctx, pipeline.KnowledgeOptions{LLM: llm, Embedder: emb, Workers: 2})
+	if record {
+		if serr := llm.Save(); serr != nil && err == nil {
+			err = serr
+		}
+		if serr := emb.Save(); serr != nil && err == nil {
+			err = serr
+		}
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "knowledge: %d items, %d statements, %d claims new, %d joined, %d relations, %d topics\n",
+		ks.Items, ks.Statements, ks.Link.New, ks.Link.Joined, ks.Link.Related, ks.Topics)
+	return nil
+}
+
+func withoutKnowledge(s *eval.Suite) *eval.Suite {
+	out := *s
+	out.Cases = nil
+	for _, c := range s.Cases {
+		if c.Kind != "statement" && c.Kind != "claim" && c.Kind != "topic" {
+			out.Cases = append(out.Cases, c)
+		}
+	}
+	return &out
+}
+
+func knowledgeCmd() *cobra.Command {
+	var items []string
+	var limit, workers int
+	var verbose bool
+	c := &cobra.Command{
+		Use:   "knowledge",
+		Short: "Extract statements, link them into claims, and build topics (uses the local model)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			if e.Chat == nil || e.Embedder == nil {
+				return fmt.Errorf("needs [llm] and [embed] configured")
+			}
+			r, err := e.Runner(nil, os.Stderr)
+			if err != nil {
+				return err
+			}
+			o := pipeline.KnowledgeOptions{LLM: e.Chat, Embedder: e.Embedder, Items: items, Limit: limit, Workers: workers}
+			if verbose {
+				o.LinkTrace = func(f string, a ...any) { fmt.Fprintf(os.Stderr, "  link: "+f+"\n", a...) }
+			}
+			start := time.Now()
+			ks, err := r.Knowledge(cmd.Context(), o)
+			fmt.Fprintf(os.Stderr, "knowledge: %d items, %d statements (%d embedded), claims %d new / %d joined / %d judged, %d relations, %d topics; %d items still to extract; %s\n",
+				ks.Items, ks.Statements, ks.Embedded, ks.Link.New, ks.Link.Joined, ks.Link.Judged, ks.Link.Related, ks.Topics, ks.Pending, time.Since(start).Round(time.Second))
+			return err
+		},
+	}
+	c.Flags().StringSliceVar(&items, "items", nil, "only these item ids or prefixes")
+	c.Flags().IntVar(&limit, "limit", 0, "extract at most this many items this run")
+	c.Flags().IntVar(&workers, "workers", 2, "parallel model requests")
+	c.Flags().BoolVarP(&verbose, "verbose", "v", false, "print each linking decision")
+	return c
+}
+
+func views(scope string) (*engine.Engine, knowledge.Views, error) {
+	e, err := engine.Open(cfgPath)
+	if err != nil {
+		return nil, knowledge.Views{}, err
+	}
+	sc, err := e.Scope(scope)
+	if err != nil {
+		e.Close()
+		return nil, knowledge.Views{}, err
+	}
+	return e, knowledge.Views{Store: e.Store, Scope: sc, Now: time.Now()}, nil
+}
+
+func printClaim(c knowledge.ClaimView) {
+	fmt.Printf("#%d [%s, %s %.2f] %s\n", c.ID, c.Kind, c.Belief.Status, c.Belief.Score, c.Text)
+	fmt.Printf("     %s · %d statement(s), %d holder(s) · %s\n", c.Belief.Why, len(c.Statements), c.Belief.Holders, c.Belief.Last.Format("2006-01-02"))
+	for _, r := range c.Relations {
+		arrow := "→"
+		if r.Direction == "in" {
+			arrow = "←"
+		}
+		fmt.Printf("     %s %s #%d [%s] %s\n", arrow, r.Rel, r.ClaimID, r.Status, snippet(r.Text, 90))
+	}
+}
+
+func claimsCmd() *cobra.Command {
+	var scope string
+	var k int
+	var verbose bool
+	c := &cobra.Command{
+		Use:   "claims <words>",
+		Short: "Find claims and show how much they are believed",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			e, v, err := views(scope)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			cs, err := v.SearchClaims(strings.Join(args, " "), k)
+			if err != nil {
+				return err
+			}
+			for _, c := range cs {
+				printClaim(c)
+				if verbose {
+					for _, st := range c.Statements {
+						fmt.Printf("       · %s %s (%s, %s, %s) %s#%d\n", st.SaidAt.Format("Jan 2"), st.Holder, st.Kind, st.Certainty, st.Label.Level, st.ItemID, st.ChunkSeq)
+						fmt.Printf("         %s\n", st.Text)
+					}
+				}
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&scope, "scope", "owner", "who the results are for")
+	c.Flags().IntVarP(&k, "k", "k", 10, "claims")
+	c.Flags().BoolVarP(&verbose, "verbose", "v", false, "show each statement")
+	return c
+}
+
+func topicsCmd() *cobra.Command {
+	var scope string
+	c := &cobra.Command{
+		Use:   "topics",
+		Short: "List topics, largest first",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			e, v, err := views(scope)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			ts, err := v.Topics()
+			if err != nil {
+				return err
+			}
+			sort.Slice(ts, func(i, j int) bool { return ts[i].Claims > ts[j].Claims })
+			for _, t := range ts {
+				hidden := ""
+				if t.Hidden {
+					hidden = " (label hidden in this scope)"
+				}
+				fmt.Printf("%4d  %-44s %3d claims  %v  last %s%s\n", t.ID, snippet(t.Label, 44), t.Claims, t.Statuses, t.Last.Format("Jan 2"), hidden)
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&scope, "scope", "owner", "who the results are for")
+	return c
+}
+
+func topicCmd() *cobra.Command {
+	var scope string
+	c := &cobra.Command{
+		Use:   "topic <id>",
+		Short: "Show a topic: its claims, people and related topics",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			e, v, err := views(scope)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			var id int64
+			fmt.Sscan(args[0], &id)
+			t, err := v.Topic(id)
+			if err != nil || t == nil {
+				if t == nil && err == nil {
+					return fmt.Errorf("no visible topic %d", id)
+				}
+				return err
+			}
+			fmt.Printf("%s\n%s\n\n", t.Label, t.Summary)
+			for _, c := range t.ClaimList {
+				printClaim(c)
+			}
+			fmt.Println("\npeople:")
+			for _, p := range t.People {
+				fmt.Printf("  %-28s %d claims\n", p.Name, p.Claims)
+			}
+			fmt.Println("\nrelated:")
+			for _, r := range t.Related {
+				un := ""
+				if r.Unconnected {
+					un = "  (never discussed together)"
+				}
+				fmt.Printf("  %4d  %-40s sim %.2f, %d shared items%s\n", r.ID, snippet(r.Label, 40), r.Sim, r.Shared, un)
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&scope, "scope", "owner", "who the results are for")
+	return c
+}
+
+func judgeCmd() *cobra.Command {
+	var note string
+	return &cobra.Command{
+		Use:   "judge <statement id> <verified|disputed|false|clear>",
+		Short: "Record your verdict on the claim a statement belongs to",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			_, st, err := load()
+			if err != nil {
+				return err
+			}
+			defer st.Close()
+			var id int64
+			fmt.Sscan(args[0], &id)
+			v := args[1]
+			if v == "clear" {
+				v = ""
+			}
+			return st.Judge(id, v, note)
+		},
+	}
 }

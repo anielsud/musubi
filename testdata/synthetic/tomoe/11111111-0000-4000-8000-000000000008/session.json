@@ -4,8 +4,8 @@
  "platform": "Teams",
  "language": "en",
  "created_at": "2026-09-22T13:00:00-04:00",
- "ended_at": "2026-09-22T13:00:21.800000-04:00",
- "duration": 21.800000000000004,
+ "ended_at": "2026-09-22T13:00:26.800000-04:00",
+ "duration": 26.800000000000004,
  "sources": [
   "mic",
   "monitor"
@@ -21,18 +21,26 @@
   },
   {
    "id": "seg-2",
-   "speaker": "You",
-   "text": "we will follow up with both of them after the scoping meeting next week",
+   "speaker": "Person 5 (Sam Okafor)",
+   "text": "honestly i bet acme freight renews for three years not two",
    "start_time": 10.200000000000001,
-   "end_time": 15.8,
+   "end_time": 14.600000000000001,
    "source": "monitor"
   },
   {
    "id": "seg-3",
+   "speaker": "You",
+   "text": "we will follow up with both of them after the scoping meeting next week",
+   "start_time": 15.200000000000001,
+   "end_time": 20.8,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-4",
    "speaker": "Person 9 (Will Harper)",
    "text": "i can draft the sso one pager for acme freight by monday",
-   "start_time": 16.400000000000002,
-   "end_time": 21.200000000000003,
+   "start_time": 21.400000000000002,
+   "end_time": 26.200000000000003,
    "source": "monitor"
   }
  ]

@@ -76,6 +76,7 @@ event("e1", "Eng weekly sync", at(14, 10), 30, ["jordan", "dana", "priya", "lee"
 session("11111111-0000-4000-8000-000000000001", at(14, 10, 1), [
     ("You", "Morning everyone. First item is the search latency regression. Priya, what did you find?"),
     (who("priya"), "The p95 went from about three hundred milliseconds to nine hundred after the index migration. The new index writes one document at a time, so every update pays a full round trip and the queue backs up during peak hours."),
+    (who("priya"), "And to be clear, it is not the load balancer. We ruled that out on Friday."),
     (who("priya"), "My proposal is batching the writes. We collect updates for fifty milliseconds and send them together. In staging that brought p95 back to two hundred eighty."),
     (who("dana"), "That sounds right. Are there risks with ordering? Some customers depend on updates landing in sequence."),
     (who("priya"), "Ordering is preserved inside a batch and batches are sequential, so no change there."),
@@ -157,6 +158,7 @@ session("11111111-0000-4000-8000-000000000007", at(21, 10, 1), [
 event("e8", "Sales sync", at(22, 13), 30, ["jordan", "samo", "will"])
 session("11111111-0000-4000-8000-000000000008", at(22, 13, 0), [
     (who("samo"), "acme freight wants the sso work done before they renew and nina at bluegill asked for the same thing"),
+    (who("samo"), "honestly i bet acme freight renews for three years not two"),
     ("You", "we will follow up with both of them after the scoping meeting next week"),
     (who("will"), "i can draft the sso one pager for acme freight by monday"),
 ])
@@ -176,6 +178,8 @@ mail("m2", "samo", ["jordan"], "Acme Freight renewal pricing",
      "Tom asked for a 15% discount on a two-year renewal. List price stays at 120k ACV. I think we should accept if they commit to two years.\n\nOn Tue, Tom Becker wrote:\n> can you share pricing options?", at(15, 16), cc=["priya"])
 mail("m3", "olu", [ALL], "Q4 kickoff",
      "Team,\n\nQ4 kickoff is October 20 in the main office. Agenda: product roadmap, the Bluegill Bank launch, and hiring plans.\n\nOlu", at(18, 8))
+mail("m5", "tom", ["jordan", "samo"], "Renewal decision",
+     "Hi Jordan, hi Sam,\n\nWe have decided to sign a two-year renewal at the 15% discount. Finance approved it this morning.\n\nTom", at(23, 10))
 mail("m4", "tom", ["jordan", "samo"], "Webhook retry failures",
      "Hi both,\n\nOur operations team is still seeing missing shipment updates from the webhooks. Can you confirm when the fix ships?\n\nTom", at(14, 17))
 
@@ -191,6 +195,11 @@ chat("c1", ["jordan", "priya"], "", [
     ("jordan", "Nice. Can we get Sam Whitfield to review the auth changes in it?"),
     ("priya", "Sure. Also ask Sam about the Acme renewal call, I missed it."),
 ], 18)
+# A hypothesis that the eng sync (T1) later rules out.
+chat("c3", ["jordan", "lee"], "", [
+    ("lee", "I think the search latency regression might be caused by the new load balancer config. The timing lines up."),
+    ("jordan", "Could be. Can you check with Priya before the sync?"),
+], 12)
 chat("c2", ["jordan", "samw", "priya"], "security", [
     ("samw", "We found a vulnerability in the token refresh endpoint. CVE request is pending."),
     ("priya", "Is it exploitable from outside?"),

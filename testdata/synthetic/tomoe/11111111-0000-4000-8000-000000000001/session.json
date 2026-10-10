@@ -4,8 +4,8 @@
  "platform": "Teams",
  "language": "en",
  "created_at": "2026-09-14T10:01:00-04:00",
- "ended_at": "2026-09-14T10:02:25.400000-04:00",
- "duration": 85.39999999999999,
+ "ended_at": "2026-09-14T10:02:32.400000-04:00",
+ "duration": 92.39999999999999,
  "sources": [
   "mic",
   "monitor"
@@ -30,57 +30,65 @@
   {
    "id": "seg-3",
    "speaker": "Person 3 (Priya Natarajan)",
-   "text": "My proposal is batching the writes. We collect updates for fifty milliseconds and send them together. In staging that brought p95 back to two hundred eighty.",
+   "text": "And to be clear, it is not the load balancer. We ruled that out on Friday.",
    "start_time": 24.8,
-   "end_time": 35.2,
+   "end_time": 31.200000000000003,
    "source": "monitor"
   },
   {
    "id": "seg-4",
-   "speaker": "Person 2 (Dana Reyes)",
-   "text": "That sounds right. Are there risks with ordering? Some customers depend on updates landing in sequence.",
-   "start_time": 35.8,
-   "end_time": 42.199999999999996,
+   "speaker": "Person 3 (Priya Natarajan)",
+   "text": "My proposal is batching the writes. We collect updates for fifty milliseconds and send them together. In staging that brought p95 back to two hundred eighty.",
+   "start_time": 31.8,
+   "end_time": 42.2,
    "source": "monitor"
   },
   {
    "id": "seg-5",
-   "speaker": "Person 3 (Priya Natarajan)",
-   "text": "Ordering is preserved inside a batch and batches are sequential, so no change there.",
+   "speaker": "Person 2 (Dana Reyes)",
+   "text": "That sounds right. Are there risks with ordering? Some customers depend on updates landing in sequence.",
    "start_time": 42.8,
-   "end_time": 48.4,
+   "end_time": 49.199999999999996,
    "source": "monitor"
   },
   {
    "id": "seg-6",
-   "speaker": "You",
-   "text": "Good. Decision then: we ship the batching fix on September 22. Priya owns it, Dana reviews.",
-   "start_time": 49.0,
+   "speaker": "Person 3 (Priya Natarajan)",
+   "text": "Ordering is preserved inside a batch and batches are sequential, so no change there.",
+   "start_time": 49.8,
    "end_time": 55.4,
    "source": "monitor"
   },
   {
    "id": "seg-7",
-   "speaker": "Person 4 (Lee Chen)",
-   "text": "On my side, the Acme Freight webhook retries keep failing. Their endpoint times out after five seconds and we retry immediately, which makes it worse. I'll add exponential backoff this week.",
+   "speaker": "You",
+   "text": "Good. Decision then: we ship the batching fix on September 22. Priya owns it, Dana reviews.",
    "start_time": 56.0,
-   "end_time": 68.4,
+   "end_time": 62.4,
    "source": "monitor"
   },
   {
    "id": "seg-8",
-   "speaker": "Person 2 (Dana Reyes)",
-   "text": "One more thing from accounts. Bluegill Bank wants single sign-on before they roll out to their branches, ideally by Q4. Sam is tracking the request.",
-   "start_time": 69.0,
-   "end_time": 79.0,
+   "speaker": "Person 4 (Lee Chen)",
+   "text": "On my side, the Acme Freight webhook retries keep failing. Their endpoint times out after five seconds and we retry immediately, which makes it worse. I'll add exponential backoff this week.",
+   "start_time": 63.0,
+   "end_time": 75.4,
    "source": "monitor"
   },
   {
    "id": "seg-9",
+   "speaker": "Person 2 (Dana Reyes)",
+   "text": "One more thing from accounts. Bluegill Bank wants single sign-on before they roll out to their branches, ideally by Q4. Sam is tracking the request.",
+   "start_time": 76.0,
+   "end_time": 86.0,
+   "source": "monitor"
+  },
+  {
+   "id": "seg-10",
    "speaker": "You",
    "text": "Let's scope SSO next week then. Lee, take the webhook backoff. Thanks all.",
-   "start_time": 79.6,
-   "end_time": 84.8,
+   "start_time": 86.6,
+   "end_time": 91.8,
    "source": "monitor"
   }
  ]

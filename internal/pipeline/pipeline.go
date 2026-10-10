@@ -210,7 +210,7 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 			}
 		}
 	}
-	return r.runEmbeds(ctx, st, len(jobs), func(yield func(func() (func() error, error))) {
+	return r.runPool(ctx, st, "embed", len(jobs), func(yield func(func() (func() error, error))) {
 		for _, j := range jobs {
 			j := j
 			yield(func() (func() error, error) {
@@ -246,10 +246,10 @@ func (r *Runner) ensure(stage, itemID, version, hash string, st *Stats, fn func(
 	return nil, nil
 }
 
-// runEmbeds computes embeddings on several workers (the model server is the
+// runPool computes on several workers (the model server is the
 // bottleneck) and writes results on this goroutine, since SQLite has one
 // writer.
-func (r *Runner) runEmbeds(ctx context.Context, st *Stats, n int, each func(func(func() (func() error, error)))) error {
+func (r *Runner) runPool(ctx context.Context, st *Stats, label string, n int, each func(func(func() (func() error, error)))) error {
 	if n == 0 {
 		return nil
 	}
@@ -299,9 +299,9 @@ func (r *Runner) runEmbeds(ctx context.Context, st *Stats, n int, each func(func
 			firstErr = err
 		}
 		done++
-		st.Ran["embed"]++
+		st.Ran[label]++
 		if done%25 == 0 || done == n {
-			r.logf("embed: %d/%d items (%s)", done, n, time.Since(start).Round(time.Second))
+			r.logf("%s: %d/%d items (%s)", label, done, n, time.Since(start).Round(time.Second))
 		}
 	}
 	return firstErr

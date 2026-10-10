@@ -181,3 +181,51 @@ replaying two meetings in real time:
   bar", "nine must occur"), so they are off (`phrase_lookups`).
 - **Queries about the owner** (with their name misrecognised) are now
   dropped by name and near-misspellings.
+
+## 2026-10-10: knowledge layer, first build on the synthetic company
+
+Statements → claims → topics, with belief computed when a claim is read
+(architecture: "Knowledge layer"). Model: qwen3:8b; statement vectors:
+nomic-embed-text. The synthetic corpus now includes:
+- a hypothesis later ruled out;
+- one person's guess later contradicted by a customer's email;
+- a question later answered.
+
+The decision that changed, and the fact that is restricted in one source but
+public in another, were already in it.
+
+**Statement vectors are close together.** A typical pair scores 0.59, one in
+ten pairs exceeds 0.70, and "the fix ships September 22" vs "...September 29"
+scores 0.99. So similarity can't decide sameness:
+- v1 auto-joined near-identical statements (≥ 0.92) and merged the old and
+  new ship dates into one claim. Now only ≥ 0.97 with the same kind and
+  identical numbers and dates joins without the model.
+- The judge (v1) related almost everything ("answers" to statements that
+  weren't questions; "supersedes" across unrelated items: 39 relations among
+  51 claims). v2 says that sharing a subject isn't a relation, and rejects
+  relations that don't fit the kinds. That brought it to 21–25 relations,
+  mostly right.
+
+**Extraction:**
+- Announcements phrased as congratulations were dropped. The model labelled
+  them "announcement", which isn't one of the seven kinds, and validation
+  threw them away. Near-miss kinds now map onto the seven.
+- Outside speakers are annotated with their organisation ("Tom Becker (Acme
+  Freight)"), so "we decided" resolves to the customer. That made the
+  customer's two-year decision contradict the three-year guess.
+
+**Topics:** the first clustering (nearest running centroid) let one topic
+swallow 43 of 53 claims. Average-linkage clustering, stopping at 0.70 (the
+95th percentile of claim pairs), gives 13 sensible topics: Bluegill SSO,
+Acme renewal, webhook fix, batching release, the acquisition, the promotion,
+the Q4 kickoff and others.
+
+| | v1 | now |
+|---|---|---|
+| statement cases | — | 4/4 |
+| claim cases (status, relations, evidence by scope, absence) | — | 9/9 |
+| topic cases (grouping, labels not leaking) | — | 3/3 |
+| leaks | 0 | 0 |
+
+Real data is next. Thresholds (0.97 / 0.72 / 0.70) will need checking
+there: the synthetic corpus is small and tidy.

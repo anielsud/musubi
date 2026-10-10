@@ -1,0 +1,27 @@
+{
+ "kind": "email",
+ "source": "mail",
+ "ref": "m5",
+ "record": {
+  "subject": "Renewal decision",
+  "from": {
+   "name": "Tom Becker",
+   "email": "tom.becker@acmefreight.example"
+  },
+  "to": [
+   {
+    "name": "Jordan Pike",
+    "email": "jordan.pike@northwind.example"
+   },
+   {
+    "name": "Sam Okafor",
+    "email": "sam.okafor@northwind.example"
+   }
+  ],
+  "cc": [],
+  "sentAt": "2026-09-23T10:00:00-04:00",
+  "body": "Hi Jordan, hi Sam,\n\nWe have decided to sign a two-year renewal at the 15% discount. Finance approved it this morning.\n\nTom",
+  "threadId": "m5",
+  "sensitivity": ""
+ }
+}

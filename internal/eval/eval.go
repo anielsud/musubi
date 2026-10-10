@@ -16,6 +16,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -29,7 +30,9 @@ type Suite struct {
 	// ProbeScopes are scopes every search case's query is also run under,
 	// purely for the invariant check.
 	ProbeScopes []string `toml:"probe_scopes"`
-	Cases       []Case   `toml:"case"`
+	// Now fixes the time belief is computed at, so decay is deterministic.
+	Now   string `toml:"now"`
+	Cases []Case `toml:"case"`
 }
 
 // Target picks out content: an item (id or id prefix) and/or a phrase its
@@ -74,6 +77,21 @@ type Case struct {
 	// Entity is the expected entity id, "ambiguous", or "none" (no mention).
 	Entity string `toml:"entity"`
 
+	// knowledge: statement, claim, topic
+	Kinds       []string   `toml:"kinds"`        // statement: any of these kinds
+	Holder      string     `toml:"holder"`       // statement: holder entity id or name part
+	TextHas     []string   `toml:"text_has"`     // statement: words the text must contain
+	ClaimHas    []string   `toml:"claim_has"`    // claim: words a visible statement contains
+	Absent      bool       `toml:"absent"`       // claim: must not be visible in scope
+	Statuses    []string   `toml:"statuses"`     // claim: any of these statuses
+	MinEvidence int        `toml:"min_evidence"` // claim: visible statements
+	MaxEvidence int        `toml:"max_evidence"`
+	Relation    string     `toml:"relation"`    // claim: a relation of this kind...
+	RelatedHas  []string   `toml:"related_has"` // ...to a claim containing these words
+	Together    [][]string `toml:"together"`    // topic: claims (by words) in one topic
+	LabelLacks  []string   `toml:"label_lacks"` // topic: words no visible topic label may contain
+	At          string     `toml:"at"`          // claim: belief time, overriding the suite's
+
 	// graph
 	Node            string   `toml:"node"`
 	Visible         *bool    `toml:"visible"`
@@ -113,6 +131,8 @@ type Report struct {
 
 type Harness struct {
 	Store *store.Store
+	// Now is when belief is computed (from the suite, or the wall clock).
+	Now time.Time
 	// InternalDomains decide whether a reply scope's audience is internal.
 	InternalDomains []string
 	Embedder        provider.Embedder // nil: keyword only
@@ -163,6 +183,12 @@ func (h *Harness) Run(ctx context.Context, s *Suite) (*Report, error) {
 			rep.Results = append(rep.Results, r)
 		case "graph":
 			r, err := h.graph(c, rep)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", c.ID, err)
+			}
+			rep.Results = append(rep.Results, r)
+		case "statement", "claim", "topic":
+			r, err := h.knowledgeCase(c, s)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", c.ID, err)
 			}

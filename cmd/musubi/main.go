@@ -14,8 +14,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/anielsud/musubi/internal/ask"
 	"github.com/anielsud/musubi/internal/config"
+	"github.com/anielsud/musubi/internal/engine"
 	"github.com/anielsud/musubi/internal/eval"
+	"github.com/anielsud/musubi/internal/live"
 	"github.com/anielsud/musubi/internal/pipeline"
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/raw"
@@ -42,7 +45,7 @@ func root() *cobra.Command {
 	r := &cobra.Command{Use: "musubi", Short: "Local-first personal knowledge base", SilenceUsage: true}
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
-	r.AddCommand(updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd())
+	r.AddCommand(updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), liveCmd())
 	return r
 }
 
@@ -477,5 +480,89 @@ the cases. Exits non-zero on any leak.`,
 	c.Flags().StringVar(&modes, "modes", "hybrid,keyword,vector", "search modes to score")
 	c.Flags().StringVar(&jsonOut, "json", "", "write metrics as JSON (use as a later --baseline)")
 	c.Flags().StringVar(&baseline, "baseline", "", "metrics JSON from an earlier run to compare against")
+	return c
+}
+
+func askCmd() *cobra.Command {
+	var scope string
+	var k int
+	c := &cobra.Command{
+		Use:   "ask <question>",
+		Short: "Answer a question from the knowledge base, citing sources",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			sc, err := e.Scope(scope)
+			if err != nil {
+				return err
+			}
+			a, err := ask.Ask(cmd.Context(), e, sc, strings.Join(args, " "), k, nil, func(t string) { fmt.Print(t) })
+			if err != nil {
+				return err
+			}
+			fmt.Println("\n\nsources:")
+			for i, h := range a.Sources {
+				fmt.Printf("  [%d] %s  %s  %s#%d\n", i+1, h.OccurredAt.Format("2006-01-02"), h.Title, h.ItemID, h.Seq)
+			}
+			return nil
+		},
+	}
+	c.Flags().StringVar(&scope, "scope", "owner", "who the answer is for")
+	c.Flags().IntVarP(&k, "k", "k", 8, "passages to read")
+	return c
+}
+
+func liveCmd() *cobra.Command {
+	var replay string
+	var speed float64
+	var duration time.Duration
+	c := &cobra.Command{
+		Use:   "live",
+		Short: "Print the live panel's events: from Tomoe's feed, or --replay a saved session",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			ctx, cancel := context.WithTimeout(cmd.Context(), duration)
+			defer cancel()
+			l := live.New(e, func(ev string, data any) {
+				switch ev {
+				case "live:segment":
+					return
+				case "live:brief":
+					b := data.(live.Brief)
+					if b.State == "loading" {
+						return
+					}
+					fmt.Printf("%s BRIEF %q [%s, %s] %s\n", time.Now().Format("15:04:05"), b.Query, b.Kind, b.State, b.Summary)
+					for _, h := range b.Hits {
+						fmt.Printf("      %s  %s\n", h.OccurredAt.Format("Jan 2"), h.Title)
+					}
+					return
+				}
+				j, _ := json.Marshal(data)
+				fmt.Printf("%s %s %s\n", time.Now().Format("15:04:05"), ev, snippet(string(j), 600))
+			}, nil)
+			if replay != "" {
+				if err := l.Reload(); err != nil {
+					return err
+				}
+				if err := l.Replay(ctx, replay, speed); err != nil {
+					return err
+				}
+			}
+			l.Run(ctx)
+			return nil
+		},
+	}
+	c.Flags().StringVar(&replay, "replay", "", "Tomoe session id to replay")
+	c.Flags().Float64Var(&speed, "speed", 4, "replay speed")
+	c.Flags().DurationVar(&duration, "for", 2*time.Minute, "how long to run")
 	return c
 }

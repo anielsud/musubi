@@ -27,7 +27,12 @@ Keep that doc current when the design changes.
 ## Conventions
 
 - Go, all packages under `internal/`; platform code in `_darwin.go` /
-  `_linux.go`. Build and test specific package paths.
+  `_linux.go`. Build and test specific package paths. `make vet test` cover
+  everything except the Wails app (`cmd/musubi-gui`, `internal/gui`), which
+  needs a webview; `make build-gui` builds it (frontend in `frontend/`,
+  React + TypeScript + Vite, embedded from `cmd/musubi-gui/frontend/dist`).
+- The app only shows data through scoped reads; the live panel's scope
+  follows the screen-safe toggle. Only a local model reads meeting text.
 - Config is TOML at `~/.config/musubi/config.toml`, loaded over
   `DefaultConfig()`. Data lives under `~/.local/share/musubi/`.
 - Comments explain why, not what.

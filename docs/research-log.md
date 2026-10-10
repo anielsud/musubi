@@ -89,3 +89,24 @@ too few to change the default (nomic, 274 MB vs 639 MB). Re-run when the
 private set is larger and reviewed. Keyword search alone fails paraphrases,
 as expected; the synthetic corpus is too small to separate the models (both
 1.0).
+
+## 2026-10-10: live panel, first replay
+
+Replayed past meetings through the live path (`musubi live --replay`, and the
+app's replay) at 8–30× speed; local model qwen3:8b on Apple silicon.
+
+- A brief (search + two-sentence summary) takes about 2 s; a question in Ask
+  about 6–7 s for an 8-passage answer. Suggestions every 20 s of new speech.
+- Model suggestions are mostly specific and useful (a partner agreement's
+  terms, a benchmark's earlier runs, an evaluation endpoint request). Two
+  failure modes seen: a person's surname turned into an invented "project"
+  (the prompt now says which names are people and which organisations), and
+  queries about things never discussed before; the NONE rule drops most of
+  those briefs (2 of the first 10 were dropped).
+- Briefs on people can surface personnel matters from other meetings. That
+  is correct for the owner in private mode, and the reason the screen-safe
+  toggle exists; measuring what a brief should show about a person, when,
+  is open.
+- Not yet measured: whether suggestions arrive early enough to be useful,
+  and how often the top two are the right two. Next: score replays against
+  a hand-marked list of "moments worth a lookup" per meeting.

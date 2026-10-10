@@ -18,17 +18,18 @@ import (
 // effective label so callers (and the eval harness) can show or re-check it.
 
 type Hit struct {
-	ChunkID    int64
-	ItemID     string
-	Kind       string
-	Title      string
-	OccurredAt time.Time
-	Seq        int
-	Start, End float64
-	Speakers   string
-	Text       string
-	Score      float64
-	Label      sensitivity.Label
+	ChunkID    int64             `json:"chunkId"`
+	ItemID     string            `json:"itemId"`
+	Kind       string            `json:"kind"`
+	Title      string            `json:"title"`
+	OccurredAt time.Time         `json:"occurredAt"`
+	Seq        int               `json:"seq"`
+	Start      float64           `json:"start"`
+	End        float64           `json:"end"`
+	Speakers   string            `json:"speakers"`
+	Text       string            `json:"text"`
+	Score      float64           `json:"score"`
+	Label      sensitivity.Label `json:"label"`
 }
 
 type SearchMode string
@@ -46,6 +47,9 @@ type SearchQuery struct {
 	K            int
 	Mode         SearchMode
 	Since, Until time.Time
+	// Exclude drops items, e.g. the meeting in progress, so the live panel
+	// doesn't show the conversation back to itself.
+	Exclude []string
 }
 
 // Search runs keyword (FTS5/BM25) and vector (exact cosine) retrieval over
@@ -113,6 +117,12 @@ func (s *Store) Search(sc sensitivity.Scope, q SearchQuery) ([]Hit, error) {
 func timeSQL(q SearchQuery) (string, []any) {
 	var parts []string
 	var args []any
+	if len(q.Exclude) > 0 {
+		parts = append(parts, "i.id NOT IN ("+strings.TrimSuffix(strings.Repeat("?,", len(q.Exclude)), ",")+")")
+		for _, id := range q.Exclude {
+			args = append(args, id)
+		}
+	}
 	if !q.Since.IsZero() {
 		parts = append(parts, "i.occurred_at >= ?")
 		args = append(args, q.Since.Unix())
@@ -223,23 +233,27 @@ func ftsQuery(text string) string {
 
 // EntityRef is an entity as a query result.
 type EntityRef struct {
-	ID, Type, Name string
-	Items          int
-	LastSeen       time.Time
+	ID       string    `json:"id"`
+	Type     string    `json:"type"`
+	Name     string    `json:"name"`
+	Items    int       `json:"items"`
+	LastSeen time.Time `json:"lastSeen"`
 }
 
 type ItemRef struct {
-	ID, Kind, Title string
-	OccurredAt      time.Time
-	Mentions        int
-	Participant     bool
-	Label           sensitivity.Label
+	ID          string            `json:"id"`
+	Kind        string            `json:"kind"`
+	Title       string            `json:"title"`
+	OccurredAt  time.Time         `json:"occurredAt"`
+	Mentions    int               `json:"mentions"`
+	Participant bool              `json:"participant"`
+	Label       sensitivity.Label `json:"label"`
 }
 
 type Graph struct {
-	Entity    EntityRef
-	Items     []ItemRef
-	Neighbors []EntityRef
+	Entity    EntityRef   `json:"entity"`
+	Items     []ItemRef   `json:"items"`
+	Neighbors []EntityRef `json:"neighbors"`
 }
 
 // FindEntities resolves a name or id to entities that are visible in scope:
@@ -247,16 +261,24 @@ type Graph struct {
 // links to them (an entity's existence can itself be sensitive).
 func (s *Store) FindEntities(sc sensitivity.Scope, q string) ([]EntityRef, error) {
 	norm := NormalizeAlias(q)
-	rows, err := s.db.Query(`SELECT DISTINCT e.id, e.type, e.name, e.origin, e.level FROM entities e LEFT JOIN entity_aliases a ON a.entity_id = e.id
-		WHERE e.id = ? OR a.alias = ? OR lower(e.name) = lower(?) ORDER BY e.id`, q, norm, q)
+	lq := strings.ToLower(strings.TrimSpace(q))
+	// Exact matches first (an id, a bare email or domain, an alias, a
+	// name), then names containing the text, for typing "dana" or "acme".
+	rows, err := s.db.Query(`SELECT e.id, e.type, e.name, e.origin, e.level, min(r) FROM (
+			SELECT e.id, 0 r FROM entities e WHERE e.id IN (?, 'person:' || ?, 'org:' || ?, 'term:' || ?)
+			UNION ALL SELECT a.entity_id, 1 FROM entity_aliases a WHERE a.alias = ?
+			UNION ALL SELECT e.id, 1 FROM entities e WHERE lower(e.name) = ?
+			UNION ALL SELECT e.id, 2 FROM entities e WHERE length(?) >= 3 AND lower(e.name) LIKE '%' || ? || '%'
+		) m JOIN entities e ON e.id = m.id WHERE e.type != 'group'
+		GROUP BY e.id ORDER BY min(r), e.name LIMIT 12`, q, lq, lq, lq, norm, lq, lq, lq)
 	if err != nil {
 		return nil, err
 	}
 	var cands []Entity
 	for rows.Next() {
 		var e Entity
-		var lvl int
-		rows.Scan(&e.ID, &e.Type, &e.Name, &e.Origin, &lvl)
+		var lvl, rank int
+		rows.Scan(&e.ID, &e.Type, &e.Name, &e.Origin, &lvl, &rank)
 		e.Level = sensitivity.Level(lvl)
 		cands = append(cands, e)
 	}
@@ -487,4 +509,50 @@ func NormalizeAlias(s string) string {
 	s = strings.TrimSuffix(s, "'s")
 	f := strings.FieldsFunc(s, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '&' })
 	return strings.Join(f, " ")
+}
+
+// ItemView is a source item as a person may see it: only the chunks visible
+// in scope.
+type ItemView struct {
+	ID         string            `json:"id"`
+	Kind       string            `json:"kind"`
+	Title      string            `json:"title"`
+	OccurredAt time.Time         `json:"occurredAt"`
+	Label      sensitivity.Label `json:"label"`
+	Chunks     []Hit             `json:"chunks"`
+}
+
+// Item returns the visible chunks of an item, in order.
+func (s *Store) Item(sc sensitivity.Scope, itemID string) (*ItemView, error) {
+	vis, vargs := visSQL(sc, "il", "cl", "c.item_id")
+	rows, err := s.db.Query(`SELECT c.id FROM chunks c`+chunkVisJoin+`WHERE c.item_id = ? AND `+vis+` ORDER BY c.seq`, append([]any{itemID}, vargs...)...)
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	v := &ItemView{ID: itemID}
+	for _, id := range ids {
+		h, err := s.hit(sc, id)
+		if err != nil {
+			return nil, err
+		}
+		if h == nil {
+			continue
+		}
+		v.Kind, v.Title, v.OccurredAt = h.Kind, h.Title, h.OccurredAt
+		if h.Label.Level > v.Label.Level {
+			v.Label.Level = h.Label.Level
+		}
+		v.Chunks = append(v.Chunks, *h)
+	}
+	return v, nil
 }

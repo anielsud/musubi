@@ -7,6 +7,7 @@
 package sensitivity
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -114,11 +115,23 @@ const (
 // Label is the sensitivity of one item, or the escalation of one chunk
 // within it. Audience is held separately (per item) by the store.
 type Label struct {
-	Level      Level
-	Categories Categories
-	Origin     Origin
-	Confidence float64
-	Reason     string
+	Level      Level      `json:"level"`
+	Categories Categories `json:"categories"`
+	Origin     Origin     `json:"origin,omitempty"`
+	Confidence float64    `json:"confidence,omitempty"`
+	Reason     string     `json:"reason,omitempty"`
+}
+
+// MarshalJSON writes the level's name, for the UI.
+func (l Level) MarshalJSON() ([]byte, error) { return []byte(`"` + l.String() + `"`), nil }
+
+// MarshalJSON writes category names, for the UI.
+func (c Categories) MarshalJSON() ([]byte, error) {
+	names := c.Names()
+	if names == nil {
+		names = []string{}
+	}
+	return json.Marshal(names)
 }
 
 // Combine returns the narrower of two labels: the higher level and the union

@@ -18,7 +18,38 @@ type Config struct {
 
 	Owner       Owner       `toml:"owner"`
 	Embed       Embed       `toml:"embed"`
+	LLM         LLM         `toml:"llm"`
+	Live        Live        `toml:"live"`
 	Sensitivity Sensitivity `toml:"sensitivity"`
+}
+
+// LLM is the chat model for answers, live query suggestions and briefs.
+type LLM struct {
+	// Provider is "ollama" or "none" (Q&A then shows passages only, and
+	// live suggestions come from names and key phrases alone).
+	Provider string `toml:"provider"`
+	Model    string `toml:"model"`
+	URL      string `toml:"url"`
+	// StartOllama lets the app start `ollama serve` if it isn't running.
+	StartOllama bool `toml:"start_ollama"`
+}
+
+// Live configures the side panel during a meeting.
+type Live struct {
+	// TomoeSocket is Tomoe's live feed (Tomoe's [meeting] live_feed = true).
+	TomoeSocket string `toml:"tomoe_socket"`
+	// SuggestEvery is how often, in seconds, suggestions are refreshed while
+	// new speech arrives.
+	SuggestEvery int `toml:"suggest_every"`
+	// Window is how many seconds of recent conversation suggestions read.
+	Window int `toml:"window"`
+	// AutoBrief is how many top suggestions are looked up automatically.
+	AutoBrief int `toml:"auto_brief"`
+	// LLMSuggestions turns the chat model's query suggestions on; off leaves
+	// names and key phrases only, with no model load during meetings.
+	LLMSuggestions bool `toml:"llm_suggestions"`
+	// UpdateOnSave ingests a meeting as soon as Tomoe saves it.
+	UpdateOnSave bool `toml:"update_on_save"`
 }
 
 type Sensitivity struct {
@@ -52,6 +83,11 @@ func DefaultConfig() Config {
 		TomoeSessions: filepath.Join(home, ".local", "share", "tomoe", "sessions"),
 		Embed:         Embed{Provider: "ollama", Model: "nomic-embed-text", URL: "http://127.0.0.1:11434"},
 		Sensitivity:   Sensitivity{InternalMinAudience: 15},
+		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
+		Live: Live{
+			TomoeSocket:  filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
+			SuggestEvery: 20, Window: 120, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true,
+		},
 	}
 }
 

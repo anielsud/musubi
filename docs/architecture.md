@@ -13,7 +13,8 @@ sources, and serves that knowledge two ways:
 Status (2026-10-09): the first milestone is built: Tomoe and inbox ingest,
 calendar linking, classify / chunk / embed / resolve, scoped search and
 graph from the CLI, and the eval harness ([evaluation.md](evaluation.md)).
-Facts, topics, trends, the live lane and the UI are still design. Findings:
+The desktop app (2026-10-10) adds the live lane, Q&A and an explorer; see
+"Desktop app" below. Facts, topics and trends are still design. Findings:
 [research-log.md](research-log.md).
 
 ## Principles
@@ -138,6 +139,29 @@ registry and entity tables, runs scoped retrieval, and ranks cards (who this is,
 recent decisions, open commitments, related threads). Slow enrichment, if any,
 arrives after the cards. After the meeting, Tomoe's saved session enters the
 cold lane like any other source.
+
+### Desktop app (as built)
+
+`cmd/musubi-gui` is a Wails app (`internal/gui` backend, React frontend in
+`frontend/`), installed with `make install-gui-mac`.
+
+- **Live** (`internal/live`): follows Tomoe's feed ([tomoe-live-feed.md](tomoe-live-feed.md)),
+  keeps the meeting so far, and every `suggest_every` seconds of new speech
+  turns the last `window` seconds into suggestions from three sources:
+  entities named (unambiguous aliases only), phrases that are rare in the
+  knowledge base but present in it, and the local chat model. The top
+  `auto_brief` suggestions are looked up (the meeting itself excluded) and
+  summarised in two cited sentences; the model answers NONE when the results
+  aren't about the topic and the brief is dropped. The title comes from the
+  calendar event under way. When Tomoe saves the meeting, Musubi ingests it.
+  A replay mode plays a saved meeting through the same path for testing.
+- **Screen-safe**: a toggle switches the panel's scope to `shared-screen`.
+- **Ask** (`internal/ask`): scoped hybrid retrieval, then the local model
+  answers citing excerpts; citations open the source under the same scope.
+- **Explore**: passage search, entity lookup, and a radial "threads" graph of
+  an entity's connections with its timeline.
+- Only a local model ever reads meeting text; with a cloud model configured,
+  Q&A filters passages to the cloud scope and live suggestions are off.
 
 ## Storage
 

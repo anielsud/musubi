@@ -10,8 +10,20 @@ and commitments, and will surface it live in a side panel during meetings.
 
 ## Use
 
-Needs Go, a C compiler (cgo), and [Ollama](https://ollama.com) for embeddings
-(`ollama pull nomic-embed-text`).
+Needs Go, a C compiler (cgo), Node, and [Ollama](https://ollama.com) with
+`ollama pull nomic-embed-text qwen3:8b` (embeddings and the local chat model).
+
+### Desktop app
+
+```sh
+make install-gui-mac    # builds /Applications/Musubi.app and adds it to the Dock
+```
+
+Live briefings need Tomoe's live feed: in Tomoe, Settings → Sharing → Live
+feed (or `[meeting] live_feed = true`). Without a meeting, the Live tab can
+replay a past one. The app starts Ollama if it isn't running.
+
+### CLI
 
 ```sh
 make build
@@ -22,6 +34,8 @@ bin/musubi graph "Acme"                 # an entity's items and connections
 bin/musubi show tomoe:<id>              # an item's chunks, labels, mentions
 bin/musubi stats
 bin/musubi forget <item id>
+bin/musubi ask "what did we decide about X?"
+bin/musubi live --replay <tomoe session id> --speed 20   # print live suggestions and briefs
 make test eval                          # synthetic corpus; fails on any leak
 ```
 

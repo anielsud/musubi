@@ -539,3 +539,79 @@ func (s *Store) ResolveItemID(prefix string) (string, error) {
 	}
 	return "", fmt.Errorf("item prefix %q is ambiguous", prefix)
 }
+
+// ChunkTexts returns every chunk's text, for corpus statistics (term
+// rarity). Not for display.
+func (s *Store) ChunkTexts() ([]string, error) {
+	rows, err := s.db.Query(`SELECT text FROM chunks`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var t string
+		rows.Scan(&t)
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
+type MeetingRef struct {
+	ID         string    `json:"id"`
+	Ref        string    `json:"ref"`
+	Title      string    `json:"title"`
+	OccurredAt time.Time `json:"occurredAt"`
+	Chunks     int       `json:"chunks"`
+}
+
+// Meetings lists Tomoe recordings with their linked titles, newest first,
+// for the owner's replay picker.
+func (s *Store) Meetings(limit int) ([]MeetingRef, error) {
+	rows, err := s.db.Query(`SELECT i.id, i.ref, coalesce(e.title, i.title), i.occurred_at, (SELECT count(*) FROM chunks c WHERE c.item_id = i.id)
+		FROM items i LEFT JOIN item_links l ON l.item_id = i.id AND l.rel = 'occurred_as' LEFT JOIN items e ON e.id = l.other_id
+		WHERE i.kind = 'meeting' ORDER BY i.occurred_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []MeetingRef
+	for rows.Next() {
+		var m MeetingRef
+		var occ int64
+		rows.Scan(&m.ID, &m.Ref, &m.Title, &occ, &m.Chunks)
+		m.OccurredAt = time.Unix(occ, 0)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// EntityNames maps entity ids to name and type, for the live spotter. The
+// spotter's output is shown only through scoped reads (EntityGraph).
+func (s *Store) EntityNames() (map[string][2]string, error) {
+	rows, err := s.db.Query(`SELECT id, name, type FROM entities`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][2]string{}
+	for rows.Next() {
+		var id, name, typ string
+		rows.Scan(&id, &name, &typ)
+		out[id] = [2]string{name, typ}
+	}
+	return out, rows.Err()
+}
+
+// EventAt returns the subject of the calendar event under way at t, for the
+// live panel's title (Tomoe names recordings by time). Owner-only display.
+func (s *Store) EventAt(t time.Time) (string, error) {
+	var title string
+	err := s.db.QueryRow(`SELECT title FROM items WHERE kind = 'event' AND occurred_at <= ? AND ended_at > ?
+		AND ended_at - occurred_at <= 4 * 3600 AND native NOT LIKE '%"allDay":"true"%' AND native NOT LIKE '%"cancelled":"true"%'
+		AND native NOT LIKE '%"showAs":"free"%' ORDER BY occurred_at DESC LIMIT 1`, t.Unix()+15*60, t.Unix()).Scan(&title)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return title, err
+}

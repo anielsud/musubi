@@ -13,7 +13,7 @@ import (
 )
 
 // LinkVersion changes with the linking rules or judge prompt.
-const LinkVersion = "k12"
+const LinkVersion = "k13"
 
 // Thresholds on cosine similarity between a statement and a claim's
 // centroid (nomic-embed-text). Above sameAt with the same kind family, the
@@ -73,6 +73,56 @@ type Linker struct {
 	Trace func(format string, args ...any)
 
 	claims []*liveClaim
+	// df counts, per content word, the claims whose text has it, for
+	// finding claims that share a rare word.
+	df map[string]int
+}
+
+// rareFloor and maxRare: besides the most similar claims, up to maxRare
+// claims that share a rare word with the statement (and are at least
+// rareFloor similar) are judged too. In a meeting with many claims on one
+// subject, the earlier claim a statement repeats ("throwaway R&D") can rank
+// ninth by similarity, behind six claims that are merely about the same
+// partner, and the cap would hide it.
+const (
+	rareFloor = 0.55
+	maxRare   = 3
+)
+
+func contentWords(s string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool { return !(r >= 'a' && r <= 'z') }) {
+		if len(w) >= 4 && !stopWords[w] && !negations[w] && !seen[w] {
+			seen[w] = true
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+func (k *Linker) addDoc(text string) {
+	if k.df == nil {
+		k.df = map[string]int{}
+	}
+	for _, w := range contentWords(text) {
+		k.df[w]++
+	}
+}
+
+// rareShared reports whether a and b share a word that few claims use.
+func (k *Linker) rareShared(a, b string) bool {
+	limit := max(2, len(k.claims)/50)
+	in := map[string]bool{}
+	for _, w := range contentWords(b) {
+		in[w] = true
+	}
+	for _, w := range contentWords(a) {
+		if in[w] && k.df[w] <= limit {
+			return true
+		}
+	}
+	return false
 }
 
 type LinkStats struct {
@@ -117,6 +167,7 @@ func (k *Linker) Load() error {
 			c.Centroid = normalized(c.sum)
 		}
 		k.claims = append(k.claims, c)
+		k.addDoc(c.Text)
 	}
 	return nil
 }
@@ -146,8 +197,33 @@ func (k *Linker) Link(ctx context.Context, sts []store.Statement) (LinkStats, er
 			}
 		}
 		sort.Slice(cands, func(i, j int) bool { return cands[i].sim > cands[j].sim })
+		var rest []cand
 		if n := k.maxJudged(); len(cands) > n {
+			rest = cands[n:]
 			cands = cands[:n]
+		}
+		if k.Decider != nil {
+			// Rare-word candidates, from those the cap cut and those just
+			// under the similarity threshold.
+			for _, c := range k.claims {
+				if c.Centroid == nil {
+					continue
+				}
+				if s := cos(v, c.Centroid); s >= rareFloor && s < k.considerAt() {
+					rest = append(rest, cand{c, s})
+				}
+			}
+			sort.Slice(rest, func(i, j int) bool { return rest[i].sim > rest[j].sim })
+			added := 0
+			for _, c := range rest {
+				if added == maxRare {
+					break
+				}
+				if k.rareShared(st.Text, c.c.Text) {
+					cands = append(cands, c)
+					added++
+				}
+			}
 		}
 		// Near-identical, the same kind, and the same numbers and dates:
 		// join directly.
@@ -193,6 +269,7 @@ func (k *Linker) Link(ctx context.Context, sts []store.Statement) (LinkStats, er
 			}
 			home = &liveClaim{ClaimRow: store.ClaimRow{ID: id, Kind: st.Kind, Centroid: normalized(v), Members: []int64{st.ID}, Text: st.Text, Holder: st.Holder, SaidAt: st.SaidAt, Value: st.Value}, sum: append([]float32(nil), v...)}
 			k.claims = append(k.claims, home)
+			k.addDoc(st.Text)
 			stats.New++
 		}
 		for i, c := range cands {

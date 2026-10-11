@@ -1,0 +1,136 @@
+{
+ "id": "m3-staffing",
+ "title": "Support org: headcount review",
+ "date": "Mar 9 2026",
+ "known": "The user is Sam Owner of Larkspur (shown as \"You\").",
+ "passage": 8,
+ "lines": [
+  "Sam Owner (You): Thanks both. Quick one on Juniper, the efficiency list. The names we just moved to Platinum are also on Juniper. Are we keeping them or not?",
+  "Grace Holm: Right, that's what confused me too.",
+  "Raj Patel: So the answer is, we have four TAMs. There's nobody in the TAM group we should keep.",
+  "Raj Patel: That's Lena Voss, that's Mark Ruiz, that's Ana Kim, and uh, Paul Stone. Those positions go, a hundred percent.",
+  "Raj Patel: When I interview them, none of them can tell me what they do day to day. Half of it is really CSM work, and that's what my Platinum engineers are for.",
+  "Raj Patel: Next is Victor Hale. Title is QAD. I've got a call with him Monday, or Tuesday, to walk me through his week. But I don't see value. Cut and dry.",
+  "Raj Patel: The three remaining are Mai Tran, Bao Le, and Kim Ngo, all in problem management in Manila. Those three I absolutely want to keep.",
+  "Raj Patel: They do future issue prevention. They're the fire marshals, not the firefighters.",
+  "Sam Owner (You): Is Chris aligned on that?",
+  "Raj Patel: He is. And how I positioned it with Chris, regardless, we can't notify anyone before December, because Mai's team are doing all the scaling through peak season.",
+  "Raj Patel: So we have a couple of months of runway anyway.",
+  "Sam Owner (You): Okay so let's take those three off the list, Grace. We can move them to SRE when there's a spot. Chris has runway.",
+  "Grace Holm: Done, I'll take them off.",
+  "Raj Patel: The four TAMs plus Victor, plus the two from Dev Mehta's org, those are done deals. Position eliminations.",
+  "Sam Owner (You): Then we lift the yellow flag, except for those three.",
+  "Raj Patel: Correct.",
+  "Raj Patel: Oh and one more thing, we probably shouldn't touch anyone's job title in Workday right now, it could hurt us during the reduction.",
+  "Raj Patel: Also, good news, the Platinum team already found about two hundred and fifty thousand in ARR we didn't know we had.",
+  "Grace Holm: Love that. Okay, and Raj, I'm out Friday, my daughter's dance competition.",
+  "Raj Patel: Have fun."
+ ],
+ "key_points": [
+  {
+   "id": "K1",
+   "desc": "Decided: the four TAM positions are eliminated",
+   "all": [
+    "TAM",
+    "eliminat|go|cut|done deal"
+   ]
+  },
+  {
+   "id": "K2",
+   "desc": "Decided: Victor Hale's position is eliminated",
+   "all": [
+    "Victor",
+    "eliminat|cut|no value|not see value|done deal"
+   ]
+  },
+  {
+   "id": "K3",
+   "desc": "Decided: two from Dev Mehta's org are eliminated (done deals)",
+   "all": [
+    "Dev Mehta|Mehta"
+   ]
+  },
+  {
+   "id": "K4",
+   "desc": "Decided: Mai Tran, Bao Le, Kim Ngo retained, off the list, move to SRE when a spot opens",
+   "all": [
+    "Mai|Manila|three",
+    "SRE"
+   ]
+  },
+  {
+   "id": "K5",
+   "desc": "No notifications before December because Mai's team does peak-season scaling",
+   "all": [
+    "December",
+    "peak|scaling"
+   ]
+  },
+  {
+   "id": "K6",
+   "desc": "Platinum team found ~$250k ARR",
+   "all": [
+    "two hundred and fifty thousand|250,000|250k|\\$250"
+   ]
+  },
+  {
+   "id": "K7",
+   "desc": "Don't change job titles in Workday during the reduction",
+   "all": [
+    "Workday|job title"
+   ]
+  },
+  {
+   "id": "K8",
+   "desc": "Personal: Grace is out Friday for her daughter's dance competition",
+   "all": [
+    "Grace",
+    "dance"
+   ]
+  }
+ ],
+ "traps": [
+  {
+   "id": "T1",
+   "desc": "Invented expansion of TAM/QAD (e.g. Technical Account Manager, Quality Assurance)",
+   "match": [
+    "Technical Account|Account Manager|Quality Assurance|Quality Analyst"
+   ]
+  },
+  {
+   "id": "T2",
+   "desc": "Retained three said to be eliminated, notified, or kept on the list",
+   "match": [
+    "Mai|Bao|Kim Ngo|Manila",
+    "eliminat|notif|remain on the list|stay on the list|kept on the list"
+   ],
+   "unless": [
+    "not|n't|no one|before December|retain|keep|kept|off the list|remove|removed from|stay"
+   ]
+  },
+  {
+   "id": "T3",
+   "desc": "Eliminated roles said to be removed from the list or retained",
+   "match": [
+    "TAM|Victor|Mehta",
+    "removed from the list|taken off the list|off the list|retain"
+   ]
+  },
+  {
+   "id": "T4",
+   "desc": "Invented reason for the December constraint (Black Friday, holidays, budget)",
+   "match": [
+    "December",
+    "Black Friday|holiday|budget|fiscal"
+   ]
+  },
+  {
+   "id": "T5",
+   "desc": "Inversion: yellow flag lifted FOR the three retained (it was lifted except for them)",
+   "match": [
+    "yellow flag",
+    "(lift\\w*|removed?) (the yellow flag )?for (Mai|the three|Bao|Kim)|for (Mai|the three)[^.]*but not"
+   ]
+  }
+ ]
+}

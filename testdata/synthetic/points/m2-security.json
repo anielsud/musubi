@@ -1,0 +1,168 @@
+{
+ "id": "m2-security",
+ "title": "Meridian Credit Union: patch management terms",
+ "date": "Mar 6 2026",
+ "known": "The user is Sam Owner of Larkspur (shown as \"You\").\nInvited: Tom Becker, Larkspur.\nInvited: Nina Brooks, Larkspur.",
+ "passage": 8,
+ "lines": [
+  "Tom Becker: Thanks for jumping on. So Meridian, the credit union association, picked us over Acumen and Sitewise. But we haven't signed yet.",
+  "Tom Becker: And their CMO, Dana Ortiz, sent a note with three things on patching they need before signing.",
+  "Tom Becker: One, high vulnerability patches, CVSS seven and up, within forty five days.",
+  "Tom Becker: Two, OS and database patches within ninety days regardless of severity.",
+  "Tom Becker: And three, every patch decision documented and written into the SOC two.",
+  "Nina Brooks: Yeah, they're being extremely clinical. They want a hundred percent proactive coverage. We're opportunistic.",
+  "Nina Brooks: The way this reads we'd have to touch eighty to a hundred percent of patches. I can't do that with the staff I have.",
+  "Sam Owner (You): What do we do today, Nina?",
+  "Nina Brooks: Today we have an SLA for critical and high. Mediums and lows are opportunistic.",
+  "Nina Brooks: We decide what applies based on exposure. We apply maybe five percent of available patches. Probably less.",
+  "Nina Brooks: There are about eighteen thousand highs in the scanner that just don't apply to us.",
+  "Nina Brooks: So the, uh, the forty five ninety I could, I could live without if we were applying the current. We'd keep it at ninety days for, for the rest.",
+  "Nina Brooks: and",
+  "Tom Becker: Okay so what if we change the text to relevant high vulnerabilities?",
+  "Nina Brooks: I could live with the forty five days if we get to decide what applies to us and re-rate the severity. That's what we tell customers today.",
+  "Nina Brooks: But I don't want it in the SOC two. If we miss, it's exposed to every other customer in the audit.",
+  "Tom Becker: Understood. I don't want to change how we patch. Just the text. Spell it out so it doesn't look like we're just disagreeing.",
+  "Sam Owner (You): And on the OS and database one, ninety days regardless of severity, I think we need to tighten that up. Application dependencies aren't a CVSS thing.",
+  "Tom Becker: Agreed. Because we would, let's say for instance we'd keep it at ninety days. So the forty five to ninety days is actually not the issue. When I talk to Dana the only thing they want is the forty five days.",
+  "Sam Owner (You): Then let's say yes to forty five days for relevant high vulnerabilities, and put the scope in the fine print.",
+  "Nina Brooks: Yes. Okay with that.",
+  "Tom Becker: Great. Can we amend the document, then I write a cover note and send it back to Dana, and we all sign off together?",
+  "Nina Brooks: Fine. Let's do a quick review call at two thirty first.",
+  "Tom Becker: Two thirty works. Also, their security lead, Victor, he's going to push back, he wants it watertight.",
+  "Nina Brooks: Victor's not pragmatic. I don't want a twice-yearly call with him.",
+  "Tom Becker: Fair, we won't offer that."
+ ],
+ "key_points": [
+  {
+   "id": "K1",
+   "desc": "Meridian picked Larkspur over competitors; not signed yet",
+   "all": [
+    "Meridian",
+    "not (yet )?signed|haven't signed|has not signed|have not signed|not been signed|unsigned"
+   ]
+  },
+  {
+   "id": "K2",
+   "desc": "Meridian asks: high vulns (CVSS 7+) within 45 days",
+   "all": [
+    "forty[- ]five|45",
+    "Meridian|Dana|client|they"
+   ]
+  },
+  {
+   "id": "K3",
+   "desc": "Meridian asks: OS/DB patches within 90 days regardless of severity",
+   "all": [
+    "ninety|90",
+    "OS|operating system|database"
+   ]
+  },
+  {
+   "id": "K4",
+   "desc": "Meridian asks: every patch decision documented / in the SOC 2",
+   "all": [
+    "SOC",
+    "document|decision"
+   ]
+  },
+  {
+   "id": "K5",
+   "desc": "Today: SLA for critical/high; medium/low opportunistic; ~5% applied",
+   "all": [
+    "five percent|5%|5 percent"
+   ]
+  },
+  {
+   "id": "K6",
+   "desc": "~18,000 highs don't apply",
+   "all": [
+    "eighteen thousand|18,000|18000|18 thousand"
+   ]
+  },
+  {
+   "id": "K7",
+   "desc": "Nina: as written would touch 80-100% of patches; can't with current staff",
+   "all": [
+    "eighty|80"
+   ]
+  },
+  {
+   "id": "K8",
+   "desc": "Decision: 45 days for relevant highs; change the text not the operating model",
+   "all": [
+    "forty[- ]five|45",
+    "relevant|applicab"
+   ]
+  },
+  {
+   "id": "K9",
+   "desc": "Owner: tighten the 90-day OS/DB clause",
+   "all": [
+    "tighten"
+   ]
+  },
+  {
+   "id": "K10",
+   "desc": "Next steps: amend document, review call at 2:30, Tom sends cover note, all sign off",
+   "all": [
+    "cover note"
+   ]
+  }
+ ],
+ "traps": [
+  {
+   "id": "T1",
+   "desc": "Conflation: says Larkspur currently patches within 45 days (ask stated as practice)",
+   "match": [
+    "(currently|today|already) (patch|appl)\\w* .{0,40}(forty[- ]five|45)|(forty[- ]five|45)[- ]day (SLA|policy) (is|was) (current|already)"
+   ]
+  },
+  {
+   "id": "T2",
+   "desc": "Conflation: 45 days replaces / instead of Meridian's 90-day requirement",
+   "match": [
+    "(instead of|replac|rather than|from) .{0,30}(ninety|90)"
+   ]
+  },
+  {
+   "id": "T3",
+   "desc": "Misstated: OS/DB patches excluded or rejected (owner said tighten)",
+   "match": [
+    "OS|database",
+    "exclud|reject|will not|won't|not agree"
+   ]
+  },
+  {
+   "id": "T4",
+   "desc": "Number from the garbled line: 4590 or a 45-to-90 range",
+   "match": [
+    "4590|45 to 90|forty[- ]five to ninety|between 45 and 90|45-90|45–90"
+   ]
+  },
+  {
+   "id": "T5",
+   "desc": "Misattribution: the 45-day demand attributed to Nina or Tom as their own position",
+   "match": [
+    "(Nina|Tom)[^.]{0,30}(requires|demands|wants) .{0,30}(forty[- ]five|45)"
+   ]
+  },
+  {
+   "id": "T6",
+   "desc": "Invented expansion: Common Vulnerability Scoring System or similar",
+   "match": [
+    "Common Vulnerability|Scoring System|System and Organization|Service Organization"
+   ]
+  },
+  {
+   "id": "T7",
+   "desc": "Misstated: OS/DB 90-day clause kept or accepted as is (owner said tighten)",
+   "match": [
+    "OS|database",
+    "(keep|maintain|retain|accept)\\w* .{0,40}(ninety|90)"
+   ],
+   "unless": [
+    "tighten"
+   ]
+  }
+ ]
+}

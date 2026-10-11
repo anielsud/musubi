@@ -1,0 +1,224 @@
+{
+ "id": "m1-legal",
+ "title": "Contoso co-development: legal review",
+ "date": "Mar 4 2026",
+ "known": "The user is Sam Owner of Larkspur (shown as \"You\").\nInvited: Lee Chen, Larkspur.\nInvited: Omar Diaz, Larkspur.\nInvited: Nina Brooks, Larkspur.\nInvited: someone with address rpark@harlowpike.example, Harlowpike (external).",
+ "passage": 8,
+ "lines": [
+  "Omar Diaz: Okay, are we all here? I think Reena's joining from Harlow.",
+  "Person 4: Yeah, hi, Reena Park here, can you hear me?",
+  "Omar Diaz: Yep. So before we start, quick one on Fabrikam Australia, I don't love how that one closed.",
+  "Omar Diaz: We're thirty million apart on the liability cap. That's not an agreement, that's an agreement to agree. Anyway. Look, on paper I'm fine to sign their form, we just swap in our red lines.",
+  "Lee Chen: I mean I'm not, I'm not keen on that revenue conversation today, let's park it.",
+  "Omar Diaz: Fine, parked. So, Contoso. I've got some really important people on here. Nina is our CIZO and acting CIO.",
+  "Omar Diaz: Lee is SBP, everything product. And Sam is our CTO. I don't have the expertise for this one, so Reena, over to you.",
+  "Sam Owner (You): Before Reena starts, sorry, I'm off to Kenya in March for a safari with the kids so I'll be dark for two weeks then.",
+  "Nina Brooks: Nice. Okay.",
+  "Reena Park: So I've read the Contoso co-development form. It's actually strong on customer data, they acknowledge it's yours and they'll remove it.",
+  "Reena Park: The weakness is the IP. Anything that incorporates Contoso technology becomes Contoso's, and you get a non-exclusive license for internal use only.",
+  "Reena Park: You can't distribute it, you can't sell it to third parties. Whether you could host it as a service for customers is, honestly, unclear.",
+  "Lee Chen: Right. And it's, it's sort of like, we both think it's an acceptable risk. Specifically we don't feel like what we're handing Contoso is, um, giving away the farm, you know.",
+  "Lee Chen: Two of the three buckets we were never gonna share anyway. The one we share is, it's fine. If it all went public tomorrow I'd be okay.",
+  "Sam Owner (You): My concern is two things. One is data provenance, the synthetic data from prior runs, where it came from.",
+  "Sam Owner (You): And two, the thing I actually care about is do we have free use of the data the model generates, to go use it elsewhere.",
+  "Reena Park: Honestly if this is really just an R and D exercise, your people learning how Contoso does post-training, then you don't need any changes. The terms mostly don't bite.",
+  "Lee Chen: That's how we see it. It's a throwaway R and D exercise. If it's fruitful we do a separate contract for a V2.",
+  "Omar Diaz: I'd caution, don't get too cute, oh it's only R and D. If we commercialise it the ownership matters.",
+  "Sam Owner (You): Agreed, we're absolutely not starting a flywheel on this data.",
+  "Lee Chen: the the thing is uh forty the forty",
+  "Lee Chen: yeah never mind.",
+  "Sam Owner (You): Reena, one more. The performance data clause. If we anonymise customer data for performance analysis, does that include training a model?",
+  "Reena Park: Hmm. If, if you asked me, um, uh, if you were on the other side asking me the same question, I'd say no. Um.",
+  "Reena Park: It could be argued it's ambiguous, but, but yeah, I, yeah. Okay. Yeah, yeah. No. It, it's, um, yeah, that, that would permit you to train your own model.",
+  "Sam Owner (You): Okay. And distillation, synthetic data being called a distillation attack?",
+  "Reena Park: It's a real theoretical risk. I haven't seen a prominent dispute. Enforcement is practically very hard.",
+  "Omar Diaz: So what's the timing pressure here?",
+  "Lee Chen: Contoso wants this signed before their Summit, which is in three weeks.",
+  "Omar Diaz: Okay. I'm not signing anything until we've talked to Harlow first on the data question. Reena, can you go counsel to counsel?",
+  "Reena Park: Sure. I'll ask Contoso's counsel to clarify one matter, the data use, in writing.",
+  "Omar Diaz: Great. Then we huddle after and decide who signs. It's me, Nina, or Sam.",
+  "Nina Brooks: Works for me."
+ ],
+ "key_points": [
+  {
+   "id": "K1",
+   "desc": "Counsel: form agreement strong on customer data (acknowledged as ours, removed)",
+   "all": [
+    "customer data",
+    "strong|acknowledg"
+   ]
+  },
+  {
+   "id": "K2",
+   "desc": "Counsel: anything incorporating Contoso tech is Contoso's; non-exclusive internal-use licence",
+   "all": [
+    "non-exclusive",
+    "internal"
+   ]
+  },
+  {
+   "id": "K3",
+   "desc": "Owner's concerns: data provenance, and free use of model-generated data elsewhere",
+   "all": [
+    "provenance|generat",
+    "Sam"
+   ]
+  },
+  {
+   "id": "K4",
+   "desc": "Counsel: if purely R&D, no changes needed",
+   "all": [
+    "R ?(and|&) ?D|research",
+    "no changes|don't need|do not need|not need"
+   ]
+  },
+  {
+   "id": "K5",
+   "desc": "Decision: counsel-to-counsel, ask Contoso's counsel to clarify the data use",
+   "all": [
+    "clarif",
+    "counsel"
+   ]
+  },
+  {
+   "id": "K6",
+   "desc": "Omar won't sign until counsel has advised on the data question (condition kept)",
+   "all": [
+    "sign",
+    "until|before|first|not sign|won't sign|will not sign"
+   ]
+  },
+  {
+   "id": "K7",
+   "desc": "Timing: Contoso wants it signed before its Summit in three weeks",
+   "all": [
+    "summit",
+    "three weeks|3 weeks"
+   ]
+  },
+  {
+   "id": "K8",
+   "desc": "Counsel's final answer: the performance data clause permits training (ambiguous)",
+   "all": [
+    "perform",
+    "permit"
+   ]
+  },
+  {
+   "id": "K9",
+   "desc": "Distillation risk is theoretical; enforcement hard",
+   "all": [
+    "distillation",
+    "theoretic"
+   ]
+  },
+  {
+   "id": "K10",
+   "desc": "Unrelated deal: Fabrikam Australia, 30M apart on liability cap",
+   "all": [
+    "Fabrikam",
+    "thirty million|30 million|\\$30|30M"
+   ]
+  },
+  {
+   "id": "K11",
+   "desc": "Lee: minimal data shared; not giving away the farm; two of three buckets never shared",
+   "all": [
+    "minimal|two of the three|one bucket"
+   ]
+  },
+  {
+   "id": "K12",
+   "desc": "Personal: Sam is going to Kenya in March on safari, away two weeks",
+   "all": [
+    "Kenya"
+   ]
+  }
+ ],
+ "traps": [
+  {
+   "id": "T1",
+   "desc": "Inversion: says they ARE giving away the farm / full data",
+   "match": [
+    "farm|full data|all (of )?(the|their|our) data"
+   ],
+   "unless": [
+    "not giv|not going to give|aren't giving|isn't giving|minimal|never"
+   ]
+  },
+  {
+   "id": "T2",
+   "desc": "Conflation: the 30M liability gap attached to Contoso",
+   "match": [
+    "Contoso",
+    "thirty million|30 million|\\$30|30M|liability cap"
+   ]
+  },
+  {
+   "id": "T3",
+   "desc": "Misread: counsel's answer recorded as the clause NOT permitting training",
+   "match": [
+    "perform",
+    "say no|does not include|doesn't include|not include|does not permit|doesn't permit|not permit"
+   ],
+   "unless": [
+    "(?<!not )(?<!n't )permits? (the )?(you |larkspur |them )?(to )?(train|training)|would permit"
+   ]
+  },
+  {
+   "id": "T4",
+   "desc": "Invented expansion of SBP or CIZO (e.g. Business Planning, Chief Information Security...)",
+   "match": [
+    "Business Planning|Strategic Business|Chief Information Security|Senior Vice President|Strategy, Business"
+   ]
+  },
+  {
+   "id": "T5",
+   "desc": "Number from the garbled line (forty / 40)",
+   "match": [
+    "\\bforty\\b|\\b40\\b"
+   ]
+  },
+  {
+   "id": "T6",
+   "desc": "Signing stated as decided/agreed without the condition",
+   "match": [
+    "(will|agreed to|agrees to|decided to) sign"
+   ],
+   "unless": [
+    "until|after|first|once|pending|condition|before"
+   ]
+  },
+  {
+   "id": "T7",
+   "desc": "Invented outside name for the law firm (e.g. full firm name, LLP)",
+   "match": [
+    "Harlow (&|and) |LLP|Harlowpike LLP"
+   ]
+  },
+  {
+   "id": "T8",
+   "desc": "Misattribution: counsel's 'permits training' answer credited to someone other than Reena",
+   "match": [
+    "permit",
+    "^(?![\\s\\S]*Reena)"
+   ]
+  },
+  {
+   "id": "T9",
+   "desc": "Status: signing before the Summit recorded as decided (it is Contoso's wish)",
+   "match": [
+    "Summit",
+    "must be signed|will be signed|decided to sign|agreed to sign"
+   ]
+  },
+  {
+   "id": "T10",
+   "desc": "Invented date for the personal trip (only 'in March' was said)",
+   "match": [
+    "Kenya|safari|unavailable|dark",
+    "March \\d|\\d+(st|nd|rd|th)? March"
+   ]
+  }
+ ]
+}

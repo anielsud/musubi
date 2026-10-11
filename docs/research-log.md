@@ -490,3 +490,50 @@ counsel", later "willing to sign") a contradiction.
 
 **Pilot private cases now:** statements 6/7, claims 9/10, topics 3/3,
 leaks 0 (run 2: 5/7, 5/10, 1/3, 2 leaks).
+
+## 2026-10-11 — Prototype: meeting-level points instead of atomic statements
+
+Reading the pilot output, the atomic statements are low quality in ways
+the private cases did not measure: referents unresolved ("the
+agreement"), context lost or inverted (an option talked through, recorded
+as a decision), question-and-answer exchanges split into fragments, and
+clarifications in the next passage invisible. Worth scores are 1.0 on
+these, since they are work-related fragments. The keyword cases rose
+(claims 5/10 → 9/10) while usefulness did not; the eval needs checks for
+standalone-ness and coverage.
+
+Prototype (Python against Ollama, qwen3:8b; not in the pipeline), on three
+pilot meetings (15, 34 and 40 passages):
+1. A brief of the whole meeting: purpose, participants, subjects, glossary.
+2. Points per 5 passages, with the brief and the neighbouring passages as
+   context. A point is a complete note: question with its answer, proposal
+   with its outcome, conditions kept, names explicit.
+3. A rollup that merges points within the meeting.
+
+Findings:
+- Step 2 is a clear step up. Points stand on their own, name people and
+  documents, and carry outcomes ("retained, off the list, move to SRE
+  when a spot opens"). About 4–6 points per segment; 3–4 min per
+  40-passage meeting, comparable to atomic extraction.
+- The brief must be short text. Passing it as 5 kB of JSON made the model
+  return empty point lists in 6 of 7 segments.
+- The rollup is the weak step on an 8B model:
+  - asked to consolidate, it dropped the counsel call's key decision
+    (clarify with the other side's counsel) and an unrelated deal, both
+    present in the segment points;
+  - asked to merge without dropping, its output overran 3,500 tokens;
+  - asked for merge groups only, it over-merged (12 points into one blob,
+    losing the cover-note step) and overran again on the 40-passage
+    meeting.
+- Accuracy is still the 8B model's:
+  - conflation ("today's SLA is 45 days", where 45 days was the client's
+    ask);
+  - nearly everything marked "decided";
+  - roles guessed in the brief.
+- Coverage of the hand-read key points: about 4/5, 3/6 and 5/9 for the
+  three meetings.
+
+Direction: segment points with brief and context become the unit; merging
+within a meeting moves to code (similarity plus the existing "same point"
+check) instead of a model rewrite; and a larger local model should be
+tried for this one-time extraction step.

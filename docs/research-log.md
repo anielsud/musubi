@@ -769,3 +769,46 @@ The thinking judge cost more than half the time of thinking-on
 extraction and caught the fewest errors.
 
 Conclusion: reason during extraction rather than verify afterwards.
+
+## 2026-10-11 — Making thinking-mode extraction fast: llama.cpp, budget, sampling
+
+Goal: Qwen3.8-27B thinking-on quality (~3% wrong) at less than 64 min
+per three meetings. Hugging Face is blocked on this network, so only the
+Ollama registry and PyPI were usable.
+
+| Setup (Qwen3.8-27B, thinking on) | 3 meetings | Coverage | Wrong |
+|---|---|---|---|
+| Ollama MLX, sequential, greedy, unbounded thinking | 63.6 min | ~22.5/24 | ~3% |
+| llama.cpp (Ollama's GGUF) + native MTP + 4 parallel sections + 3k thinking budget + Qwen sampling (T=0.6, top-p 0.95, top-k 20); brief without thinking | **38.4 min** | **~23.5/24** | **~1–2%** |
+| GLM-5.3 (hosted ceiling) | ~5 min | 24/24 | ~2% |
+
+What mattered, in order:
+1. **Greedy decoding with thinking loops.** At temperature 0, sections
+   ran to 8k+ thinking tokens, and the meeting brief to ~14k (which was
+   also the 4–7 min brief time on MLX). With Qwen's recommended sampling
+   and a 3,000-token reasoning budget (`--reasoning-budget`, with a "time
+   is up" message), sections settle at ~3–4k generated tokens. Quality
+   held or improved.
+2. **The brief needs no thinking.** Now 1–1.5 min instead of 4–7.
+3. **Parallel sections.** llama.cpp's continuous batching gives ~39 tok/s
+   aggregate across 4 slots, against ~31 single-stream on MLX.
+4. **Native MTP** (`--spec-type draft-mtp`; Ollama's GGUF ships the
+   head). +33% single-stream, ~1.14× aggregate; draft acceptance rises
+   from 49% (greedy) to 71–75% with sampling.
+5. llama.cpp enforces the JSON schema (0 parse failures) and returns
+   logprobs, so the yes/no checks keep working.
+
+Dead ends, all measured:
+- **Ollama MLX:** no batching (open PR); no structured output in the
+  Homebrew build (missing xgrammar).
+- **MTPLX on MLX:** the Ollama MLX blobs are NVFP4 with the MTP head
+  included. Converting them to MLX affine 4-bit took 9 s and loads, but
+  ran 24 tok/s with or without MTP and gained nothing from batching.
+  MTPLX's own published weights (88 tok/s on M5 Max) are on Hugging Face.
+- **Post-hoc verification:** see the previous entry.
+
+Machine notes:
+- An M5 Pro has about half an M5 Max's memory bandwidth; published Max
+  numbers roughly halve here.
+- Leftover servers holding 19 GB caused a GPU out-of-memory in
+  llama.cpp. One model server at a time.

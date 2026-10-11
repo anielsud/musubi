@@ -16,13 +16,15 @@ import (
 )
 
 // ExtractVersion changes with the prompt or parsing, re-running extraction.
-const ExtractVersion = "x7"
+const ExtractVersion = "x8"
 
 var Kinds = []string{"fact", "opinion", "hypothesis", "decision", "commitment", "requirement", "question"}
 
 const extractPrompt = `You pick out what is worth remembering from a passage of someone's meeting transcripts, email or chat, so it can be tracked over time. Transcripts come from speech recognition: words are often misheard and sentences broken. "You" is the user, %s.
 
 Only take what someone would want to recall later: decisions, commitments, requirements, positions people took, facts with names, numbers or dates, and questions that matter. Usually 0 to 3 per passage; at most 5; none is a good answer for small talk.
+
+Keep conditions with the decision or commitment they govern: "we won't sign until legal has looked at it", "only if they agree to X", "talk to X first" are often the most important part, so state the condition in the text. A point a speaker repeats in broken speech is usually meant, even when each attempt is garbled.
 
 Skip: greetings, banter, jokes, sarcasm, exaggeration and metaphors; personal life (family, travel, hobbies); thinking out loud that reaches no conclusion; and any line too garbled to be sure what was meant. When unsure what was said, skip it rather than guess.
 

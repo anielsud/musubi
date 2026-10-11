@@ -13,7 +13,7 @@ import (
 )
 
 // LinkVersion changes with the linking rules or judge prompt.
-const LinkVersion = "k13"
+const LinkVersion = "k15"
 
 // Thresholds on cosine similarity between a statement and a claim's
 // centroid (nomic-embed-text). Above sameAt with the same kind family, the
@@ -383,6 +383,7 @@ var verifyQuestions = map[string]string{
 	"contradicts": "Do NEW and EARLIER make incompatible claims about the same specific thing, so that both cannot be true? A guess, expectation or hypothesis that the other statement rules out counts. yes or no.",
 	"answers":     "Does NEW give the information the EARLIER question asks for? yes or no.",
 	"refines":     "Is NEW a more precise or corrected version of the same specific point as EARLIER? yes or no.",
+	"supersedes":  "Is NEW a later update of the same plan, decision, position or status that replaces EARLIER? yes or no.",
 }
 
 func pairText(st store.Statement, c *liveClaim) string {

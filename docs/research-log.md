@@ -450,3 +450,43 @@ claims 5/10 → 8/10, topics 1/3 → 1/3, leaks 2 → 0. What remains:
 Open: one run spent 7 min before the knowledge step started (the step
 itself took 1 min), cause not yet found. The desktop app was open on the
 same database.
+
+## 2026-10-11 — Rare-word candidates, extract x8, supersession checks
+
+**Repeated views in separate claims were a retrieval problem, not a
+judging one.**
+- The judge was right whenever it said "same": a narrow "same point?"
+  check confirmed 23 of its 32 "same" verdicts, and those had joined.
+- The pairs that should have joined mostly never met. In the busiest
+  meeting, the earlier "throwaway R&D" claim ranked ninth by similarity
+  behind claims merely about the same partner, and the cap of 6 cut it.
+- Now up to 3 claims that share a rare word (used by at most 2% of claims)
+  and are at least 0.55 similar are judged as well.
+- Pilot claims 8/10 → 9/10: the three statements of that view from one
+  meeting form one claim. Across meetings it is still split.
+
+**Extract x8: preconditions.** The prompt now keeps conditions with the
+decision they govern ("won't sign until counsel has looked") and treats a
+point repeated in broken speech as meant.
+- 9 meetings: 418 statements (was 439), 358 grounded, 33 below
+  `min_worth`; extraction 19m33s against 14m03s.
+- The conditional refusal is now extracted, and both topic thread cases
+  pass: topics 1/3 → 3/3.
+- One regression: the ASIC cost fact is labelled "requirement".
+- One reply was cut off at the token limit and its passage skipped.
+- Synthetic 17 → 16/18: the reworded load-balancer statements no longer
+  pair. Those two disproof cases flip with wording.
+
+**Supersession.** The judge calls a changed position ("won't sign until
+counsel", later "willing to sign") a contradiction.
+- A fallback that asked "is this a later update that replaces it?"
+  whenever the contradiction check failed produced 18 supersessions on
+  the pilot, and about half were wrong. A wrong supersession hides a valid
+  claim, so the fallback was removed.
+- Direct "supersedes" verdicts are now checked by the same question; that
+  can only remove relations.
+- The signing thread is linked as a contradiction, which belief doesn't
+  yet weigh enough to change the earlier claim's status.
+
+**Pilot private cases now:** statements 6/7, claims 9/10, topics 3/3,
+leaks 0 (run 2: 5/7, 5/10, 1/3, 2 leaks).

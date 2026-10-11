@@ -746,3 +746,26 @@ Where this leaves local extraction on a 48 GB M5 Pro:
 - **None of this fits ordinary consumer hardware.** A dense 27B plus
   context needs 22–35 GB. For other users, extraction needs a pluggable
   backend (a company-approved endpoint) or a much smaller trained model.
+
+## 2026-10-11 — Extract fast, then check? No.
+
+Idea: extract with Qwen3.8-27B without thinking (fast, full coverage,
+~9% wrong points by hand label), then check each point against its cited
+lines (±3) with a judge, in groups of six. Scored against hand labels on
+the same 99 points:
+
+| Judge | Errors caught (of 9) | Correct points flagged | Time |
+|---|---|---|---|
+| GLM-5.3 (hosted) | 5 | 5 | 1.7 min |
+| Qwen3.8-27B, no thinking | 4 | 9 | 5.5 min |
+| Qwen3.8-27B, thinking | 3 | 7 | 34 min |
+
+All judges share two blind spots:
+- inventions that the meeting brief (written by the same extractor)
+  appears to "establish";
+- facts stated outside the cited window, flagged as unsupported
+  ("Ignite", the unrelated deal's name).
+The thinking judge cost more than half the time of thinking-on
+extraction and caught the fewest errors.
+
+Conclusion: reason during extraction rather than verify afterwards.

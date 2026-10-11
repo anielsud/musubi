@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/anielsud/musubi/internal/item"
@@ -23,6 +24,10 @@ type KnowledgeOptions struct {
 	// Limit caps how many items are extracted this run (0: no cap).
 	Limit   int
 	Workers int
+	// Decider and Gate skip passages unlikely to hold knowledge (see
+	// config.Knowledge.Gate); Gate 0 extracts everything.
+	Decider provider.Decider
+	Gate    float64
 	// LinkTrace receives the linker's decisions.
 	LinkTrace func(format string, args ...any)
 }
@@ -30,6 +35,7 @@ type KnowledgeOptions struct {
 type KnowledgeStats struct {
 	Items, Statements, Embedded int
 	Chunks                      int
+	Gated                       int // passages the gate skipped
 	ExtractTime, LinkTime       time.Duration
 	Link                        knowledge.LinkStats
 	Topics                      int
@@ -98,6 +104,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		return false
 	}
 
+	gated := o.Gate > 0 && o.Decider != nil
 	// 1. Extract, for items whose chunks changed since they were extracted.
 	type job struct {
 		it     *item.Item
@@ -117,6 +124,9 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 			continue
 		}
 		h := hashOf("extract", knowledge.ExtractVersion, chunkStamp, o.LLM.ModelName(), r.Cfg.Owner.Name)
+		if gated {
+			h = hashOf(h, knowledge.GateVersion, fmt.Sprint(o.Gate))
+		}
 		if cur, _ := r.Store.StageStamp("extract", it.ID); cur == knowledge.ExtractVersion+"/"+h {
 			continue
 		}
@@ -138,6 +148,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		ks.Chunks += len(j.chunks)
 	}
 	tExtract := time.Now()
+	var gatedN atomic.Int64
 	workers := r.Workers
 	r.Workers = o.Workers
 	var st Stats
@@ -182,6 +193,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	})
 	r.Workers = workers
 	ks.ExtractTime = time.Since(tExtract)
+	ks.Gated = int(gatedN.Load())
 	if err != nil {
 		return ks, err
 	}

@@ -320,3 +320,55 @@ closed when the speakers seen don't match the invite.
 - ungrounded statements weigh 0.3 and never auto-join a claim.
 
 Next: re-run the same nine meetings and compare with this run.
+
+## 2026-10-10 — Pilot run 2 (extract x7), and one-pass decisions
+
+Same nine meetings (179 passages), qwen3:8b, Ollama 0.34.4, `OLLAMA_NUM_PARALLEL=1`.
+
+**Extraction x7:**
+- 439 statements, 2.45 per passage, down from 680 (3.8 per passage) in run 1;
+  6.4 s per passage. 378 (86%) pass the deterministic grounding check.
+- Four of the five distortions written up as cases are gone: the inverted
+  negation, "fired up" as fired, the joke taken literally, and the question
+  turned into a decision.
+- Private cases: statements 5/7, claims 5/10, topics 1/3. The misses:
+  - a conditional refusal to sign ("not until outside counsel has looked")
+    wasn't extracted, so the signing thread can't show its progression;
+  - spoken numbers stay words ("forty five days"), so a search for "45"
+    misses them;
+  - an opinion repeated by three people over three meetings stays
+    "speculative", because belief only promotes facts and decisions;
+  - personal life is still extracted, from a passage that is otherwise about work.
+- Linking took 9 min against 14 min of extraction (380 judge calls for
+  439 statements). The judge now costs more than half as much as
+  extraction, so it needs the same scrutiny.
+- The audience gap from run 1 now fails a case: a side conversation's
+  remark about a colleague is visible to an attendee who had left.
+
+**Ollama hang:** after hours of use, the runner (one slot, context shift
+on) stopped serving queued requests while reporting idle; restarting
+Ollama fixed it. Musubi caps every call's output, so a 10-minute client
+timeout is the only guard. Worth a watchdog on long runs.
+
+**One-pass decisions (Jev-style).** Ollama returns token log-probabilities,
+so a yes/no question costs one forward pass. `provider.Decider` reads the
+answer's probability instead of generating JSON.
+
+- *Passage gate* (`knowledge.gate`, off by default): 0.24 s per passage.
+  Scores are bimodal: 154 passages ≥ 0.9, 17 < 0.1, 8 in between. The 17
+  passages below 0.1 held 24 statements, nearly all small talk or personal
+  life; the arguable losses were two opinions about a client contact.
+  The net saving is only about 6%, because x7 already skips
+  empty passages and meetings are mostly work. It may pay off on email
+  and chat, which carry more automated and social traffic. It can't
+  catch personal life inside a work passage.
+- *Statement check* (prototype, not wired in): "is this work knowledge
+  worth keeping?" on each extracted statement, 0.1 s each (about 4% of
+  extraction). 40 of 439 statements scored below 0.2; by hand, about 37
+  are noise (metaphors taken literally, holidays, garbled ASR) and 3 are
+  real losses, including a conditional acceptance of a deadline. Scores
+  are bimodal too (396 ≥ 0.8).
+
+Conclusion: keep the statement check's probability as a stored field and
+apply the threshold when reading (hide or down-weight), instead of
+deleting. A wrong threshold then costs a query change, not a re-extraction.

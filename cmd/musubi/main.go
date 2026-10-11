@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -47,7 +48,7 @@ func root() *cobra.Command {
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
 	r.AddCommand(updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), liveCmd(),
-		knowledgeCmd(), claimsCmd(), topicsCmd(), topicCmd(), judgeCmd())
+		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), judgeCmd())
 	return r
 }
 
@@ -660,7 +661,8 @@ func knowledgeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			o := pipeline.KnowledgeOptions{LLM: e.Chat, Embedder: e.Embedder, Items: items, Limit: limit, Workers: workers}
+			o := pipeline.KnowledgeOptions{LLM: e.Chat, Embedder: e.Embedder, Items: items, Limit: limit, Workers: workers,
+				Decider: e.Chat, Gate: e.Cfg.Knowledge.Gate}
 			if verbose {
 				o.LinkTrace = func(f string, a ...any) { fmt.Fprintf(os.Stderr, "  link: "+f+"\n", a...) }
 			}
@@ -670,8 +672,8 @@ func knowledgeCmd() *cobra.Command {
 			if ks.Chunks > 0 {
 				per = ks.ExtractTime / time.Duration(ks.Chunks)
 			}
-			fmt.Fprintf(os.Stderr, "knowledge: %d items (%d passages, extraction %s, %s per passage), %d statements (%d embedded), claims %d new / %d joined / %d judged (linking %s), %d relations, %d topics; %d items still to extract; %s total\n",
-				ks.Items, ks.Chunks, ks.ExtractTime.Round(time.Second), per.Round(100*time.Millisecond), ks.Statements, ks.Embedded,
+			fmt.Fprintf(os.Stderr, "knowledge: %d items (%d passages, %d gated, extraction %s, %s per passage), %d statements (%d embedded), claims %d new / %d joined / %d judged (linking %s), %d relations, %d topics; %d items still to extract; %s total\n",
+				ks.Items, ks.Chunks, ks.Gated, ks.ExtractTime.Round(time.Second), per.Round(100*time.Millisecond), ks.Statements, ks.Embedded,
 				ks.Link.New, ks.Link.Joined, ks.Link.Judged, ks.LinkTime.Round(time.Second), ks.Link.Related, ks.Topics, ks.Pending, time.Since(start).Round(time.Second))
 			return err
 		},
@@ -680,6 +682,65 @@ func knowledgeCmd() *cobra.Command {
 	c.Flags().IntVar(&limit, "limit", 0, "extract at most this many items this run")
 	c.Flags().IntVar(&workers, "workers", 2, "parallel model requests")
 	c.Flags().BoolVarP(&verbose, "verbose", "v", false, "print each linking decision")
+	return c
+}
+
+func gateCmd() *cobra.Command {
+	var items []string
+	c := &cobra.Command{
+		Use:   "gate",
+		Short: "Score passages with the extraction gate without extracting (tab-separated: item, passage, p, ms)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			if e.Chat == nil {
+				return fmt.Errorf("needs [llm] configured")
+			}
+			all, err := e.Store.AllItems()
+			if err != nil {
+				return err
+			}
+			links, err := e.Store.LinksFrom("occurred_as")
+			if err != nil {
+				return err
+			}
+			titles := map[string]string{}
+			for _, it := range all {
+				titles[it.ID] = it.Title
+			}
+			for _, it := range all {
+				if !slices.ContainsFunc(items, func(p string) bool { return strings.HasPrefix(it.ID, p) }) {
+					continue
+				}
+				title := it.Title
+				if ev, ok := links[it.ID]; ok && titles[ev] != "" {
+					title = titles[ev]
+				}
+				chunks, err := e.Store.Chunks(it.ID)
+				if err != nil {
+					return err
+				}
+				for _, ch := range chunks {
+					lines := knowledge.SplitLines(ch.Text)
+					if len(lines) == 0 {
+						continue
+					}
+					t := time.Now()
+					p, err := knowledge.Worth(cmd.Context(), e.Chat, title, lines)
+					if err != nil {
+						return err
+					}
+					fmt.Printf("%s\t%d\t%.3f\t%d\n", it.ID, ch.Seq, p, time.Since(t).Milliseconds())
+				}
+			}
+			return nil
+		},
+	}
+	c.Flags().StringSliceVar(&items, "items", nil, "item ids or prefixes (required)")
+	c.MarkFlagRequired("items")
 	return c
 }
 

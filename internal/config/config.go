@@ -21,6 +21,15 @@ type Config struct {
 	LLM         LLM         `toml:"llm"`
 	Live        Live        `toml:"live"`
 	Sensitivity Sensitivity `toml:"sensitivity"`
+	Knowledge   Knowledge   `toml:"knowledge"`
+}
+
+// Knowledge configures statement extraction.
+type Knowledge struct {
+	// Gate skips passages whose probability of holding knowledge (one
+	// yes/no forward pass) is below this. 0 extracts every passage, the
+	// previous behaviour, and keeps existing extractions valid.
+	Gate float64 `toml:"gate"`
 }
 
 // LLM is the chat model for answers, live query suggestions and briefs.

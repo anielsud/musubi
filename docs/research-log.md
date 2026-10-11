@@ -697,3 +697,52 @@ Speed on this machine (M5 Pro, 48 GB, Ollama 0.34, GGUF Q4): ~74 tok/s
 generation, ~1,200 tok/s prompt reading. Ollama runs safetensors models on
 MLX, reported 1.5–2× faster, but Ollama issue #17933 reports structured
 output silently ignored on the MLX backend; to verify before switching.
+
+## 2026-10-11 — Qwen3.8-27B on MLX
+
+Ollama serves safetensors models on Apple's MLX engine. `qwen3.8:27b-mlx`
+(dense 27B, 4-bit, Apache-2.0) on the M5 Pro:
+- Speed: ~31 tok/s generation and ~363 tok/s prompt reading. Dense, so
+  slower than the 35B-A3B MoE (~74 and ~1,200 on llama.cpp).
+- Memory: 22 GB at a 16k context; 31–35 GB at 24–32k with thinking. With
+  the usual desktop apps open that pushed the machine into heavy swap
+  (23 GB). Context size matters as much as weights on 48 GB.
+- Capabilities on Ollama's MLX engine:
+  - token log-probabilities work;
+  - thinking works;
+  - structured output is refused (HTTP 501). The log names the cause:
+    the Homebrew build lacks the xgrammar library the MLX engine uses.
+    The schema went in the prompt instead, with lenient parsing and one
+    retry: 1 JSON failure in 39 calls, recovered by the retry.
+
+Three real meetings, the example prompt, hand-graded:
+
+| Model | Coverage | Wrong points | Time |
+|---|---|---|---|
+| qwen3.6:35b-a3b, no thinking | ~22/24 | ~12% | 4.6 min |
+| qwen3.6:35b-a3b, thinking | ~22/24 | ~6% | 26 min |
+| qwen3.8:27b-mlx, no thinking | 24/24 | ~6–7% | ~17 min |
+| qwen3.8:27b-mlx, thinking | ~22.5/24 | ~3% | ~64 min |
+| GLM-5.3 (hosted) | 24/24 | ~2% | ~5 min |
+
+Without thinking, Qwen3.8-27B already covers every key point; its errors
+cluster in small talk (e.g. "Kevin: it'll take four to five years" turned
+into the owner's children's ages). With thinking, its points on the first
+two meetings read like GLM-5.3's, nuances included, at about 0–1 doubtful
+points per meeting. But a 34-passage meeting took 26 minutes.
+
+With thinking, the third meeting also had almost no wrong points, but it
+dropped two key points the non-thinking run had (a deadline, and counsel's
+"no changes needed if purely R&D"). Thinking trades a little coverage for
+precision. Its errors are rare and mostly honest: it quotes a garbled line
+rather than inventing a meaning.
+
+Where this leaves local extraction on a 48 GB M5 Pro:
+- **Qwen3.8-27B with thinking:** about 3% wrong, close to the hosted
+  ceiling, but ~20 min per long meeting. The 81 recorded meetings would
+  take most of a day.
+- **Qwen3.8-27B without thinking:** full coverage at about 6–7% wrong in
+  ~6 min per meeting. Its errors concentrate in small talk.
+- **None of this fits ordinary consumer hardware.** A dense 27B plus
+  context needs 22–35 GB. For other users, extraction needs a pluggable
+  backend (a company-approved endpoint) or a much smaller trained model.

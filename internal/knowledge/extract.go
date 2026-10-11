@@ -15,26 +15,30 @@ import (
 )
 
 // ExtractVersion changes with the prompt or parsing, re-running extraction.
-const ExtractVersion = "x6"
+const ExtractVersion = "x7"
 
 var Kinds = []string{"fact", "opinion", "hypothesis", "decision", "commitment", "requirement", "question"}
 
-const extractPrompt = `You extract the substance of a passage from someone's meeting transcripts, email or chat, so it can be tracked over time. Transcripts come from speech recognition and contain errors. "You" is the user, %s.
+const extractPrompt = `You pick out what is worth remembering from a passage of someone's meeting transcripts, email or chat, so it can be tracked over time. Transcripts come from speech recognition: words are often misheard and sentences broken. "You" is the user, %s.
 
-List what the passage asserts, as separate statements. For each give:
+Only take what someone would want to recall later: decisions, commitments, requirements, positions people took, facts with names, numbers or dates, and questions that matter. Usually 0 to 3 per passage; at most 5; none is a good answer for small talk.
+
+Skip: greetings, banter, jokes, sarcasm, exaggeration and metaphors; personal life (family, travel, hobbies); thinking out loud that reaches no conclusion; and any line too garbled to be sure what was meant. When unsure what was said, skip it rather than guess.
+
+For each statement give:
 - "line": the number of the line it comes from
+- "quote": the exact words from that line it is based on (up to 25 words, copied verbatim)
 - "kind": fact (stated as true, including announcements and status), opinion (a judgement or preference), hypothesis (a guess: "I think", "maybe", "might", "probably"), decision (something agreed or decided), commitment (someone will do something), requirement (something must be true or be done), or question (an open question)
-- "text": one sentence that stands on its own without the passage: full names instead of "I", "we", "he", "she", "they"; say what "it" refers to; keep numbers, amounts and dates; keep negation and hedging exactly as said ("it is not X" stays "the cause is not X")
+- "text": one sentence that stands on its own: use people's names (never "the speaker", "I", "we", "he", "she", "they"); say what "it" refers to; keep numbers, amounts and dates; keep negation and hedging exactly as said ("we are not giving away X" must stay negative)
 - "holder": who said or holds it, written exactly as the speaker is named in the passage
 - "certainty": how sure the holder sounded, from 0 to 1 (1: stated as certain; 0.7: fairly sure; 0.5: "I think"; 0.2: a guess)
-- "value": the one date, amount, number, percentage or duration the statement turns on, if any, as {"type": "date", "money", "number", "percent", "duration" or "none", "raw": the words as said, e.g. "Q4", "mid November", "$40M", "15%%", "two years"}
-
-Skip greetings, small talk, filler and talk about the meeting itself, but keep announcements even when phrased as thanks or congratulations ("congratulations to Ana on her promotion" states a promotion). Merge repeats. At most 8 statements; fewer is fine; none is fine.`
+- "value": the one date, amount, number, percentage or duration the statement turns on, if any, as {"type": "date", "money", "number", "percent", "duration" or "none", "raw": the words as said, e.g. "Q4", "mid November", "$40M", "15%%", "two years"}`
 
 // extractSchema constrains the reply (structured output).
 var extractSchema = json.RawMessage(`{"type":"object","required":["statements"],"properties":{"statements":{"type":"array","items":{
-"type":"object","required":["line","kind","text","holder","certainty","value"],"properties":{
+"type":"object","required":["line","quote","kind","text","holder","certainty","value"],"properties":{
 "line":{"type":"integer"},
+"quote":{"type":"string"},
 "kind":{"type":"string","enum":["fact","opinion","hypothesis","decision","commitment","requirement","question"]},
 "text":{"type":"string"},
 "holder":{"type":"string"},
@@ -75,6 +79,7 @@ func speakerName(s string) string {
 // Extracted is a statement as the model returned it.
 type Extracted struct {
 	Line      int     `json:"line"`
+	Quote     string  `json:"quote"`
 	Kind      string  `json:"kind"`
 	Text      string  `json:"text"`
 	Holder    string  `json:"holder"`
@@ -107,7 +112,7 @@ func Extract(ctx context.Context, llm provider.LLM, owner, title string, lines [
 	out, err := llm.Complete(ctx, []provider.Message{
 		{Role: "system", Content: fmt.Sprintf(extractPrompt, owner)},
 		{Role: "user", Content: b.String()},
-	}, provider.ChatOptions{Schema: extractSchema, Temperature: 0, MaxTokens: 900}, nil)
+	}, provider.ChatOptions{Schema: extractSchema, Temperature: 0, MaxTokens: 700}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -170,11 +175,14 @@ func validKind(k string) bool {
 }
 
 // ToStatement fills a store statement from an extraction, normalising its
-// value relative to when it was said.
-func ToStatement(e Extracted, chunk store.Chunk, itemStart time.Time, holderID string) store.Statement {
+// value relative to when it was said and checking it against its source
+// lines.
+func ToStatement(e Extracted, chunk store.Chunk, itemStart time.Time, holderID string, lines []Line) store.Statement {
 	said := itemStart.Add(time.Duration(chunk.Start * float64(time.Second)))
+	grounded, issues := Ground(e, lines)
 	return store.Statement{
 		ChunkID: chunk.ID, Line: e.Line, Kind: e.Kind, Text: e.Text, Holder: e.Holder, HolderID: holderID,
 		Certainty: e.Certainty, SaidAt: said, Value: Normalize(e.Value.Type, e.Value.Raw, said),
+		Quote: e.Quote, Grounded: grounded, Issues: strings.Join(issues, "; "),
 	}
 }

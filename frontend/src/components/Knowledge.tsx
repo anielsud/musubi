@@ -251,7 +251,8 @@ function StatementRow({ s, onSource }: { s: Statement; onSource: (itemId: string
         {s.value?.type && s.value.type !== 'none' && <span className="value-chip" title={s.value.normalized ? 'read as a ' + s.value.type : 'not understood as a ' + s.value.type}>{s.value.raw}</span>}
         <LabelBadge label={s.label} compact />
       </div>
-      <div className="stmt-text">{s.text}</div>
+      <div className="stmt-text">{!s.grounded && <span className="ungrounded" title={s.issues}>⚠ unchecked</span>}{s.text}</div>
+      {s.quote && <div className="stmt-quote">“{s.quote}”</div>}
       <div className="stmt-src">{s.itemTitle}</div>
     </button>
   );

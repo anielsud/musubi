@@ -39,6 +39,12 @@ type Statement struct {
 	Certainty float64   `json:"certainty"`
 	SaidAt    time.Time `json:"saidAt"`
 	Value     Value     `json:"value"`
+	// Quote is the source words the statement was taken from; Grounded is
+	// false when the quote isn't in the source, or the statement's figures
+	// or negation don't match it (Issues says which).
+	Quote    string `json:"quote"`
+	Grounded bool   `json:"grounded"`
+	Issues   string `json:"issues,omitempty"`
 	// Set on reads.
 	ItemKind  string            `json:"itemKind,omitempty"`
 	ItemTitle string            `json:"itemTitle,omitempty"`
@@ -65,9 +71,9 @@ func (s *Store) ReplaceStatements(itemID, version, hash string, sts []Statement)
 				v.Type = "none"
 			}
 			if _, err := tx.Exec(`INSERT INTO statements(item_id, chunk_id, line, kind, text, holder, holder_id, certainty, said_at,
-				value_type, value_raw, value_lo, value_hi, value_ok) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				value_type, value_raw, value_lo, value_hi, value_ok, quote, grounded, issues) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				itemID, st.ChunkID, st.Line, st.Kind, st.Text, st.Holder, holder, st.Certainty, st.SaidAt.Unix(),
-				v.Type, v.Raw, v.Lo, v.Hi, v.Normalized); err != nil {
+				v.Type, v.Raw, v.Lo, v.Hi, v.Normalized, st.Quote, st.Grounded, st.Issues); err != nil {
 				return err
 			}
 		}
@@ -83,7 +89,7 @@ func (s *Store) UnlinkedStatements() ([]Statement, error) {
 
 func (s *Store) statements(where string, args ...any) ([]Statement, error) {
 	rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, c.text_hash, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
-		st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, coalesce(sc.claim_id, 0)
+		st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, st.quote, st.grounded, st.issues, coalesce(sc.claim_id, 0)
 		FROM statements st JOIN chunks c ON c.id = st.chunk_id LEFT JOIN statement_claims sc ON sc.statement_id = st.id `+where, args...)
 	if err != nil {
 		return nil, err
@@ -94,7 +100,8 @@ func (s *Store) statements(where string, args ...any) ([]Statement, error) {
 		var st Statement
 		var said int64
 		if err := rows.Scan(&st.ID, &st.ItemID, &st.ChunkID, &st.ChunkSeq, &st.ChunkHash, &st.Line, &st.Kind, &st.Text, &st.Holder, &st.HolderID,
-			&st.Certainty, &said, &st.Value.Type, &st.Value.Raw, &st.Value.Lo, &st.Value.Hi, &st.Value.Normalized, &st.ClaimID); err != nil {
+			&st.Certainty, &said, &st.Value.Type, &st.Value.Raw, &st.Value.Lo, &st.Value.Hi, &st.Value.Normalized,
+			&st.Quote, &st.Grounded, &st.Issues, &st.ClaimID); err != nil {
 			return nil, err
 		}
 		st.SaidAt = time.Unix(said, 0)
@@ -470,7 +477,8 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 		}
 		args = append(args, vargs...)
 		rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, c.text_hash, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
-			st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, sc.claim_id, i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END,
+			st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, st.quote, st.grounded, st.issues,
+			sc.claim_id, i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END,
 			max(il.level, coalesce(cl.level, 0)), (il.categories | coalesce(cl.categories, 0))
 			FROM statement_claims sc JOIN statements st ON st.id = sc.statement_id JOIN chunks c ON c.id = st.chunk_id
 			JOIN items i ON i.id = st.item_id`+chunkVisJoin+`WHERE sc.claim_id IN (`+ph+`) AND `+vis+` ORDER BY st.said_at, st.id`, args...)
@@ -484,7 +492,7 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 			var cats int64
 			if err := rows.Scan(&st.ID, &st.ItemID, &st.ChunkID, &st.ChunkSeq, &st.ChunkHash, &st.Line, &st.Kind, &st.Text, &st.Holder, &st.HolderID,
 				&st.Certainty, &said, &st.Value.Type, &st.Value.Raw, &st.Value.Lo, &st.Value.Hi, &st.Value.Normalized,
-				&st.ClaimID, &st.ItemKind, &st.ItemTitle, &lvl, &cats); err != nil {
+				&st.Quote, &st.Grounded, &st.Issues, &st.ClaimID, &st.ItemKind, &st.ItemTitle, &lvl, &cats); err != nil {
 				rows.Close()
 				return nil, err
 			}

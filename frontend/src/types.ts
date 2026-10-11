@@ -156,6 +156,9 @@ export interface Statement {
   certainty: number;
   saidAt: string;
   value: { type: string; raw: string; lo: number; hi: number; normalized: boolean };
+  quote: string;
+  grounded: boolean;
+  issues?: string;
   itemKind?: string;
   itemTitle?: string;
   label: Label;

@@ -271,3 +271,5 @@ func parseDuration(raw string) (float64, bool) {
 	}
 	return 0, false
 }
+
+func formatFloat(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }

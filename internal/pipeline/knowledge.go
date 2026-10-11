@@ -154,7 +154,13 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 					}
 					ex, err := knowledge.Extract(ctx, o.LLM, r.Cfg.Owner.Name, j.title, lines, j.orgs)
 					if err != nil {
-						return nil, fmt.Errorf("extract %s#%d: %w", j.it.ID, c.Seq, err)
+						if ctx.Err() != nil {
+							return nil, err
+						}
+						// One bad reply (e.g. cut off at the token limit) skips
+						// that passage, not the run.
+						r.logf("extract %s#%d skipped: %v", j.it.ID, c.Seq, err)
+						continue
 					}
 					for _, e := range ex {
 						holderID := ""
@@ -163,7 +169,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 						} else if e.Holder != "" {
 							holderID = reg.Participant(item.Participant{Name: e.Holder})
 						}
-						sts = append(sts, knowledge.ToStatement(e, c, j.it.OccurredAt, holderID))
+						sts = append(sts, knowledge.ToStatement(e, c, j.it.OccurredAt, holderID, lines))
 					}
 				}
 				return func() error {

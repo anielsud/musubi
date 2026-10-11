@@ -13,7 +13,7 @@ import (
 )
 
 // LinkVersion changes with the linking rules or judge prompt.
-const LinkVersion = "k7"
+const LinkVersion = "k8"
 
 // Thresholds on cosine similarity between a statement and a claim's
 // centroid (nomic-embed-text). Above sameAt with the same kind family, the
@@ -131,7 +131,7 @@ func (k *Linker) Link(ctx context.Context, sts []store.Statement) (LinkStats, er
 		}
 		// Near-identical, the same kind, and the same numbers and dates:
 		// join directly.
-		if len(cands) > 0 && cands[0].sim >= sameAt && cands[0].c.Kind == st.Kind && sameFigures(st.Text, cands[0].c.Text) &&
+		if len(cands) > 0 && st.Grounded && cands[0].sim >= sameAt && cands[0].c.Kind == st.Kind && sameFigures(st.Text, cands[0].c.Text) &&
 			valuesAgree(st.Value, cands[0].c.Value) {
 			if err := k.join(st, cands[0].c, cands[0].sim, "near-identical"); err != nil {
 				return stats, err
@@ -299,10 +299,13 @@ func fits(rel, newKind, oldKind string) bool {
 	return true
 }
 
-var negations = map[string]bool{"not": true, "no": true, "never": true, "isn't": true, "wasn't": true, "aren't": true, "won't": true,
-	"doesn't": true, "didn't": true, "cannot": true, "can't": true, "neither": true, "nor": true, "ruled": true, "unlikely": true}
+var negations = map[string]bool{"not": true, "no": true, "never": true, "isn't": true, "wasn't": true, "aren't": true, "weren't": true,
+	"won't": true, "don't": true, "doesn't": true, "didn't": true, "cannot": true, "can't": true, "couldn't": true, "shouldn't": true,
+	"wouldn't": true, "haven't": true, "hasn't": true, "hadn't": true, "ain't": true, "neither": true, "nor": true, "ruled": true,
+	"unlikely": true, "nobody": true, "nothing": true, "none": true}
 
 func negated(s string) bool {
+	s = strings.NewReplacer("’", "'", "‘", "'").Replace(s)
 	for _, w := range strings.Fields(strings.ToLower(s)) {
 		if negations[strings.Trim(w, ".,;:!?\"'")] {
 			return true

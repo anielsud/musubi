@@ -189,7 +189,10 @@ CREATE TABLE IF NOT EXISTS statements (
 	value_raw  TEXT NOT NULL,          -- the words, as said
 	value_lo   REAL NOT NULL,          -- normalised bounds (dates: unix seconds)
 	value_hi   REAL NOT NULL,
-	value_ok   INTEGER NOT NULL        -- 1 if the words could be normalised
+	value_ok   INTEGER NOT NULL,       -- 1 if the words could be normalised
+	quote      TEXT NOT NULL,          -- the words it was taken from, verbatim
+	grounded   INTEGER NOT NULL,       -- 1 if the quote, figures and negation check out against the source
+	issues     TEXT NOT NULL           -- why not, if not
 );
 CREATE INDEX IF NOT EXISTS statements_item ON statements(item_id);
 CREATE INDEX IF NOT EXISTS statements_chunk ON statements(chunk_id);

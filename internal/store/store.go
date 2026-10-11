@@ -27,7 +27,7 @@ var schema string
 // schemaVersion changes when schema.sql changes incompatibly. Everything
 // except the forget list and the audit log is rebuilt from the raw store, so
 // an upgrade drops the derived tables and the next update refills them.
-const schemaVersion = 3
+const schemaVersion = 4
 
 // kept survive a schema upgrade: they are not derived from raw.
 var kept = map[string]bool{"forgotten": true, "audit": true, "judgments": true}

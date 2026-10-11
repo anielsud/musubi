@@ -11,7 +11,7 @@ var t0 = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
 func st(id int64, holder, kind, cert, src string, at time.Time) store.Statement {
 	c := map[string]float64{"high": 1, "medium": 0.7, "low": 0.4}[cert]
-	return store.Statement{ID: id, Holder: holder, Kind: kind, Certainty: c, ItemKind: src, SaidAt: at}
+	return store.Statement{ID: id, Holder: holder, Kind: kind, Certainty: c, ItemKind: src, SaidAt: at, Grounded: true}
 }
 
 func ev(kind string, sts ...store.Statement) *store.ClaimEvidence {

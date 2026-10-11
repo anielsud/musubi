@@ -62,6 +62,11 @@ func evidence(st store.Statement, now time.Time) (raw, decayed float64) {
 		raw *= w
 	}
 	raw = math.Min(raw, 1)
+	// A statement that didn't check out against its source counts for
+	// little until someone verifies it.
+	if !st.Grounded {
+		raw *= 0.3
+	}
 	decayed = raw
 	if hl, ok := halfLife[st.Kind]; ok {
 		age := now.Sub(st.SaidAt)

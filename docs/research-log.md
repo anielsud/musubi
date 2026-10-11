@@ -537,3 +537,40 @@ Direction: segment points with brief and context become the unit; merging
 within a meeting moves to code (similarity plus the existing "same point"
 check) instead of a model rewrite; and a larger local model should be
 tried for this one-time extraction step.
+
+## 2026-10-11 — Small-model bake-off for meeting-level points
+
+Same three pilot meetings and the same prototype (a brief, then points per
+5 passages with neighbouring context; no model rollup). Graded by hand
+against a 24-item key-point checklist built from the hand-read summaries
+(private). Single rater, so read the numbers as rough.
+
+| Model | Key points covered (6 + 9 + 9) | Wrong or dubious points | Personal-life points | Time, 3 meetings |
+|---|---|---|---|---|
+| qwen3:8b (baseline) | 4 + 6 + 7 = 17 (71%) | ~9 | yes | 10.2 min |
+| qwen3.5:4b, brief guessed | 6 + 7 + 7.5 = 20.5 (85%) | ~14, most from one invented company name | some | 6.2 min |
+| qwen3.5:4b, brief given known facts | (one segment failed); similar coverage | invented name gone | many (pool, kids' ages, ethnicity) | 6.2 min |
+| qwen3.5:9b, brief given known facts | 6 + 6.5 + 6.5 = 19 (79%) | ~6 | none | 9.9 min |
+
+Findings:
+- The newer generation matters more than size. qwen3.5:4b covers more
+  than qwen3:8b at 60% of the time. qwen3.5:9b is about as fast as the
+  old 8B, has the fewest errors and the best attribution (organisations
+  on every point), and kept no personal-life points.
+- **The brief is a single point of failure.** Left to guess, the 4B
+  invented a company name and made an Optimizely lawyer a Microsoft
+  executive, and both spread into a dozen points. Giving the brief the
+  facts we already hold (the owner and their company, invitees and their
+  organisations from the calendar, by email domain) removed this for
+  both models.
+- All three models conflate the client's asks with current practice in
+  the patch-management meeting ("45 days instead of the original 90").
+  That is either a genuinely ambiguous transcript or a gap in the
+  checklist; a larger model would be the test.
+- The small model does not follow "skip personal life"; the stored worth
+  score after extraction is the guard, and it is needed.
+
+Decision for now: qwen3.5:9b for extraction (it runs once per item; best
+accuracy at today's cost); test qwen3.5:4b for the high-volume yes/no
+calls and live suggestions against the eval. The 35B model is not
+justified by this test.

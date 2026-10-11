@@ -668,3 +668,32 @@ Takeaways:
   distil — use the hosted model's points on real meetings to fine-tune a
   local model; or extract locally and send only flagged or high-stakes
   points to the hosted model.
+
+## 2026-10-11 — Thinking mode on the local 35B
+
+Every local run so far had thinking off, while the hosted ceiling models
+reasoned heavily (DeepSeek: ~145k hidden tokens over three meetings).
+qwen3.6:35b-a3b with thinking on, same prompt and examples, three real
+meetings, hand-graded:
+
+| | Coverage | Wrong points | Time |
+|---|---|---|---|
+| thinking off | ~22/24 | ~12% | 4.6 min |
+| thinking on | ~22/24 | ~6% | 26 min |
+| GLM-5.3 (hosted) | 24/24 | ~2% | ~5 min |
+
+With thinking on, the 35B:
+- found the deadline every non-thinking local model missed;
+- kept the unrelated deal separate;
+- read counsel's hedged answer consistently;
+- stopped expanding acronyms.
+It still added a law firm's full name from outside knowledge.
+
+Thinking halves the error rate, about 60% of the way to the hosted
+ceiling, at about 5.5× the time (~10 min for a 40-passage meeting on an
+M5 Pro through Ollama's llama.cpp engine at ~70 tok/s).
+
+Speed on this machine (M5 Pro, 48 GB, Ollama 0.34, GGUF Q4): ~74 tok/s
+generation, ~1,200 tok/s prompt reading. Ollama runs safetensors models on
+MLX, reported 1.5–2× faster, but Ollama issue #17933 reports structured
+output silently ignored on the MLX backend; to verify before switching.

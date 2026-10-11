@@ -8,8 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sort"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -369,7 +369,9 @@ func forgetCmd() *cobra.Command {
 
 func evalCmd() *cobra.Command {
 	var cases, corpus, embed, jsonOut, baseline, modes string
-	var withKnowledge, record bool
+	var withKnowledge, record, trace bool
+	var judge string
+	var minWorth float64
 	var keep string
 	c := &cobra.Command{
 		Use:   "eval",
@@ -400,6 +402,12 @@ the cases. Exits non-zero on any leak.`,
 				}
 				cfg.DataDir = tmp
 				cfg.TomoeSessions = filepath.Join(corpus, "tomoe")
+				if judge != "" {
+					cfg.Knowledge.Judge = judge
+				}
+				if minWorth >= 0 {
+					cfg.Knowledge.MinWorth = minWorth
+				}
 				if cases == "" {
 					cases = filepath.Join(corpus, "cases.toml")
 				}
@@ -426,7 +434,7 @@ the cases. Exits non-zero on any leak.`,
 					return err
 				}
 				if withKnowledge {
-					if err := corpusKnowledge(cmd.Context(), r, cfg, corpus, record); err != nil {
+					if err := corpusKnowledge(cmd.Context(), r, cfg, corpus, record, trace); err != nil {
 						return err
 					}
 				}
@@ -501,6 +509,9 @@ the cases. Exits non-zero on any leak.`,
 	c.Flags().StringVar(&baseline, "baseline", "", "metrics JSON from an earlier run to compare against")
 	c.Flags().StringVar(&keep, "keep", "", "with --corpus: build the database in this directory and keep it")
 	c.Flags().BoolVar(&withKnowledge, "knowledge", false, "also build and score the knowledge layer (corpus: replays <corpus>/llm-cache)")
+	c.Flags().StringVar(&judge, "judge", "", "with --knowledge: override [knowledge] judge (json, decide)")
+	c.Flags().Float64Var(&minWorth, "min-worth", -1, "with --knowledge: override [knowledge] min_worth")
+	c.Flags().BoolVar(&trace, "trace", false, "with --knowledge: print each linking decision")
 	c.Flags().BoolVar(&record, "record", false, "with --knowledge: call the real models for anything not in the cache, and save it")
 	return c
 }
@@ -591,7 +602,7 @@ func liveCmd() *cobra.Command {
 
 // corpusKnowledge builds the knowledge layer for a test corpus from its
 // recorded model replies (and, with record, the real models).
-func corpusKnowledge(ctx context.Context, r *pipeline.Runner, cfg config.Config, corpus string, record bool) error {
+func corpusKnowledge(ctx context.Context, r *pipeline.Runner, cfg config.Config, corpus string, record, trace bool) error {
 	var innerLLM provider.LLM
 	var innerEmb provider.Embedder
 	if record {
@@ -613,7 +624,11 @@ func corpusKnowledge(ctx context.Context, r *pipeline.Runner, cfg config.Config,
 	if err != nil {
 		return err
 	}
-	ks, err := r.Knowledge(ctx, pipeline.KnowledgeOptions{LLM: llm, Embedder: emb, Workers: 2})
+	o := pipeline.KnowledgeOptions{LLM: llm, Embedder: emb, Workers: 2}
+	if trace {
+		o.LinkTrace = func(f string, a ...any) { fmt.Fprintf(os.Stderr, "  link: "+f+"\n", a...) }
+	}
+	ks, err := r.Knowledge(ctx, o)
 	if record {
 		if serr := llm.Save(); serr != nil && err == nil {
 			err = serr
@@ -661,8 +676,7 @@ func knowledgeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			o := pipeline.KnowledgeOptions{LLM: e.Chat, Embedder: e.Embedder, Items: items, Limit: limit, Workers: workers,
-				Decider: e.Chat, Gate: e.Cfg.Knowledge.Gate}
+			o := pipeline.KnowledgeOptions{LLM: e.Chat, Embedder: e.Embedder, Items: items, Limit: limit, Workers: workers}
 			if verbose {
 				o.LinkTrace = func(f string, a ...any) { fmt.Fprintf(os.Stderr, "  link: "+f+"\n", a...) }
 			}
@@ -672,8 +686,8 @@ func knowledgeCmd() *cobra.Command {
 			if ks.Chunks > 0 {
 				per = ks.ExtractTime / time.Duration(ks.Chunks)
 			}
-			fmt.Fprintf(os.Stderr, "knowledge: %d items (%d passages, %d gated, extraction %s, %s per passage), %d statements (%d embedded), claims %d new / %d joined / %d judged (linking %s), %d relations, %d topics; %d items still to extract; %s total\n",
-				ks.Items, ks.Chunks, ks.Gated, ks.ExtractTime.Round(time.Second), per.Round(100*time.Millisecond), ks.Statements, ks.Embedded,
+			fmt.Fprintf(os.Stderr, "knowledge: %d items (%d passages, %d gated, extraction %s, %s per passage), %d statements (%d embedded, %d scored, %d below min_worth), claims %d new / %d joined / %d judged (linking %s), %d relations, %d topics; %d items still to extract; %s total\n",
+				ks.Items, ks.Chunks, ks.Gated, ks.ExtractTime.Round(time.Second), per.Round(100*time.Millisecond), ks.Statements, ks.Embedded, ks.Scored, ks.Unworthy,
 				ks.Link.New, ks.Link.Joined, ks.Link.Judged, ks.LinkTime.Round(time.Second), ks.Link.Related, ks.Topics, ks.Pending, time.Since(start).Round(time.Second))
 			return err
 		},

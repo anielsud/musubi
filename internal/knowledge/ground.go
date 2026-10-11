@@ -63,7 +63,7 @@ func Ground(e Extracted, lines []Line) (bool, []string) {
 	if len(issues) > 0 || len(qw) < 2 {
 		basis = lines[i].Text
 	}
-	if negated(basis) != negated(e.Text) {
+	if negatedOrContrast(basis) != negatedOrContrast(e.Text) {
 		issues = append(issues, "negation differs from source")
 	}
 	return len(issues) == 0, issues
@@ -118,4 +118,12 @@ func trimFloat(f float64) string {
 		return "0"
 	}
 	return s
+}
+
+// negatedOrContrast also counts a contrast ("three years instead of two")
+// as the statement form of "three years, not two", so a faithful rewrite
+// of a contrast isn't flagged as a dropped negation.
+func negatedOrContrast(s string) bool {
+	l := strings.ToLower(s)
+	return negated(s) || strings.Contains(l, "instead of") || strings.Contains(l, "rather than")
 }

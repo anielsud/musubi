@@ -198,15 +198,46 @@ statement has:
 Small talk and procedure are skipped. The stage is versioned by model and
 prompt like any other, so improving the prompt means re-running it.
 
+Checks after extraction, all cheap and stored with the statement:
+- **quote and grounding**: the statement carries the words it came from;
+  code checks the quote is in the cited line, its figures are in the
+  source, and its negation agrees ("three years instead of two" counts as
+  the contrast "three years, not two"). Ungrounded statements weigh less
+  and never join a claim without the judge.
+- **worth**: one yes/no forward pass per statement ("work knowledge, or
+  small talk, a joke taken literally, garble?"), read as a probability
+  from the model's next token rather than generated. Statements below
+  `knowledge.min_worth` (0.2) stay out of claims but are kept, so a
+  different threshold re-links without re-extracting. On the pilot about
+  9% scored below 0.2, nearly all noise.
+- **search text**: the statement plus the digits of spelled-out numbers
+  ("forty five days" is found by "45").
+
+An optional passage gate (`knowledge.gate`, off) asks the same kind of
+question per passage before extraction; on meetings it skipped too little to
+pay (see the research log).
+
 ### Claims (`link` stage)
 
 A claim is one assertion across sources. Statements are linked in the order
 they were made:
 1. Embed the new statement and find the nearest claims by cosine similarity.
-2. A near-identical match (≥ 0.92) joins without asking the model.
-3. For plausible matches (≥ 0.70), the model judges each candidate as one
-   of: same, supports, contradicts, refines, supersedes, answers, unrelated.
+2. A near-identical match (≥ 0.97, same kind, same figures and values, and a
+   grounded statement) joins without asking the model.
+3. Up to six plausible matches (≥ 0.65) are judged one pair at a time: one
+   forward pass gives a probability for each of same, contradicts, refines,
+   supersedes, answers, unrelated; a relation needs 0.5. Code then applies
+   rules the model is unreliable at: a contradiction of a question answers
+   it, a "newer version" with the same date or figure confirms it (same),
+   relations that make no sense for the kinds are dropped, and statements
+   about different customers or projects are never related. (`knowledge.judge
+   = "json"` restores the earlier judge, which wrote verdicts for three
+   candidates at once.)
 4. Otherwise the statement starts a new claim.
+
+Claims are cheap to rebuild from stored statements, so when the linking
+rules, model, `min_worth` or worth scorer change, the next run clears them
+and links every statement again; extraction is untouched.
 
 Every statement belongs to exactly one claim (what it says). Relations
 between claims record how it bears on others:
@@ -386,7 +417,10 @@ the meeting it came from.
 
 The schema has a version. Because everything except the forget list and the
 audit log is rebuilt from the raw store, an incompatible schema change drops
-the derived tables and the next update refills them.
+the derived tables and the next update refills them. That includes the
+extracted statements, which at full scale cost hours of model time, so new
+columns on them are added in place (`addColumns`) instead of bumping the
+version.
 
 A dedicated graph database is not warranted at this scale (thousands of items
 and entities). The schema is plain relational behind a `store` interface so it
@@ -412,7 +446,13 @@ A label has three parts:
 - **Audience**: the principals who were party to the source (meeting attendees,
   email recipients, chat members). This is "need to know" taken from provenance:
   something learned in a 1:1 with one person is not automatically shareable with
-  another.
+  another. For a recording matched to a calendar event, the audience is the
+  owner and the people heard speaking, not the invite list: a recording can
+  run on after most invitees leave. Silent attendees and unidentified voices
+  lose access, which only narrows reads. The invite list still sets the
+  level, so a broad meeting stays visible to its attendees through
+  `open_level`. `sensitivity.audience_from_speakers = false` restores the
+  invite list.
 
 **Default levels.** Only broadcasts (an audience of 15 or more, or a company
 list) are `internal`. One-to-ones, working groups, anything with an external

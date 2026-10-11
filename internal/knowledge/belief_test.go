@@ -41,9 +41,16 @@ func TestWrittenEstablishes(t *testing.T) {
 }
 
 func TestOpinionsAreSpeculative(t *testing.T) {
-	b := Compute(ev("opinion", st(1, "a", "opinion", "high", "meeting", t0), st(2, "b", "hypothesis", "medium", "meeting", t0)), t0.Add(time.Hour))
+	b := Compute(ev("opinion", st(1, "a", "opinion", "high", "meeting", t0), st(2, "a", "hypothesis", "medium", "meeting", t0)), t0.Add(time.Hour))
 	if b.Status != "speculative" {
-		t.Errorf("opinions only: %s", b.Status)
+		t.Errorf("one person's opinions: %s", b.Status)
+	}
+}
+
+func TestSharedViewIsLikely(t *testing.T) {
+	b := Compute(ev("opinion", st(1, "a", "opinion", "high", "meeting", t0), st(2, "b", "opinion", "high", "meeting", t0.Add(24*time.Hour))), t0.Add(48*time.Hour))
+	if b.Status != "likely" {
+		t.Errorf("a view two people hold: %s %.2f", b.Status, b.Score)
 	}
 }
 

@@ -186,9 +186,10 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 		}
 		lk := linkKey(it.ID)
 		minAud := r.Cfg.Sensitivity.InternalMinAudience
-		clsHash := hashOf("classify", stages.ClassifyVersion, chunkHash, reg.Hash, lk, fmt.Sprint(minAud))
+		spk := r.Cfg.Sensitivity.AudienceFromSpeakers
+		clsHash := hashOf("classify", stages.ClassifyVersion, chunkHash, reg.Hash, lk, fmt.Sprint(minAud), fmt.Sprint(spk))
 		if _, err := r.ensure("classify", it.ID, stages.ClassifyVersion, clsHash, st, func() error {
-			il, cls, aud := stages.Classify(*it, linked(it.ID), chunks, reg, r.Cfg.Owner.InternalDomains, minAud)
+			il, cls, aud := stages.Classify(*it, linked(it.ID), chunks, reg, r.Cfg.Owner.InternalDomains, minAud, spk)
 			return r.Store.ReplaceLabels(it.ID, stages.ClassifyVersion, clsHash, il, cls, aud)
 		}); err != nil {
 			return err

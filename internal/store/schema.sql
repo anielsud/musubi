@@ -192,7 +192,10 @@ CREATE TABLE IF NOT EXISTS statements (
 	value_ok   INTEGER NOT NULL,       -- 1 if the words could be normalised
 	quote      TEXT NOT NULL,          -- the words it was taken from, verbatim
 	grounded   INTEGER NOT NULL,       -- 1 if the quote, figures and negation check out against the source
-	issues     TEXT NOT NULL           -- why not, if not
+	issues     TEXT NOT NULL,          -- why not, if not
+	worth      REAL,                   -- probability it is knowledge worth keeping (NULL: not scored)
+	worth_version TEXT NOT NULL DEFAULT '',
+	search_text TEXT NOT NULL DEFAULT ''  -- text plus digits of spelled-out numbers
 );
 CREATE INDEX IF NOT EXISTS statements_item ON statements(item_id);
 CREATE INDEX IF NOT EXISTS statements_chunk ON statements(chunk_id);

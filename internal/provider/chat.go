@@ -59,9 +59,34 @@ func (c *Chat) Local() bool {
 	return strings.Contains(c.URL, "127.0.0.1") || strings.Contains(c.URL, "localhost")
 }
 
+// callTimeout bounds one non-streamed call. Normal calls take 5–30 s; the
+// local server occasionally crawls at a few seconds per token for minutes
+// (seen while the CPU was saturated, where schema-constrained sampling runs),
+// and a retry usually comes back at full speed.
+const callTimeout = 2 * time.Minute
+
 // Complete sends the conversation and returns the reply. If onToken is set,
 // the reply is streamed to it as it is generated.
 func (c *Chat) Complete(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error) {
+	if onToken != nil {
+		// A retry would repeat tokens already shown.
+		return c.complete(ctx, msgs, opt, onToken)
+	}
+	var out string
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		cctx, cancel := context.WithTimeout(ctx, callTimeout)
+		out, err = c.complete(cctx, msgs, opt, nil)
+		timedOut := cctx.Err() == context.DeadlineExceeded
+		cancel()
+		if err == nil || ctx.Err() != nil || !timedOut {
+			return out, err
+		}
+	}
+	return out, fmt.Errorf("ollama: no reply within %s, twice: %w", callTimeout, err)
+}
+
+func (c *Chat) complete(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error) {
 	body := map[string]any{
 		"model":    c.Model,
 		"messages": msgs,

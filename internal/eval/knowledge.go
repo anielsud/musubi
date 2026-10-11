@@ -201,7 +201,7 @@ func findClaimKind(v knowledge.Views, words []string, kind string) (*knowledge.C
 		}
 		n := 0
 		for _, st := range cs[i].Statements {
-			if hasAll(st.Text, words) {
+			if hasAll(knowledge.SearchForm(st.Text), words) {
 				n++
 			}
 		}
@@ -235,7 +235,7 @@ func (h *Harness) statementCase(c Case) (Result, error) {
 			}
 			okKind := len(c.Kinds) == 0 || contains(c.Kinds, st.Kind)
 			okHolder := c.Holder == "" || st.HolderID == c.Holder || strings.Contains(strings.ToLower(st.Holder), strings.ToLower(c.Holder))
-			if okKind && okHolder && hasAll(st.Text, c.TextHas) {
+			if okKind && okHolder && hasAll(knowledge.SearchForm(st.Text), c.TextHas) {
 				r.Pass = true
 				return r, nil
 			}

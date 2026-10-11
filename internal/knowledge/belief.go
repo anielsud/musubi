@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"time"
@@ -174,6 +175,10 @@ func Compute(e *store.ClaimEvidence, now time.Time) Belief {
 		b.Status, b.Why = "contested", "evidence on both sides"
 	case rawMax > 0 && decMax < 0.25*rawMax:
 		b.Status, b.Why = "stale", "nothing has reinforced it for a long time"
+	case allSpeculative && b.Holders >= 2 && b.Score >= 0.35:
+		// Still a view, never established, but one several people hold
+		// carries more than one person's guess.
+		b.Status, b.Why = "likely", fmt.Sprintf("a view %d people share", b.Holders)
 	case allSpeculative:
 		b.Status, b.Why = "speculative", "only opinions or guesses so far"
 	case b.Score >= 0.55 && (b.Holders >= 2 || b.Written):

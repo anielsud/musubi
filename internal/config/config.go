@@ -30,6 +30,16 @@ type Knowledge struct {
 	// yes/no forward pass) is below this. 0 extracts every passage, the
 	// previous behaviour, and keeps existing extractions valid.
 	Gate float64 `toml:"gate"`
+	// MinWorth leaves statements whose worth score (one yes/no pass per
+	// statement: work knowledge, or small talk and garble?) is below this
+	// out of claims. Scores are stored, so changing it re-links but never
+	// re-extracts. 0 turns scoring off, the previous behaviour.
+	MinWorth float64 `toml:"min_worth"`
+	// Judge is how candidate claims are judged: "json" (the model writes
+	// verdicts for up to 3 candidates at once, the earlier behaviour) or
+	// "decide" (one forward pass per pair, read as probabilities, which is
+	// cheap enough to consider more candidates).
+	Judge string `toml:"judge"`
 }
 
 // LLM is the chat model for answers, live query suggestions and briefs.
@@ -76,6 +86,10 @@ type Sensitivity struct {
 	// The default (15) means only broadcasts are internal; 3 restores the
 	// first behaviour, where any internal group of three was internal.
 	InternalMinAudience int `toml:"internal_min_audience"`
+	// AudienceFromSpeakers limits a recording linked to a calendar event to
+	// the owner and the people heard speaking; false restores the earlier
+	// behaviour, where every invitee was in the audience.
+	AudienceFromSpeakers bool `toml:"audience_from_speakers"`
 }
 
 // Owner identifies whose knowledge base this is. "You" in a Tomoe
@@ -100,7 +114,8 @@ func DefaultConfig() Config {
 		DataDir:       filepath.Join(home, ".local", "share", "musubi"),
 		TomoeSessions: filepath.Join(home, ".local", "share", "tomoe", "sessions"),
 		Embed:         Embed{Provider: "ollama", Model: "nomic-embed-text", URL: "http://127.0.0.1:11434"},
-		Sensitivity:   Sensitivity{InternalMinAudience: 15},
+		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
+		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

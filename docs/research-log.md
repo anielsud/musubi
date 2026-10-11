@@ -372,3 +372,81 @@ answer's probability instead of generating JSON.
 Conclusion: keep the statement check's probability as a stored field and
 apply the threshold when reading (hide or down-weight), instead of
 deleting. A wrong threshold then costs a query change, not a re-extraction.
+
+## 2026-10-10 (late) — Sensitivity fix, worth scores, per-pair judge with verification
+
+All without re-extracting: the pilot's 439 x7 statements were reused.
+
+**Audience of linked recordings.** A recording now takes as its audience
+the owner plus the people heard speaking, matched to invitees by name. The
+invite list still sets the level. This closes the side-conversation leak
+from run 1, and the private case now passes. 48 of 69 linked recordings
+have at least one unidentified voice, so "fall back to the invite list
+when someone is unidentified" would have left most of them open.
+
+**Silent failures found.**
+- The synthetic replay cache was never re-recorded for x7, and the new
+  "skip a bad passage" path swallowed every miss. That gave 0 statements
+  while the test still passed. A run where every passage of an item fails
+  is now an error.
+- `SplitLines` read anything before the first ": " as a speaker, so in mail
+  and chat a sentence like "… Agenda: roadmap" became a speaker. Meetings
+  were unaffected; checked on all 179 pilot passages. One participant's
+  display name carries a "•.•" decoration that a naive punctuation rule
+  rejected, so prose is detected by punctuation followed by a space.
+- New claims were created without their statement's value, so value rules
+  never fired within a run.
+- `knowledge.LinkVersion` was never read, so changing linking rules didn't
+  re-link. A global link stamp now clears and rebuilds claims when rules,
+  model, `min_worth` or the scorer change.
+- A schema version bump drops statements, which is hours of model time at
+  full scale. New statement columns are now added in place.
+
+**Ollama stalls.** Two kinds. A runner that serves nothing while
+reporting idle; restarting with `OLLAMA_MAX_LOADED_MODELS=3` stopped it
+recurring. And generation crawling at about 2.5 s per token for minutes,
+seen while Go builds saturated the CPU. Schema-constrained sampling runs
+on the CPU. Calls now time out after 2 minutes and retry once.
+
+**Worth scores** (`min_worth` 0.2, default on): 41 of 439 pilot statements
+below the threshold. This fixed the remaining personal-life case.
+
+**Per-pair judge** (`judge = "decide"`, default on). One forward pass per
+candidate pair gives probabilities over the six relations, for up to 6
+candidates at ≥ 0.65.
+- On the pilot the six-way choice over-claims, with probabilities near 1
+  either way: 131 "contradicts", 58 "answers" and 167 "refines" in nine
+  meetings. About 15% of a hand-checked sample of contradictions held.
+- A narrower yes/no question confirms each proposed relation. Tested
+  offline it kept answers 4/58 (all correct in the sample), refines 76/167
+  (about 8/10 correct) and contradicts 56/131 (about half correct).
+  Contradiction remains the weak relation for an 8B model on
+  conversational text.
+- The verifier first rejected a disproved hypothesis ("might be the load
+  balancer" against "the load balancer was ruled out", 0.25). The question
+  now says a guess the other statement rules out counts.
+- **Prompt caching matters more than call count.** Ollama keeps one cached
+  prompt prefix per slot. Alternating the judge's and verifier's system
+  prompts made every call re-read about 400 tokens: 464 ms against 106 ms
+  per call. A second slot (`OLLAMA_NUM_PARALLEL=2`) didn't help. One shared
+  system prompt, with the question in the user message, brought linking
+  from 22 min to 9m52s (0.19 s per call), level with the JSON judge's
+  9m12s.
+- Final, on the same statements: 92 relations, against 305 with the JSON
+  judge and 357 with the unverified per-pair judge.
+- Synthetic: 17/18; the JSON judge with the same fixes scored 16/18. The
+  miss is a prediction ("will renew for three years") against a later
+  decision ("signed two-year"); the verifier says they can both be true.
+
+**Private cases after these changes** (run 2 → now): statements 5/7 → 6/7,
+claims 5/10 → 8/10, topics 1/3 → 1/3, leaks 2 → 0. What remains:
+- the conditional refusal to sign is not extracted; this needs a prompt
+  change and re-extraction, batched with the next extraction change;
+- the same view held by several people across meetings lands in separate
+  claims (the judge calls them "refines" or worse, not "same"), so
+  repetition never accumulates;
+- topics still miss the two thread cases, which depend on the claims above.
+
+Open: one run spent 7 min before the knowledge step started (the step
+itself took 1 min), cause not yet found. The desktop app was open on the
+same database.

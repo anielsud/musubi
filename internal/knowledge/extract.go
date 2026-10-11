@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -60,13 +61,35 @@ func SplitLines(chunkText string) []Line {
 			continue
 		}
 		sp, text, ok := strings.Cut(raw, ": ")
-		if !ok || len(sp) > 60 {
+		if !ok || !looksLikeSpeaker(sp) {
 			out = append(out, Line{Text: raw})
 			continue
 		}
 		out = append(out, Line{Speaker: speakerName(sp), Text: text})
 	}
 	return out
+}
+
+// looksLikeSpeaker tells a "Name: text" line from prose that happens to
+// contain a colon ("Q4 kickoff is October 20. Agenda: roadmap"), which in
+// mail and chat bodies would otherwise turn a sentence into a speaker.
+func looksLikeSpeaker(s string) bool {
+	if len(s) > 60 {
+		return false
+	}
+	bare := s
+	if i := strings.Index(s, " ("); i >= 0 {
+		bare = s[:i]
+	}
+	// Sentence punctuation followed by a space marks prose; display names
+	// can carry decorations ("Name •.•") that a plain punctuation test
+	// would reject.
+	for _, p := range []string{". ", ", ", "; ", "! ", "? "} {
+		if strings.Contains(bare, p) {
+			return false
+		}
+	}
+	return len(strings.Fields(bare)) <= 5
 }
 
 func speakerName(s string) string {
@@ -184,5 +207,24 @@ func ToStatement(e Extracted, chunk store.Chunk, itemStart time.Time, holderID s
 		ChunkID: chunk.ID, Line: e.Line, Kind: e.Kind, Text: e.Text, Holder: e.Holder, HolderID: holderID,
 		Certainty: e.Certainty, SaidAt: said, Value: Normalize(e.Value.Type, e.Value.Raw, said),
 		Quote: e.Quote, Grounded: grounded, Issues: strings.Join(issues, "; "),
+		SearchText: SearchForm(e.Text),
 	}
+}
+
+// SearchForm is the text that statement search matches: the statement plus
+// the digits of numbers it spells out, since speech recognition writes
+// "forty five days" and people search for "45 days".
+func SearchForm(text string) string {
+	var extra []string
+	lower := strings.ToLower(text)
+	for n := range numbersIn(text) {
+		if !strings.Contains(lower, n) {
+			extra = append(extra, n)
+		}
+	}
+	if len(extra) == 0 {
+		return text
+	}
+	sort.Strings(extra)
+	return text + " " + strings.Join(extra, " ")
 }

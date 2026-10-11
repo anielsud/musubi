@@ -45,6 +45,11 @@ type Statement struct {
 	Quote    string `json:"quote"`
 	Grounded bool   `json:"grounded"`
 	Issues   string `json:"issues,omitempty"`
+	// Worth is the probability the statement is knowledge worth keeping
+	// rather than small talk or garble; -1 when not scored.
+	Worth float64 `json:"worth"`
+	// SearchText is what search matches (see knowledge.SearchForm).
+	SearchText string `json:"-"`
 	// Set on reads.
 	ItemKind  string            `json:"itemKind,omitempty"`
 	ItemTitle string            `json:"itemTitle,omitempty"`
@@ -71,14 +76,26 @@ func (s *Store) ReplaceStatements(itemID, version, hash string, sts []Statement)
 				v.Type = "none"
 			}
 			if _, err := tx.Exec(`INSERT INTO statements(item_id, chunk_id, line, kind, text, holder, holder_id, certainty, said_at,
-				value_type, value_raw, value_lo, value_hi, value_ok, quote, grounded, issues) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				value_type, value_raw, value_lo, value_hi, value_ok, quote, grounded, issues, search_text) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				itemID, st.ChunkID, st.Line, st.Kind, st.Text, st.Holder, holder, st.Certainty, st.SaidAt.Unix(),
-				v.Type, v.Raw, v.Lo, v.Hi, v.Normalized, st.Quote, st.Grounded, st.Issues); err != nil {
+				v.Type, v.Raw, v.Lo, v.Hi, v.Normalized, st.Quote, st.Grounded, st.Issues, st.SearchText); err != nil {
 				return err
 			}
 		}
 		return stamp(tx, "extract", itemID, version, hash)
 	})
+}
+
+// StatementsToScore returns statements without a worth score from this
+// version of the scorer.
+func (s *Store) StatementsToScore(version string) ([]Statement, error) {
+	return s.statements(`WHERE st.worth_version != ? ORDER BY st.id`, version)
+}
+
+// SetWorth records a statement's worth score.
+func (s *Store) SetWorth(id int64, p float64, version string) error {
+	_, err := s.db.Exec(`UPDATE statements SET worth = ?, worth_version = ? WHERE id = ?`, p, version, id)
+	return err
 }
 
 // UnlinkedStatements returns statements not yet in a claim, oldest first:
@@ -89,7 +106,7 @@ func (s *Store) UnlinkedStatements() ([]Statement, error) {
 
 func (s *Store) statements(where string, args ...any) ([]Statement, error) {
 	rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, c.text_hash, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
-		st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, st.quote, st.grounded, st.issues, coalesce(sc.claim_id, 0)
+		st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, st.quote, st.grounded, st.issues, coalesce(sc.claim_id, 0), coalesce(st.worth, -1), st.search_text
 		FROM statements st JOIN chunks c ON c.id = st.chunk_id LEFT JOIN statement_claims sc ON sc.statement_id = st.id `+where, args...)
 	if err != nil {
 		return nil, err
@@ -101,7 +118,7 @@ func (s *Store) statements(where string, args ...any) ([]Statement, error) {
 		var said int64
 		if err := rows.Scan(&st.ID, &st.ItemID, &st.ChunkID, &st.ChunkSeq, &st.ChunkHash, &st.Line, &st.Kind, &st.Text, &st.Holder, &st.HolderID,
 			&st.Certainty, &said, &st.Value.Type, &st.Value.Raw, &st.Value.Lo, &st.Value.Hi, &st.Value.Normalized,
-			&st.Quote, &st.Grounded, &st.Issues, &st.ClaimID); err != nil {
+			&st.Quote, &st.Grounded, &st.Issues, &st.ClaimID, &st.Worth, &st.SearchText); err != nil {
 			return nil, err
 		}
 		st.SaidAt = time.Unix(said, 0)
@@ -215,6 +232,20 @@ func (s *Store) JoinClaim(statementID, claimID int64, sim float64, how string, c
 func (s *Store) RelateClaims(from, to int64, rel string, statementID int64) error {
 	_, err := s.db.Exec(`INSERT OR IGNORE INTO claim_relations(from_claim, to_claim, rel, statement_id) VALUES (?,?,?,?)`, from, to, rel, statementID)
 	return err
+}
+
+// ClearClaims removes every claim and its memberships and relations, so
+// linking starts over from the stored statements. The owner's judgements
+// are anchored to source lines, not claims, and survive.
+func (s *Store) ClearClaims() error {
+	return s.tx(func(tx *sql.Tx) error {
+		for _, q := range []string{`DELETE FROM claim_relations`, `DELETE FROM statement_claims`, `DELETE FROM claims`} {
+			if _, err := tx.Exec(q); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // DropEmptyClaims removes claims whose statements are all gone.
@@ -712,10 +743,10 @@ func (s *Store) SearchStatements(text string, limit int) ([]int64, error) {
 	var conds []string
 	var args []any
 	for _, t := range terms {
-		if len(t) < 3 {
+		if len(t) < 3 && !isDigits(t) {
 			continue
 		}
-		conds = append(conds, `lower(st.text) LIKE '%' || ? || '%'`)
+		conds = append(conds, `lower(CASE st.search_text WHEN '' THEN st.text ELSE st.search_text END) LIKE '%' || ? || '%'`)
 		args = append(args, t)
 	}
 	if len(conds) == 0 {
@@ -724,6 +755,27 @@ func (s *Store) SearchStatements(text string, limit int) ([]int64, error) {
 	args = append(args, limit)
 	return s.ids(`SELECT sc.claim_id FROM statements st JOIN statement_claims sc ON sc.statement_id = st.id
 		WHERE `+strings.Join(conds, " AND ")+` GROUP BY sc.claim_id ORDER BY count(*) DESC LIMIT ?`, args...)
+}
+
+func isDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
+// StatementsWithoutSearchText lists statements extracted before search
+// text existed; filling it in needs no model.
+func (s *Store) StatementsWithoutSearchText() ([]Statement, error) {
+	return s.statements(`WHERE st.search_text = '' ORDER BY st.id`)
+}
+
+// SetSearchText fills in a statement's search text.
+func (s *Store) SetSearchText(id int64, text string) error {
+	_, err := s.db.Exec(`UPDATE statements SET search_text = ? WHERE id = ?`, text, id)
+	return err
 }
 
 // StatementsWithoutVec lists statements with no vector for model.

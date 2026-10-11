@@ -24,10 +24,10 @@ type KnowledgeOptions struct {
 	// Limit caps how many items are extracted this run (0: no cap).
 	Limit   int
 	Workers int
-	// Decider and Gate skip passages unlikely to hold knowledge (see
-	// config.Knowledge.Gate); Gate 0 extracts everything.
+	// Decider answers the yes/no and pick-one questions behind the gate,
+	// worth scores and the pair judge (config.Knowledge); nil uses LLM when
+	// it can.
 	Decider provider.Decider
-	Gate    float64
 	// LinkTrace receives the linker's decisions.
 	LinkTrace func(format string, args ...any)
 }
@@ -36,6 +36,7 @@ type KnowledgeStats struct {
 	Items, Statements, Embedded int
 	Chunks                      int
 	Gated                       int // passages the gate skipped
+	Scored, Unworthy            int // statements scored for worth; below MinWorth
 	ExtractTime, LinkTime       time.Duration
 	Link                        knowledge.LinkStats
 	Topics                      int
@@ -104,7 +105,11 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		return false
 	}
 
-	gated := o.Gate > 0 && o.Decider != nil
+	kc := r.Cfg.Knowledge
+	if o.Decider == nil {
+		o.Decider, _ = o.LLM.(provider.Decider)
+	}
+	gated := kc.Gate > 0 && o.Decider != nil
 	// 1. Extract, for items whose chunks changed since they were extracted.
 	type job struct {
 		it     *item.Item
@@ -125,7 +130,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		}
 		h := hashOf("extract", knowledge.ExtractVersion, chunkStamp, o.LLM.ModelName(), r.Cfg.Owner.Name)
 		if gated {
-			h = hashOf(h, knowledge.GateVersion, fmt.Sprint(o.Gate))
+			h = hashOf(h, knowledge.GateVersion, fmt.Sprint(kc.Gate))
 		}
 		if cur, _ := r.Store.StageStamp("extract", it.ID); cur == knowledge.ExtractVersion+"/"+h {
 			continue
@@ -158,19 +163,35 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 			j := j
 			yield(func() (func() error, error) {
 				var sts []store.Statement
+				tried, failed := 0, 0
+				var lastErr error
 				for _, c := range j.chunks {
 					lines := knowledge.SplitLines(c.Text)
 					if len(lines) == 0 {
 						continue
 					}
+					if gated {
+						p, err := knowledge.Worth(ctx, o.Decider, j.title, lines)
+						if err == nil && p < kc.Gate {
+							r.logf("extract %s#%d gated (p=%.2f)", j.it.ID, c.Seq, p)
+							gatedN.Add(1)
+							continue
+						}
+						// A failed gate call extracts: the gate only saves time.
+					}
+					tried++
 					ex, err := knowledge.Extract(ctx, o.LLM, r.Cfg.Owner.Name, j.title, lines, j.orgs)
 					if err != nil {
 						if ctx.Err() != nil {
 							return nil, err
 						}
 						// One bad reply (e.g. cut off at the token limit) skips
-						// that passage, not the run.
+						// that passage, not the run. A failure on every passage
+						// is a broken model or cache, which must not pass as
+						// "nothing worth extracting".
 						r.logf("extract %s#%d skipped: %v", j.it.ID, c.Seq, err)
+						failed++
+						lastErr = err
 						continue
 					}
 					for _, e := range ex {
@@ -182,6 +203,9 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 						}
 						sts = append(sts, knowledge.ToStatement(e, c, j.it.OccurredAt, holderID, lines))
 					}
+				}
+				if tried > 0 && failed == tried {
+					return nil, fmt.Errorf("extract %s: every passage failed: %w", j.it.ID, lastErr)
 				}
 				return func() error {
 					ks.Items++
@@ -221,6 +245,40 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		ks.Embedded += len(batch)
 	}
 
+	// 2a. Search text for statements extracted before it existed.
+	old, err := r.Store.StatementsWithoutSearchText()
+	if err != nil {
+		return ks, err
+	}
+	for _, s := range old {
+		if err := r.Store.SetSearchText(s.ID, knowledge.SearchForm(s.Text)); err != nil {
+			return ks, err
+		}
+	}
+
+	// 2b. Score statements for worth, once per scorer version.
+	if kc.MinWorth > 0 && o.Decider != nil {
+		todo, err := r.Store.StatementsToScore(knowledge.WorthVersion)
+		if err != nil {
+			return ks, err
+		}
+		for _, s := range todo {
+			p, err := knowledge.StatementWorth(ctx, o.Decider, s.Text)
+			if err != nil {
+				if ctx.Err() != nil {
+					return ks, err
+				}
+				// Unscored statements are kept: scoring only filters.
+				r.logf("worth %d skipped: %v", s.ID, err)
+				continue
+			}
+			if err := r.Store.SetWorth(s.ID, p, knowledge.WorthVersion); err != nil {
+				return ks, err
+			}
+			ks.Scored++
+		}
+	}
+
 	// 3. Link, oldest first.
 	if _, err := r.Store.DropEmptyClaims(); err != nil {
 		return ks, err
@@ -230,6 +288,18 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		return ks, err
 	}
 	lk := &knowledge.Linker{Store: r.Store, LLM: o.LLM, Vecs: vecs, Trace: o.LinkTrace, Entities: topicEntities(reg)}
+	if kc.Judge == "decide" && o.Decider != nil {
+		lk.Decider, lk.ConsiderAt, lk.MaxJudged = o.Decider, 0.65, 6
+	}
+	// Claims are cheap to rebuild from stored statements; rebuild them when
+	// the rules that made them change, so old and new rules never mix.
+	linkStamp := hashOf("link", knowledge.LinkVersion, o.LLM.ModelName(), fmt.Sprint(kc.MinWorth), kc.Judge, knowledge.WorthVersion)
+	if old, _ := r.Store.GlobalStamp("link"); old != linkStamp {
+		if err := r.Store.ClearClaims(); err != nil {
+			return ks, err
+		}
+		r.logf("link: rules changed, rebuilding claims")
+	}
 	if err := lk.Load(); err != nil {
 		return ks, err
 	}
@@ -237,11 +307,27 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	if err != nil {
 		return ks, err
 	}
+	if kc.MinWorth > 0 {
+		// Left unlinked rather than deleted: lowering the threshold links
+		// them on the next run.
+		keep := unlinked[:0]
+		for _, s := range unlinked {
+			if s.Worth >= 0 && s.Worth < kc.MinWorth {
+				ks.Unworthy++
+				continue
+			}
+			keep = append(keep, s)
+		}
+		unlinked = keep
+	}
 	t0 := time.Now()
 	if ks.Link, err = lk.Link(ctx, unlinked); err != nil {
 		return ks, err
 	}
 	ks.LinkTime = time.Since(t0)
+	if err := r.Store.SetGlobalStamp("link", linkStamp); err != nil {
+		return ks, err
+	}
 	if len(unlinked) > 0 {
 		r.logf("link: %d statements (%d new claims, %d joined, %d judged, %d relations) in %s",
 			len(unlinked), ks.Link.New, ks.Link.Joined, ks.Link.Judged, ks.Link.Related, time.Since(t0).Round(time.Second))
@@ -252,7 +338,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	if err != nil {
 		return ks, err
 	}
-	h := hashOf("topics", knowledge.TopicsVersion, sig, o.LLM.ModelName())
+	h := hashOf("topics", knowledge.TopicsVersion, sig, o.LLM.ModelName(), linkStamp)
 	if old, _ := r.Store.GlobalStamp("topics"); old != h {
 		tp := &knowledge.Topicer{Store: r.Store, LLM: o.LLM, Entities: topicEntities(reg)}
 		if ks.Topics, err = tp.Build(ctx); err != nil {

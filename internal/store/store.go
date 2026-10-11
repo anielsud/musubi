@@ -53,6 +53,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := addColumns(db, "statements", "worth REAL", "worth_version TEXT NOT NULL DEFAULT ''", "search_text TEXT NOT NULL DEFAULT ''"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schema: %w", err)
@@ -160,3 +164,34 @@ func visSQL(sc sensitivity.Scope, il, cl, itemCol string) (string, []any) {
 // chunkVisJoin is the join every chunk-level query uses with visSQL(sc, "il", "cl", "c.item_id").
 const chunkVisJoin = ` JOIN labels il ON il.item_id = c.item_id AND il.chunk_seq = -1
  LEFT JOIN labels cl ON cl.item_id = c.item_id AND cl.chunk_seq = c.seq `
+
+// addColumns adds missing columns to a table in place, without a schema
+// version change. A version change drops every derived table, and with them
+// the extracted statements, which at full scale cost hours to rebuild; a
+// new column on them must not.
+func addColumns(db *sql.DB, table string, defs ...string) error {
+	cols := map[string]bool{}
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk)
+		cols[name] = true
+	}
+	rows.Close()
+	if len(cols) == 0 {
+		return nil
+	}
+	for _, d := range defs {
+		if name := strings.Fields(d)[0]; !cols[name] {
+			if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + d); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

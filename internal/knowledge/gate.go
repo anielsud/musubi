@@ -45,3 +45,29 @@ func Worth(ctx context.Context, d provider.Decider, title string, lines []Line) 
 	}
 	return p["yes"], nil
 }
+
+// WorthVersion stamps the statement scorer's prompt; statements are
+// re-scored (not re-extracted) when it changes.
+const WorthVersion = "w1"
+
+const worthPrompt = `You review statements extracted from work meetings, email and chat for a personal knowledge base.
+
+Answer yes if the statement is work knowledge worth keeping: a decision, commitment, fact, plan, open question or considered opinion about customers, deals, projects, products, contracts, money, dates, or people's work.
+
+Answer no if it is about personal life (holidays, family, hobbies, home), small talk, a joke or figure of speech taken literally, meeting logistics, or too garbled or vague to be useful.
+
+Reply with one word: yes or no.`
+
+// StatementWorth returns the probability that an extracted statement is
+// knowledge rather than noise. Judging the statement, not its passage,
+// catches the personal aside inside an otherwise useful passage.
+func StatementWorth(ctx context.Context, d provider.Decider, text string) (float64, error) {
+	p, err := d.Decide(ctx, []provider.Message{
+		{Role: "system", Content: worthPrompt},
+		{Role: "user", Content: "Statement: " + text + "\nKeep it? yes or no."},
+	}, []string{"yes", "no"})
+	if err != nil {
+		return 0, err
+	}
+	return p["yes"], nil
+}

@@ -13,7 +13,7 @@ import (
 )
 
 // LinkVersion changes with the linking rules or judge prompt.
-const LinkVersion = "k8"
+const LinkVersion = "k12"
 
 // Thresholds on cosine similarity between a statement and a claim's
 // centroid (nomic-embed-text). Above sameAt with the same kind family, the
@@ -58,7 +58,13 @@ type liveClaim struct {
 type Linker struct {
 	Store *store.Store
 	LLM   provider.LLM // nil: near-identical matches only
-	Vecs  map[int64][]float32
+	// Decider, when set, judges each candidate pair in one forward pass
+	// instead of the LLM writing JSON verdicts for all of them.
+	Decider provider.Decider
+	// ConsiderAt and MaxJudged widen the candidates; 0 keeps the defaults.
+	ConsiderAt float64
+	MaxJudged  int
+	Vecs       map[int64][]float32
 	// Entities returns the organisations and projects a text names. Two
 	// statements naming different ones (and none in common) are never
 	// related: a requirement from one customer doesn't refine another's.
@@ -71,6 +77,20 @@ type Linker struct {
 
 type LinkStats struct {
 	New, Joined, Judged, Related int
+}
+
+func (k *Linker) considerAt() float64 {
+	if k.ConsiderAt > 0 {
+		return k.ConsiderAt
+	}
+	return considerAt
+}
+
+func (k *Linker) maxJudged() int {
+	if k.MaxJudged > 0 {
+		return k.MaxJudged
+	}
+	return maxJudged
 }
 
 func (k *Linker) trace(f string, a ...any) {
@@ -121,13 +141,13 @@ func (k *Linker) Link(ctx context.Context, sts []store.Statement) (LinkStats, er
 			if c.Centroid == nil {
 				continue
 			}
-			if s := cos(v, c.Centroid); s >= considerAt {
+			if s := cos(v, c.Centroid); s >= k.considerAt() {
 				cands = append(cands, cand{c, s})
 			}
 		}
 		sort.Slice(cands, func(i, j int) bool { return cands[i].sim > cands[j].sim })
-		if len(cands) > maxJudged {
-			cands = cands[:maxJudged]
+		if n := k.maxJudged(); len(cands) > n {
+			cands = cands[:n]
 		}
 		// Near-identical, the same kind, and the same numbers and dates:
 		// join directly.
@@ -141,7 +161,7 @@ func (k *Linker) Link(ctx context.Context, sts []store.Statement) (LinkStats, er
 			continue
 		}
 		rels := map[int]string{}
-		if len(cands) > 0 && k.LLM != nil {
+		if len(cands) > 0 && (k.LLM != nil || k.Decider != nil) {
 			var cs []*liveClaim
 			for _, c := range cands {
 				cs = append(cs, c.c)
@@ -171,7 +191,7 @@ func (k *Linker) Link(ctx context.Context, sts []store.Statement) (LinkStats, er
 			if err != nil {
 				return stats, err
 			}
-			home = &liveClaim{ClaimRow: store.ClaimRow{ID: id, Kind: st.Kind, Centroid: normalized(v), Members: []int64{st.ID}, Text: st.Text, Holder: st.Holder, SaidAt: st.SaidAt}, sum: append([]float32(nil), v...)}
+			home = &liveClaim{ClaimRow: store.ClaimRow{ID: id, Kind: st.Kind, Centroid: normalized(v), Members: []int64{st.ID}, Text: st.Text, Holder: st.Holder, SaidAt: st.SaidAt, Value: st.Value}, sum: append([]float32(nil), v...)}
 			k.claims = append(k.claims, home)
 			stats.New++
 		}
@@ -220,30 +240,142 @@ func (k *Linker) join(st store.Statement, c *liveClaim, sim float64, how string)
 	return k.Store.JoinClaim(st.ID, c.ID, sim, how, c.Centroid)
 }
 
+// notes spells out what the model is unreliable at seeing for itself: how
+// two values relate ("Q4" against "mid November") and a plain negation
+// ("the cause is not X" against "the cause is X") between texts that share
+// their key words.
+func notes(st store.Statement, c *liveClaim) string {
+	var b strings.Builder
+	switch Compare(st.Value, c.Value) {
+	case "within":
+		fmt.Fprintf(&b, "  [value note: the new %q falls within %q]", st.Value.Raw, c.Value.Raw)
+	case "contains":
+		fmt.Fprintf(&b, "  [value note: the new %q is broader than %q]", st.Value.Raw, c.Value.Raw)
+	case "differs":
+		fmt.Fprintf(&b, "  [value note: the new %q differs from %q]", st.Value.Raw, c.Value.Raw)
+	case "same":
+		fmt.Fprintf(&b, "  [value note: same %s]", c.Value.Type)
+	}
+	if negated(st.Text) != negated(c.Text) && sharedWords(st.Text, c.Text) >= 2 {
+		b.WriteString("  [note: one of the two says NOT]")
+	}
+	return b.String()
+}
+
+// settle applies the rules the model's choice must pass, given the kinds
+// and values involved; "" means no relation.
+func settle(rel string, st store.Statement, c *liveClaim) string {
+	// A statement that settles an open question answers it, whatever else
+	// the model called it.
+	if c.Kind == "question" && st.Kind != "question" && (rel == "contradicts" || rel == "supersedes" || rel == "refines") {
+		rel = "answers"
+	}
+	// A "newer version" that states the same date or figure confirms the
+	// plan rather than replacing it.
+	if rel == "supersedes" && Compare(st.Value, c.Value) == "same" {
+		rel = "same"
+	}
+	if !fits(rel, st.Kind, c.Kind) {
+		return ""
+	}
+	return rel
+}
+
+// linkSystem is the one system prompt every link decision uses: the pair
+// judge and the checks that confirm its verdicts. Sharing it keeps the
+// model's cached prompt prefix valid from call to call; alternating two
+// system prompts made each call re-read it (464 ms against 106 ms per call).
+const linkSystem = `You help track how knowledge in one person's work records (meetings, email, chat) changes over time. Each request shows two statements and asks one question; reply with exactly one of the words the question allows.
+
+How a NEW statement can relate to an EARLIER one:
+- same: asserts the same thing, in other words or with detail that doesn't change it
+- contradicts: both make claims about the SAME specific thing (the same plan, figure, date, decision, cause or fact) and they cannot both be true ("the cause is X" vs "it is not X"; "three years" vs "two years"). Different aspects, moods, priorities or loosely related points do NOT contradict.
+- refines: the same specific plan, fact, figure, decision or requirement, made more precise or with one detail corrected
+- supersedes: a newer version of the same plan, decision, date or status that replaces it ("ships Sept 22" then "ships Sept 29")
+- answers: gives the information an earlier question asks for, about the same subject
+- unrelated: anything else
+
+Being about the same project, customer or person is NOT enough for any relation; most pairs are unrelated. A relation holds only when it clearly holds for these two specific statements.`
+
+// verifyQuestions confirm a proposed relation with a narrower yes/no
+// question. The six-way choice over-claims on real conversation (most
+// "contradicts" were differences of tone or subject; most "answers" were to
+// other questions); the narrow question keeps the ones that hold. Measured
+// on the pilot: answers 58 → 4, refines 167 → 76, contradicts 131 → 56.
+var verifyQuestions = map[string]string{
+	"contradicts": "Do NEW and EARLIER make incompatible claims about the same specific thing, so that both cannot be true? A guess, expectation or hypothesis that the other statement rules out counts. yes or no.",
+	"answers":     "Does NEW give the information the EARLIER question asks for? yes or no.",
+	"refines":     "Is NEW a more precise or corrected version of the same specific point as EARLIER? yes or no.",
+}
+
+func pairText(st store.Statement, c *liveClaim) string {
+	return fmt.Sprintf("EARLIER (%s, %s, said %s): %s%s\n\nNEW (%s, %s, said %s): %s",
+		c.Holder, c.Kind, c.SaidAt.Format("Jan 2 2006"), c.Text, notes(st, c),
+		st.Holder, st.Kind, st.SaidAt.Format("Jan 2 2006"), st.Text)
+}
+
+func (k *Linker) verify(ctx context.Context, rel string, st store.Statement, c *liveClaim) (bool, error) {
+	q, ok := verifyQuestions[rel]
+	if !ok {
+		return true, nil
+	}
+	p, err := k.Decider.Decide(ctx, []provider.Message{{Role: "system", Content: linkSystem}, {Role: "user", Content: pairText(st, c) + "\n\n" + q}}, []string{"yes", "no"})
+	if err != nil {
+		return false, err
+	}
+	k.trace("verify %s %q vs claim %d: %.2f", rel, clip(st.Text, 50), c.ID, p["yes"])
+	return p["yes"] >= 0.5, nil
+}
+
+// minRelP is the probability a relation needs from the pair judge; below
+// it the pair counts as unrelated.
+const minRelP = 0.5
+
+// judgeEach asks about each candidate on its own, one forward pass each,
+// and reads the relation's probability rather than a generated label: no
+// verdict can land on the wrong candidate, and a weak verdict can be
+// refused.
+func (k *Linker) judgeEach(ctx context.Context, st store.Statement, cs []*liveClaim) (map[int]string, error) {
+	res := map[int]string{}
+	for i, c := range cs {
+		msg := pairText(st, c) + "\n\nHow does NEW relate to EARLIER? One of: same, contradicts, refines, supersedes, answers, unrelated."
+		p, err := k.Decider.Decide(ctx, []provider.Message{{Role: "system", Content: linkSystem}, {Role: "user", Content: msg}}, relations)
+		if err != nil {
+			return nil, err
+		}
+		best, bp := "unrelated", 0.0
+		for _, r := range relations {
+			if p[r] > bp {
+				best, bp = r, p[r]
+			}
+		}
+		k.trace("judge %q vs claim %d: %s %.2f", clip(st.Text, 50), c.ID, best, bp)
+		if bp < minRelP {
+			continue
+		}
+		rel := settle(best, st, c)
+		if rel == "" {
+			continue
+		}
+		ok, err := k.verify(ctx, rel, st, c)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			res[i] = rel
+		}
+	}
+	return res, nil
+}
+
 func (k *Linker) judge(ctx context.Context, st store.Statement, cs []*liveClaim) (map[int]string, error) {
+	if k.Decider != nil {
+		return k.judgeEach(ctx, st, cs)
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "NEW (%s, %s, said %s): %s\n\nEarlier claims:\n", st.Holder, st.Kind, st.SaidAt.Format("Jan 2 2006"), st.Text)
 	for i, c := range cs {
-		fmt.Fprintf(&b, "%d. (%s, %s, said %s): %s", i+1, c.Holder, c.Kind, c.SaidAt.Format("Jan 2 2006"), c.Text)
-		// Spell out how the values relate; the model is unreliable at
-		// comparing "Q4" with "mid November" itself.
-		switch Compare(st.Value, c.Value) {
-		case "within":
-			fmt.Fprintf(&b, "  [value note: the new %q falls within %q]", st.Value.Raw, c.Value.Raw)
-		case "contains":
-			fmt.Fprintf(&b, "  [value note: the new %q is broader than %q]", st.Value.Raw, c.Value.Raw)
-		case "differs":
-			fmt.Fprintf(&b, "  [value note: the new %q differs from %q]", st.Value.Raw, c.Value.Raw)
-		case "same":
-			fmt.Fprintf(&b, "  [value note: same %s]", c.Value.Type)
-		}
-		// The model misses plain negations ("the cause is not X" against
-		// "the cause is X"); point them out when the two share their
-		// key words.
-		if negated(st.Text) != negated(c.Text) && sharedWords(st.Text, c.Text) >= 2 {
-			b.WriteString("  [note: one of the two says NOT]")
-		}
-		b.WriteString("\n")
+		fmt.Fprintf(&b, "%d. (%s, %s, said %s): %s%s\n", i+1, c.Holder, c.Kind, c.SaidAt.Format("Jan 2 2006"), c.Text, notes(st, c))
 	}
 	out, err := k.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: judgePrompt}, {Role: "user", Content: b.String()}},
 		provider.ChatOptions{Schema: judgeSchema, Temperature: 0, MaxTokens: 200}, nil)
@@ -270,13 +402,9 @@ func (k *Linker) judge(ctx context.Context, st store.Statement, cs []*liveClaim)
 			ok = ok || rel == x
 		}
 		if ok && r.Claim >= 1 && r.Claim <= len(cs) {
-			// A statement that settles an open question answers it,
-			// whatever else the model called it.
-			if cs[r.Claim-1].Kind == "question" && st.Kind != "question" && (rel == "contradicts" || rel == "supersedes" || rel == "refines") {
-				rel = "answers"
-			}
+			rel = settle(rel, st, cs[r.Claim-1])
 		}
-		if ok && r.Claim >= 1 && r.Claim <= len(cs) && fits(rel, st.Kind, cs[r.Claim-1].Kind) {
+		if ok && rel != "" && r.Claim >= 1 && r.Claim <= len(cs) {
 			if cur, had := res[r.Claim-1]; !had || rank[rel] > rank[cur] {
 				res[r.Claim-1] = rel
 			}

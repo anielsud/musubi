@@ -271,3 +271,52 @@ until measured on real data.
 | claim cases | 9/9 | 10/10 (adds a value refined: Q4 → mid November) |
 | topic cases | 3/3 | 4/4 (adds parallel customers: separate topics, linked) |
 | leaks | 0 | 0 |
+
+## 2026-10-10: pilot on real meetings, run 1 (extract x6)
+
+Nine real meetings (179 passages) in three recurring threads:
+- a partner engagement over a week, in five meetings;
+- one customer-requirements meeting;
+- three staffing meetings.
+
+Hand-read ground truth and private cases are in `testdata/private/`.
+
+**Speed and volume:**
+- 7.2 s per passage with 2 parallel requests on qwen3:8b; the full corpus
+  (1,741 passages) would take about 3.5 h.
+- 680 statements, about 4 per passage. About a third were trivial ("the link
+  was sent"), and about 15–20% were distorted.
+
+**The key facts did come through:**
+- a customer's deadlines, percentages and counts, with typed values;
+- the signing sequence across the partner meetings;
+- the staffing decisions.
+
+**The problem is confident rewriting of casual or garbled speech:**
+- negations inverted ("we're not giving away X" became "acceptable to give
+  away X");
+- jokes and figures of speech made literal ("fired up" became "is fired");
+- a question turned into a decision ("sounds like we signed?" became "the
+  document has been signed");
+- misheard words stated as fact;
+- a demand attributed to the person relaying it;
+- "the speaker" used instead of names;
+- personal life extracted.
+
+**Robustness:** one reply cut off at the token limit aborted the run before
+linking. A bad passage is now skipped instead.
+
+**A sensitivity gap, separate from extraction:** a recording linked to a
+calendar event takes the event's attendees as its audience. A side
+conversation recorded after most attendees had left was therefore exposed to
+all of them. To fix: base the audience on who was actually heard, or fail
+closed when the speakers seen don't match the invite.
+
+**Response (extract x7, not yet run on real data):**
+- extract selectively: usually 0–3 statements per passage, and skip rather
+  than guess;
+- each statement carries a verbatim quote;
+- quote, figures and negation are checked against the source in code;
+- ungrounded statements weigh 0.3 and never auto-join a claim.
+
+Next: re-run the same nine meetings and compare with this run.

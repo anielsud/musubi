@@ -574,3 +574,44 @@ Decision for now: qwen3.5:9b for extraction (it runs once per item; best
 accuracy at today's cost); test qwen3.5:4b for the high-volume yes/no
 calls and live suggestions against the eval. The 35B model is not
 justified by this test.
+
+## 2026-10-11 — Flagging unsure points, and few-shot examples
+
+Hand labels for the 79 qwen3.5:9b points from the bake-off: 12 wrong (15%).
+- Misreadings of garbled or dense speech: 4.
+- Conflations (a client's ask against current practice; an unrelated deal
+  mixed in): 3.
+- Inventions (acronym expansions, titles, an unsaid figure): 3.
+- Misattributions: 2.
+One more point was true but came from outside knowledge (a law firm's full
+name). Labelling also found errors in my own key-point checklist: the
+December delay does concern the retained staff, and a 90-day term was
+genuinely in play.
+
+**Flagging, by signal** (detecting the 12 wrong points among 79):
+- **Deterministic** (names and figures in the point must appear in the
+  meeting or the known facts): 10 flags, 4 real errors. It catches the
+  inventions; acronym expansions cause most false flags.
+- **Yes/no "do the cited lines support this note?"**, from qwen3.5:4b or
+  9b reading token probabilities: AUC 0.39–0.40, worse than chance.
+  Attribution and status questions were no better.
+- **Agreement with other models' points** (similarity to the nearest
+  qwen3.5:4b or qwen3:8b point): AUC 0.36. The errors are shared: every
+  small model misreads the same passages the same way, so consistency
+  cannot detect them.
+- **How garbled the cited lines are** (filler, repeats, fragments): AUC
+  0.61; weak.
+Conclusion: at this size, a model cannot check its own kind of mistake.
+Detecting misreadings needs a different signal: a stronger model as
+verifier, or the owner.
+
+**Few-shot** (rules from the observed errors, plus two invented Northwind
+examples covering ask vs practice vs agreement, relayed demands, a garbled
+line skipped, and a personal detail kept), qwen3.5:9b:
+- Coverage: 20/24 key points, against 19/24 zero-shot. The client-ask
+  distinction now comes out right in the patch-management meeting.
+- Wrong points: about 11/84 (13%), against 12/79. Inventions disappeared
+  (no expanded acronyms or outside names); misreadings and conflations
+  remain.
+- Fewer points per meeting (12 against 18 on the staffing meeting), with
+  some duplicates.

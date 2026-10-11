@@ -615,3 +615,56 @@ line skipped, and a personal detail kept), qwen3.5:9b:
   remain.
 - Fewer points per meeting (12 against 18 on the staffing meeting), with
   some duplicates.
+
+## 2026-10-11 — Ceiling check: large hosted models, and the local 35B
+
+Baseten (Optimizely R&D instance, approved for this data) gives an
+OpenAI-compatible endpoint for large open-weight models; none of them fit
+a 48 GB Mac. The local candidate is qwen3.6:35b-a3b (mixture of experts,
+~3B active; 22 GB).
+
+**Synthetic hard meetings** (noisy; 30 key points, 22 traps), all with
+the example prompt:
+
+| Model | Key points | Traps | Invented |
+|---|---|---|---|
+| DeepSeek-V4.1-Flash (hosted) | 30 | 0 | 0 |
+| GLM-5.3 (hosted) | 29 | 1 | 1 |
+| Kimi-K3 (hosted) | 29 | 2 | 1 |
+| gpt-oss-120b (hosted) | 24 | 4 | 2 |
+| qwen3:8b | 26 | 3 | 0 |
+| qwen3.6:35b-a3b | 23 | 3 | 8 |
+| qwen3.5:9b | 23 | 1 | 1 |
+| qwen3.5:4b | 14 | 0 | 3 |
+
+**Real pilot meetings** (hand-graded against the key-point checklist):
+
+| Model | Coverage | Wrong points | Time |
+|---|---|---|---|
+| qwen3.5:9b, examples | 20/24 | ~12% | ~8 min |
+| qwen3.6:35b-a3b, examples | ~22/24 | ~12% | 4.6 min |
+| GLM-5.3 (hosted), examples | 24/24 | ~1–3% | ~5 min |
+
+GLM-5.3:
+- found details no local model did: the deadline driving the counsel
+  call, the incumbent the client is replacing, today's patch turnaround;
+- kept the unrelated deal separate and the negation right;
+- attributed nearly every point correctly.
+Cost for the three meetings: 78k input and 40k output tokens, about $0.28.
+
+**It also corrected the checklist.** Optimizely had offered 90 days, so
+"45 days instead of 90" is right, not a conflation. And two points I had
+labelled wrong ("no SOC 2 of its own", "sabotage") are in the
+transcript. Hand labels carry errors; a strong model is a useful second
+reader.
+
+Takeaways:
+- The local 35B finds more and runs faster than the 9B (MoE), but its
+  error rate is the same; inventions (acronym expansions) persist despite
+  the rules.
+- The gap between local and the hosted ceiling is large: about 12% wrong
+  against about 2%. Prompting has not closed it.
+- Options: extract on the hosted model (about $0.10 per meeting);
+  distil — use the hosted model's points on real meetings to fine-tune a
+  local model; or extract locally and send only flagged or high-stakes
+  points to the hosted model.

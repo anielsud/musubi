@@ -27,3 +27,15 @@ func TestGround(t *testing.T) {
 		}
 	}
 }
+
+func TestNumbersIn(t *testing.T) {
+	got := numbersIn("forty five days, ninety days, ten people, two hundred and fifty thousand, $40M, 18,000")
+	for _, n := range []string{"45", "90", "10", "250000", "40", "18000"} {
+		if !got[n] {
+			t.Errorf("%s missing from %v", n, got)
+		}
+	}
+	if got["4"] || got["9"] || got["25"] {
+		t.Errorf("round numbers lost their zeros: %v", got)
+	}
+}

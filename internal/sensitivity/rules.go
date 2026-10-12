@@ -60,7 +60,7 @@ func ClassifyItem(f ItemFacts) Label {
 	}
 	if c := matchCategories(f.Title); c != 0 {
 		l.Categories |= c
-		l.Level = maxLevel(l.Level, levelFor(c))
+		l.Level = maxLevel(l.Level, LevelFor(c))
 		l.Reason += "; title: " + c.String()
 	}
 	return l
@@ -80,7 +80,7 @@ func ClassifyText(text string) (Label, bool) {
 	if c == 0 {
 		return Label{}, false
 	}
-	return Label{Level: levelFor(c), Categories: c, Origin: OriginRule, Confidence: 0.6, Reason: strings.Join(hits, "; ")}, true
+	return Label{Level: LevelFor(c), Categories: c, Origin: OriginRule, Confidence: 0.6, Reason: strings.Join(hits, "; ")}, true
 }
 
 func nativeLabel(n map[string]string) (Label, bool) {
@@ -121,11 +121,11 @@ func externalCount(audience, internal []string) int {
 	return n
 }
 
-// levelFor is the minimum level a set of categories implies. Personal
-// matters (HR, pay, health, legal) and strategy go to Restricted; commercial
-// and security detail to Confidential.
-func levelFor(c Categories) Level {
-	if c&(HR|Compensation|Health|Legal|Strategy) != 0 {
+// LevelFor is the minimum level a set of categories implies. Personal
+// matters (HR, pay, health, legal, private life) and strategy go to
+// Restricted; commercial and security detail to Confidential.
+func LevelFor(c Categories) Level {
+	if c&(HR|Compensation|Health|Legal|Strategy|Personal) != 0 {
 		return Restricted
 	}
 	if c != 0 {

@@ -3,6 +3,7 @@ package provider
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,6 +28,20 @@ type ChatOptions struct {
 	Schema      json.RawMessage `json:",omitempty"`
 	Temperature float64
 	MaxTokens   int
+	// Think turns on the model's reasoning trace before it answers. The
+	// fields below are omitted when unset so recorded replies stay keyed
+	// as before.
+	Think bool `json:",omitempty"`
+	// TopP and TopK, when set, sample instead of decoding greedily (Qwen's
+	// thinking mode loops when greedy).
+	TopP float64 `json:",omitempty"`
+	TopK int     `json:",omitempty"`
+	// Timeout overrides callTimeout for calls known to run long (a
+	// thinking pass over a long excerpt takes minutes).
+	Timeout time.Duration `json:",omitempty"`
+	// Context, when set, is the context window to load the model with
+	// (Ollama; llama-server fixes it at start-up).
+	Context int `json:",omitempty"`
 }
 
 // Chat is a local chat model served by Ollama.
@@ -44,6 +59,19 @@ func NewChat(c config.LLM) (*Chat, error) {
 		return &Chat{URL: strings.TrimRight(c.URL, "/"), Model: c.Model, client: &http.Client{Timeout: 10 * time.Minute}}, nil
 	}
 	return nil, fmt.Errorf("unknown llm provider %q", c.Provider)
+}
+
+// NewLLM builds any configured chat model: Ollama, or an OpenAI-compatible
+// server (llama.cpp's llama-server). nil when turned off.
+func NewLLM(c config.LLM) (LLM, error) {
+	if c.Provider == "openai" {
+		return NewOpenAI(c), nil
+	}
+	ch, err := NewChat(c)
+	if ch == nil || err != nil {
+		return nil, err
+	}
+	return ch, nil
 }
 
 // LLM is what stages need from a chat model; Chat and Cached implement it.
@@ -72,18 +100,28 @@ func (c *Chat) Complete(ctx context.Context, msgs []Message, opt ChatOptions, on
 		// A retry would repeat tokens already shown.
 		return c.complete(ctx, msgs, opt, onToken)
 	}
+	return withRetry(ctx, "ollama", opt, func(ctx context.Context) (string, error) { return c.complete(ctx, msgs, opt, nil) })
+}
+
+// withRetry runs one non-streamed call under the call timeout, once more if
+// it timed out.
+func withRetry(ctx context.Context, name string, opt ChatOptions, call func(context.Context) (string, error)) (string, error) {
+	limit := callTimeout
+	if opt.Timeout > 0 {
+		limit = opt.Timeout
+	}
 	var out string
 	var err error
 	for attempt := 0; attempt < 2; attempt++ {
-		cctx, cancel := context.WithTimeout(ctx, callTimeout)
-		out, err = c.complete(cctx, msgs, opt, nil)
+		cctx, cancel := context.WithTimeout(ctx, limit)
+		out, err = call(cctx)
 		timedOut := cctx.Err() == context.DeadlineExceeded
 		cancel()
 		if err == nil || ctx.Err() != nil || !timedOut {
 			return out, err
 		}
 	}
-	return out, fmt.Errorf("ollama: no reply within %s, twice: %w", callTimeout, err)
+	return out, fmt.Errorf("%s: no reply within %s, twice: %w", name, limit, err)
 }
 
 func (c *Chat) complete(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error) {
@@ -91,10 +129,17 @@ func (c *Chat) complete(ctx context.Context, msgs []Message, opt ChatOptions, on
 		"model":    c.Model,
 		"messages": msgs,
 		"stream":   onToken != nil,
-		// Reasoning traces would double latency for answers this short.
-		"think":      false,
+		// Reasoning traces would double latency for answers this short,
+		// unless the caller asks for them.
+		"think":      opt.Think,
 		"keep_alive": "30m",
-		"options":    map[string]any{"temperature": opt.Temperature, "num_ctx": 8192},
+		"options":    map[string]any{"temperature": opt.Temperature, "num_ctx": cmp.Or(opt.Context, 8192)},
+	}
+	if opt.TopP > 0 {
+		body["options"].(map[string]any)["top_p"] = opt.TopP
+	}
+	if opt.TopK > 0 {
+		body["options"].(map[string]any)["top_k"] = opt.TopK
 	}
 	if opt.MaxTokens > 0 {
 		body["options"].(map[string]any)["num_predict"] = opt.MaxTokens

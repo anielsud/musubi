@@ -677,6 +677,11 @@ func knowledgeCmd() *cobra.Command {
 				return err
 			}
 			o := pipeline.KnowledgeOptions{LLM: e.Chat, Embedder: e.Embedder, Items: items, Limit: limit, Workers: workers}
+			if pm := e.Cfg.Knowledge.Points.Model; e.Cfg.Knowledge.Extract == "points" && pm.Provider != "" {
+				if o.Extractor, err = provider.NewLLM(pm); err != nil {
+					return err
+				}
+			}
 			if verbose {
 				o.LinkTrace = func(f string, a ...any) { fmt.Fprintf(os.Stderr, "  link: "+f+"\n", a...) }
 			}

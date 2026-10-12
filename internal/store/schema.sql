@@ -195,7 +195,13 @@ CREATE TABLE IF NOT EXISTS statements (
 	issues     TEXT NOT NULL,          -- why not, if not
 	worth      REAL,                   -- probability it is knowledge worth keeping (NULL: not scored)
 	worth_version TEXT NOT NULL DEFAULT '',
-	search_text TEXT NOT NULL DEFAULT ''  -- text plus digits of spelled-out numbers
+	search_text TEXT NOT NULL DEFAULT '', -- text plus digits of spelled-out numbers
+	-- Points (knowledge.extract = "points"); empty or 0 for statements.
+	status     TEXT NOT NULL DEFAULT '',     -- decided, agreed, proposed, open, answered, rejected, stated
+	who        TEXT NOT NULL DEFAULT '',     -- JSON array of the people it belongs to
+	evidence   TEXT NOT NULL DEFAULT '',     -- JSON array of {line, quote, chunk_id}
+	level      INTEGER NOT NULL DEFAULT 0,   -- the statement's own label, combined with its passage's on every read
+	categories INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS statements_item ON statements(item_id);
 CREATE INDEX IF NOT EXISTS statements_chunk ON statements(chunk_id);

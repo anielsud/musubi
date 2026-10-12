@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -50,11 +51,36 @@ type Statement struct {
 	Worth float64 `json:"worth"`
 	// SearchText is what search matches (see knowledge.SearchForm).
 	SearchText string `json:"-"`
+	// Points only: Status is how settled it is (decided, agreed, proposed,
+	// open, answered, rejected, stated); Who are the people it belongs to;
+	// Evidence is every line it rests on (Line and Quote are the first).
+	Status   string     `json:"status,omitempty"`
+	Who      []string   `json:"who,omitempty"`
+	Evidence []Evidence `json:"evidence,omitempty"`
+	// Own is the statement's own sensitivity, on top of its passage's: a
+	// point is as sensitive as every passage it rests on, and a personal
+	// detail is marked on the point.
+	Own sensitivity.Label `json:"-"`
 	// Set on reads.
 	ItemKind  string            `json:"itemKind,omitempty"`
 	ItemTitle string            `json:"itemTitle,omitempty"`
 	Label     sensitivity.Label `json:"label"`
 	ClaimID   int64             `json:"claimId,omitempty"`
+}
+
+// Evidence is one source line a point rests on.
+type Evidence struct {
+	ChunkID int64  `json:"chunkId"`
+	Line    int    `json:"line"` // in the chunk
+	Quote   string `json:"quote"`
+}
+
+func jsonOrEmpty(v any, empty bool) string {
+	if empty {
+		return ""
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
 }
 
 // --- Pipeline side (unscoped; stages only) ---
@@ -76,9 +102,12 @@ func (s *Store) ReplaceStatements(itemID, version, hash string, sts []Statement)
 				v.Type = "none"
 			}
 			if _, err := tx.Exec(`INSERT INTO statements(item_id, chunk_id, line, kind, text, holder, holder_id, certainty, said_at,
-				value_type, value_raw, value_lo, value_hi, value_ok, quote, grounded, issues, search_text) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+				value_type, value_raw, value_lo, value_hi, value_ok, quote, grounded, issues, search_text,
+				status, who, evidence, level, categories) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 				itemID, st.ChunkID, st.Line, st.Kind, st.Text, st.Holder, holder, st.Certainty, st.SaidAt.Unix(),
-				v.Type, v.Raw, v.Lo, v.Hi, v.Normalized, st.Quote, st.Grounded, st.Issues, st.SearchText); err != nil {
+				v.Type, v.Raw, v.Lo, v.Hi, v.Normalized, st.Quote, st.Grounded, st.Issues, st.SearchText,
+				st.Status, jsonOrEmpty(st.Who, len(st.Who) == 0), jsonOrEmpty(st.Evidence, len(st.Evidence) == 0),
+				int(st.Own.Level), int64(st.Own.Categories)); err != nil {
 				return err
 			}
 		}
@@ -98,6 +127,11 @@ func (s *Store) SetWorth(id int64, p float64, version string) error {
 	return err
 }
 
+// AllStatements returns every statement (pipeline side).
+func (s *Store) AllStatements() ([]Statement, error) {
+	return s.statements(`ORDER BY st.id`)
+}
+
 // UnlinkedStatements returns statements not yet in a claim, oldest first:
 // linking in the order things were said makes "supersedes" point forward.
 func (s *Store) UnlinkedStatements() ([]Statement, error) {
@@ -106,7 +140,8 @@ func (s *Store) UnlinkedStatements() ([]Statement, error) {
 
 func (s *Store) statements(where string, args ...any) ([]Statement, error) {
 	rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, c.text_hash, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
-		st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, st.quote, st.grounded, st.issues, coalesce(sc.claim_id, 0), coalesce(st.worth, -1), st.search_text
+		st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, st.quote, st.grounded, st.issues, coalesce(sc.claim_id, 0), coalesce(st.worth, -1), st.search_text,
+		st.status, st.who, st.evidence, st.level, st.categories
 		FROM statements st JOIN chunks c ON c.id = st.chunk_id LEFT JOIN statement_claims sc ON sc.statement_id = st.id `+where, args...)
 	if err != nil {
 		return nil, err
@@ -116,12 +151,17 @@ func (s *Store) statements(where string, args ...any) ([]Statement, error) {
 	for rows.Next() {
 		var st Statement
 		var said int64
+		var who, ev string
+		var lvl int
+		var cats int64
 		if err := rows.Scan(&st.ID, &st.ItemID, &st.ChunkID, &st.ChunkSeq, &st.ChunkHash, &st.Line, &st.Kind, &st.Text, &st.Holder, &st.HolderID,
 			&st.Certainty, &said, &st.Value.Type, &st.Value.Raw, &st.Value.Lo, &st.Value.Hi, &st.Value.Normalized,
-			&st.Quote, &st.Grounded, &st.Issues, &st.ClaimID, &st.Worth, &st.SearchText); err != nil {
+			&st.Quote, &st.Grounded, &st.Issues, &st.ClaimID, &st.Worth, &st.SearchText,
+			&st.Status, &who, &ev, &lvl, &cats); err != nil {
 			return nil, err
 		}
 		st.SaidAt = time.Unix(said, 0)
+		st.setPoint(who, ev, lvl, cats)
 		out = append(out, st)
 	}
 	return out, rows.Err()
@@ -423,10 +463,11 @@ func (s *Store) ClaimItems() (map[int64][]string, error) {
 	return out, rows.Err()
 }
 
-// StatementLevels returns each statement's effective level (its passage's),
-// for deciding how sensitive a topic label written from them is.
+// StatementLevels returns each statement's effective level (its passage's
+// and its own), for deciding how sensitive a topic label written from them
+// is.
 func (s *Store) StatementLevels() (map[int64]sensitivity.Level, error) {
-	rows, err := s.db.Query(`SELECT st.id, max(il.level, coalesce(cl.level, 0)) FROM statements st JOIN chunks c ON c.id = st.chunk_id` + chunkVisJoin)
+	rows, err := s.db.Query(`SELECT st.id, ` + stLevel + ` FROM statements st JOIN chunks c ON c.id = st.chunk_id` + chunkVisJoin)
 	if err != nil {
 		return nil, err
 	}
@@ -497,7 +538,7 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 	if len(claimIDs) == 0 {
 		return nil, nil
 	}
-	vis, vargs := visSQL(sc, "il", "cl", "c.item_id")
+	vis, vargs := statementVis(sc)
 	var out []Statement
 	for i := 0; i < len(claimIDs); i += 400 {
 		part := claimIDs[i:min(i+400, len(claimIDs))]
@@ -510,7 +551,7 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 		rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, c.text_hash, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
 			st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, st.quote, st.grounded, st.issues,
 			sc.claim_id, i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END,
-			max(il.level, coalesce(cl.level, 0)), (il.categories | coalesce(cl.categories, 0))
+			`+stLevel+`, `+stCats+`, st.status, st.who, st.evidence
 			FROM statement_claims sc JOIN statements st ON st.id = sc.statement_id JOIN chunks c ON c.id = st.chunk_id
 			JOIN items i ON i.id = st.item_id`+chunkVisJoin+`WHERE sc.claim_id IN (`+ph+`) AND `+vis+` ORDER BY st.said_at, st.id`, args...)
 		if err != nil {
@@ -521,13 +562,15 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 			var said int64
 			var lvl int
 			var cats int64
+			var who, ev string
 			if err := rows.Scan(&st.ID, &st.ItemID, &st.ChunkID, &st.ChunkSeq, &st.ChunkHash, &st.Line, &st.Kind, &st.Text, &st.Holder, &st.HolderID,
 				&st.Certainty, &said, &st.Value.Type, &st.Value.Raw, &st.Value.Lo, &st.Value.Hi, &st.Value.Normalized,
-				&st.Quote, &st.Grounded, &st.Issues, &st.ClaimID, &st.ItemKind, &st.ItemTitle, &lvl, &cats); err != nil {
+				&st.Quote, &st.Grounded, &st.Issues, &st.ClaimID, &st.ItemKind, &st.ItemTitle, &lvl, &cats, &st.Status, &who, &ev); err != nil {
 				rows.Close()
 				return nil, err
 			}
 			st.SaidAt = time.Unix(said, 0)
+			st.setPoint(who, ev, 0, 0)
 			st.Label = sensitivity.Label{Level: sensitivity.Level(lvl), Categories: sensitivity.Categories(cats)}
 			out = append(out, st)
 		}
@@ -549,7 +592,7 @@ func (s *Store) visibleRelations(sc sensitivity.Scope, claimIDs []int64) ([]Rela
 	if len(claimIDs) == 0 {
 		return nil, nil
 	}
-	vis, vargs := visSQL(sc, "il", "cl", "c.item_id")
+	vis, vargs := statementVis(sc)
 	ph := strings.TrimSuffix(strings.Repeat("?,", len(claimIDs)), ",")
 	args := []any{}
 	for _, id := range claimIDs {
@@ -732,6 +775,16 @@ func (s *Store) TopicInfos() (map[int64]*TopicInfo, error) {
 
 // AllClaimIDs lists every claim (the caller scopes through Evidence).
 func (s *Store) AllClaimIDs() ([]int64, error) { return s.ids(`SELECT id FROM claims`) }
+
+func (st *Statement) setPoint(who, ev string, lvl int, cats int64) {
+	if who != "" {
+		json.Unmarshal([]byte(who), &st.Who)
+	}
+	if ev != "" {
+		json.Unmarshal([]byte(ev), &st.Evidence)
+	}
+	st.Own = sensitivity.Label{Level: sensitivity.Level(lvl), Categories: sensitivity.Categories(cats)}
+}
 
 // SearchStatements finds claims whose statements match text (keyword), for
 // looking claims up; results are scoped by Evidence afterwards.

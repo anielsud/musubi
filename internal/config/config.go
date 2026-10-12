@@ -40,12 +40,36 @@ type Knowledge struct {
 	// "decide" (one forward pass per pair, read as probabilities, which is
 	// cheap enough to consider more candidates).
 	Judge string `toml:"judge"`
+	// Extract is how knowledge is taken from items: "statements" (one call
+	// per passage, the earlier behaviour) or "points" (a meeting-level
+	// brief, then self-contained points per run of passages, read with the
+	// neighbouring passages as context; see docs/research-log.md).
+	Extract string `toml:"extract"`
+	// Points configures extract = "points".
+	Points Points `toml:"points"`
+}
+
+// Points configures meeting-level point extraction.
+type Points struct {
+	// Model is the extraction model; provider "" uses [llm]. Points were
+	// measured with Qwen3.8-27B on llama-server (provider "openai").
+	Model LLM `toml:"model"`
+	// Think lets the model reason before writing a segment's points: about
+	// half the errors, at about twice the time. Run llama-server with
+	// --reasoning-budget to bound it.
+	Think bool `toml:"think"`
+	// Segment is how many passages one call covers.
+	Segment int `toml:"segment"`
+	// Parallel is how many segments are extracted at once; match the
+	// server's slots (llama-server -np).
+	Parallel int `toml:"parallel"`
 }
 
 // LLM is the chat model for answers, live query suggestions and briefs.
 type LLM struct {
-	// Provider is "ollama" or "none" (Q&A then shows passages only, and
-	// live suggestions come from names and key phrases alone).
+	// Provider is "ollama", "openai" (an OpenAI-compatible server such as
+	// llama-server; URL without /v1) or "none" (Q&A then shows passages
+	// only, and live suggestions come from names and key phrases alone).
 	Provider string `toml:"provider"`
 	Model    string `toml:"model"`
 	URL      string `toml:"url"`
@@ -115,7 +139,7 @@ func DefaultConfig() Config {
 		TomoeSessions: filepath.Join(home, ".local", "share", "tomoe", "sessions"),
 		Embed:         Embed{Provider: "ollama", Model: "nomic-embed-text", URL: "http://127.0.0.1:11434"},
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2},
+		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", Points: Points{Think: true, Segment: 5, Parallel: 4}},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

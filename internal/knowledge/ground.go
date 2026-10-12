@@ -105,19 +105,13 @@ func numbersIn(s string) map[string]bool {
 			j++
 		}
 		if n, ok := parseNumber(strings.Join(ws[i:j], " ")); ok {
-			out[strings.TrimSuffix(strings.TrimRight(trimFloat(n), "0"), ".")] = true
+			// formatFloat is already the shortest form; trimming zeros
+			// from it turned "forty" into "4" (fixed 2026-10-12).
+			out[formatFloat(n)] = true
 		}
 		i = j
 	}
 	return out
-}
-
-func trimFloat(f float64) string {
-	s := strings.TrimRight(strings.TrimRight(formatFloat(f), "0"), ".")
-	if s == "" {
-		return "0"
-	}
-	return s
 }
 
 // negatedOrContrast also counts a contrast ("three years instead of two")

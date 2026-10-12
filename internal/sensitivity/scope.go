@@ -37,7 +37,8 @@ func SharedScreen() Scope {
 
 // ReplyTo is for text drafted to the given people. internal lists the
 // company's email domains; if any recipient is outside them, only public
-// material is open to them.
+// material is open to them. Personal details stay out of drafts even when
+// the recipients heard them: a reply has no business repeating them.
 func ReplyTo(internal []string, principals ...string) Scope {
 	aud := make([]string, len(principals))
 	open := Internal
@@ -47,7 +48,7 @@ func ReplyTo(internal []string, principals ...string) Scope {
 			open = Public
 		}
 	}
-	return Scope{Name: "reply:" + strings.Join(aud, ","), MaxLevel: Restricted, Allowed: AllCategories, Audience: aud, Open: open}
+	return Scope{Name: "reply:" + strings.Join(aud, ","), MaxLevel: Restricted, Allowed: AllCategories &^ Personal, Audience: aud, Open: open}
 }
 
 // isInternalPrincipal: name-only principals are unknown, so treated as external.

@@ -217,6 +217,56 @@ An optional passage gate (`knowledge.gate`, off) asks the same kind of
 question per passage before extraction; on meetings it skipped too little to
 pay (see the research log).
 
+### Points (`knowledge.extract = "points"`, meetings)
+
+Statements are taken one passage at a time, so they miss what the next
+passage clarifies and lean on "it" and "the agreement". Points are the
+meeting-level alternative, measured on the pilot at about 23.5 of 24 key
+points and 1–2% wrong (Qwen3.8-27B thinking, on llama-server). Email and
+chat stay on statements.
+
+1. **Known facts**, written in code: the owner and their company, and each
+   invitee's organisation by email domain. An address that isn't
+   first.last is shown as it is, never turned into a guessed name.
+2. **Brief**, one call without thinking: purpose, who's who (only as far
+   as the transcript shows), subjects, and a glossary of vague references.
+3. **Segments**, `points.segment` (5) passages per call,
+   `points.parallel` (4) at once, with thinking (`points.think`). Each
+   sees the known facts, the brief, its passages, and one passage either
+   side marked `[context]`, from which it may complete a point but not
+   take one. The prompt carries rules and two invented worked examples of
+   past mistakes (expanded acronyms, a client's ask stated as practice, a
+   relayed demand attributed to the relayer, a garbled line turned into a
+   position).
+4. **Checks in code**: every name and figure in a point must appear in the
+   meeting or the known facts (not the brief, which is model-written), and
+   each quote must be in the line it cites (or the one before). A failing
+   point is kept, marked ungrounded with the reason. Post-hoc model
+   verification was tried and caught at most half the errors (research
+   log, 2026-10-12), so none runs here.
+5. **Merge in code**: near-identical points (word overlap ≥ 0.8) from
+   neighbouring segments are kept once. A model rollup was tried and lost
+   decisions.
+
+A point is stored as a statement, so claims, belief, topics and views
+work unchanged. It adds a **status** (decided, agreed, proposed, open,
+answered, rejected, stated), **who** it belongs to, and **evidence** (every
+line it rests on; the first anchors it). Its kind is mapped onto the
+statement kinds by status: a proposed decision is an opinion, an answered
+question a fact. Points skip the worth score, which drops personal
+details.
+
+**Personal details are kept**, attributed to the person they are about,
+and labelled `personal` (restricted): the owner sees them, nothing else
+does. A point's own label also takes the most sensitive passage it rests
+on and whatever its text matches in the sensitivity rules; reads combine
+it with the passage label.
+
+The extraction model is `knowledge.points.model` (provider `openai` for
+llama-server; empty uses `[llm]`) and must be local. llama-server is run
+with the measured settings: `--spec-type draft-mtp -np 4 -c 98304
+--cache-type-k q8_0 --cache-type-v q8_0 --reasoning-budget 3000`.
+
 ### Claims (`link` stage)
 
 A claim is one assertion across sources. Statements are linked in the order
@@ -369,7 +419,8 @@ stay cheap.
 
 ### Sensitivity in the knowledge layer
 
-- A statement is visible exactly when its passage is.
+- A statement is visible exactly when its passage is and its own label
+  allows (a point's: personal, or a more sensitive passage it rests on).
 - A claim is visible when any of its statements is, and it shows the text of
   a visible one.
 - **Belief is computed only from visible statements**, so a confidence or
@@ -441,8 +492,10 @@ A label has three parts:
 
 - **Level** (ordered): `public` < `internal` < `confidential` < `restricted`.
 - **Categories** (any of): `hr`, `compensation`, `legal`, `security`,
-  `financial`, `deal-terms`, `customer-pii`, `health`, `strategy`. A category can
-  restrict an item regardless of level.
+  `financial`, `deal-terms`, `customer-pii`, `health`, `strategy`, `personal`.
+  A category can restrict an item regardless of level. `personal` (someone's
+  life outside work) is set on knowledge points, not items; drafted replies
+  never allow it.
 - **Audience**: the principals who were party to the source (meeting attendees,
   email recipients, chat members). This is "need to know" taken from provenance:
   something learned in a 1:1 with one person is not automatically shareable with
@@ -510,7 +563,7 @@ outside the company is included.
 | Owner explores alone | everything, with labels shown |
 | Side panel, normal | everything, with cards marked when other attendees weren't party to the source |
 | Side panel, screen shared | `internal` and below, no categories; Tomoe already detects sharing windows |
-| Drafted reply to X | items where X is in the audience, plus uncategorised `internal` (X an employee) or `public` (X external) |
+| Drafted reply to X | items where X is in the audience, plus uncategorised `internal` (X an employee) or `public` (X external); never `personal` |
 | Sending text to a cloud provider | the per-source egress policy, e.g. no email to cloud |
 
 Egress to a cloud LLM is just another scope, so provider policy and

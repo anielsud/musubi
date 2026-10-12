@@ -213,6 +213,10 @@ func ToStatement(e Extracted, chunk store.Chunk, itemStart time.Time, holderID s
 	}
 }
 
+// SearchVersion changes with SearchForm, recomputing every statement's
+// search text (cheap: no model).
+const SearchVersion = "s2"
+
 // SearchForm is the text that statement search matches: the statement plus
 // the digits of numbers it spells out, since speech recognition writes
 // "forty five days" and people search for "45 days".

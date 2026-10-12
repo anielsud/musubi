@@ -53,7 +53,9 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	if err := addColumns(db, "statements", "worth REAL", "worth_version TEXT NOT NULL DEFAULT ''", "search_text TEXT NOT NULL DEFAULT ''"); err != nil {
+	if err := addColumns(db, "statements", "worth REAL", "worth_version TEXT NOT NULL DEFAULT ''", "search_text TEXT NOT NULL DEFAULT ''",
+		"status TEXT NOT NULL DEFAULT ''", "who TEXT NOT NULL DEFAULT ''", "evidence TEXT NOT NULL DEFAULT ''",
+		"level INTEGER NOT NULL DEFAULT 0", "categories INTEGER NOT NULL DEFAULT 0"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
@@ -145,6 +147,23 @@ func visSQL(sc sensitivity.Scope, il, cl, itemCol string) (string, []any) {
 		level = fmt.Sprintf("max(%s.level, coalesce(%s.level, 0))", il, cl)
 		cats = fmt.Sprintf("(%s.categories | coalesce(%s.categories, 0))", il, cl)
 	}
+	return visExpr(sc, level, cats, itemCol)
+}
+
+// statementVis is visSQL for statements (alias st) read through
+// chunkVisJoin: a statement is as sensitive as its passage, its item and
+// its own label (a point's evidence can span passages, and a personal
+// detail is labelled on the point, not the passage).
+func statementVis(sc sensitivity.Scope) (string, []any) {
+	return visExpr(sc, stLevel, stCats, "c.item_id")
+}
+
+const (
+	stLevel = "max(il.level, coalesce(cl.level, 0), st.level)"
+	stCats  = "(il.categories | coalesce(cl.categories, 0) | st.categories)"
+)
+
+func visExpr(sc sensitivity.Scope, level, cats, itemCol string) (string, []any) {
 	denied := int64(sensitivity.AllCategories &^ sc.Allowed)
 	q := fmt.Sprintf("(%s <= ? AND (%s & ?) = 0", level, cats)
 	args := []any{int(sc.MaxLevel), denied}

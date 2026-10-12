@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/provider"
@@ -16,8 +17,11 @@ import (
 )
 
 type KnowledgeOptions struct {
-	LLM      provider.LLM
-	Embedder provider.Embedder
+	LLM provider.LLM
+	// Extractor takes points from meetings (knowledge.extract = "points");
+	// nil uses LLM.
+	Extractor provider.LLM
+	Embedder  provider.Embedder
 	// Items limits extraction to these item ids (or id prefixes); empty
 	// means every meeting, email and chat.
 	Items []string
@@ -110,13 +114,36 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		o.Decider, _ = o.LLM.(provider.Decider)
 	}
 	gated := kc.Gate > 0 && o.Decider != nil
+	if o.Extractor == nil {
+		o.Extractor = o.LLM
+	}
+	if kc.Extract == "points" && !o.Extractor.Local() {
+		return ks, fmt.Errorf("points extraction reads meeting text, so it needs a local model (got %s)", o.Extractor.ModelName())
+	}
+	pc := kc.Points
+	// invitees are who the calendar says was invited, else who was heard.
+	invitees := func(it *item.Item) []knowledge.Invitee {
+		ps := it.Participants
+		if e, ok := links[it.ID]; ok && byID[e] != nil {
+			ps = byID[e].Participants
+		}
+		var out []knowledge.Invitee
+		for _, p := range ps {
+			if !p.Owner {
+				out = append(out, knowledge.Invitee{Name: p.Name, Email: p.Email})
+			}
+		}
+		return out
+	}
 	// 1. Extract, for items whose chunks changed since they were extracted.
 	type job struct {
-		it     *item.Item
-		hash   string
-		chunks []store.Chunk
-		title  string
-		orgs   map[string]string
+		it      *item.Item
+		hash    string
+		version string
+		chunks  []store.Chunk
+		title   string
+		orgs    map[string]string
+		known   string // points: the facts sheet; "" extracts statements
 	}
 	var jobs []job
 	for i := range items {
@@ -128,11 +155,20 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		if err != nil || chunkStamp == "" {
 			continue
 		}
+		version, known := knowledge.ExtractVersion, ""
 		h := hashOf("extract", knowledge.ExtractVersion, chunkStamp, o.LLM.ModelName(), r.Cfg.Owner.Name)
 		if gated {
 			h = hashOf(h, knowledge.GateVersion, fmt.Sprint(kc.Gate))
 		}
-		if cur, _ := r.Store.StageStamp("extract", it.ID); cur == knowledge.ExtractVersion+"/"+h {
+		if kc.Extract == "points" && it.Kind == item.KindMeeting {
+			known = knowledge.KnownFacts(r.Cfg.Owner.Name, r.Cfg.Owner.Email, r.Cfg.Owner.InternalDomains, invitees(it))
+			// Points carry their passages' labels, so relabelling re-extracts.
+			clsStamp, _ := r.Store.StageStamp("classify", it.ID)
+			version = knowledge.PointsVersion
+			h = hashOf("points", version, chunkStamp, clsStamp, o.Extractor.ModelName(), r.Cfg.Owner.Name, known,
+				fmt.Sprint(pc.Think), fmt.Sprint(pc.Segment))
+		}
+		if cur, _ := r.Store.StageStamp("extract", it.ID); cur == version+"/"+h {
 			continue
 		}
 		chunks, err := r.Store.Chunks(it.ID)
@@ -143,7 +179,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		if e, ok := links[it.ID]; ok && byID[e] != nil {
 			title = byID[e].Title
 		}
-		jobs = append(jobs, job{it, h, chunks, title, speakerOrgs(it)})
+		jobs = append(jobs, job{it, h, version, chunks, title, speakerOrgs(it), known})
 	}
 	if o.Limit > 0 && len(jobs) > o.Limit {
 		ks.Pending = len(jobs) - o.Limit
@@ -162,6 +198,17 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		for _, j := range jobs {
 			j := j
 			yield(func() (func() error, error) {
+				if j.known != "" {
+					sts, err := r.extractPoints(ctx, o.Extractor, pc, reg, j.it, j.title, j.known, j.chunks)
+					if err != nil {
+						return nil, fmt.Errorf("points %s: %w", j.it.ID, err)
+					}
+					return func() error {
+						ks.Items++
+						ks.Statements += len(sts)
+						return r.Store.ReplaceStatements(j.it.ID, j.version, j.hash, sts)
+					}, nil
+				}
 				var sts []store.Statement
 				tried, failed := 0, 0
 				var lastErr error
@@ -245,15 +292,26 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		ks.Embedded += len(batch)
 	}
 
-	// 2a. Search text for statements extracted before it existed.
+	// 2a. Search text, for statements extracted before it existed or
+	// before the way it is made changed.
 	old, err := r.Store.StatementsWithoutSearchText()
 	if err != nil {
 		return ks, err
 	}
-	for _, s := range old {
-		if err := r.Store.SetSearchText(s.ID, knowledge.SearchForm(s.Text)); err != nil {
+	if cur, _ := r.Store.GlobalStamp("search"); cur != knowledge.SearchVersion {
+		if old, err = r.Store.AllStatements(); err != nil {
 			return ks, err
 		}
+	}
+	for _, s := range old {
+		if f := knowledge.SearchForm(s.Text); f != s.SearchText {
+			if err := r.Store.SetSearchText(s.ID, f); err != nil {
+				return ks, err
+			}
+		}
+	}
+	if err := r.Store.SetGlobalStamp("search", knowledge.SearchVersion); err != nil {
+		return ks, err
 	}
 
 	// 2b. Score statements for worth, once per scorer version.
@@ -263,6 +321,11 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 			return ks, err
 		}
 		for _, s := range todo {
+			if s.Status != "" {
+				// Points: the extraction already judged them worth keeping,
+				// and the worth prompt drops personal details.
+				continue
+			}
 			p, err := knowledge.StatementWorth(ctx, o.Decider, s.Text)
 			if err != nil {
 				if ctx.Err() != nil {
@@ -312,7 +375,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		// them on the next run.
 		keep := unlinked[:0]
 		for _, s := range unlinked {
-			if s.Worth >= 0 && s.Worth < kc.MinWorth {
+			if s.Status == "" && s.Worth >= 0 && s.Worth < kc.MinWorth {
 				ks.Unworthy++
 				continue
 			}
@@ -348,6 +411,39 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		r.logf("topics: %d", ks.Topics)
 	}
 	return ks, nil
+}
+
+// extractPoints takes a meeting's points and turns them into statements.
+func (r *Runner) extractPoints(ctx context.Context, llm provider.LLM, pc config.Points, reg *registry.Registry, it *item.Item, title, known string, chunks []store.Chunk) ([]store.Statement, error) {
+	labels, err := r.Store.ItemLabels(it.ID)
+	if err != nil {
+		return nil, err
+	}
+	m := knowledge.NewMeeting(title, it.OccurredAt, known, r.Cfg.Owner.Name, chunks)
+	px := &knowledge.Pointer{LLM: llm, Think: pc.Think, Segment: pc.Segment, Parallel: pc.Parallel, Logf: r.logf}
+	ps, err := px.Extract(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	holder := func(name string) string {
+		switch {
+		case name == "":
+			return ""
+		case name == "You" || strings.EqualFold(name, r.Cfg.Owner.Name):
+			return reg.Owner()
+		}
+		return reg.Participant(item.Participant{Name: name})
+	}
+	sts := make([]store.Statement, 0, len(ps))
+	flagged := 0
+	for _, p := range ps {
+		if len(p.Issues) > 0 {
+			flagged++
+		}
+		sts = append(sts, m.PointStatement(p, it.OccurredAt, holder, labels))
+	}
+	r.logf("points %s: %d points, %d flagged", it.ID, len(ps), flagged)
+	return sts, nil
 }
 
 // topicEntities finds the organisations and projects a statement names, for

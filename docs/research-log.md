@@ -812,3 +812,30 @@ Machine notes:
   numbers roughly halve here.
 - Leftover servers holding 19 GB caused a GPU out-of-memory in
   llama.cpp. One model server at a time.
+
+## 2026-10-12 — Points ported to Musubi; spelled-number bug
+
+The points prototype is now in Musubi behind `knowledge.extract = "points"`
+(default stays `"statements"` until the Go port has been run on the pilot).
+Ported as measured (known facts, brief without thinking, segments of 5
+with neighbouring context, thinking with Qwen sampling, few-shot rules,
+name/figure/quote checks in code, merge in code), with three deliberate
+changes, none yet measured:
+- The rule "skip … personal life" is gone; the few-shot rule already said
+  to keep personal details, so the prompt contradicted itself.
+- Points carry `personal: true|false`, which labels them `personal`
+  (restricted, owner only, never in replies).
+- Quotes are now checked (in the cited line or the one before); the
+  prototype checked only names and figures.
+
+**Bug found while porting:** the number reader trimmed zeros from whole
+numbers, so "forty" read as 4, "ninety" as 9, "ten" as 1 and "two hundred
+and fifty thousand" as 25. Since grounding was added (ae906b9, 2026-10-10)
+this made it flag faithful
+statements whose figures were spelled out in the source ("90 days" from
+"ninety days" was "figure not in source"), and the search text added the
+wrong digits (a search for "90 days" missed "ninety days"). Fixed; search
+text is recomputed for every statement (`SearchVersion` s2, no model).
+Stored grounding flags keep the old error until statements are
+re-extracted. The synthetic eval is unchanged (claims 8/10, the same two
+known failures before and after).

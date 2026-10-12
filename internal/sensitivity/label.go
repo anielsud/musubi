@@ -55,15 +55,18 @@ const (
 	CustomerPII
 	Health
 	Strategy
+	// Personal is someone's life outside work (family, travel, where they
+	// are from), kept because it helps, but shown only to the owner.
+	Personal
 )
 
 // AllCategories is every defined category.
-const AllCategories = HR | Compensation | Legal | Security | Financial | DealTerms | CustomerPII | Health | Strategy
+const AllCategories = HR | Compensation | Legal | Security | Financial | DealTerms | CustomerPII | Health | Strategy | Personal
 
 var categoryNames = map[Categories]string{
 	HR: "hr", Compensation: "compensation", Legal: "legal", Security: "security",
 	Financial: "financial", DealTerms: "deal-terms", CustomerPII: "customer-pii",
-	Health: "health", Strategy: "strategy",
+	Health: "health", Strategy: "strategy", Personal: "personal",
 }
 
 func (c Categories) Names() []string {

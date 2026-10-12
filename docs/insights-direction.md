@@ -14,7 +14,19 @@ given moment is:
 
 They want it at the moment it matters, not when they search.
 
-## 0. Attribution comes first
+## 0. Attribution belongs upstream (decided 2026-10-12)
+
+Who said what is the source's job: Tomoe's speaker identification, or the
+transcript provider's labels. Musubi takes speakers as given and never
+infers them. When the source marks a speaker unknown or uncertain, the
+item's "who" stays empty. Musubi may flag contradicting evidence back to
+Tomoe (for example a line addressed by name to someone other than the
+labelled speaker), but it does not rewrite attribution.
+
+For experiments on Teams transcripts, whose labels are poor, extraction
+is fed reference speakers. That keeps attribution out of the idea scores.
+
+The notes below on why labels fail remain useful input for Tomoe:
 
 Transcripts from meeting platforms label speakers by device or room, not
 by person:
@@ -89,8 +101,6 @@ assembled from meetings rather than a catalogue:
 
 ## 4. Order of work
 
-1. Attribution repair on a hand-picked corpus (four consecutive
-   leadership meetings), checked against a Tomoe recording of the same
-   meeting.
+1. (Moved to Tomoe) speaker attribution.
 2. Extract the kinds above, linked across weeks, with use-when cues.
 3. Review by hand against the reference analysis before any backfill.

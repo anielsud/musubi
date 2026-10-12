@@ -267,6 +267,12 @@ llama-server; empty uses `[llm]`) and must be local. llama-server is run
 with the measured settings: `--spec-type draft-mtp -np 4 -c 98304
 --cache-type-k q8_0 --cache-type-v q8_0 --reasoning-budget 3000`.
 
+### Beyond points: threads, metrics, framings, rules
+
+Where the knowledge layer is heading (threads with state, metrics with
+definitions, disagreements, framings, rules, commitments, outside facts,
+people) and how items surface by situation: `docs/insights-direction.md`.
+
 ### Claims (`link` stage)
 
 A claim is one assertion across sources. Statements are linked in the order

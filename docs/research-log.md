@@ -839,3 +839,42 @@ text is recomputed for every statement (`SearchVersion` s2, no model).
 Stored grounding flags keep the old error until statements are
 re-extracted. The synthetic eval is unchanged (claims 8/10, the same two
 known failures before and after).
+
+## 2026-10-12: Insight extraction, reference and prompt check (4 leadership meetings)
+
+The corpus is four consecutive weekly leadership meetings: Teams transcripts, about 1,900 turns. The design is in docs/insights-direction.md.
+
+**Reference.** Four Opus sub-agents each built an exhaustive reference for one meeting:
+- 670 items across 12 kinds (decision, commitment, fact, metric, position, disagreement, framing, rule, outside_fact, question, sensitivity_cue, personal), each with lines, quotes, who, thread, use-when cues and sensitivity;
+- a speaker for every turn.
+
+Their speaker calls agree with 242 of 244 turns labelled by hand beforehand.
+
+**Prompt check.** Raw chat calls on Baseten GLM-5.3, reasoning off, with nothing in the context but our prompts:
+- speaker repair, given the company directory (name, title, office);
+- a meeting brief;
+- extraction over 50-line segments with 8 lines of context either side, using an invented worked example.
+
+An Opus judge per meeting graded every item. On a 20-item sample it agreed with my blind grades on 17, and was at least as strict on the rest.
+
+| Measure | Result |
+|---|---|
+| Speakers right (named reference turns, high/medium confidence) | 92–98% per meeting (raw Teams labels: 24–75%) |
+| Reference items found / partly / missed | 560 / 71 / 39 of 670 (84% / 11% / 6%) |
+| Extracted items correct | 583 of 661 (88%) |
+| Wrong person | 50 (7.6%) |
+| Wrong | 15 (2.3%) |
+| Invented | 7 (1.1%) |
+| Trivial | 6 |
+| Cost | ~$3 for the successful run (total spend including dead ends: $4.48) |
+
+Findings:
+- **Attribution is the main remaining error.**
+  - Most wrong-person items trace to speaker repair on unidentified or merged voices: an unnamed voice was given a colleague's name, and a presenter speaking through a room device was credited to someone else.
+  - On the meeting with merged multi-speaker blocks, 28 of 174 items name the wrong person.
+- **The directory helps and hurts.**
+  - It fixed device labels that carry another executive's voice.
+  - The model copies titles and surnames from it into items, which the judge counts as invented. Prompt fix: the directory is for identifying speakers only.
+- **The wrong items are real reading errors:** two similar renewals conflated, a counter-argument reversed, part of a definition read as a count, a restated target read as a forecast, a suggestion recorded as a decision.
+- **Reasoning on Baseten GLM-5.3 is all or nothing,** and with it on, calls loop until the token limit. All runs above had reasoning off.
+- **Reference quality.** The judge overruled the reference twice in one meeting (who said a line). The reference is good but not exact.

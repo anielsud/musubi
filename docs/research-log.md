@@ -878,3 +878,23 @@ Findings:
 - **The wrong items are real reading errors:** two similar renewals conflated, a counter-argument reversed, part of a definition read as a count, a restated target read as a forecast, a suggestion recorded as a decision.
 - **Reasoning on Baseten GLM-5.3 is all or nothing,** and with it on, calls loop until the token limit. All runs above had reasoning off.
 - **Reference quality.** The judge overruled the reference twice in one meeting (who said a line). The reference is good but not exact.
+
+**Clean ceiling (same day).** GLM-5.3 extraction was re-run on the reference speakers, as if the upstream speaker identification were right. Low-confidence speakers were passed as unknown. One prompt fix was added: the directory is only for recognising names.
+
+| Measure | Repaired speakers | Reference speakers |
+|---|---|---|
+| Reference items found / partly / missed | 84 / 11 / 6% | **88 / 7 / 5%** |
+| Extracted items correct | 88% | **94.5%** (630 of 667) |
+| Wrong person | 7.6% | 1.5% |
+| Wrong | 2.3% | 1.8% |
+| Invented | 1.1% | 1.0% |
+| Trivial | 0.9% | 1.2% |
+
+Wall time was 2 min 50 s with all segments in parallel (the earlier sequential run took ~15 min). Cost ~$1.2.
+
+What's left:
+- **Wrong person:** almost all are unknown-speaker lines where the device label was still shown, and the model used the label's name. Fix: show only "unknown".
+- **Invented:** surnames and background the model knows but nobody said ("Atrium, a Salesforce consulting partner"), despite the rule.
+- **Wrong:** similar names confused (Gradial/Qualified, CMP/CMS), two renewals merged, a suggestion stated as a decision, a quarter computed wrongly.
+
+Wrong plus invented is 2.8%. This is the ceiling cheaper models are compared against.

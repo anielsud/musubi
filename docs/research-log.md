@@ -898,3 +898,38 @@ What's left:
 - **Wrong:** similar names confused (Gradial/Qualified, CMP/CMS), two renewals merged, a suggestion stated as a decision, a quarter computed wrongly.
 
 Wrong plus invented is 2.8%. This is the ceiling cheaper models are compared against.
+
+## 2026-10-12: Cheap grader, lean prompt, model sweep
+
+**Cheap grader.** Gemini 3.8 Flash on Vertex, reasoning low. It works in four steps:
+1. Pair each extracted item with nearby reference items by cited line.
+2. Ask a side-by-side "same / partly / none" question in batches.
+3. Check the items left unmatched against their transcript lines.
+4. Check, in code, who said it against the reference speakers.
+
+A reverse pass ("is this reference item covered by the items nearby?") measures recall. It costs about $0.20 per ELT meeting and takes about a minute. On 8 meeting-runs that Opus had graded, it agreed with Opus item by item on ~90%, ranked runs the same way, and read about 1.5 points stricter on wrong + invented. Opus is kept for audits.
+
+**Lean prompt for Flash** (Sep 23 first, then four meetings):
+- Dropping quotes, use_when, thread and sensitivity from the output (~45% of output tokens) costs no quality.
+- An exhaustiveness rule (one item per distinct point, never merge; "12–20 items per 50 lines") cut misses from 48 to 15 on Sep 23. Across four meetings it plateaued at 17% missed, with 27% only partly found.
+- The brief is worth about 3 points fewer misses for ~35% more cost.
+- 30-line segments: marginal gain. 100-line segments: worse.
+- Cutting segments by size instead of line count: a wash overall.
+- Default reasoning: small recall gain for ~3x cost.
+
+**Model sweep.** Lean exhaustive prompt with brief, Sep 23 + Oct 7 (295 reference items), reference speakers, reasoning low.
+
+| Model | Found / partly / missed | Wrong + invented | Extraction cost per ELT meeting |
+|---|---|---|---|
+| GLM-5.3-Flash (Baseten) | 85 / 10 / 5% | 6.3% | ~$0.02 |
+| Gemini 3.8 Flash (Vertex) | 46 / 30 / 24% | 2.7% | ~$0.12 |
+| Qwen3.8-27B local, no reasoning | 44 / 33 / 23% | 6.7% | free; ~12 min per meeting at 8 parallel requests |
+| gpt-oss-120b (Baseten) | 32 / 34 / 34% | 14.6% | ~$0.02 |
+| DeepSeek V4.1-Flash | failed: malformed JSON on the brief, twice | – | – |
+| *GLM-5.3, older prompt* | *~83 / 11 / 7%* | *~4.5%* | *~$0.30* |
+
+Local speed for this run: 155k tokens in, 37k out, about 25 tok/s generated in aggregate. Prefill stays at ~220 tok/s.
+
+Infrastructure lessons:
+- llama-server with 8 slots splits its context; long whole-meeting prompts need `-kvu` (a unified KV cache).
+- Vertex's OpenAI-compatible endpoint needs every schema field marked required, or Flash drops fields.

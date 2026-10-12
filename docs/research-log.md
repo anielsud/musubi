@@ -933,3 +933,23 @@ Local speed for this run: 155k tokens in, 37k out, about 25 tok/s generated in a
 Infrastructure lessons:
 - llama-server with 8 slots splits its context; long whole-meeting prompts need `-kvu` (a unified KV cache).
 - Vertex's OpenAI-compatible endpoint needs every schema field marked required, or Flash drops fields.
+
+**Grader choice.** GLM-5.3-Flash as the cheap grader agreed with Opus item by item about as well as Gemini Flash did (88% candidates, 90% references), and its recall numbers matched Opus more closely, at about $0.03 per meeting against $0.19. **But it is lenient on its own output.** On GLM-5.3-Flash extractions it passed 22 items Gemini failed; reading them, Gemini was right on 16: proposals stated as decisions, small additions, guessed speakers. Rule: GLM-5.3-Flash grades other models; Gemini grades GLM-5.3-Flash.
+
+**GLM-5.3-Flash prompt v2.** Added to the lean, exhaustive prompt:
+- status discipline: a suggestion stays proposed;
+- nothing not said: no surnames, titles, departments or explanations; no items built on misheard words;
+- an unknown speaker stays unknown, shown without its device label;
+- cite every line the item draws on.
+
+All four meetings, reference speakers, graded by Gemini Flash:
+
+| | v1 | v2 |
+|---|---|---|
+| Items | 979 | 1,014 |
+| Wrong + invented | 7.3% | **4.6%** |
+| Wrong person | 0.4% | 0% |
+| References found / partly / missed | 86 / 10 / 3.4% | 86 / 10 / 3.9% |
+| Extraction cost, 4 meetings | ~$0.10 | ~$0.10 (325k tokens in, 77k out) |
+
+For comparison, GLM-5.3 with the older prompt scored 4.5% wrong + invented and 83 / 11 / 7% by the same grader, at ~$1.20 for four meetings. GLM-5.3-Flash v2 matches it on precision and beats it on recall, at about a twelfth of the cost: ~2.5 cents per ELT-length meeting, under a cent for an average meeting.

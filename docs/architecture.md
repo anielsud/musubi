@@ -267,6 +267,28 @@ llama-server; empty uses `[llm]`) and must be local. llama-server is run
 with the measured settings: `--spec-type draft-mtp -np 4 -c 98304
 --cache-type-k q8_0 --cache-type-v q8_0 --reasoning-budget 3000`.
 
+### Imported items (experiments)
+
+`musubi import-items --item <id> --file items.json` loads knowledge items
+extracted outside Musubi (another model or prompt) as an item's
+statements:
+- **input:** kind, status, text, who, and the meeting lines each item
+  cites;
+- **checks:** they go through the same checks and labelling as points.
+  Names and figures must appear in the meeting; the label is the most
+  sensitive passage cited; personal items are owner-only;
+- **kinds:** insight kinds are kept (metric, framing, rule, disagreement,
+  outside_fact, sensitivity_cue, personal), with their own belief weights
+  and half-lives;
+- **keeping them:** `knowledge.extract = "none"` stops Musubi's own
+  extraction, so imported statements are kept and only embedding,
+  linking and topics run.
+
+Experiment instances run beside the real one: `MUSUBI_CONFIG` points the
+CLI and the app at another config, and so at another data directory.
+Inbox drops gain a `meeting` record (title, start, attendees, turns with
+speaker, offset and text), for transcripts from other recorders.
+
 ### Beyond points: threads, metrics, framings, rules
 
 Where the knowledge layer is heading (threads with state, metrics with

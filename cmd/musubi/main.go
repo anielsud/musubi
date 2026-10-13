@@ -47,7 +47,7 @@ func root() *cobra.Command {
 	r := &cobra.Command{Use: "musubi", Short: "Local-first personal knowledge base", SilenceUsage: true}
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
-	r.AddCommand(updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), liveCmd(),
+	r.AddCommand(importItemsCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), liveCmd(),
 		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), judgeCmd())
 	return r
 }
@@ -654,6 +654,51 @@ func withoutKnowledge(s *eval.Suite) *eval.Suite {
 		}
 	}
 	return &out
+}
+
+func importItemsCmd() *cobra.Command {
+	var itemID, file, tag string
+	c := &cobra.Command{
+		Use:   "import-items",
+		Short: "Load knowledge items extracted outside Musubi as an item's statements (experiments); set knowledge.extract = \"none\" so they are kept",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			id, err := e.Store.ResolveItemID(itemID)
+			if err != nil {
+				return err
+			}
+			b, err := os.ReadFile(file)
+			if err != nil {
+				return err
+			}
+			var in struct {
+				Items []knowledge.Imported `json:"items"`
+			}
+			if err := json.Unmarshal(b, &in); err != nil {
+				return err
+			}
+			r, err := e.Runner(nil, os.Stderr)
+			if err != nil {
+				return err
+			}
+			n, skipped, err := r.ImportItems(id, in.Items, tag)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "%s: %d statements imported, %d skipped\n", id, n, skipped)
+			return nil
+		},
+	}
+	c.Flags().StringVar(&itemID, "item", "", "item id or prefix")
+	c.Flags().StringVar(&file, "file", "", `JSON file {"items": [{"kind","status","text","who","lines"}]}`)
+	c.Flags().StringVar(&tag, "tag", "", "label for where the items came from (model, prompt)")
+	c.MarkFlagRequired("item")
+	c.MarkFlagRequired("file")
+	return c
 }
 
 func knowledgeCmd() *cobra.Command {

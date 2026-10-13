@@ -40,8 +40,10 @@ type Knowledge struct {
 	// "decide" (one forward pass per pair, read as probabilities, which is
 	// cheap enough to consider more candidates).
 	Judge string `toml:"judge"`
-	// Extract is how knowledge is taken from items: "statements" (one call
-	// per passage, the earlier behaviour) or "points" (a meeting-level
+	// Extract is how knowledge is taken from items: "none" (statements are
+	// imported, e.g. by `musubi import-items`; only embedding, linking and
+	// topics run), "statements" (one call per passage, the earlier
+	// behaviour) or "points" (a meeting-level
 	// brief, then self-contained points per run of passages, read with the
 	// neighbouring passages as context; see docs/research-log.md).
 	Extract string `toml:"extract"`
@@ -150,6 +152,11 @@ func DefaultConfig() Config {
 
 // Path is the default config location.
 func Path() string {
+	// MUSUBI_CONFIG points the CLI and the app at another instance (e.g. an
+	// experiment corpus) without touching the real one.
+	if p := os.Getenv("MUSUBI_CONFIG"); p != "" {
+		return p
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "musubi", "config.toml")
 }

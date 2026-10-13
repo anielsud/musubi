@@ -148,7 +148,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	var jobs []job
 	for i := range items {
 		it := &items[i]
-		if it.Kind == item.KindEvent || !wanted(it.ID) {
+		if it.Kind == item.KindEvent || !wanted(it.ID) || kc.Extract == "none" {
 			continue
 		}
 		chunkStamp, err := r.Store.StageStamp("chunk", it.ID)
@@ -470,4 +470,55 @@ func topicEntities(reg *registry.Registry) func(string) []string {
 		}
 		return out
 	}
+}
+
+// ImportVersion stamps statements loaded by ImportItems, so a later
+// extraction (knowledge.extract other than "none") would replace them.
+const ImportVersion = "import1"
+
+// ImportItems replaces an item's statements with items extracted outside
+// Musubi (see knowledge.Imported). It returns how many were stored and how
+// many were skipped (unknown kind, or no line inside the meeting).
+func (r *Runner) ImportItems(itemID string, imported []knowledge.Imported, sourceTag string) (int, int, error) {
+	items, err := r.Store.AllItems()
+	if err != nil {
+		return 0, 0, err
+	}
+	var it *item.Item
+	for i := range items {
+		if items[i].ID == itemID {
+			it = &items[i]
+		}
+	}
+	if it == nil {
+		return 0, 0, fmt.Errorf("no item %s", itemID)
+	}
+	reg, err := registry.Build(r.Cfg, r.CuratedPath, items)
+	if err != nil {
+		return 0, 0, err
+	}
+	chunks, err := r.Store.Chunks(itemID)
+	if err != nil {
+		return 0, 0, err
+	}
+	labels, err := r.Store.ItemLabels(itemID)
+	if err != nil {
+		return 0, 0, err
+	}
+	m := knowledge.NewMeeting(it.Title, it.OccurredAt, "", r.Cfg.Owner.Name, chunks)
+	holder := func(name string) string {
+		switch {
+		case name == "":
+			return ""
+		case name == "You" || strings.EqualFold(name, r.Cfg.Owner.Name):
+			return reg.Owner()
+		}
+		return reg.Participant(item.Participant{Name: name})
+	}
+	sts, skipped := m.ImportStatements(imported, it.OccurredAt, holder, labels)
+	chunkStamp, _ := r.Store.StageStamp("chunk", itemID)
+	if err := r.Store.ReplaceStatements(itemID, ImportVersion, hashOf("import", chunkStamp, sourceTag), sts); err != nil {
+		return 0, 0, err
+	}
+	return len(sts), skipped, nil
 }

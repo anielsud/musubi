@@ -82,6 +82,8 @@ func fromDrop(b []byte) ([]Item, error) {
 		return dropEmail(env.Record)
 	case KindChat:
 		return dropChat(env.Record)
+	case KindMeeting:
+		return dropMeeting(env.Record)
 	}
 	return nil, fmt.Errorf("unknown drop kind %q", env.Kind)
 }
@@ -190,6 +192,38 @@ func dropChat(b []byte) ([]Item, error) {
 		it.EndedAt = m.SentAt
 		it.Segments = append(it.Segments, Segment{Speaker: m.From.Name, Email: m.From.Email,
 			Start: m.SentAt.Sub(it.OccurredAt).Seconds(), Text: strings.TrimSpace(m.Text)})
+	}
+	return []Item{it}, nil
+}
+
+// dropMeeting reads a transcript from another recorder (e.g. a Teams
+// export): one turn per segment, speakers as the source gives them; an
+// empty speaker stays unknown.
+func dropMeeting(b []byte) ([]Item, error) {
+	var m struct {
+		Title     string    `json:"title"`
+		Start     time.Time `json:"start"`
+		End       time.Time `json:"end"`
+		Attendees []person  `json:"attendees"`
+		Turns     []struct {
+			Speaker string  `json:"speaker"`
+			Email   string  `json:"email"`
+			Offset  float64 `json:"offset"` // seconds from start
+			Text    string  `json:"text"`
+		} `json:"turns"`
+	}
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, err
+	}
+	if m.Start.IsZero() {
+		return nil, fmt.Errorf("meeting drop needs a start time")
+	}
+	it := Item{Kind: KindMeeting, Title: m.Title, OccurredAt: m.Start, EndedAt: m.End, Native: map[string]string{}}
+	for _, p := range m.Attendees {
+		it.Participants = append(it.Participants, Participant{Name: p.Name, Email: p.Email, Role: "attendee"})
+	}
+	for _, t := range m.Turns {
+		it.Segments = append(it.Segments, Segment{Speaker: t.Speaker, Email: t.Email, Start: t.Offset, Text: strings.TrimSpace(t.Text)})
 	}
 	return []Item{it}, nil
 }

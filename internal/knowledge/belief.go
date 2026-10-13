@@ -15,17 +15,27 @@ var (
 	kindWeight = map[string]float64{
 		"fact": 1, "decision": 1, "requirement": 1, "commitment": 0.9,
 		"opinion": 0.5, "hypothesis": 0.3, "question": 0,
+		// insight kinds (docs/insights-direction.md)
+		"metric": 1, "outside_fact": 1, "personal": 1, "sensitivity_cue": 1, "rule": 0.9,
+		"position": 0.5, "disagreement": 0.5, "framing": 0.5, "issue": 0,
 	}
 	// sourceWeight: written words are more deliberate than speech.
 	sourceWeight = map[string]float64{"email": 1.2, "document": 1.3, "chat": 1.0, "meeting": 1.0}
 	halfLife     = map[string]time.Duration{
 		"question": 14 * day, "hypothesis": 30 * day, "opinion": 60 * day,
 		"fact": 90 * day, "requirement": 180 * day, "commitment": 30 * day,
+		"metric": 90 * day, "outside_fact": 90 * day, "position": 60 * day, "disagreement": 60 * day,
+		"framing": 180 * day, "rule": 365 * day, "personal": 365 * day, "sensitivity_cue": 30 * day, "issue": 14 * day,
 		// decisions don't fade; they change by being superseded
 	}
 )
 
 const day = 24 * time.Hour
+
+// speculativeKind: views rather than facts; a claim held only as these is
+// "speculative" until something firmer joins it.
+var speculativeKind = map[string]bool{"opinion": true, "hypothesis": true, "question": true,
+	"position": true, "disagreement": true, "framing": true, "issue": true}
 
 // Contribution is one statement's part in a claim's belief.
 type Contribution struct {
@@ -105,7 +115,7 @@ func Compute(e *store.ClaimEvidence, now time.Time) Belief {
 		raw, dec := evidence(st, now)
 		c := Contribution{StatementID: st.ID, Holder: holderKey(st), Kind: st.Kind, Weight: raw, Decayed: dec}
 		support = append(support, c)
-		if st.Kind != "opinion" && st.Kind != "hypothesis" && st.Kind != "question" {
+		if !speculativeKind[st.Kind] {
 			allSpeculative = false
 		}
 		if st.ItemKind == "email" || st.ItemKind == "document" {

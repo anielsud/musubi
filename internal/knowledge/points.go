@@ -481,6 +481,9 @@ func (m *Meeting) Check(ps []Point) []Point {
 			p.Issues = append(p.Issues, "no evidence")
 		}
 		for _, e := range p.Evidence {
+			if strings.TrimSpace(e.Quote) == "" {
+				continue // imported items cite lines only
+			}
 			if !m.quoteNear(e) {
 				p.Issues = append(p.Issues, fmt.Sprintf("quote not at line %d", e.Line))
 				break

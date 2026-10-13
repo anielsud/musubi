@@ -180,3 +180,31 @@ func TestPointerExtract(t *testing.T) {
 		t.Errorf("points: %s\nwant %s", got, want)
 	}
 }
+
+func TestImportStatements(t *testing.T) {
+	m := testMeeting()
+	holder := func(n string) string { return "person:" + strings.ToLower(n) }
+	sts, skipped := m.ImportStatements([]Imported{
+		{Kind: "framing", Status: "stated", Text: "Raj Patel said the TAM group has nobody to keep.", Who: []string{"Raj Patel"}, Lines: []int{1}},
+		{Kind: "decision", Status: "proposed", Text: "No one is notified before December.", Who: []string{"Raj Patel"}, Lines: []int{3}},
+		{Kind: "personal", Status: "stated", Text: "Grace Holm is out Friday for her daughter's dance competition.", Who: []string{"Grace Holm"}, Lines: []int{5}},
+		{Kind: "metric", Status: "stated", Text: "The Platinum team found about $400k in ARR.", Who: []string{"Raj Patel"}, Lines: []int{4}},
+		{Kind: "gossip", Status: "stated", Text: "Not a kind.", Lines: []int{1}},
+		{Kind: "fact", Status: "stated", Text: "Outside the meeting.", Lines: []int{99}},
+	}, m.Date, holder, nil)
+	if skipped != 2 || len(sts) != 4 {
+		t.Fatalf("stored %d, skipped %d", len(sts), skipped)
+	}
+	if sts[0].Kind != "framing" || sts[1].Kind != "opinion" || sts[2].Kind != "personal" || sts[3].Kind != "metric" {
+		t.Errorf("kinds: %s %s %s %s", sts[0].Kind, sts[1].Kind, sts[2].Kind, sts[3].Kind)
+	}
+	if sts[2].Own.Categories&sensitivity.Personal == 0 || sts[2].Own.Level != sensitivity.Restricted {
+		t.Errorf("personal item not owner-only: %+v", sts[2].Own)
+	}
+	if sts[3].Grounded || !strings.Contains(sts[3].Issues, "figure not in meeting: 400") {
+		t.Errorf("wrong figure not flagged: %v %q", sts[3].Grounded, sts[3].Issues)
+	}
+	if !sts[0].Grounded || sts[0].HolderID != "person:raj patel" {
+		t.Errorf("framing: grounded=%v holder=%q issues=%q", sts[0].Grounded, sts[0].HolderID, sts[0].Issues)
+	}
+}

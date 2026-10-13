@@ -357,11 +357,23 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	// Claims are cheap to rebuild from stored statements; rebuild them when
 	// the rules that made them change, so old and new rules never mix.
 	linkStamp := hashOf("link", knowledge.LinkVersion, o.LLM.ModelName(), fmt.Sprint(kc.MinWorth), kc.Judge, knowledge.WorthVersion)
-	if old, _ := r.Store.GlobalStamp("link"); old != linkStamp {
-		if err := r.Store.ClearClaims(); err != nil {
+	// The claims stamp is separate from the calendar-link stamp ("link"),
+	// which Process sets; sharing one name made every update look like a
+	// rule change and rebuilt all claims.
+	// The stamp is recorded before linking, so a run that is interrupted
+	// resumes under the same rules instead of clearing its progress; claims
+	// are cleared only when the rules really change. A database linked
+	// before this change and never stamped keeps its claims.
+	if old, _ := r.Store.GlobalStamp("claims"); old != linkStamp {
+		if old != "" {
+			if err := r.Store.ClearClaims(); err != nil {
+				return ks, err
+			}
+			r.logf("link: rules changed, rebuilding claims")
+		}
+		if err := r.Store.SetGlobalStamp("claims", linkStamp); err != nil {
 			return ks, err
 		}
-		r.logf("link: rules changed, rebuilding claims")
 	}
 	if err := lk.Load(); err != nil {
 		return ks, err
@@ -388,7 +400,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		return ks, err
 	}
 	ks.LinkTime = time.Since(t0)
-	if err := r.Store.SetGlobalStamp("link", linkStamp); err != nil {
+	if err := r.Store.SetGlobalStamp("claims", linkStamp); err != nil {
 		return ks, err
 	}
 	if len(unlinked) > 0 {

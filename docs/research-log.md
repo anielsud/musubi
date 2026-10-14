@@ -953,3 +953,69 @@ All four meetings, reference speakers, graded by Gemini Flash:
 | Extraction cost, 4 meetings | ~$0.10 | ~$0.10 (325k tokens in, 77k out) |
 
 For comparison, GLM-5.3 with the older prompt scored 4.5% wrong + invented and 83 / 11 / 7% by the same grader, at ~$1.20 for four meetings. GLM-5.3-Flash v2 matches it on precision and beats it on recall, at about a twelfth of the cost: ~2.5 cents per ELT-length meeting, under a cent for an average meeting.
+
+## 2026-10-12/13: Local speed on the M5 Pro (llama.cpp, Qwen3.8-27B Q4_K_M)
+
+Benchmark: one real meeting (34 passages) with its brief and 7 thinking segments run in parallel, fixed seeds. Measured with llama.cpp 0.6.0 (build 11429); tensor API reported on. Scripts are in testdata/private/insights-eval/points (`bench.py`, `run_bench*.sh`).
+
+| Config | Aggregate tok/s | Per stream | Prefill tok/s | Draft accepted | Wall |
+|---|---|---|---|---|---|
+| q8_0 KV, ubatch 512, 4 slots, MTP | 32.3 | 9.9 | 277 | 72% | 917 s |
+| f16 KV, 4 slots, MTP | 34.9 | 10.5 | 255 | 75% | 887 s |
+| + ubatch 2048 | 28.1 | 8.5 | 215 | 74% | 1087 s |
+| + n-gram speculation stacked on MTP | 36.6 | 11.2 | 227 | 61% | 823 s |
+| f16 KV, ubatch 2048, 8 slots, MTP | 39.9 | 6.4 | 254 | 74% | 773 s |
+| f16 KV, 8 slots, MTP | 38.0 | 6.3 | 276 | 73% | 800 s |
+| f16 KV, 8 slots, DFlash2 draft (n_max 6) | **41.2** | 7.0 | 267 | 54% | **746 s** |
+| f16 KV, 4 slots, DFlash2 draft | 29.0 | 8.8 | 256 | 56% | 1034 s |
+
+Findings:
+- **DFlash2 (z-lab Q8 draft, 2 GB) gains only ~8% with 8 slots** and loses with 4. Its draft acceptance falls to ~55% under thinking-mode sampling (T=0.6). The published 2–3x is for a single stream with greedy decoding; re-test it if extraction runs without thinking.
+- **ubatch 2048 is slower.**
+- **Prefill is stuck at ~220–280 tok/s whatever the settings.** This is likely how llama.cpp handles this hybrid architecture on Metal. It is the main remaining lever for long prompts.
+- **Ceiling here:** about 40 tok/s aggregate for the 27B model.
+
+In the 2026-10-12 sweep, extraction without thinking ran at ~25 tok/s aggregate, so ~12 minutes per ELT meeting with 8 parallel requests.
+
+Not tried yet, per the local-model research (docs/local-models-2026-10.md):
+- MLX servers with continuous batching (oMLX, vllm-mlx); neither documents schema-constrained output;
+- Gemma 4 31B / 26B-A4B;
+- Nemotron 3.5 Lightning 30B-A3B;
+- Qwen3.8-27B at 6–8 bits.
+
+## 2026-10-13: Opus audit of GLM-5.3-Flash prompt v2 (Sep 30, 285 items)
+
+| | Opus | Gemini grader |
+|---|---|---|
+| Correct | 261 (91.6%) | – |
+| Wrong + invented | **14 (4.9%)**: 13 wrong, 1 invented | 17 (6.0%) |
+| Misattributed | 1 | – |
+| Trivial | 9 (3.2%) | – |
+| Reference found / partly / missed | 92 / 7 / 0.6% | 92 / 8 / 0.6% |
+
+Opus is only a point more lenient than the Gemini grader here. An earlier estimate of "2–3% in Opus terms" was too optimistic. Sep 30 is the most number-heavy meeting, and most errors are numeric:
+- a garbled figure read as a result;
+- deal values summed wrongly;
+- a number tied to the wrong total;
+- two cohorts merged;
+- "19 hours" made out of "had 19 go through".
+
+There is also one example credited to the wrong person. Next lever: a code check that a figure in an item appears in its cited lines, not just somewhere in the meeting.
+
+## 2026-10-13: Experiment instance, linking run, and a stamp bug
+
+**Setup.** The four ELT meetings were loaded into a separate Musubi instance (`MUSUBI_CONFIG=testdata/private/elt-exp/config.toml`) as meeting drops with reference speakers. The 1,014 GLM-5.3-Flash v2 items were imported with `musubi import-items`, and `knowledge.extract = "none"`.
+- The import check (names and figures must appear in the meeting) flagged 58 items (5.7%).
+- Linking (local qwen3:8b decider) took 47.5 min for 1,014 statements: 979 claims, 35 joins, 1,011 judged pairs.
+- Relations: 334 (224 refines, 53 supersedes, 41 answers, 15 contradicts).
+- Topics: 95.
+
+**Observations:**
+- Topics thread across weeks: Limitless, the Microsoft programme, Q4 bookings and churn each span 3–4 meetings.
+- Claims almost never merge across meetings (1 claim spans two). Weekly items are phrased differently and link by relations instead.
+- One catch-all topic ("AI strategy and goals", 118 claims).
+
+**Bug, fixed in 6fcdc77.**
+- **What:** claim linking and calendar linking shared the global stamp "link", so every `musubi update` made the next `musubi knowledge` rebuild all claims from scratch.
+- **Fix:** the claim stamp is now "claims", and it is recorded before linking, so an interrupted run resumes instead of clearing its progress.
+- **Cost:** it threw away an earlier run's 757 linked statements (90 minutes). The installed app needs a rebuild to pick up the fix.

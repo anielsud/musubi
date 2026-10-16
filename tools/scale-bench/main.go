@@ -18,6 +18,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strings"
 	"time"
@@ -37,6 +38,7 @@ var (
 	chunksPM = flag.Int("chunks", 120, "passages per meeting")
 	stmtsPM  = flag.Int("statements", 250, "statements per meeting")
 	only     = flag.String("only", "", "comma-separated measures to run (default all)")
+	cpuProf  = flag.String("cpuprofile", "", "write a CPU profile of the measures here")
 )
 
 func main() {
@@ -53,6 +55,12 @@ func main() {
 	if statErr != nil {
 		generate(st)
 		fmt.Printf("generated %d meetings in %s\n", *meetings, time.Since(t0).Round(time.Second))
+	}
+	if *cpuProf != "" {
+		f, err := os.Create(*cpuProf)
+		check(err)
+		check(pprof.StartCPUProfile(f))
+		defer pprof.StopCPUProfile()
 	}
 	measure(st)
 }
@@ -258,6 +266,11 @@ func measure(st *store.Store) {
 		}))
 	}
 	if want("search") {
+		res = append(res, timeIt("first vector search (loads the index)", 1, func() string {
+			_, err := st.Search(sc, store.SearchQuery{Vec: q, Model: model, K: 10, Mode: store.ModeVector})
+			check(err)
+			return ""
+		}))
 		for _, m := range []store.SearchMode{store.ModeKeyword, store.ModeVector, store.ModeHybrid} {
 			res = append(res, timeIt("search "+string(m), 5, func() string {
 				hs, err := st.Search(sc, store.SearchQuery{Text: "Kad Vodra programme", Vec: q, Model: model, K: 10, Mode: m})
@@ -330,13 +343,9 @@ func measure(st *store.Store) {
 			check(err)
 			return how
 		}))
-		cents, err := st.ClaimCentroids()
+		cents, err := st.ClaimCentroidsOf(all[:1])
 		check(err)
-		var cq []float32
-		for _, c := range cents {
-			cq = c
-			break
-		}
+		cq := cents[all[0]]
 		res = append(res, timeIt("card find (embedding)", 5, func() string {
 			_, how, err := x.Find("something unusual", func(string) ([]float32, error) { return cq, nil })
 			check(err)

@@ -20,17 +20,20 @@ import (
 type CardIndex struct {
 	topicClaims map[int64][]int64
 	claimTopic  map[int64]int64
-	centroids   map[int64][]float32
-	terms       map[string][]int64 // lower-case term → topics, strongest first
-	display     map[string]string  // lower-case term → as written
-	topicTerms  map[int64][]string
-	companions  map[int64][]int64
-	host        map[int64]int64 // companion → the largest topic it belongs with
-	termClaims  map[string][]int64
-	termTopics  map[string][]int64 // strongest first
-	termShare   map[string]float64 // share of the term's claims in its strongest topic
-	diffuse     map[int64]bool     // spread over most of a meeting: a catch-all, not a discussion
-	claimText   map[int64]string   // lower-case, for exact-phrase lookups
+	// Claims nearest a query come from the store's code index, re-ranked
+	// against their stored centroids: the index holds no vectors itself
+	// (they took 1.3 GB at 400k claims).
+	st         *store.Store
+	terms      map[string][]int64 // lower-case term → topics, strongest first
+	display    map[string]string  // lower-case term → as written
+	topicTerms map[int64][]string
+	companions map[int64][]int64
+	host       map[int64]int64 // companion → the largest topic it belongs with
+	termClaims map[string][]int64
+	termTopics map[string][]int64 // strongest first
+	termShare  map[string]float64 // share of the term's claims in its strongest topic
+	diffuse    map[int64]bool     // spread over most of a meeting: a catch-all, not a discussion
+	claimText  map[int64]string   // lower-case, for exact-phrase lookups
 	// Threads (knowledge.grouping = "threads"): a topic is a thread, which
 	// says itself what it holds and which of it is current.
 	threads bool
@@ -81,10 +84,6 @@ func BuildCardIndex(st *store.Store) (*CardIndex, error) {
 	if err != nil {
 		return nil, err
 	}
-	cents, err := st.ClaimCentroids()
-	if err != nil {
-		return nil, err
-	}
 	aliases, err := st.PersonNameParts()
 	if err != nil {
 		return nil, err
@@ -100,7 +99,7 @@ func BuildCardIndex(st *store.Store) (*CardIndex, error) {
 			}
 		}
 	}
-	x := &CardIndex{topicClaims: map[int64][]int64{}, claimTopic: map[int64]int64{}, centroids: cents,
+	x := &CardIndex{topicClaims: map[int64][]int64{}, claimTopic: map[int64]int64{}, st: st,
 		terms: map[string][]int64{}, display: map[string]string{}, topicTerms: map[int64][]string{}, companions: map[int64][]int64{}, host: map[int64]int64{},
 		termClaims: map[string][]int64{}, termTopics: map[string][]int64{}, termShare: map[string]float64{}, diffuse: map[int64]bool{},
 		claimText: map[int64]string{}}
@@ -419,14 +418,24 @@ func (x *CardIndex) TopicNear(q []float32, k int, minSim float64) (int64, float6
 		id  int64
 		sim float64
 	}
+	// Candidates by code, compared exactly: well over k, so the exact
+	// nearest k are among them.
+	ix, err := x.st.ClaimIndex()
+	if err != nil {
+		return 0, 0
+	}
+	cents, err := x.st.ClaimCentroidsOf(ix.Nearest(q, max(400, 20*k)))
+	if err != nil {
+		return 0, 0
+	}
 	var hs []hit
-	for id, c := range x.centroids {
+	for id, c := range cents {
 		if x.claimTopic[id] == 0 || len(c) != len(q) {
 			continue
 		}
 		hs = append(hs, hit{id, cos(q, c)})
 	}
-	sort.Slice(hs, func(i, j int) bool { return hs[i].sim > hs[j].sim })
+	sort.Slice(hs, func(i, j int) bool { return hs[i].sim > hs[j].sim || hs[i].sim == hs[j].sim && hs[i].id < hs[j].id })
 	if len(hs) == 0 || hs[0].sim < minSim {
 		return 0, 0
 	}

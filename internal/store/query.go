@@ -151,6 +151,11 @@ func (s *Store) keywordIDs(sc sensitivity.Scope, q SearchQuery, depth int) ([]in
 	return s.ids(query, args...)
 }
 
+// vectorIDs returns the visible passages nearest the query vector. On a
+// large corpus the code index proposes candidates (nearest by their 1-bit
+// codes) and only those are compared exactly; when the scope or time
+// filter leaves too few of them, it asks for more, and falls back to the
+// exact scan over everything.
 func (s *Store) vectorIDs(sc sensitivity.Scope, q SearchQuery, depth int) ([]int64, error) {
 	b, err := sqlite_vec.SerializeFloat32(q.Vec)
 	if err != nil {
@@ -158,11 +163,48 @@ func (s *Store) vectorIDs(sc sensitivity.Scope, q SearchQuery, depth int) ([]int
 	}
 	vis, vargs := visSQL(sc, "il", "cl", "c.item_id")
 	ts, targs := timeSQL(q)
-	query := `SELECT c.id FROM chunk_vecs v JOIN chunks c ON c.id = v.chunk_id JOIN items i ON i.id = c.item_id` + chunkVisJoin +
-		`WHERE v.model = ? AND ` + vis + ts + ` ORDER BY vec_distance_cosine(v.vec, ?) LIMIT ?`
-	args := append([]any{q.Model}, vargs...)
-	args = append(append(args, targs...), b, depth)
-	return s.ids(query, args...)
+	exact := func() ([]int64, error) {
+		query := `SELECT c.id FROM chunk_vecs v JOIN chunks c ON c.id = v.chunk_id JOIN items i ON i.id = c.item_id` + chunkVisJoin +
+			`WHERE v.model = ? AND ` + vis + ts + ` ORDER BY vec_distance_cosine(v.vec, ?) LIMIT ?`
+		args := append([]any{q.Model}, vargs...)
+		args = append(append(args, targs...), b, depth)
+		return s.ids(query, args...)
+	}
+	ix, err := s.passageIndex(q.Model)
+	if err != nil || ix.Len() < exactBelow {
+		return exact()
+	}
+	// On real embeddings 1-bit codes are coarser than on random vectors:
+	// 7.5 candidates per result held 97% of the exact top 10 (research
+	// log, 2026-10-16), so take twenty, or at least 1,000 (~3 ms to
+	// re-rank).
+	// The candidates must hold many visible passages, not just enough: when
+	// the scope hides most of the nearest ones, the few visible among them
+	// aren't the nearest visible overall. Widen until twenty per result are
+	// visible, else scan exactly (over only what the scope sees).
+	need := 20 * depth
+	for k := max(1000, need); ; k *= 4 {
+		if k >= ix.Len() || k > 20000 {
+			return exact()
+		}
+		cands := ix.Nearest(q.Vec, k)
+		ph := strings.TrimSuffix(strings.Repeat("?,", len(cands)), ",")
+		query := `SELECT c.id FROM chunk_vecs v JOIN chunks c ON c.id = v.chunk_id JOIN items i ON i.id = c.item_id` + chunkVisJoin +
+			`WHERE v.model = ? AND v.chunk_id IN (` + ph + `) AND ` + vis + ts + ` ORDER BY vec_distance_cosine(v.vec, ?)`
+		args := []any{q.Model}
+		for _, id := range cands {
+			args = append(args, id)
+		}
+		args = append(args, vargs...)
+		args = append(append(args, targs...), b)
+		ids, err := s.ids(query, args...)
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) >= need {
+			return ids[:depth], nil
+		}
+	}
 }
 
 func (s *Store) ids(query string, args ...any) ([]int64, error) {

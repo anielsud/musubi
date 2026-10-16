@@ -180,6 +180,9 @@ func (v Views) Topics() ([]TopicSummary, error) {
 	return d.summaries, nil
 }
 
+// keywordTexts is how many of a topic's latest claims its keywords come from.
+const keywordTexts = 200
+
 // topicData is one load of what the topic views need: the visible topics'
 // summaries and their claims' evidence.
 type topicData struct {
@@ -226,6 +229,12 @@ func (v Views) loadTopics() (*topicData, error) {
 		}
 		if ts.Claims == 0 {
 			continue
+		}
+		// Keywords stand in for a label the scope can't see and feed the
+		// filter: the topic's last claims are enough (ids rise with time),
+		// and all of a large topic's texts took seconds at 400k claims.
+		if len(texts) > keywordTexts {
+			texts = texts[len(texts)-keywordTexts:]
 		}
 		ts.Keywords = Keywords(texts, 4)
 		if labelVisible(v.Scope, t.LabelLevel) {

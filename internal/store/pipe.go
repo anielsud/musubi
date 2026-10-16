@@ -14,6 +14,7 @@ import (
 
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/sensitivity"
+	"github.com/anielsud/musubi/internal/vindex"
 )
 
 // Pipeline methods: unscoped by design, for stages only. Nothing here may be
@@ -201,12 +202,18 @@ func (s *Store) PutVecs(itemID, stage, model, version, hash string, vecs map[int
 		if _, err := tx.Exec(`DELETE FROM chunk_vecs WHERE model = ? AND chunk_id IN (SELECT id FROM chunks WHERE item_id = ?)`, model, itemID); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(`DELETE FROM chunk_codes WHERE model = ? AND chunk_id IN (SELECT id FROM chunks WHERE item_id = ?)`, model, itemID); err != nil {
+			return err
+		}
 		for id, v := range vecs {
 			b, err := sqlite_vec.SerializeFloat32(v)
 			if err != nil {
 				return err
 			}
 			if _, err := tx.Exec(`INSERT INTO chunk_vecs(chunk_id, model, vec) VALUES (?,?,?)`, id, model, b); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`INSERT OR REPLACE INTO chunk_codes(chunk_id, model, code) VALUES (?,?,?)`, id, model, vindex.Code(v)); err != nil {
 				return err
 			}
 		}

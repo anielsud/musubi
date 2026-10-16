@@ -11,6 +11,7 @@ import (
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 
 	"github.com/anielsud/musubi/internal/sensitivity"
+	"github.com/anielsud/musubi/internal/vindex"
 )
 
 // Value is a statement's typed value (a date, amount, number, percentage
@@ -281,6 +282,11 @@ func (s *Store) NewClaim(st Statement, vec []float32) (int64, error) {
 			return err
 		}
 		id, _ = res.LastInsertId()
+		if len(vec) > 0 {
+			if _, err := tx.Exec(`INSERT OR REPLACE INTO claim_codes(claim_id, code) VALUES (?,?)`, id, vindex.Code(vec)); err != nil {
+				return err
+			}
+		}
 		_, err = tx.Exec(`INSERT INTO statement_claims(statement_id, claim_id, sim, how) VALUES (?,?,1,'new')`, st.ID, id)
 		return err
 	})
@@ -294,7 +300,10 @@ func (s *Store) JoinClaim(statementID, claimID int64, sim float64, how string, c
 			return err
 		}
 		b, _ := sqlite_vec.SerializeFloat32(centroid)
-		_, err := tx.Exec(`UPDATE claims SET centroid = ? WHERE id = ?`, b, claimID)
+		if _, err := tx.Exec(`UPDATE claims SET centroid = ? WHERE id = ?`, b, claimID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT OR REPLACE INTO claim_codes(claim_id, code) VALUES (?,?)`, claimID, vindex.Code(centroid))
 		return err
 	})
 }
@@ -570,12 +579,29 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 	}
 	vis, vargs := statementVis(sc)
 	var out []Statement
-	for i := 0; i < len(claimIDs); i += 400 {
-		part := claimIDs[i:min(i+400, len(claimIDs))]
-		ph := strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")
+	// Asked for most claims (the topic views): one pass over the table,
+	// filtered here, beats thousands of IN-list queries.
+	var keep map[int64]bool
+	if len(claimIDs) > wholeTableAt {
+		keep = make(map[int64]bool, len(claimIDs))
+		for _, id := range claimIDs {
+			keep[id] = true
+		}
+	}
+	step := 400
+	if keep != nil {
+		step = len(claimIDs)
+	}
+	for i := 0; i < len(claimIDs); i += step {
+		part := claimIDs[i:min(i+step, len(claimIDs))]
+		in := `sc.claim_id IN (` + strings.TrimSuffix(strings.Repeat("?,", len(part)), ",") + `) AND `
 		args := make([]any, 0, len(part)+len(vargs))
-		for _, id := range part {
-			args = append(args, id)
+		if keep != nil {
+			in = ""
+		} else {
+			for _, id := range part {
+				args = append(args, id)
+			}
 		}
 		args = append(args, vargs...)
 		rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, c.text_hash, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
@@ -583,7 +609,7 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 			sc.claim_id, i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END,
 			`+stLevel+`, `+stCats+`, st.status, st.who, st.evidence
 			FROM statement_claims sc JOIN statements st ON st.id = sc.statement_id JOIN chunks c ON c.id = st.chunk_id
-			JOIN items i ON i.id = st.item_id`+chunkVisJoin+`WHERE sc.claim_id IN (`+ph+`) AND `+vis+` ORDER BY st.said_at, st.id`, args...)
+			JOIN items i ON i.id = st.item_id`+chunkVisJoin+`WHERE `+in+vis+` ORDER BY st.said_at, st.id`, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -599,6 +625,9 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 				rows.Close()
 				return nil, err
 			}
+			if keep != nil && !keep[st.ClaimID] {
+				continue
+			}
 			st.SaidAt = time.Unix(said, 0)
 			st.setPoint(who, ev, 0, 0)
 			st.Label = sensitivity.Label{Level: sensitivity.Level(lvl), Categories: sensitivity.Categories(cats)}
@@ -608,6 +637,10 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 	}
 	return out, nil
 }
+
+// wholeTableAt: asked for more claims than this, the evidence loaders read
+// their tables in one pass and filter in Go.
+const wholeTableAt = 20000
 
 // Relation is a claim relation as read in a scope.
 type Relation struct {
@@ -627,26 +660,43 @@ func (s *Store) visibleRelations(sc sensitivity.Scope, claimIDs []int64) ([]Rela
 	// claims of two batches comes back twice.
 	var out []Relation
 	seen := map[Relation]bool{}
-	for i := 0; i < len(claimIDs); i += 400 {
-		part := claimIDs[i:min(i+400, len(claimIDs))]
-		ph := strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")
-		args := make([]any, 0, 2*len(part)+len(vargs))
-		for _, id := range part {
-			args = append(args, id)
+	var keep map[int64]bool
+	step := 400
+	if len(claimIDs) > wholeTableAt {
+		keep = make(map[int64]bool, len(claimIDs))
+		for _, id := range claimIDs {
+			keep[id] = true
 		}
-		for _, id := range part {
-			args = append(args, id)
+		step = len(claimIDs)
+	}
+	for i := 0; i < len(claimIDs); i += step {
+		part := claimIDs[i:min(i+step, len(claimIDs))]
+		ph := strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")
+		where := `(r.from_claim IN (` + ph + `) OR r.to_claim IN (` + ph + `)) AND `
+		args := make([]any, 0, 2*len(part)+len(vargs))
+		if keep != nil {
+			where = ""
+		} else {
+			for _, id := range part {
+				args = append(args, id)
+			}
+			for _, id := range part {
+				args = append(args, id)
+			}
 		}
 		args = append(args, vargs...)
 		rows, err := s.db.Query(`SELECT r.from_claim, r.to_claim, r.rel, r.statement_id FROM claim_relations r
 			JOIN statements st ON st.id = r.statement_id JOIN chunks c ON c.id = st.chunk_id`+chunkVisJoin+`
-			WHERE (r.from_claim IN (`+ph+`) OR r.to_claim IN (`+ph+`)) AND `+vis, args...)
+			WHERE `+where+vis, args...)
 		if err != nil {
 			return nil, err
 		}
 		for rows.Next() {
 			var r Relation
 			rows.Scan(&r.From, &r.To, &r.Rel, &r.StatementID)
+			if keep != nil && !keep[r.From] && !keep[r.To] {
+				continue
+			}
 			if !seen[r] {
 				seen[r] = true
 				out = append(out, r)
@@ -721,13 +771,17 @@ func (s *Store) Evidence(sc sensitivity.Scope, claimIDs []int64) (map[int64]*Cla
 	}
 	// Related claims' statements, also scoped; ones invisible in scope are
 	// dropped along with the relation's effect.
-	osts, err := s.visibleStatements(sc, append(other, ids...))
+	// Claims already loaded aren't read again.
+	osts, err := s.visibleStatements(sc, other)
 	if err != nil {
 		return nil, err
 	}
 	byClaim := map[int64][]Statement{}
 	for _, st := range osts {
 		byClaim[st.ClaimID] = append(byClaim[st.ClaimID], st)
+	}
+	for id, e := range out {
+		byClaim[id] = e.Statements
 	}
 	for _, e := range out {
 		for _, r := range e.Relations {
@@ -774,14 +828,21 @@ func (s *Store) Evidence(sc sensitivity.Scope, claimIDs []int64) (map[int64]*Cla
 
 // claimKinds fills in the kind and topic of the given claims.
 func (s *Store) claimKinds(ids []int64, out map[int64]*ClaimEvidence) error {
-	for i := 0; i < len(ids); i += 500 {
-		part := ids[i:min(i+500, len(ids))]
+	step := 500
+	if len(ids) > wholeTableAt {
+		step = len(ids)
+	}
+	for i := 0; i < len(ids); i += step {
+		part := ids[i:min(i+step, len(ids))]
 		args := make([]any, len(part))
 		for k, id := range part {
 			args[k] = id
 		}
-		rows, err := s.db.Query(`SELECT id, kind, coalesce(topic_id, 0) FROM claims WHERE id IN (`+
-			strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")+`)`, args...)
+		q := `SELECT id, kind, coalesce(topic_id, 0) FROM claims WHERE id IN (` + strings.TrimSuffix(strings.Repeat("?,", len(part)), ",") + `)`
+		if step > 500 {
+			q, args = `SELECT id, kind, coalesce(topic_id, 0) FROM claims`, nil
+		}
+		rows, err := s.db.Query(q, args...)
 		if err != nil {
 			return err
 		}

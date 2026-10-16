@@ -92,6 +92,16 @@ CREATE TABLE IF NOT EXISTS chunk_vecs (
 	PRIMARY KEY (chunk_id, model)
 );
 
+-- 1-bit codes of the vectors (internal/vindex): a nearest-neighbour
+-- prefilter held in memory, re-ranked against the vectors. Written with
+-- them; vectors stored before codes existed get theirs when first needed.
+CREATE TABLE IF NOT EXISTS chunk_codes (
+	chunk_id INTEGER NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+	model    TEXT NOT NULL,
+	code     BLOB NOT NULL,
+	PRIMARY KEY (chunk_id, model)
+);
+
 -- origin: registry (curated), directory (from participants with email),
 -- speaker (a name only Tomoe knows), domain (an external organisation).
 -- level lets a curated entity's very existence be sensitive (a codename).
@@ -218,6 +228,11 @@ CREATE TABLE IF NOT EXISTS claims (
 	created_at INTEGER NOT NULL,
 	centroid   BLOB,
 	topic_id   INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS claim_codes (
+	claim_id INTEGER PRIMARY KEY REFERENCES claims(id) ON DELETE CASCADE,
+	code     BLOB NOT NULL
 );
 
 -- Every statement belongs to one claim.

@@ -32,7 +32,10 @@ const schemaVersion = 4
 // kept survive a schema upgrade: they are not derived from raw.
 var kept = map[string]bool{"forgotten": true, "audit": true, "judgments": true}
 
-type Store struct{ db *sql.DB }
+type Store struct {
+	db    *sql.DB
+	codes codeIndexes // nearest-neighbour prefilters (vecindex.go)
+}
 
 func init() { sqlite_vec.Auto() }
 

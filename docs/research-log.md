@@ -1548,3 +1548,56 @@ and 9; full: 414 found, 24 missed on the first three against 449 and 10).
   when the shared part is most of the prompt.
 
 Spend: about $0.55 on extraction and $4.83 on grading.
+
+## 2026-10-16: Reads at scale
+
+`tools/scale-bench` generates a corpus shaped like the ELT meetings (per
+meeting about 120 passages, 250 statements; subjects from a pool growing
+as meetings^0.7, so 1,617 threads at 1,600 meetings) with random vectors,
+and times the app's read paths. Speed and memory only: the text means
+nothing.
+
+**What broke:** the topic list and map failed at 400 meetings (100k
+claims; any corpus past ~32k claims, about 130 ELT meetings). Claim
+evidence was read with every id in one SQL statement, over SQLite's
+variable cap, and with a query per claim and per statement.
+
+At 1,600 meetings (192k passages, 400k claims, 1,617 threads):
+
+| Read path | Before | After |
+|---|---|---|
+| Vector / hybrid search | 300 ms | 7–8 ms (index load 0.2 s, once) |
+| Card lookup by meaning | 356 ms | 12–15 ms |
+| Card index memory | 1,351 MB | 101 MB + ~38 MB of claim codes |
+| Card index build | 3.8 s | 3.0 s |
+| Thread links | 7.7 s | 2.1 s |
+| Topic list, cold | failed past ~32k claims (7.2 s once batched) | 4.2 s |
+| Topic map, cold / cached | 16 s / – | 1.2 s after the list / instant |
+| Topic page | ~5 s (list + map each time) | 0.3 s |
+| Keyword search | 1 ms | 1 ms |
+
+How:
+- **Evidence:** batched, and read in one pass when most claims are asked
+  for. Statements are read once, not twice; kinds, topics and verdicts in
+  bulk. Keywords come from a topic's last 200 claims.
+- **Cache:** the topic list, map and pages share one evidence load,
+  cached until the database changes (`data_version` and
+  `total_changes`, which take constant time; counting rows took 70 ms at
+  100k), the scope or the day. The app builds the map in the background
+  when a dataset opens.
+- **1-bit code index** (`internal/vindex`, sign bits, 96 bytes a vector,
+  Hamming scan in memory): it proposes candidates, which are re-ranked
+  exactly in SQL under the scope. sqlite-vec's own `vec0` bit index
+  scanned the same codes at 52 ms for 192k (in Go: a few ms).
+  - Recall: on synthetic vectors, 400 candidates held all of the exact
+    top 10. On the 1,503 real nomic vectors, 7.5 candidates per result
+    held 97% (98% with mean-centred codes, not adopted: codes would depend
+    on a moving mean). Search takes twenty per result, at least 1,000.
+  - Scope: a test with the nearest passages all confidential found the
+    shared-screen results came from the few visible candidates, not the
+    nearest visible ones. Fixed: the candidates must hold twenty visible
+    per result, or the set widens to an exact scan.
+- **Thread links:** claim centroids are streamed. Each thread is compared
+  with its 50 nearest by code and with threads naming the same
+  organisation or project (unless over 100 do). On Best GLM: 1,515
+  relations against 1,523, the 8 missing just above the 0.62 threshold.

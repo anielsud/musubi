@@ -56,10 +56,10 @@ its quality.
 | Threading, original | grows | every thread in every assign prompt | ~120 threads (local 12k-token slots); ~6–8 meetings | full registry |
 | Pairwise linker | grows | cosine scan over all claims per statement | ~10⁵ claims (minutes), ~10⁶ (hours) | O(n) scan per statement, O(n²) total |
 | Topic clustering (HAC) | full rebuild | claims² | ~20k claims | average link is O(n²) memory and time |
-| Card index | full rebuild at load | all statements and centroids in memory | ~10⁶ statements (GBs, seconds to load) | built in memory from `CardRows` |
-| Thread links (`LinkThreads`) | full rebuild after threading | threads² (pairs compared) | ~10⁴ threads (10⁸ pairs; minutes) | all pairs of centroids; needs nearest-neighbour candidates |
-| Topic map (Explore) | per view, when read | topics² in the browser layout, stored relations | ~1–2k topics on screen | all-pairs force layout; needs aggregation by cluster first |
-| Passage search | per query | passages in scope | ~10⁵–10⁶ passages (exact scan in seconds) | exact cosine over float32 vectors |
+| Card index | full rebuild when the knowledge layer changes | statements' text in memory; claim codes (96 bytes each) | measured: 3 s and ~140 MB at 400k claims | vectors no longer held (they were 1.35 GB); `CardRows` still read in full |
+| Thread links (`LinkThreads`) | full rebuild after threading | threads × 50 neighbours, plus pairs sharing an organisation | measured: 2.1 s at 1.6k threads | was all pairs (7.7 s, quadratic) |
+| Topic list and map (Explore) | when read, then cached until the database changes | every visible claim's evidence | measured: 4.2 s + 1.2 s cold at 400k claims, instant cached; built in the background when a dataset opens | next: per-topic summaries kept up to date; the browser's all-pairs layout for 1–2k topics on screen |
+| Passage search | per query | passages in scope | measured: 7–8 ms at 192k passages (was 300 ms); index load 0.2 s | 1-bit prefilter, exact re-rank |
 | Storage | linear | vectors dominate | ~10M statements ≈ 30 GB of float32 vectors | 768 × 4 bytes each, plus passages |
 | Rebuild on a rule change | all of history | everything | at 40,000 meetings: weeks locally, days hosted | rethreading is sequential |
 
@@ -306,9 +306,14 @@ Coherence passes (C2) add model calls; budget them against what A saved.
 
 **B. Reads at scale**
 
-1. Incremental card index; search prefilter and exact-hit priority.
-2. Nearest-neighbour candidates for thread links and the topic map, which
-   compare every pair today.
+1. *Done 2026-10-16 (research log, "Reads at scale"):* a scale benchmark
+   (`tools/scale-bench`); claim evidence batched (the topic views failed
+   past ~32k claims); cached topic views; a 1-bit code index for search
+   and card lookups; thread links by neighbours.
+2. Still to do: per-topic summaries kept up to date (the topic list's cold
+   load), a card index updated as items are threaded rather than rebuilt,
+   exact-hit priority for short search queries, and a topic map layout that
+   shows clusters first when topics run into the thousands.
 
 **C. Quality and coherence**
 

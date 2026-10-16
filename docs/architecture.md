@@ -734,7 +734,7 @@ derived data. The raw store is a directory of blobs beside it.
 | Need | Mechanism |
 |---|---|
 | Keyword search | FTS5 |
-| Semantic search, topic clustering | sqlite-vec; exact cosine over the scope-filtered rows (no approximate index, so the scope filter can't be bypassed; milliseconds at this scale) |
+| Semantic search, topic clustering | sqlite-vec for exact cosine. Past 2,000 passages a 1-bit code index (`internal/vindex`; codes in `chunk_codes` and `claim_codes`, written with the vectors, about 96 bytes each in memory) proposes candidates, and the exact comparison runs over only those, through the same scope-filtered SQL. The candidates must hold twenty visible passages per result, otherwise the set is widened and finally scanned exactly, so a narrow scope never sees the wrong neighbours and never bypasses the filter. |
 | Graph | `entities` and `edges` tables (typed, timestamped, weighted, with provenance); traversal by recursive CTEs |
 | Facets across dimensions | person, customer, business area, project and topic are all entity types; a facet is a join through `edges`, with time as a filter |
 | Trends | time-bucketed aggregate tables; DuckDB can attach the SQLite file for heavier analysis |

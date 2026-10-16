@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/store"
 )
@@ -70,4 +71,40 @@ func (a *App) Judge(statementID int64, verdict, note string) error {
 		return fmt.Errorf("not ready")
 	}
 	return a.eng.Store.Judge(statementID, verdict, note)
+}
+
+// TopicMap is what the topic views draw: topics, links, clusters, activity.
+func (a *App) TopicMap(scope string) (*knowledge.TopicMap, error) {
+	v, err := a.views(scope)
+	if err != nil {
+		return nil, err
+	}
+	return v.Map()
+}
+
+// CompareWith lines this window's topics up with another dataset's, both
+// read under the same scope; reverse lines the other's up with this one's.
+func (a *App) CompareWith(key, scope string, reverse bool) (*knowledge.Comparison, error) {
+	v, err := a.views(scope)
+	if err != nil {
+		return nil, err
+	}
+	d, err := findDataset(key)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.Load(d.Config)
+	if err != nil {
+		return nil, err
+	}
+	st, err := store.Open(cfg.DBPath())
+	if err != nil {
+		return nil, err
+	}
+	defer st.Close()
+	other := knowledge.Views{Store: st, Scope: v.Scope, Now: v.Now}
+	if reverse {
+		return knowledge.CompareDatasets(other, v)
+	}
+	return knowledge.CompareDatasets(v, other)
 }

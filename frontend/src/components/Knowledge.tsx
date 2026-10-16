@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, fmtDate } from '../api';
-import type { ClaimView, KnowledgeCounts, Statement, TopicSummary, TopicView } from '../types';
+import type { ClaimView, KnowledgeCounts, Statement, TopicMapData, TopicView } from '../types';
 import { Empty, LabelBadge, Spinner } from './common';
+import { TopicViews, clusterColor, useWide } from './TopicViews';
 
 // Status presentation: what's live first, then what changed.
 export const statusOrder = ['contested', 'established', 'likely', 'open', 'speculative', 'uncertain', 'answered', 'superseded', 'disproven', 'stale'];
@@ -19,6 +20,7 @@ const statusNote: Record<string, string> = {
 };
 const history = new Set(['superseded', 'disproven', 'stale', 'answered']);
 const relKinds: [string, string][] = [
+  ['shared', 'Shares statements'],
   ['same', 'Same customer or project'],
   ['together', 'Discussed together'],
   ['parallel', 'The same kind of thing, elsewhere'],
@@ -34,18 +36,20 @@ interface NavProps {
   onSource: (itemId: string, chunkId: number) => void;
 }
 
-// TopicsPane: the topic map and list, or a topic's page.
+// TopicsPane: the topic views and the list, or a topic's page. Wide, the
+// views stay on the left and the list or page opens beside them.
 export function TopicsPane({ scope, onSource }: NavProps) {
+  const wide = useWide();
   const [counts, setCounts] = useState<KnowledgeCounts | null>(null);
-  const [topics, setTopics] = useState<TopicSummary[] | null>(null);
+  const [map, setMap] = useState<TopicMapData | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [filter, setFilter] = useState('');
   const [err, setErr] = useState('');
 
   useEffect(() => {
     api.knowledgeCounts().then(setCounts).catch(() => {});
-    setTopics(null);
-    api.topics(scope).then((t) => setTopics(t ?? []), (e) => setErr(String(e)));
+    setMap(null);
+    api.topicMap(scope).then(setMap, (e) => setErr(String(e)));
   }, [scope]);
 
   if (err) return <div className="error">{err}</div>;
@@ -57,19 +61,26 @@ export function TopicsPane({ scope, onSource }: NavProps) {
       </Empty>
     );
   }
-  if (open !== null) return <TopicPage id={open} scope={scope} onBack={() => setOpen(null)} onOpen={setOpen} onSource={onSource} />;
-  if (!topics) return <Spinner />;
+  const page = open !== null && <TopicPage id={open} scope={scope} onBack={() => setOpen(null)} onOpen={setOpen} onSource={onSource} />;
+  if (!wide && page) return page;
+  if (!map) return <Spinner />;
+  const topics = map.topics ?? [];
   const f = filter.toLowerCase();
   const shown = topics.filter((t) => !f || (t.label + ' ' + (t.keywords ?? []).join(' ')).toLowerCase().includes(f));
   const byRecent = shown.slice().sort((a, b) => (b.last > a.last ? 1 : -1));
-  return (
-    <div className="topics">
+  const views = (
+    <>
       <input className="filter" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={`Filter ${topics.length} topics…`} />
-      <TopicMap topics={topics} highlight={f ? new Set(shown.map((t) => t.id)) : null} onOpen={setOpen} />
+      <TopicViews map={map} highlight={f ? new Set(shown.map((t) => t.id)) : null} selected={open} onOpen={setOpen} wide={wide} />
+    </>
+  );
+  const list = (
+    <>
       <div className="section-head"><span>Most recent</span><span>{counts ? `${counts.claims} claims · ${counts.statements} statements` : ''}</span></div>
       <div className="topic-list">
-        {byRecent.slice(0, 60).map((t) => (
+        {byRecent.slice(0, wide ? 200 : 60).map((t) => (
           <button key={t.id} className="topic-row" onClick={() => setOpen(t.id)}>
+            <span className="cl-dot" style={{ background: clusterColor(t.cluster) }} />
             <span className={'topic-label' + (t.labelHidden ? ' hidden-label' : '')}>{t.label}</span>
             <span className="topic-meta">
               {t.statuses.contested ? <span className="status st-contested">{t.statuses.contested} contested</span> : null}
@@ -78,52 +89,15 @@ export function TopicsPane({ scope, onSource }: NavProps) {
           </button>
         ))}
       </div>
+    </>
+  );
+  if (!wide) return <div className="topics">{views}{list}</div>;
+  return (
+    <div className="topics split">
+      <div className="split-main">{views}</div>
+      <div className="split-side">{page || list}</div>
     </div>
   );
-}
-
-// TopicMap places topics by meaning (first two principal components):
-// near each other means similar. Size is the number of claims; a contested
-// topic gets an amber ring.
-function TopicMap({ topics, highlight, onOpen }: { topics: TopicSummary[]; highlight: Set<number> | null; onOpen: (id: number) => void }) {
-  const [hover, setHover] = useState<number | null>(null);
-  const W = 420, H = 300, pad = 22;
-  const pts = useMemo(() => {
-    if (!topics.length) return [];
-    const xs = topics.map((t) => t.x), ys = topics.map((t) => t.y);
-    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const maxC = Math.max(...topics.map((t) => t.claims));
-    return topics.map((t) => ({
-      t,
-      x: pad + ((t.x - x0) / (x1 - x0 || 1)) * (W - 2 * pad),
-      y: pad + ((t.y - y0) / (y1 - y0 || 1)) * (H - 2 * pad),
-      r: 3 + 9 * Math.sqrt(t.claims / maxC),
-    }));
-  }, [topics]);
-  const big = new Set(pts.slice().sort((a, b) => b.t.claims - a.t.claims).slice(0, 10).map((p) => p.t.id));
-  return (
-    <svg className="topic-map" viewBox={`0 0 ${W} ${H}`}>
-      {pts.map(({ t, x, y, r }) => {
-        const dim = highlight && !highlight.has(t.id);
-        const live = (t.statuses.established ?? 0) + (t.statuses.likely ?? 0);
-        const past = (t.statuses.superseded ?? 0) + (t.statuses.disproven ?? 0) + (t.statuses.stale ?? 0);
-        const fill = past > live ? 'var(--text-faint)' : t.statuses.open ? 'var(--accent-2)' : 'var(--accent)';
-        return (
-          <g key={t.id} className="tnode" opacity={dim ? 0.15 : 1} onClick={() => onOpen(t.id)}
-            onMouseEnter={() => setHover(t.id)} onMouseLeave={() => setHover(null)}>
-            <circle cx={x} cy={y} r={r} fill={fill} fillOpacity={0.55} stroke={t.statuses.contested ? 'var(--lvl-confidential)' : 'none'} strokeWidth={2} />
-            {(big.has(t.id) || hover === t.id) && !dim && (
-              <text x={x} y={y - r - 4} textAnchor="middle" className={hover === t.id ? 'hot' : ''}>{short(t.label)}</text>
-            )}
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-function short(s: string): string {
-  return s.length > 26 ? s.slice(0, 25) + '…' : s;
 }
 
 function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope: string; onBack: () => void; onOpen: (id: number) => void } & NavProps) {
@@ -179,7 +153,7 @@ function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope:
               <button key={r.id} className="topic-row" onClick={() => onOpen(r.id)}>
                 <span className="topic-label">{r.label}</span>
                 <span className="topic-meta">
-                  {kind === 'same' ? (r.via ?? []).join(', ') : r.unconnected ? <span className="status st-open" title="similar in meaning, but never discussed together">never discussed together</span> : `${r.shared} shared sources`}
+                  {kind === 'same' ? (r.via ?? []).join(', ') : r.unconnected ? <span className="status st-open" title="similar in meaning, but never discussed together">never discussed together</span> : kind === 'shared' ? `${r.shared} statements` : `${r.shared} times back to back`}
                 </span>
               </button>
             ))}

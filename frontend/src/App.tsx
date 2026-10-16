@@ -19,6 +19,7 @@ export function App() {
   const [onTop, setOnTop] = useState(false);
   const [diag, setDiag] = useState(false);
   const [toast, setToast] = useState('');
+  const [wideWin, setWideWin] = useState(false);
 
   const refresh = useCallback(() => {
     api.status().then((s) => {
@@ -67,6 +68,8 @@ export function App() {
             onClick={() => api.setSharing(!sharing).then(refresh)}>
             {sharing ? '◑ screen-safe' : '◐ private'}
           </button>
+          <button className={'icon-btn' + (wideWin ? ' on' : '')} title={wideWin ? 'Back to the side panel' : 'Landscape: most of the screen wide'}
+            onClick={() => { api.setWide(!wideWin); setWideWin(!wideWin); }}>{wideWin ? '▯' : '▭'}</button>
           <button className={'icon-btn' + (onTop ? ' on' : '')} title="Keep on top"
             onClick={() => { api.setOnTop(!onTop); setOnTop(!onTop); }}>📌</button>
           <button className={'icon-btn' + (diag ? ' on' : '')} title="Diagnostics: how Musubi is processing"

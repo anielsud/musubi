@@ -3,7 +3,10 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
+
+	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 
 	"github.com/anielsud/musubi/internal/sensitivity"
 )
@@ -217,4 +220,47 @@ func (s *Store) LinkedItemStatements(itemID string) ([]ItemStatement, error) {
 		out = append(out, x)
 	}
 	return out, rows.Err()
+}
+
+// ThreadLinks is what LinkThreads derives for threads: centroids, sizes,
+// entities and relations, which threading itself doesn't write.
+type ThreadLinks struct {
+	Centroids map[int64][]float32
+	Sizes     map[int64]int
+	Entities  map[int64]map[string]int
+	Relations []TopicRelation
+}
+
+// SetThreadLinks replaces the threads' centroids, entities and relations.
+func (s *Store) SetThreadLinks(l ThreadLinks) error {
+	return s.tx(func(tx *sql.Tx) error {
+		for _, q := range []string{`DELETE FROM topic_relations`, `DELETE FROM topic_entities`} {
+			if _, err := tx.Exec(q); err != nil {
+				return err
+			}
+		}
+		for id, n := range l.Sizes {
+			var b []byte
+			if c := l.Centroids[id]; c != nil {
+				b, _ = sqlite_vec.SerializeFloat32(c)
+			}
+			if _, err := tx.Exec(`UPDATE topics SET centroid = ?, size = ? WHERE id = ?`, b, n, id); err != nil {
+				return err
+			}
+		}
+		for _, r := range l.Relations {
+			if _, err := tx.Exec(`INSERT OR REPLACE INTO topic_relations(a, b, sim, shared, entities) VALUES (?,?,?,?,?)`,
+				r.A, r.B, r.Sim, r.Shared, strings.Join(r.Entities, ",")); err != nil {
+				return err
+			}
+		}
+		for tid, es := range l.Entities {
+			for e, n := range es {
+				if _, err := tx.Exec(`INSERT INTO topic_entities(topic_id, entity_id, claims) VALUES (?,?,?)`, tid, e, n); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }

@@ -265,3 +265,59 @@ export interface KnowledgeCounts {
   extracted: number;
   extractable: number;
 }
+
+export interface MapTopic extends TopicSummary {
+  cluster: number; // -1: linked to nothing
+  statements: number;
+  activity: { item: string; n: number }[] | null;
+}
+
+export interface TopicEdge {
+  a: number;
+  b: number;
+  w: number;
+  kind: 'shared' | 'together' | 'same' | 'similar';
+  shared: number;
+  together: number;
+  sim: number;
+  via?: string[];
+}
+
+export interface TopicCluster {
+  id: number;
+  label: string;
+  topics: number[];
+  statements: number;
+  last: string;
+}
+
+export interface TopicMapData {
+  topics: MapTopic[] | null;
+  edges: TopicEdge[] | null;
+  clusters: TopicCluster[] | null;
+  items: ItemRef[] | null;
+  meaning: boolean;
+}
+
+export interface CompareTopic {
+  id: number;
+  label: string;
+  statements: number;
+  cluster: number;
+}
+
+export interface CompareRow {
+  a: CompareTopic;
+  matches: { b: CompareTopic; coverA: number; coverB: number }[] | null;
+  status: 'same' | 'split' | 'merged' | 'partial' | 'only';
+  with?: string[];
+}
+
+export interface Comparison {
+  mode: 'statements' | 'wording';
+  rows: CompareRow[] | null;
+  onlyB: CompareTopic[] | null;
+  counts: Record<string, number>;
+  sizes: Record<string, number>;
+  shared: number;
+}

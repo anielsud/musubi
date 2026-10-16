@@ -29,6 +29,8 @@ type App struct {
 	// when another dataset is opened in this window.
 	cfgPath    string
 	liveCancel context.CancelFunc
+	narrowW    int // the side-panel size to return to from wide
+	narrowH    int
 
 	mu         sync.Mutex
 	updating   bool
@@ -266,6 +268,30 @@ func (a *App) SetDiagnostics(on bool) {
 		w += extra
 	} else if w-extra >= 360 {
 		w -= extra
+	}
+	wruntime.WindowSetSize(a.ctx, w, h)
+}
+
+// SetWide switches the window between the side panel and a landscape
+// layout most of the screen wide, and back to the size it had.
+func (a *App) SetWide(on bool) {
+	if on {
+		a.narrowW, a.narrowH = wruntime.WindowGetSize(a.ctx)
+		w, h := 1600, 1000
+		if ss, err := wruntime.ScreenGetAll(a.ctx); err == nil {
+			for _, s := range ss {
+				if s.IsCurrent {
+					w, h = min(s.Size.Width*85/100, 2400), s.Size.Height*85/100
+				}
+			}
+		}
+		wruntime.WindowSetSize(a.ctx, w, h)
+		wruntime.WindowCenter(a.ctx)
+		return
+	}
+	w, h := a.narrowW, a.narrowH
+	if w == 0 || w >= 900 {
+		w, h = 460, 900
 	}
 	wruntime.WindowSetSize(a.ctx, w, h)
 }

@@ -136,8 +136,9 @@ type RelatedTopic struct {
 	Label  string  `json:"label"`
 	Sim    float64 `json:"sim"`
 	Shared int     `json:"shared"`
-	// Kind: "same" (shares a customer or project: Via names it),
-	// "together" (discussed in the same items), "parallel" (alike in
+	// Kind: "shared" (some statements belong to both), "same" (shares a
+	// customer or project: Via names it), "together" (discussed back to
+	// back; Shared counts the moments), "parallel" (alike in
 	// meaning, about different customers or projects), "similar" (alike in
 	// meaning).
 	Kind        string   `json:"kind"`
@@ -288,37 +289,36 @@ func (v Views) Topic(id int64) (*TopicView, error) {
 			names[e.ID] = e.Name
 		}
 	}
-	infos, err := v.Store.TopicInfos()
+	// The same links the topic map draws, strongest first.
+	m, err := v.Map()
 	if err != nil {
 		return nil, err
 	}
-	if info := infos[id]; info != nil {
-		for _, r := range info.Related {
-			l, ok := labels[r.B]
-			if !ok {
-				continue // not visible in scope
-			}
-			rt := RelatedTopic{ID: r.B, Label: l, Sim: r.Sim, Shared: r.Shared, Unconnected: r.Shared == 0}
-			for _, e := range r.Entities {
-				if n, ok := names[e]; ok {
-					rt.Via = append(rt.Via, n)
-				}
-			}
-			switch {
-			case len(rt.Via) > 0:
-				rt.Kind = "same"
-			case r.Shared >= 2:
-				rt.Kind = "together"
-			case len(tv.Entities) > 0 && len(r.Entities) == 0 && r.Sim >= relateAt:
-				rt.Kind = "parallel"
-			default:
-				rt.Kind = "similar"
-			}
-			tv.Related = append(tv.Related, rt)
+	for _, e := range m.Edges {
+		other := e.B
+		if e.B == id {
+			other = e.A
+		} else if e.A != id {
+			continue
 		}
+		rt := RelatedTopic{ID: other, Label: labels[other], Sim: e.Sim, Shared: e.Together, Via: e.Via,
+			Unconnected: e.Together == 0 && e.Shared == 0}
+		switch {
+		case len(e.Via) > 0:
+			rt.Kind = "same"
+		case e.Kind == "shared":
+			rt.Kind, rt.Shared = "shared", e.Shared
+		case e.Together >= 2:
+			rt.Kind = "together"
+		case len(tv.Entities) > 0 && e.Sim >= relateAt:
+			rt.Kind = "parallel"
+		default:
+			rt.Kind = "similar"
+		}
+		tv.Related = append(tv.Related, rt)
 	}
 	sort.SliceStable(tv.Related, func(i, j int) bool {
-		order := map[string]int{"same": 0, "together": 1, "parallel": 2, "similar": 3}
+		order := map[string]int{"shared": 0, "same": 1, "together": 2, "parallel": 3, "similar": 4}
 		return order[tv.Related[i].Kind] < order[tv.Related[j].Kind]
 	})
 	if tv.Events, err = v.Store.TopicEvents(id); err != nil {

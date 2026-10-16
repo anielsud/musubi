@@ -4,6 +4,7 @@ import type { EntityRef, Graph, Hit } from '../types';
 import { Empty, HitRow, LabelBadge, Spinner } from './common';
 import { GraphView } from './GraphView';
 import { ClaimResults, TopicsPane } from './Knowledge';
+import { CompareView } from './CompareView';
 
 interface Props {
   scope: string;
@@ -21,7 +22,7 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem }: Prop
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [trail, setTrail] = useState<EntityRef[]>([]);
-  const [mode, setMode] = useState<'topics' | 'search'>('topics');
+  const [mode, setMode] = useState<'topics' | 'search' | 'compare'>('topics');
   const [lastQ, setLastQ] = useState('');
   const openSource = (itemId: string, chunkId: number) => onOpen({ itemId, chunkId } as unknown as Hit, scope);
 
@@ -61,8 +62,10 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem }: Prop
       <div className="segmented">
         <button className={mode === 'topics' ? 'on' : ''} onClick={() => { setMode('topics'); setFocus(null); }}>Topics</button>
         <button className={mode === 'search' ? 'on' : ''} onClick={() => setMode('search')}>Search</button>
+        <button className={mode === 'compare' ? 'on' : ''} onClick={() => { setMode('compare'); setFocus(null); }} title="Line this dataset's topics up with another's">Compare</button>
       </div>
       {mode === 'topics' && <TopicsPane scope={scope} onSource={openSource} />}
+      {mode === 'compare' && <CompareView scope={scope} />}
       {mode === 'search' && <>
       <form className="lookup" onSubmit={(e) => { e.preventDefault(); run(q); }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search passages, people, customers…" />

@@ -556,3 +556,37 @@ func (s *Store) Item(sc sensitivity.Scope, itemID string) (*ItemView, error) {
 	}
 	return v, nil
 }
+
+// ItemTitles returns the titles and times of the visible items among ids.
+func (s *Store) ItemTitles(sc sensitivity.Scope, ids []string) (map[string]ItemRef, error) {
+	out := map[string]ItemRef{}
+	for i := 0; i < len(ids); i += 400 {
+		part := ids[i:min(i+400, len(ids))]
+		vis, vargs := visSQL(sc, "il", "", "i.id")
+		q := `SELECT i.id, i.kind, coalesce(e.title, i.title), i.occurred_at FROM items i
+			JOIN labels il ON il.item_id = i.id AND il.chunk_seq = -1
+			LEFT JOIN item_links lk ON lk.item_id = i.id AND lk.rel = 'occurred_as' LEFT JOIN items e ON e.id = lk.other_id
+			WHERE i.id IN (?` + strings.Repeat(",?", len(part)-1) + `) AND ` + vis
+		var args []any
+		for _, id := range part {
+			args = append(args, id)
+		}
+		args = append(args, vargs...)
+		rows, err := s.db.Query(q, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var r ItemRef
+			var occ int64
+			if err := rows.Scan(&r.ID, &r.Kind, &r.Title, &occ); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			r.OccurredAt = time.Unix(occ, 0)
+			out[r.ID] = r
+		}
+		rows.Close()
+	}
+	return out, nil
+}

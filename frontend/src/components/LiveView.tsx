@@ -80,6 +80,7 @@ export function LiveView({ status, onOpen, onEntity }: Props) {
 
   return (
     <div className="view live">
+      <div className="live-left">
       <MeetingHeader status={status} />
 
       {audioRef && status?.mode === 'replay' && <AudioBar ref_={audioRef} />}
@@ -122,7 +123,9 @@ export function LiveView({ status, onOpen, onEntity }: Props) {
       )}
 
       {err && <div className="error small">{err}</div>}
+      </div>
 
+      <div className="live-right">
       {topics.length > 0 && (
         <section className="topics">
           {topics.map((t) => <TopicCardView key={t.topicId} card={t} />)}
@@ -153,6 +156,7 @@ export function LiveView({ status, onOpen, onEntity }: Props) {
           </div>
         </section>
       )}
+      </div>
     </div>
   );
 }

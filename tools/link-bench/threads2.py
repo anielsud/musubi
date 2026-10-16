@@ -27,6 +27,10 @@ CHUNK = int(os.environ.get("CHUNK", "70"))
 PAR = int(os.environ.get("PAR", "8"))
 CAND = int(os.environ.get("CAND", "40"))      # candidate threads by similarity, per assign call
 RECENT = int(os.environ.get("RECENT", "15"))  # plus threads active in the last two meetings
+# RECENT_DAYS: "recent" is active within that many days of the meeting (the
+# Go threader's rule, 21), for corpora with many meetings a day; meeting
+# names must then start with their date. Unset: the last two meetings.
+RECENT_DAYS = int(os.environ.get("RECENT_DAYS", "0"))
 CAP = int(os.environ.get("CAP", "25"))        # current items shown per reconcile call
 SKIP_NEW = os.environ.get("SKIP_NEW", "1") == "1"
 # INLINE: the assign call also reports effects among the batch's own items
@@ -156,6 +160,11 @@ def vec_of(vec, i):
     return vec.get(i) or vec.get(i % 100000)
 
 
+def day_of(meeting):
+    import datetime
+    return datetime.date.fromisoformat(meeting[:10])
+
+
 def main():
     bench, dbp, out = sys.argv[1], sys.argv[2], sys.argv[3]
     stm = [json.loads(l) for l in open(os.path.join(bench, "statements.jsonl"))]
@@ -195,7 +204,12 @@ def main():
             cents = {c: centroid(t) for c, t in threads.items() if t["sum"]}
             score = {c: max((cos(vec_of(vec, s["id"]), v) for s in part if vec_of(vec, s["id"])), default=0) for c, v in cents.items()}
             cand = sorted(score, key=lambda c: -score[c])[:CAND]
-            recent = sorted((c for c, t in threads.items() if t["last"] >= mi - 2), key=lambda c: -threads[c]["last"])[:RECENT]
+            if RECENT_DAYS:
+                today = day_of(m)
+                recent = sorted((c for c, t in threads.items() if (today - day_of(meetings[t["last"]])).days <= RECENT_DAYS),
+                                key=lambda c: -threads[c]["last"])[:RECENT]
+            else:
+                recent = sorted((c for c, t in threads.items() if t["last"] >= mi - 2), key=lambda c: -threads[c]["last"])[:RECENT]
             show = list(dict.fromkeys(cand + recent + sorted(born)))
             reg = "\n".join(f"{c}: {threads[c]['name']} — {threads[c]['scope']} (latest: {by[threads[c]['current'][-1]]['text'][:140] if threads[c]['current'] else '-'})"
                             for c in show) or "(none yet)"

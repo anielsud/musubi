@@ -52,6 +52,7 @@ func main() {
 	out := flag.String("out", "", "output directory")
 	model := flag.String("model", "nomic-embed-text", "statement embedding model")
 	seed := flag.Int64("seed", 7, "sampling seed")
+	titled := flag.Bool("titled", false, "name meetings by date, time and title (several meetings a day), not by date")
 	flag.Parse()
 	st, err := store.Open(*dbPath)
 	check(err)
@@ -72,6 +73,9 @@ func main() {
 	start := map[string]int64{}
 	for _, it := range items {
 		meeting[it.ID] = it.OccurredAt.Format("2006-01-02")
+		if *titled {
+			meeting[it.ID] = it.OccurredAt.UTC().Format("2006-01-02 15:04") + " " + it.Title
+		}
 		start[it.ID] = it.OccurredAt.Unix()
 	}
 	lines := map[int64][]string{} // chunk id → lines

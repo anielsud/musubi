@@ -1601,3 +1601,83 @@ How:
   with its 50 nearest by code and with threads naming the same
   organisation or project (unless over 100 do). On Best GLM: 1,515
   relations against 1,523, the 8 missing just above the 0.62 threshold.
+
+## 2026-10-16: Backfill: does the memory hold up? (No.)
+
+Two datasets built the way Best GLM was (GLM-5.3-Flash prompt v2
+extraction, lean threads on GLM; `tools/link-bench/backfill.py`), with
+the four benchmark meetings keeping their benchmark extraction:
+- **elt-year:** every leadership meeting, January to October: 24 meetings,
+  5,643 statements, 353 threads.
+- **sept-all:** every meeting of one month: 145 meetings (leadership, 1:1s,
+  product syncs, customer calls, interviews, one personal appointment),
+  12,328 statements, 650 threads.
+
+Cost: $3.27 hosted ($1.50 extraction, $0.56 and $1.21 threading).
+Threading took 28 minutes for the ELT year and about 1.8 hours for the
+month.
+
+**Benchmark carry-over** (the reference, scored on the benchmark meetings
+inside the larger corpus; `carryover.py`):
+
+| | Grouping P / R, 4 meetings | Grouping P / R, the 3 September meetings | Retiring updates retired | Live items wrongly retired |
+|---|---|---|---|---|
+| Best GLM (the 4 meetings alone) | 0.87 / 0.53 | 0.86 / 0.66 | 29–33% | 0.5–1.5% |
+| elt-year (+20 earlier meetings) | 0.92 / 0.36 | 0.95 / 0.48 | 30% | 1.0% |
+| sept-all (+141 other meetings) | – | 0.96 / 0.58 | – | – |
+
+Subjects fragment as history grows. Candidate recall isn't the cause: a
+thread holding the item's subject was offered 97% of the time, but the
+item joined one 24% of the time (55% on the 4 meetings).
+
+**Audits.** Opus read 76 threads end to end against the source lines
+(`dossier.py`; findings in each dataset's `audit/`):
+
+| | elt-year (49 threads) | sept-all (27 threads) |
+|---|---|---|
+| Items still "current" | 86% | 86% |
+| Card quality (1–5) | 3.1 (2.7 for 50+ items) | 2.7 |
+| Missed updates | 59 | 100 |
+| Stale current items | 84 | 127 |
+| Wrong retirements | 40 | 52 |
+| Items in the wrong thread | 70 | 229 |
+| Threads of several subjects or a theme | 15 | 8 |
+| Fragmented subjects that should partly merge | 11 of 12 | – |
+| Wrong speaker | 8 | 50 |
+| Noise (small talk, trivia) | – | 178 |
+| Sensitive items | 48 | 339, of which 67 sit in threads with ordinary business items from other meetings |
+
+**Mechanisms**, the same across both datasets:
+1. **Reconcile doesn't see what it should retire.** It is shown a thread's
+   25 latest current items, so in a long thread a September outcome never
+   meets the March plan it settles. Most of the 86% current comes from
+   this.
+2. **Updates land in another thread.** Later wording starts a new thread or
+   picks a sibling. Outcomes (actuals, a deal lost, a name chosen) never
+   reach the forecasts and plans they settle.
+3. **Nothing expires.** Dated plans, event preparation, "next week"
+   commitments and quarterly forecasts stay current after their dates.
+4. **No rule for quantities:** a later figure for the same quantity and
+   period doesn't replace the earlier one.
+5. **Wrong retirements:** the newest statement retired while an older one
+   stays; contradictions or added context treated as replacements;
+   duplicates retired inconsistently.
+6. **Grouping follows wording and agendas:**
+   - fragments: one meeting's discussion split by the angle of each
+     sentence; a spelling variant of a name splits an account;
+   - merges: shared names ("the all-company call"), generic words
+     ("migration", "value"), a single bridging item;
+   - people: threads about a person absorb everything mentioning them;
+   - whole meetings: an interview or a 1:1 becomes one thread of 100+
+     items whose business content never reaches the business threads.
+7. **Sensitivity isn't recognised in the text:**
+   - named individuals' performance, improvement-plan and termination
+     details sit in a programme thread beside leadership items;
+   - candidate assessments, health remarks, a harassment account and pay
+     figures carry no label;
+   - only the meeting's level (confidential by default) protects them.
+
+**What works:** updates within one meeting (answers, corrections,
+duplicates), joining a specifically named subject across rooms (a
+programme, a resignation, a search across 9–27 meetings), and speaker
+attribution in leadership meetings.

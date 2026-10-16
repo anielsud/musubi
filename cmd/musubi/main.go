@@ -707,7 +707,7 @@ func importItemsCmd() *cobra.Command {
 func knowledgeCmd() *cobra.Command {
 	var items, redo []string
 	var limit, workers, newest int
-	var verbose, plan bool
+	var verbose, plan, noThreads bool
 	c := &cobra.Command{
 		Use:   "knowledge",
 		Short: "Extract statements, link them into claims, and build topics (uses the local model)",
@@ -730,7 +730,7 @@ func knowledgeCmd() *cobra.Command {
 				}
 			}
 			o := pipeline.KnowledgeOptions{LLM: e.Chat, Embedder: e.Embedder, Items: items, Limit: limit, Workers: workers,
-				Redo: redo, RedoNewest: newest, Plan: plan}
+				Redo: redo, RedoNewest: newest, Plan: plan, NoThreads: noThreads}
 			if pm := e.Cfg.Knowledge.Points.Model; e.Cfg.Knowledge.Extract == "points" && pm.Provider != "" {
 				if o.Extractor, err = provider.NewLLM(pm); err != nil {
 					return err
@@ -765,6 +765,7 @@ func knowledgeCmd() *cobra.Command {
 	c.Flags().BoolVarP(&verbose, "verbose", "v", false, "print each linking decision")
 	c.Flags().StringSliceVar(&redo, "redo", nil, "bring these stages up to their current version: extract, links (rethreads too, in thread mode), threads")
 	c.Flags().IntVar(&newest, "newest", 0, "with --redo extract: only this many items, newest first")
+	c.Flags().BoolVar(&noThreads, "no-threads", false, "stop after linking (threads applied from elsewhere)")
 	c.Flags().BoolVar(&plan, "plan", false, "say what a run would do, and what is on an earlier version, without doing it")
 	return c
 }

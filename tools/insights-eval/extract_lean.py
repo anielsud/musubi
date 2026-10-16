@@ -96,13 +96,17 @@ def run(date):
     if "_v2" in V:
         import re as _re
         lines=[_re.sub(r"unknown speaker \(label: [^)]*?(; several voices)?\)","unknown speaker",l) for l in lines]
+    run_lines(date,date,lines,CORPUS["description"],f"{OUT}/items-{TAG}-{date}.json")
+
+def run_lines(key,date,lines,description,outpath):
+    """Extracts one meeting's items from its numbered lines ("N speaker: text")."""
     system=RULES+(EXHAUST if V!="lean" else "")+(V2_RULES if "_v2" in V else "")+EXAMPLE
-    head=f"Meeting: {CORPUS['description']}, {date}.\nCompany directory (only for recognising who is meant):\n{directory_text()}\n"
+    head=f"Meeting: {description}, {date}.\nCompany directory (only for recognising who is meant):\n{directory_text()}\n"
     btext=""
     if not NOBRIEF:
         br=bt.chat(MODEL,[{"role":"system","content":"You read a whole meeting transcript and write a brief that helps someone interpret any excerpt of it."},
             {"role":"user","content":head+"\nTranscript:\n"+"\n".join(lines)+"\n\nWrite: the meeting's purpose; each participant's role in this meeting as far as the transcript shows it; the subjects discussed, in order; and a glossary resolving vague references, acronyms, product names and misheard names to what they mean. Say \"unclear\" rather than guess."}],
-            BRIEF_SCHEMA,f"brief-{date}",max_tokens=8000,session=f"extract-{TAG}-{date}")
+            BRIEF_SCHEMA,f"brief-{key}",max_tokens=8000,session=f"extract-{TAG}-{key}")
         btext=("\nBrief of the whole meeting:\nPurpose: "+br["purpose"]+"\nParticipants: "+"; ".join(f"{p['name']} ({p['role'][:80]})" for p in br["participants"])+
                "\nTerms: "+"; ".join(f"{g['term']} = {g['means'][:120]}" for g in br["glossary"][:25]))
         if V=="lean_ex_v2_rich":
@@ -136,15 +140,15 @@ def run(date):
             # meeting, so the provider caches it), the part to cover last.
             u=(head+"\nThe whole meeting transcript, for understanding (numbered lines):\n\n"+"\n".join(lines)+
                f"\n\nYour part is lines {a}-{b}. Only extract items whose substance is in lines {a}-{b}; use the rest of the meeting to understand and complete them (what was asked, answered, corrected or decided before or after).\n\nList every item in lines {a}-{b}.")
-            try: return bt.chat(MODEL,[{"role":"system","content":system},{"role":"user","content":u}],SCHEMA,f"lean-{V}{os.environ.get('RUN_SUFFIX','')}-{date}-{a}",max_tokens=16000,session=f"extract-{TAG}-{date}")["items"]
-            except Exception as e: print(date,a,"failed",e,flush=True); return []
+            try: return bt.chat(MODEL,[{"role":"system","content":system},{"role":"user","content":u}],SCHEMA,f"lean-{V}{os.environ.get('RUN_SUFFIX','')}-{key}-{a}",max_tokens=16000,session=f"extract-{TAG}-{key}")["items"]
+            except Exception as e: print(key,a,"failed",e,flush=True); return []
         lo,hi=ctx_range(a,b)
         ex=[("" if a<=i<=b else "[context] ")+lines[i-1] for i in range(lo,hi+1)]
         u=((head if V!="lean_ex_in" else "")+btext+
            f"\n\nTranscript excerpt. Lines marked [context] come just before or after the part you cover: use them to understand and complete items, but only extract items whose substance is in the unmarked lines {a}-{b}.\n\n"+"\n".join(ex)+
            "\n\nList every item in the unmarked lines.")
-        try: return bt.chat(MODEL,[{"role":"system","content":system},{"role":"user","content":u}],SCHEMA,f"lean-{V}{os.environ.get('RUN_SUFFIX','')}-{date}-{a}",max_tokens=16000,session=f"extract-{TAG}-{date}")["items"]
-        except Exception as e: print(date,a,"failed",e,flush=True); return []
+        try: return bt.chat(MODEL,[{"role":"system","content":system},{"role":"user","content":u}],SCHEMA,f"lean-{V}{os.environ.get('RUN_SUFFIX','')}-{key}-{a}",max_tokens=16000,session=f"extract-{TAG}-{key}")["items"]
+        except Exception as e: print(key,a,"failed",e,flush=True); return []
     # The first segment alone, then the rest: every segment's prompt starts
     # with the same instructions, directory and brief, which the provider
     # serves from its cache (at about a fifth of the price) only once one
@@ -153,7 +157,7 @@ def run(date):
     first=[seg(starts[0])] if os.environ.get("WARM","1")=="1" else []
     with ThreadPoolExecutor(16) as ex: res=first+list(ex.map(seg,starts[len(first):]))
     items=[dict(it,quotes=[]) for r in res for it in r]
-    json.dump({"date":date,"model":MODEL,"variant":V,"items":items},open(f"{OUT}/items-{TAG}-{date}.json","w"),indent=1)
-    print(date,V,"items",len(items),flush=True)
+    json.dump({"date":date,"key":key,"model":MODEL,"variant":V,"items":items},open(outpath,"w"),indent=1)
+    print(key,V,"items",len(items),flush=True)
 if __name__=="__main__":
     with ThreadPoolExecutor(4) as ex: list(ex.map(run,sys.argv[1:] or MEETINGS))

@@ -48,6 +48,9 @@ type KnowledgeOptions struct {
 	// Plan reports what a run would do, and what is on an earlier version,
 	// without extracting, linking or threading.
 	Plan bool
+	// NoThreads stops after linking: threads are made elsewhere (the
+	// benchmark's hosted prototypes, applied with apply_threads.py).
+	NoThreads bool
 }
 
 func (o KnowledgeOptions) redo(stage string) bool {
@@ -495,6 +498,9 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	}
 
 	// 4. Threads or topics.
+	if threads && o.NoThreads {
+		return ks, nil
+	}
 	if threads {
 		return ks, r.thread(ctx, o, linkStamp, rebuildLinks, &ks)
 	}

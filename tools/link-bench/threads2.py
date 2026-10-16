@@ -35,6 +35,17 @@ SKIP_NEW = os.environ.get("SKIP_NEW", "1") == "1"
 INLINE = os.environ.get("INLINE", "1") == "1"
 ASSIGN_MAX = int(os.environ.get("ASSIGN_MAX", "3000"))
 REC_MAX = int(os.environ.get("REC_MAX", "1500"))
+# TRACE=<file.jsonl> records every call (prompt, candidates shown, items
+# placed, effects returned) for the cost measures in costs.py. A rerun with
+# the same settings replays from the call cache at no cost.
+TRACE = os.environ.get("TRACE")
+_trace_lock = __import__("threading").Lock()
+
+
+def trace(rec):
+    if TRACE:
+        with _trace_lock, open(TRACE, "a") as f:
+            f.write(json.dumps(rec) + "\n")
 
 ASSIGN_SYS = """You organise a leadership team's meeting notes into threads, so that later someone can see the current state of any subject.
 
@@ -194,11 +205,14 @@ def main():
             for cap in (ASSIGN_MAX, 2 * ASSIGN_MAX):
                 try:
                     r = bt.chat(MODEL, [{"role": "system", "content": ASSIGN_SYS + (INLINE_SYS if INLINE else "")}, {"role": "user", "content": msg}],
-                                ASSIGN_SCHEMA_INLINE if INLINE else ASSIGN_SCHEMA, f"{RUN}-assign-{m}-{k}", max_tokens=cap)
+                                ASSIGN_SCHEMA_INLINE if INLINE else ASSIGN_SCHEMA, f"{RUN}-assign-{m}-{k}", max_tokens=cap,
+                                session=f"{RUN}-{os.environ.get('CACHE_SALT', '')}-assign")
                     break
                 except (RuntimeError, json.JSONDecodeError) as e:
                     print(f"  assign {m}/{k} at {cap} tokens: {e}", flush=True)
             calls["assign"] += 1
+            trace({"step": "assign", "meeting": m, "k": k, "tag": f"{RUN}-assign-{m}-{k}", "system": ASSIGN_SYS + (INLINE_SYS if INLINE else ""),
+                   "user": msg, "shown": show, "items": [s["id"] for s in part]})
             for retry in range(3):
                 got = {i for g in r.get("groups", []) for i in g.get("ids", [])}
                 missing = [s for s in part if s["id"] not in got]
@@ -209,11 +223,14 @@ def main():
                        "\n".join(line(s) for s in missing) + "\n\nPut every one of these items in a group (by id); new threads continue the n… numbering."
                 try:
                     r2 = bt.chat(MODEL, [{"role": "system", "content": ASSIGN_SYS}, {"role": "user", "content": msg2}], ASSIGN_SCHEMA,
-                                 f"{RUN}-assign-{m}-{k}-retry{retry}", max_tokens=2 * ASSIGN_MAX)
+                                 f"{RUN}-assign-{m}-{k}-retry{retry}", max_tokens=2 * ASSIGN_MAX,
+                                 session=f"{RUN}-{os.environ.get('CACHE_SALT', '')}-assign")
                 except (RuntimeError, json.JSONDecodeError) as e:
                     print(f"  assign retry {m}/{k}: {e}", flush=True)
                     r2 = {}
                 calls["assign retry"] += 1
+                trace({"step": "assign-retry", "meeting": m, "k": k, "tag": f"{RUN}-assign-{m}-{k}-retry{retry}", "system": ASSIGN_SYS,
+                       "user": msg2, "items": [s["id"] for s in missing]})
                 r = {"new_threads": r.get("new_threads", []) + r2.get("new_threads", []), "groups": r.get("groups", []) + r2.get("groups", [])}
             local = {}
             for nt in r.get("new_threads", []):
@@ -241,6 +258,7 @@ def main():
                     if v:
                         t["sum"] = list(v) if t["sum"] is None else [x + y for x, y in zip(t["sum"], v)]
                     touched.setdefault(code, []).append(i)
+            trace({"step": "placed", "meeting": m, "k": k, "member": {i: member[i] for i in ids}})
 
         def rec(code):
             t = threads[code]
@@ -251,10 +269,15 @@ def main():
             # asked again with twice the room, then given up (no effects).
             for cap in (REC_MAX, 2 * REC_MAX):
                 try:
-                    return code, bt.chat(MODEL, [{"role": "system", "content": REC_SYS}, {"role": "user", "content": msg}], REC_SCHEMA,
-                                         f"{RUN}-rec-{m}-{code}", max_tokens=cap)
+                    out = bt.chat(MODEL, [{"role": "system", "content": REC_SYS}, {"role": "user", "content": msg}], REC_SCHEMA,
+                                  f"{RUN}-rec-{m}-{code}", max_tokens=cap, session=f"{RUN}-{os.environ.get('CACHE_SALT', '')}-rec-{m}")
+                    trace({"step": "rec", "meeting": m, "code": code, "tag": f"{RUN}-rec-{m}-{code}", "system": REC_SYS, "user": msg,
+                           "current": len(shown), "new": len(touched[code]), "effects": len(out.get("effects", []))})
+                    return code, out
                 except (RuntimeError, json.JSONDecodeError) as e:
                     print(f"  reconcile {code} at {cap} tokens: {e}", flush=True)
+            trace({"step": "rec", "meeting": m, "code": code, "tag": f"{RUN}-rec-{m}-{code}", "system": REC_SYS, "user": msg,
+                   "current": len(shown), "new": len(touched[code]), "effects": 0, "failed": True})
             return code, {"effects": []}
             if INLINE:
                 inpart = {s["id"] for s in part}
@@ -282,10 +305,17 @@ def main():
         todo = [c for c in touched if needs(c)]
         calls["reconcile skipped"] += len(touched) - len(todo)
         results = {}
+        # One reconcile alone first, so the rest find the shared instructions
+        # in the provider's cache. WARM=0 sends all at once, as before.
+        first = todo[:1] if os.environ.get("WARM", "1") == "1" else []
+        for code, r in map(rec, first):
+            calls["reconcile"] += 1
+            results[code] = r
         with cf.ThreadPoolExecutor(PAR) as ex:
-            for code, r in ex.map(rec, todo):
+            for code, r in ex.map(rec, todo[len(first):]):
                 calls["reconcile"] += 1
                 results[code] = r
+        kept, retired = collections.Counter(), collections.Counter()
         for code in touched:
             t = threads[code]
             new = touched[code]
@@ -310,9 +340,12 @@ def main():
                 if rel is None:
                     continue
                 relations.append({"later": a, "earlier": b, "rel": rel})
+                kept[code] += 1
                 if rel in RETIRE:
                     cur = [i for i in cur if i != b]
+                    retired[code] += 1
             t["current"] = cur
+            trace({"step": "kept", "meeting": m, "code": code, "kept": kept.get(code, 0), "retired": retired.get(code, 0)})
         print(f"{m}: {len(items)} items, {len(threads)} threads, {len(touched)} touched, {len(todo)} reconciled, "
               f"{dict(calls)}, {time.time()-t0:.0f}s, ${bt.spent()-spend0:.3f}", flush=True)
     claim = {s["id"]: s["id"] for s in stm}

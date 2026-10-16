@@ -5,7 +5,7 @@ import os as _os, json as _json
 DATA=_os.environ.get("INSIGHTS_DATA",_os.path.join(_os.path.dirname(_os.path.abspath(__file__)),"..","..","testdata","private","insights-eval","insights"))
 CORPUS=_json.load(open(_os.path.join(DATA,"corpus.json")))
 
-import json,time,subprocess,urllib.request,urllib.error,os,threading
+import json,time,subprocess,urllib.request,urllib.error,os,threading,hashlib
 PRICES={"openai/gpt-oss-120b":(0.1,0.5,0.01),"vertex:gemini-3.8-flash":(0.75,3.75,0.075),"zai-org/GLM-5.3":(1.4,4.4,0.14),"zai-org/GLM-5.3-Flash":(0.15,0.5,0.03),"deepseek-ai/DeepSeek-V4.1-Flash":(0.3,1.2,0.007),"moonshotai/Kimi-K3":(3,15,0.3)}
 LEDGER=os.path.join(DATA,"spend.jsonl")
 CAP=float(os.environ.get("SPEND_CAP","8"))
@@ -21,7 +21,11 @@ def closed(sc):
     elif isinstance(sc,list): sc=[closed(x) for x in sc]
     return sc
 CACHE=os.path.join(DATA,"cache")
-def chat(model,messages,schema,tag,max_tokens=32000):
+# session: calls sharing a prompt start (one meeting's segments, one run's
+# reconciles) send the same x-session-affinity value, so Baseten routes them
+# to one replica and serves the shared start from its cache. Not part of the
+# cache key: it changes routing, not the reply.
+def chat(model,messages,schema,tag,max_tokens=32000,session=None):
     import hashlib
     os.makedirs(CACHE,exist_ok=True)
     # CACHE_SALT reruns the same prompts afresh (to measure run-to-run variance).
@@ -29,13 +33,13 @@ def chat(model,messages,schema,tag,max_tokens=32000):
     cp=os.path.join(CACHE,k+".json")
     if os.path.exists(cp): return json.load(open(cp))
     try:
-        out=_chat(model,messages,schema,tag,max_tokens)
+        out=_chat(model,messages,schema,tag,max_tokens,session)
     except json.JSONDecodeError:
         # one retry on malformed JSON, the same for every model
-        out=_chat(model,messages[:-1]+[{**messages[-1],"content":messages[-1]["content"]+"\n\n(Reply with valid JSON only.)"}],schema,tag,max_tokens)
+        out=_chat(model,messages[:-1]+[{**messages[-1],"content":messages[-1]["content"]+"\n\n(Reply with valid JSON only.)"}],schema,tag,max_tokens,session)
     json.dump(out,open(cp,"w"))
     return out
-def _chat(model,messages,schema,tag,max_tokens):
+def _chat(model,messages,schema,tag,max_tokens,session=None):
     global _key
     if model.startswith("local:"):
         return _local(model,messages,schema,tag,max_tokens)
@@ -56,7 +60,8 @@ def _chat(model,messages,schema,tag,max_tokens):
     for attempt in range(6):
         try:
             resp=urllib.request.urlopen(urllib.request.Request("https://inference.baseten.co/v1/chat/completions",json.dumps(body).encode(),
-                {"Content-Type":"application/json","Authorization":"Bearer "+_key}),timeout=float(os.environ.get("BT_TIMEOUT","120")))
+                {"Content-Type":"application/json","Authorization":"Bearer "+_key,
+                 **({"x-session-affinity":hashlib.sha256(session.encode()).hexdigest()[:32]} if session else {})}),timeout=float(os.environ.get("BT_TIMEOUT","120")))
             parts,finish,usage=[],None,{}
             t1=time.time()
             for raw in resp:

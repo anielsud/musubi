@@ -1,12 +1,23 @@
 # Musubi
 
 A local-first personal knowledge base. It mines meetings (from Tomoe), calendar,
-email, chat and CRM records into a graph of people, accounts, topics, decisions
-and commitments, and will surface it live in a side panel during meetings.
+email, chat and CRM records into people, accounts, threads, decisions and
+commitments, and surfaces them live in a side panel during meetings as
+topic cards.
 
-- Design: [docs/architecture.md](docs/architecture.md)
-- Measuring quality: [docs/evaluation.md](docs/evaluation.md)
-- Findings: [docs/research-log.md](docs/research-log.md)
+Docs:
+- [architecture.md](docs/architecture.md): the design, as built
+- [scaling.md](docs/scaling.md): growth to tens of thousands of meetings,
+  email and chat; how it is measured and made cheaper
+- [topic-cards.md](docs/topic-cards.md): cards in the live panel
+- [insights-direction.md](docs/insights-direction.md): what knowledge to
+  learn and surface
+- Measuring quality: [evaluation.md](docs/evaluation.md) (retrieval, leaks,
+  knowledge cases), [insights-eval.md](docs/insights-eval.md) (extraction),
+  [linking-benchmark.md](docs/linking-benchmark.md) (grouping and links)
+- [local-models-2026-10.md](docs/local-models-2026-10.md),
+  [tomoe-live-feed.md](docs/tomoe-live-feed.md)
+- Findings, dated, with numbers: [research-log.md](docs/research-log.md)
 
 ## Use
 
@@ -36,12 +47,22 @@ bin/musubi stats
 bin/musubi forget <item id>
 bin/musubi ask "what did we decide about X?"
 bin/musubi live --replay <tomoe session id> --speed 20   # print live suggestions and briefs
+bin/musubi knowledge                    # extract, link, and build topics or threads
+bin/musubi card "renewal pricing"       # the card the live panel would show
+bin/musubi topics; bin/musubi topic <id>; bin/musubi claims "pricing"
 make test eval                          # synthetic corpus; fails on any leak
 ```
 
 Config: `~/.config/musubi/config.toml` (owner email and internal domains at
 least). Calendar, mail and chat arrive as JSON envelopes in
 `~/.local/share/musubi/inbox/<source>/` (format in
-`internal/source/mcpdrop`).
+`internal/source/mcpdrop`). `MUSUBI_CONFIG` points the CLI and the app at
+another config, for experiment instances beside the real one.
+
+Knowledge extraction and threading run best on a larger local model
+served by llama.cpp (`brew install llama.cpp`); the measured settings are
+in architecture.md ("Points", "Threads") and docs/local-models-2026-10.md.
+Thread grouping is `[knowledge] grouping = "threads"` with
+`[knowledge.threads.model]` pointing at that server.
 
 Proprietary; all rights reserved. See [NOTICE](NOTICE).

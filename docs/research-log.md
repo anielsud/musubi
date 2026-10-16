@@ -1019,3 +1019,334 @@ There is also one example credited to the wrong person. Next lever: a code check
 - **What:** claim linking and calendar linking shared the global stamp "link", so every `musubi update` made the next `musubi knowledge` rebuild all claims from scratch.
 - **Fix:** the claim stamp is now "claims", and it is recorded before linking, so an interrupted run resumes instead of clearing its progress.
 - **Cost:** it threw away an earlier run's 757 linked statements (90 minutes). The installed app needs a rebuild to pick up the fix.
+
+## 2026-10-14: Topic cards, strict linking, import values
+
+Worked example: one confidential HR programme, raised in a different
+meeting (`docs/topic-cards.md`; real data in
+`testdata/private/`, the programme walkthrough).
+
+**Finding.** The extracted items were good enough for a card, but the live
+panel never read the knowledge layer, and three things hid what was there:
+- belief order (corroboration) put a passing compliment first and a
+  programme lead's dated milestones last ("speculative");
+- the judge called complementary points from the same minute
+  "supersedes", retiring the board target, the bucket status and an
+  owner's commitment;
+- a promise to find out "answered" the question it promised to answer.
+
+**Changes** (each behind a config key that restores the old behaviour):
+- `knowledge.strict_links` (link rules k16): see architecture.md, Claims.
+- `knowledge.import_keep_proposed`: proposed commitments keep their kind;
+  dates and figures read from text into typed values (71 of 1,014 items);
+  the import check accepts the meeting date and known full names
+  (ungrounded 58 → 39; most of the rest are names the extractor spelled
+  from its own knowledge).
+- Sensitivity rules r4: reduction-programme vocabulary ("terminations",
+  "exit names", "headcount reductions"). HR-labelled passages 2 → 5 of 39;
+  the passage with the exit list never uses such words, which needs the
+  model-based classify stage.
+- `live.topic_cards`: topic cards (architecture.md, Topic cards).
+
+**Relink (k16, same model and statements as k15).** 46 min; 979 claims,
+35 joins (unchanged); relations 334 → 341: supersedes 53 → 29, refines
+224 → 252, answers 41 → 38, pending 4, contradicts 15 → 16. On the walkthrough's pairs all
+five same-meeting "supersedes" became "refines" and the promise became
+"pending"; one "answers" the reference calls wrong is unchanged (a hope
+about where savings go, judged to answer whether they may fund hires).
+
+**Card eval** (`testdata/private/card-cases.toml`, 10 cases: the gold card,
+3 paraphrases, a replay date, 3 leak scopes, 2 lookalikes):
+
+| | pass | expected lines found | leaks |
+|---|---|---|---|
+| k15 links, old import | 7/10 | 51% | 0 |
+| k16 links, new import, card fixes | 8/10 | 78% | 0 |
+
+The gold card has 10 of 11 lines; the miss is the linking error above.
+The other failure is a paraphrase ("use the savings to backfill hires")
+whose nearest claim is right but at 0.61, below the 0.66 floor; lowering
+it is untested against lookalikes. A card takes ~30 ms to build and
+appears 6 ms after its term is said on a scripted replay.
+
+**Linking is ungraded on these meetings.** 93% of judge calls return
+"unrelated" at ≈1.00, claims barely merge (35 of 1,014), and the pairwise
+judge has no context; a thread-level reconciliation (one call per topic
+touched per meeting, with the topic's current state) is the alternative to
+benchmark next, on a stratified sample of pairs plus reference thread
+states.
+
+## 2026-10-14 (later): Linking benchmark, baseline
+
+Method: `docs/linking-benchmark.md`. Reference by five Opus sub-agents:
+227 pairs labelled blind (11% low confidence), and 15 subjects across the
+four meetings with 833 member items, 182 updates and 156 near misses.
+
+**Current linker (k16, qwen3:8b per-pair judge):**
+
+| Measure | k15 | k16 |
+|---|---|---|
+| Its supersedes the reference agrees with | 3/29 | 2/29 |
+| Its answers the reference agrees with | 21/38 | 21/38 |
+| Its contradicts the reference agrees with | 3/16 | 3/16 |
+| Its same / refines agreed | 25/35, 33/40 | 25/35, 34/40 |
+| Sampled pairs it wrongly retires (of those to keep current) | 25% | 22% |
+| Reference updates it relates at all | 25% | 26% |
+| Reference updates that retire, retired | 26% | 25% |
+| Reference-current items (after 10-07) it retired | 7.3% | 4.0% |
+| Grouping, B-cubed precision / recall (topics vs subjects) | 0.73 / 0.21 | 0.73 / 0.21 |
+
+(Pairs are stratified, so per-verdict rates describe the verdicts, not the
+corpus.) What the wrong verdicts really were: of 27 wrong supersedes, 10
+were unrelated, 10 the same subject and 6 refinements; of 17 wrong answers,
+14 were replies to a different question on the same subject. Pairs it never
+compared were rarely missed links (2/30): the misses are updates between
+items it did compare and called unrelated or refines, and updates across
+meetings whose items sit in different topics.
+
+**Grouping.** Subjects fragment: a programme or deal holds together (one
+topic holds 71–84%), but a running analysis needs 9–12 topics to hold 80% of
+it, and near misses share a topic with members in 2/9 to 10/15 cases. The
+conference subject and the marketing workstream's brand packs met in one
+topic on the word "events".
+
+**Search and cards** (36 queries over the 15 subjects): top-5 passages
+69% on-subject, claims 85%, card lines 73%; cards show 15% of a subject's
+current items. Paraphrases open the wrong card in 4 of 36 queries (e.g.
+"brand packs" → a CRM-migration topic).
+
+**Card fixes from this:** a catch-all topic (discussion runs covering more
+than 40% of a meeting) hosts nothing; a term spread over topics opens a
+card of the claims that say it, with at least 4 claims, and not when the
+word ends a longer name ("New York").
+
+## 2026-10-14 (later): Linking candidates on the benchmark
+
+Same 1,014 statements, same reference. Pairwise runs relink with a
+different judge; the thread run is `tools/link-bench/threads.py` (assign
+each meeting's items to specific threads, then reconcile each touched
+thread with one call), loaded into a database copy for cards and search.
+
+| | 8B pairwise (k16) | 4B pairwise | 1.7B pairwise | Threads, GLM-5.3-Flash |
+|---|---|---|---|---|
+| Sampled pairs wrongly retired | 22% | 3.5% | 1.5% | **1.0%** |
+| Retiring pairs left current | **21%** | 45% | 86% | 38% |
+| Reference updates related at all | 26% | 20% | 36% | 34% |
+| Retiring updates retired | 25% | 15% | 6% | **38%** |
+| Grouping, B-cubed P / R | 0.73 / 0.21 | 0.73 / 0.21 | 0.21 / 0.81 | **0.93 / 0.48** |
+| Current items wrongly retired | 4.0% | 1.3% | 2.6% | 2.6% |
+| Card lines on subject (36 queries) | 76% | | | **83%** |
+| Time, cost | 46 min local | 31 min local | 21 min local | 15 min, 135 calls, $0.12 |
+
+- **1.7B** calls most pairs "same": 243 claims, 23 topics. Unusable.
+- **4B** is a better pairwise judge than 8B on what hurts most (false
+  retires 22% → 3.5%) at two thirds of the time, but finds fewer updates.
+- **Threads** keep subjects together (precision 0.93, recall 0.48 against
+  0.73 / 0.21), almost never hide a live item, and retire half again as
+  many real updates. Conference anecdotes split by what they were about
+  (partnership, event presence, positioning), and brand packs sit in the
+  marketing programme. Paraphrased card lookups that went wrong mostly go
+  right ("brand packs", "credits in the order form", "Q4 pipeline goal",
+  "Mark credit consumption"). Still weak: 38% of retiring updates are
+  missed; items raised during a subject's discussion but not naming it
+  (a sensitivity cue about an offshore team) land elsewhere, so the programme card has 7 of 11
+  expected lines (11 of 11 with topics plus companions); a one-meeting deep
+  dive looks like a catch-all to the card index, so a product name opens the
+  wrong card.
+- First thread run: the assign step's output collapsed on 6 of 16 chunks
+  (no or few assignments), leaving 36% of items unthreaded. Asking again
+  for the missing items fixed it (987 of 1,014 assigned).
+- Card index: requiring two meetings of wide coverage before a topic counts
+  as a catch-all cost 13 points of on-subject card lines on k16 and 9 on
+  threads; the share cap for common terms made no difference.
+
+**Direction:** grouping and update tracking move to the thread level; the
+pairwise judge stays only for near-duplicate joins, if at all. Next: the
+assign step should see each item's neighbours (to keep discussion
+companions with their subject), reconcile should run with the local
+Qwen3.8-27B for comparison, and the card index should anchor on threads
+instead of inferring companions.
+
+## 2026-10-14 (night): Threads in Go, on the local 27B
+
+`knowledge.grouping = "threads"` (architecture.md, Threads) ported from the
+prototype, run on Qwen3.8-27B (llama-server, 8 slots) over the four ELT
+meetings: 68 min, 106 calls, 68 threads, 978 of 1,014 statements threaded.
+
+- **Decoding loops.** At temperature 0 the 27B looped on reconcile replies
+  to the 16k-token cap (20 min a call, `finish: length`). Qwen's
+  non-thinking sampling (0.7 / 0.8 / 20) with caps of 6k (assign) and 3k
+  (reconcile) tokens stopped it; a cut-off reply is retried once.
+- **GPU contention.** An earlier attempt crawled at 0.9 tokens/s while
+  Ollama sweep runs shared the GPU; alone it runs at 23–27 tokens/s with a
+  JSON schema.
+- **Relation rules.** The 27B called 84 pairs "completes", 70 of them on
+  views and facts. Rules measured per kind on both thread runs:
+
+  | Rule | GLM: dropped / real | 27B: dropped / real |
+  |---|---|---|
+  | completes only a commitment or decision | 2 / 1 | 70 / 5 |
+  | completes not in the meeting that made it | 5 / 0 | 11 / 0 |
+  | in-meeting supersedes needs a spoken correction | 18 / 5 | 27 / 3 |
+  | answers only a question (not kept) | 8 / 4 | 5 / 2 |
+
+  Kept the first three (`threadRule`, threads version t2).
+
+| | 8B pairwise (k16) | Threads, GLM-Flash, rules | Threads, Go, 27B, rules |
+|---|---|---|---|
+| Sampled pairs wrongly retired | 22% | 0.5% | 2.0% |
+| Retiring updates retired | 25% | 32% | 25% |
+| Reference updates related at all | 26% | 30% | 19% |
+| Grouping, B-cubed P / R | 0.73 / 0.21 | 0.93 / 0.48 | 0.94 / 0.43 |
+| Current items wrongly retired | 4.0% | 1.3% | 4.0% |
+| Card lines on subject (36 queries) | 75% | 83% | 78% |
+| Card cases (corrected), pass / line recall | 9/10, 0.80 | 8/10, 0.73 | 8/10, 0.73 |
+| Time | 46 min | 15 min, $0.12 | 68 min, local |
+
+Local threads keep the grouping gain and the low false-retire rate, and
+cards are better on the broad queries; they find fewer updates than the
+hosted model, and the hand-written programme card loses the items raised
+during its discussion that the threader put elsewhere (with topics, the
+card index pulled them in as companions). Cards show about 15% of a
+subject's current items in every setup: the section caps, not grouping,
+limit that.
+
+## 2026-10-15/16: Lean threading on hosted GLM-5.3-Flash
+
+Cost cuts to the thread design (`tools/link-bench/threads2.py`, "lean"):
+grouped assign output with thread codes; reconcile returns only effects,
+with the current list kept in code under `threadRule`; candidate threads
+per assign call (40 nearest by embedding, 15 recently active, and those
+born this meeting); at most 25 current items per reconcile; and no
+reconcile for threads born this meeting. Two new benchmark tiers for
+iteration: a synthetic set (250 invented items, 12 threads, 142 pairs,
+planted failures; `testdata/synthetic/link-bench/`) and a real subset (395
+items, 6 threads, 77 pairs).
+
+**Synthetic set** (GLM-5.3-Flash; original design with the relation rules
+applied afterwards):
+
+| | Original | Lean | Lean, low reasoning |
+|---|---|---|---|
+| Grouping, B-cubed P / R | 0.96 / 0.82 | 0.97 / 0.84 | 0.96 / 0.84 |
+| Live items wrongly retired (pairs) | 0% | 1.1% | 1.1% |
+| Retiring updates retired | 69% | 65% | 55% |
+| Calls | 116 | 83 | 75 |
+| Cost | $0.034 | $0.027 | $0.015 |
+| Output tokens (of them reasoning) | 42.6k (33.4k) | 32.2k (26.1k) | 10.5k (5.1k) |
+
+- **Reasoning is most of GLM's output** (about 80%), so a compact answer
+  format cuts cost less than call counts suggest. Low reasoning effort
+  halves the cost and keeps grouping, but retires fewer real updates.
+- **Skipping reconcile for new threads failed on real data.** On the full
+  set it retired 7% of the reference's retiring updates (original: 32%).
+  64% of the real reference's updates are within one meeting (answers 49,
+  contradicts 35, corrections 12, of 182); on the synthetic set only 20%
+  are, which is why it looked harmless there. The synthetic set
+  under-represents in-meeting updates.
+- **Next try:** the assign call also reports effects among the items it
+  is grouping (same meeting), and reconcile runs only for threads with
+  history.
+
+**Hosted GLM failures, fixed in `tools/insights-eval/bt.py`:**
+- Non-streamed replies that take a while to generate hung for 5–30 min
+  (or never returned); the same requests streamed in seconds. Replies now
+  stream (`BT_TIMEOUT` is the wait per chunk).
+- Some replies looped in reasoning at about 2 tokens/s until the token
+  cap; a reply still streaming after `BT_WALL` (180 s) is abandoned and
+  asked again. Calls cut off at the cap are retried with twice the room.
+
+**Inline effects failed.** Asked to report effects among the items it is
+grouping, the assign call returned almost none on real data (3 relations;
+0 of the real subset's 66 reference updates). It looked fine on the
+synthetic set (65% of retiring updates retired, no false retires, $0.030),
+which again under-represents in-meeting updates. Updates are found by the
+per-thread reconcile call; the cost cuts must keep it.
+
+**A hand-picked real subset misleads.** The original design run on the
+subset alone (the members and near misses of 6 subjects) found 15% of
+those subjects' updates; the same design run on all items found 29% of the
+same updates. Taking the surrounding items away changes what the model
+does. A small real tier must be whole meetings.
+
+Costs here are from the spend ledger per run tag; the scripts' printed
+"$" is the change in total spend and includes concurrent runs.
+
+**Lean with every touched thread reconciled** (compact outputs, candidate
+threads, capped state; full real set, two runs each to see the noise):
+
+| | Original + rules | Lean |
+|---|---|---|
+| Grouping precision | 0.93, 0.95 | 0.87, 0.86 |
+| Grouping recall | 0.48, 0.46 | 0.51, 0.53 |
+| Retiring updates retired | 32%, 24% | 35%, 30% |
+| Updates related at all | 30%, 20% | 28%, 24% |
+| Live items wrongly retired (pairs) | 0.5%, 1.0% | 2.5%, 1.5% |
+| Current items wrongly retired | 1.3%, 0.7% | 2.0%, 1.3% |
+| Threads | 88, 99 | 59, 61 |
+| Cost (ledger) | $0.152, $0.125 | $0.093, $0.092 |
+
+- **Run-to-run noise is 5–10 points** on the update measures at the hosted
+  default temperature (0.7); single runs can't separate designs that
+  close. Grouping precision and thread count differ consistently.
+- Lean is 30–40% cheaper and update tracking is the same within noise;
+  it groups more broadly (a few umbrella threads, one of 65 items), not by
+  merging lookalikes: near misses sharing a member's thread are 42 and 50
+  of 153, against 51 and 36.
+- Reasoning is 85–90% of GLM's output in both designs.
+
+**Flat prompts over a long history.** A 20-meeting replay (the four
+meetings five times, four weeks apart): assign prompts stayed at 7.6–8.3k
+tokens and reconcile prompts at 1.8–2.4k across 13 meetings, while the
+original's assign prompt grew from 5.2k to 10.2k in four. The thread count
+levelled at about 64 (the replay repeats its subjects, which were reused
+rather than duplicated).
+
+**Two more variants** (full real set, one run each; read against the noise
+above):
+
+| | Lean | + "same specific subject" wording | + wording, low-reasoning assign |
+|---|---|---|---|
+| Grouping precision / recall | 0.87 / 0.51, 0.86 / 0.53 | 0.86 / 0.49 | 0.87 / 0.53 |
+| Retiring updates retired | 35%, 30% | 29% | 33% |
+| Live items wrongly retired | 2.5%, 1.5% | 1.0% | 1.5% |
+| Threads | 59, 61 | 68 | 56 |
+| Cost | $0.093, $0.092 | $0.102 | **$0.074** |
+
+- The wording didn't raise grouping precision: dropped.
+- Low reasoning for assign calls only (reconcile keeps the default) cost
+  20% less with no measurable loss: assign reasoning tokens halved. Reconcile
+  is now two thirds of the cost, 94% of it reasoning. Low reasoning for
+  reconcile lost real updates on the synthetic set, so it stays.
+- **Lean against the original:** $0.074 against $0.125–0.152 per four
+  meetings (about half), about 2.5 cents per ELT-length meeting over a long
+  history, update tracking the same within noise, grouping precision 0.87
+  against 0.93–0.95.
+
+**Ported to Go** (`internal/knowledge/threads.go`, ThreadsVersion t3):
+codes and groups in assign replies; candidate threads (40 nearest by the
+statement vectors' thread centroids, 15 active in the last three weeks,
+those born this item); effects-only reconcile for every touched thread,
+the current list kept in code under `threadRule`; 25 current statements
+per reconcile. Config `knowledge.threads.candidates` / `state_cap`.
+
+**Lean Go threads on the local 27B** (four meetings, llama-server, 8 slots):
+
+| | Threads t2 | Lean t3 |
+|---|---|---|
+| Time | 68 min | **34 min** |
+| Grouping, B-cubed P / R | 0.94 / 0.43 | 0.90 / 0.43 |
+| Retiring updates retired | 25% | 21% |
+| Live items wrongly retired (pairs) | 2.0% | 1.5% |
+| Current items wrongly retired | 4.0% | 3.3% |
+| Card lines on subject (36 queries) | 78% | 78% → **84%** with phrase lookup |
+
+Per meeting: 8, 4.5, 11.5 and 10 min (was 17, 13, 20 and 17). The update
+measures are within the run-to-run noise.
+
+**Phrase lookup for cards.** A short query ("brand packs") embeds poorly;
+its nearest-claims vote opened another thread's card although the item was
+in the right thread. When the query's words (2–5 content words) appear
+verbatim in at most 12 claims, most of them in one thread, that thread's
+card opens. On-subject card lines 78% → 84% on the lean threads; 75% on
+topics, unchanged.

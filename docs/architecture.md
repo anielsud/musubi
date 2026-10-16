@@ -10,12 +10,22 @@ sources, and serves that knowledge two ways:
 - **Explore:** a graph, timeline, topic map and trend view across time, people,
   business area, customer and topic.
 
-Status (2026-10-09): the first milestone is built: Tomoe and inbox ingest,
-calendar linking, classify / chunk / embed / resolve, scoped search and
-graph from the CLI, and the eval harness ([evaluation.md](evaluation.md)).
-The desktop app (2026-10-10) adds the live lane, Q&A and an explorer; see
-"Desktop app" below. Facts, topics and trends are still design. Findings:
-[research-log.md](research-log.md).
+Status (2026-10-16):
+- **Built:**
+  - ingest (Tomoe sessions, inbox drops) and calendar linking;
+  - classify / chunk / embed / resolve, with scoped search and graph;
+  - the knowledge layer: statements or points, claims and belief, topics,
+    and threads as the alternative grouping;
+  - topic cards in the live panel;
+  - the desktop app (live lane, Q&A, explorer);
+  - eval harnesses for retrieval and leaks, knowledge, extraction
+    ([insights-eval.md](insights-eval.md)) and linking
+    ([linking-benchmark.md](linking-benchmark.md)).
+- **Design only:** trends, signals, email and chat connectors (beyond inbox
+  drops), and everything in [scaling.md](scaling.md) past today's
+  measurements.
+
+Findings: [research-log.md](research-log.md).
 
 ## Principles
 
@@ -155,7 +165,15 @@ cold lane like any other source.
   aren't about the topic and the brief is dropped. The title comes from the
   calendar event under way. When Tomoe saves the meeting, Musubi ingests it.
   A replay mode plays a saved meeting through the same path for testing.
+- **Topic cards** (`live.topic_cards`): when a line says a topic's trigger
+  term, or a lookup's nearest claims are on a topic, the panel shows that
+  topic's card (see "Topic cards" below), rebuilt under the current scope
+  whenever the scope changes. A replay sees only what was known when the
+  replayed meeting happened.
 - **Screen-safe**: a toggle switches the panel's scope to `shared-screen`.
+  Detecting the owner's own screen share is not built (Tomoe can see a
+  meeting app's sharing state but doesn't send it); restricted and HR cards
+  are collapsed to their title meanwhile.
 - **Ask** (`internal/ask`): scoped hybrid retrieval, then the local model
   answers citing excerpts; citations open the source under the same scope.
 - **Explore**: passage search, entity lookup, and a radial "threads" graph of
@@ -282,7 +300,13 @@ statements:
   and half-lives;
 - **keeping them:** `knowledge.extract = "none"` stops Musubi's own
   extraction, so imported statements are kept and only embedding,
-  linking and topics run.
+  linking and topics run;
+- **proposed plans** (`knowledge.import_keep_proposed`): a proposed
+  decision or commitment keeps its kind with status `proposed` instead of
+  becoming an opinion; dates and figures are read from the text into typed
+  values (`DatesIn` reads "October 1st", "two weeks after that", "end of
+  the year"); and the check accepts the meeting's own date and known
+  people's full names, which extractors write without them being said.
 
 Experiment instances run beside the real one: `MUSUBI_CONFIG` points the
 CLI and the app at another config, and so at another data directory.
@@ -312,6 +336,15 @@ they were made:
    = "json"` restores the earlier judge, which wrote verdicts for three
    candidates at once.)
 4. Otherwise the statement starts a new claim.
+
+With `knowledge.strict_links` (the default), three more rules stop
+linking from retiring items that are still live:
+- within one meeting, "supersedes" needs a spoken correction ("actually",
+  "correcting", "revised"); otherwise it is "refines" (a status and the
+  walk-through of it are complementary, said in the same minute);
+- one owner's commitment never supersedes or refines another owner's;
+- a commitment to find out doesn't answer a question: it is "pending", and
+  the question stays open.
 
 Claims are cheap to rebuild from stored statements, so when the linking
 rules, model, `min_worth` or worth scorer change, the next run clears them
@@ -394,7 +427,107 @@ clustering, so those become separate, linked topics.
 5. Each rebuild records lifecycle events: born, grew, shrank, merged, split,
    absorbed, dissolved.
 
+### Threads (`knowledge.grouping = "threads"`)
+
+The alternative to pairwise linking and clustering, chosen by the linking
+benchmark ([linking-benchmark.md](linking-benchmark.md)): grouping
+precision 0.86–0.95 against 0.73, recall 0.43–0.53 against 0.21, and 0.5–2.5%
+of live items wrongly retired against 22%. Items are threaded one at a time,
+oldest first, with a local model (`knowledge.threads.model`; it reads
+meeting text, so a hosted model is refused):
+
+1. **Assign.** The item's statements, 70 at a time (`threads.chunk`), with
+   a list of candidate threads: the 40 nearest by embedding
+   (`threads.candidates`; a thread's centroid is the mean of its members'
+   statement vectors), the 15 most recently active (within three weeks),
+   and those born while threading this item, each with its latest current
+   statement. The model puts each statement in one or two specific threads
+   (an initiative, deal, programme, metric, issue or event; never a broad
+   theme), in a new thread it names, or in none (logistics, small talk). It
+   replies with groups of ids per thread code (`T12`, or `n1` for a new
+   one), not one entry per item. A reply that leaves items out is asked
+   again for them.
+2. **Reconcile.** For every thread the item touched, one call with up to
+   25 of the thread's current statements (`threads.state_cap`, latest
+   first) and its new ones. The reply lists only effects: which new
+   statement supersedes, corrects, completes, answers or contradicts which
+   earlier one, promises to find out (pending), or repeats it (same).
+   Code keeps the current list: the previous one plus the new statements,
+   less those retired.
+3. **Rules in code** (`threadRule`): "corrects" is stored as "supersedes";
+   "completes" applies only to a commitment or decision from an earlier
+   item; an in-meeting "supersedes" needs a spoken correction. Measured on
+   the local 27B, these removed mostly wrong relations (it had called 84
+   pairs "completes", 70 of them on views and facts).
+
+The candidate list and the state cap keep a meeting's cost flat however
+long the history: over a 20-meeting replay the prompts stayed at 7.6–8.3k
+(assign) and 1.8–2.4k (reconcile) tokens. Skipping reconcile for threads
+born in the meeting, or asking assign for the effects, both failed: 64% of
+real updates are within one meeting.
+
+Storage: threads are rows of `topics` (name and scope as label and
+summary), so Explore and cards read them as topics. `thread_items` holds
+membership (a statement can be in two threads) and which statements are
+current; `thread_runs` which items are done under which rules. Relations
+are claim relations. In thread mode the pairwise judge is off: only
+near-identical statements join a claim, and linking takes seconds. A
+thread is as sensitive as the statements it was named from. A change of
+prompts (`ThreadsVersion`), model or link rules rethreads everything.
+
+Model settings: Qwen's non-thinking sampling (temperature 0.7, top-p 0.8,
+top-k 20) and token caps of 6k (assign) and 3k (reconcile). At temperature
+0 the local 27B looped to 16k tokens on long JSON replies. On the M5 Pro
+four ELT meetings take 34 minutes (8 parallel slots).
+
+### Topic cards (`knowledge.CardIndex`, `Views.Card`)
+
+What someone needs about a subject at the moment it comes up
+(`docs/topic-cards.md`). Built from claims, with no model at read time
+(~30 ms), so it fits the live panel's fast lane.
+
+- **Index**, learned from the knowledge layer and rebuilt with it:
+  - trigger terms: capitalised words that most of their claims' topic
+    uses and other topics mostly don't. Words also written in lower case
+    are ordinary words; names (directory aliases, transcript speakers,
+    words seen as the one who "said" or "asked", one letter off a known
+    name) are people, not terms;
+  - companions: small topics raised during a topic's discussion (most of
+    their statements fall between two of the topic's, within 10 minutes,
+    in the same meeting), or using its terms. A companion's host is the
+    topic whose card it appears on;
+  - catch-alls: a topic whose discussion runs cover more than 40% of a
+    meeting hosts no companions and anchors no term;
+  - term cards: a term whose claims are spread over topics (an event people
+    tell stories from) opens a card of the claims that say it, with at
+    least 4 claims, unless the word usually ends a longer name ("New
+    York");
+  - lookup order: a trigger term in the text; else the query's words (2–5
+    content words) found verbatim in at most 12 claims, most of them in one
+    topic; else the query's embedding against claim centroids, where the
+    topic of most of the nearest six wins if the nearest is ≥ 0.66. Short
+    queries embed poorly, so exact words come first.
+- **In thread mode** a topic is a thread: its card holds the thread's
+  members (including those it shares with another thread) and shows only
+  the ones the thread marks current; no companions are inferred.
+- **Card**, read under a scope, as of a time: the topic's and its
+  companions' visible claims, minus superseded, disproven and answered
+  ones and lines about running the meeting; placed in sections (Watch,
+  Now, Due, Yours, Open, Rules) and ranked by salience: kind, a figure,
+  a date, recency (45-day half-life), grounding; reported views ("X
+  thinks") rank below state. Commitments show when they fall due. The
+  card's label is the narrowest of its lines; restricted, HR, pay,
+  health, legal or personal cards are collapsed to their title.
+- `musubi card <words>` prints the card the panel would show; `--at`
+  replays a date; `--terms` lists what the index learned. Eval cases of
+  kind `card` check lines by section, lines that must stay off, collapse,
+  and that scopes which mustn't see a card get none.
+
 ### Cost and scale
+
+Growth from today's four benchmark meetings to tens of thousands, email and
+chat: what breaks first, how it is measured, and the order of work is in
+[scaling.md](scaling.md). The design rules below still hold.
 
 The final corpus is much larger than today's:
 - meetings back to late last year;
@@ -443,7 +576,8 @@ stay cheap.
 - **Topics at scale.** Full average-link clustering is O(n²). It is fine to
   roughly 20,000 claims; past that, claims are assigned incrementally to
   their nearest topic, and re-clustered within organisation and project
-  partitions.
+  partitions. Threads avoid the problem by design: each item is placed as
+  it arrives.
 
 ### Sensitivity in the knowledge layer
 
@@ -470,7 +604,13 @@ Synthetic scenarios (each with leak checks):
 Case kinds:
 - `statement`: kind, holder and text extracted from a passage;
 - `claim`: status, relation and evidence count under a scope;
-- `topic`: claims grouped together.
+- `topic`: claims grouped together;
+- `card`: the card a query opens, its lines by section, lines that must
+  stay off, collapse, and no card in scopes that mustn't see it.
+
+Grouping and linking quality (groups, relations, current state, search and
+cards per subject) is measured by the linking benchmark, outside the eval
+harness: [linking-benchmark.md](linking-benchmark.md).
 
 CI replays recorded model replies and embeddings (`testdata/synthetic/llm-cache/`);
 `make eval-record` re-records them locally when prompts change. Model quality
@@ -590,7 +730,7 @@ outside the company is included.
 |---|---|
 | Owner explores alone | everything, with labels shown |
 | Side panel, normal | everything, with cards marked when other attendees weren't party to the source |
-| Side panel, screen shared | `internal` and below, no categories; Tomoe already detects sharing windows |
+| Side panel, screen shared | `internal` and below, no categories; set by the screen-safe toggle |
 | Drafted reply to X | items where X is in the audience, plus uncategorised `internal` (X an employee) or `public` (X external); never `personal` |
 | Sending text to a cloud provider | the per-source egress policy, e.g. no email to cloud |
 
@@ -625,29 +765,37 @@ Findings go in `docs/` research notes, dated, with the numbers.
 
 ## Packages
 
-As built, with names that differ from the plan: per-item stages live in
-`internal/stages`; resolution and mentions are one stage (`resolve`).
-
-
 ```
-cmd/musubi/          CLI: ingest, process, search, ask, graph, trends, replay, forget
-cmd/musubi-gui/      Wails app: side panel and explorer (later)
+cmd/musubi/            CLI: update, search, ask, graph, show, stats, forget, knowledge,
+                       claims, topics, topic, card, judge, gate, import-items, live, eval, version
+cmd/musubi-gui/        Wails app (frontend embedded from frontend/dist)
 internal/
-  config/            TOML config over defaults
-  source/            connector interface; tomoe/, calendar/, mcpdrop/, graph/
-  raw/               immutable blob store and manifest
-  item/              item shape and per-source translators
-  pipeline/          stage runner, job queue, version stamping
-  stages/            classify, chunk, embed, mentions, resolve, facts, edges
-  sensitivity/       labels, rules, propagation, scopes
-  registry/          people, accounts, org (reference lists for resolution)
-  store/             SQLite schema, migrations, FTS, vectors, graph queries
-  analysis/          topics, trends, signals, centrality
-  live/              Tomoe stream client, spotter, card ranking
-  provider/          embedder and LLM interfaces; local and Claude
-  replay/, eval/     scoring against private references
-frontend/            React + TypeScript (later)
-testdata/private/    real data and references, gitignored
+  config/              TOML config over defaults
+  source/              connectors: tomoe/, mcpdrop/ (inbox drops)
+  raw/                 immutable blob store and manifest
+  item/                item shape and per-source translators
+  pipeline/            stage runner, version stamps, the knowledge run (extract, link,
+                       topics or threads)
+  stages/              classify, chunk, embed, resolve (mentions included)
+  sensitivity/         labels, rules, scopes
+  registry/            people and organisations for resolution
+  store/               SQLite schema, scoped reads, FTS, vectors, graph, knowledge,
+                       cards and threads tables
+  knowledge/           statements, points, imports, values, linking, belief, topics,
+                       threads, card index and cards
+  engine/              opens the store and providers; search; card lookup
+  ask/                 Q&A over scoped retrieval
+  live/                Tomoe feed, replay, suggestions, briefs, topic cards
+  provider/            embedders and chat models (Ollama, OpenAI-compatible), decider,
+                       recorded-reply cache
+  eval/                case harness (search, leak, classify, resolve, graph,
+                       knowledge, card)
+  gui/                 Wails backend
+frontend/              React + TypeScript
+tools/insights-eval/   extraction benchmark scripts (hosted and local models)
+tools/link-bench/      linking benchmark: export, scorer, retrieval, thread prototypes
+testdata/synthetic/    invented corpora and cases (committed)
+testdata/private/      real data and references, gitignored
 ```
 
 ## First milestone

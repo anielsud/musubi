@@ -37,6 +37,22 @@ python3 prep_judge.py glmf-v2 GLM-5.3-Flash-lean_ex_v2
 EFFORT=low GRADER=vertex:gemini-3.8-flash python3 grade.py glmf-v2
 ```
 
+`bt.py` environment:
+- `SPEND_CAP` (dollars, default 8): refuse hosted calls past this total in
+  the ledger;
+- `TEMP`, `EFFORT`: sampling temperature and reasoning effort (part of the
+  cache key);
+- `CACHE_SALT`: rerun the same prompts afresh (to measure variance);
+- `BT_TIMEOUT` (s, per streamed chunk) and `BT_WALL` (s, per reply, 180):
+  hosted replies stream, and one still streaming after `BT_WALL` is a
+  reasoning loop and is asked again;
+- `LOCAL_URL`, `LOCAL_SAMPLE=1` (Qwen's non-thinking sampling for
+  `local:` models; greedy decoding loops on long JSON), `THINK=1`.
+
+Every hosted call is logged to `spend.jsonl` with its tag, tokens
+(including reasoning) and dollars; per-run cost is the sum over a run's
+tags.
+
 Keys:
 - Baseten: macOS keychain service `baseten-api-key`.
 - Vertex: application-default credentials

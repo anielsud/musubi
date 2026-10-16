@@ -12,6 +12,13 @@ go in [research-log.md](research-log.md).
 | `classify` | Is a passage labelled at the right level and categories? | exact match; **under-labelled** count | synthetic: exact |
 | `resolve` | Does a mention resolve to the right person/org, or stay ambiguous? | exact match | synthetic: exact |
 | `graph` | Are an entity's neighbours right, and nothing hidden shown? | expected/forbidden neighbours and items; visibility | synthetic: exact |
+| `statement`, `claim`, `topic` | Is knowledge extracted, linked and grouped as expected? | per case | synthetic: tracked (two known failures, KC01 and KC04) |
+| `card` | Does the query open the right card, with the right lines, collapsed when it should be, and nothing in scopes that mustn't see it? | lines found by section; lines that must stay off; recall | private: tracked; leaks: zero |
+
+Two benchmarks live outside this harness because they need hosted or
+large local models and a reference built by stronger models:
+extraction ([insights-eval.md](insights-eval.md)) and grouping and linking
+([linking-benchmark.md](linking-benchmark.md)).
 
 Under-labelling (got a lower level than expected, or missing a category) is
 reported separately from over-labelling because it is the error that leaks.

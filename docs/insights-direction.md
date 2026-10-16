@@ -103,4 +103,10 @@ assembled from meetings rather than a catalogue:
 
 1. (Moved to Tomoe) speaker attribution.
 2. Extract the kinds above, linked across weeks, with use-when cues.
+   Status (2026-10-16): extraction of all kinds measured and chosen
+   (insights-eval.md); linking across weeks is now threads
+   (linking-benchmark.md); use-when cues are not extracted yet (the lean
+   prompt dropped them to save tokens; tags from clustering are the
+   alternative).
 3. Review by hand against the reference analysis before any backfill.
+4. Grow without losing coherence or economy: scaling.md.

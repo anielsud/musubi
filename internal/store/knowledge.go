@@ -213,12 +213,17 @@ type ClaimRow struct {
 	Holder   string
 	SaidAt   time.Time
 	Value    Value
+	// Items are the items its statements come from; Who the people its
+	// statements belong to (points and imports only). The linker's rules
+	// use them: a same-meeting "newer version" is usually a refinement.
+	Items map[string]bool
+	Who   []string
 }
 
 // Claims loads every claim with its members, for linking and clustering.
 func (s *Store) Claims() ([]ClaimRow, error) {
 	rows, err := s.db.Query(`SELECT c.id, c.kind, c.centroid, sc.statement_id, st.text, st.holder, st.said_at,
-		st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok
+		st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, st.item_id, st.who
 		FROM claims c JOIN statement_claims sc ON sc.claim_id = c.id JOIN statements st ON st.id = sc.statement_id
 		ORDER BY c.id, st.said_at, st.id`)
 	if err != nil {
@@ -228,15 +233,22 @@ func (s *Store) Claims() ([]ClaimRow, error) {
 	var out []ClaimRow
 	for rows.Next() {
 		var id, sid, said int64
-		var kind, text, holder string
+		var kind, text, holder, itemID, who string
 		var cen []byte
 		var v Value
-		rows.Scan(&id, &kind, &cen, &sid, &text, &holder, &said, &v.Type, &v.Raw, &v.Lo, &v.Hi, &v.Normalized)
+		rows.Scan(&id, &kind, &cen, &sid, &text, &holder, &said, &v.Type, &v.Raw, &v.Lo, &v.Hi, &v.Normalized, &itemID, &who)
 		if len(out) == 0 || out[len(out)-1].ID != id {
-			out = append(out, ClaimRow{ID: id, Kind: kind, Centroid: decodeVec(cen), Text: text, Holder: holder, SaidAt: time.Unix(said, 0), Value: v})
+			out = append(out, ClaimRow{ID: id, Kind: kind, Centroid: decodeVec(cen), Text: text, Holder: holder, SaidAt: time.Unix(said, 0), Value: v, Items: map[string]bool{}})
 		}
 		c := &out[len(out)-1]
 		c.Members = append(c.Members, sid)
+		c.Items[itemID] = true
+		if who != "" {
+			var ws []string
+			if json.Unmarshal([]byte(who), &ws) == nil {
+				c.Who = append(c.Who, ws...)
+			}
+		}
 	}
 	return out, rows.Err()
 }

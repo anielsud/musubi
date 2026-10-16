@@ -35,7 +35,13 @@ var ImportKinds = map[string]bool{
 // proposed decision or commitment and an answered question are re-kinded,
 // as for points. Items with an unknown kind or no line in the meeting are
 // skipped and counted.
-func (m *Meeting) ImportStatements(items []Imported, itemStart time.Time, holderID func(string) string, labels map[int]sensitivity.Label) ([]store.Statement, int) {
+//
+// keepProposed keeps a proposed decision or commitment as its kind, with
+// status "proposed" saying how settled it is, rather than re-kinding it
+// "opinion": a programme lead's proposed milestones are commitments in all
+// but name, and as opinions they sank to the bottom of every list. Typed
+// values (dates, figures) are read from the text.
+func (m *Meeting) ImportStatements(items []Imported, itemStart time.Time, holderID func(string) string, labels map[int]sensitivity.Label, keepProposed bool) ([]store.Statement, int) {
 	var pts []Point
 	skipped := 0
 	for _, it := range items {
@@ -64,10 +70,15 @@ func (m *Meeting) ImportStatements(items []Imported, itemStart time.Time, holder
 	out := make([]store.Statement, 0, len(pts))
 	for _, p := range pts {
 		st := m.PointStatement(p, itemStart, holderID, labels)
-		switch p.Kind {
-		case "decision", "commitment", "question", "issue":
+		switch {
+		case keepProposed && (p.Kind == "decision" || p.Kind == "commitment") && p.Status == "proposed":
+			st.Kind = p.Kind
+		case p.Kind == "decision", p.Kind == "commitment", p.Kind == "question", p.Kind == "issue":
 		default:
 			st.Kind = p.Kind
+		}
+		if keepProposed {
+			st.Value = ValueFromText(st.Kind, st.Text, st.SaidAt)
 		}
 		out = append(out, st)
 	}

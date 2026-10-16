@@ -48,7 +48,7 @@ func root() *cobra.Command {
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
 	r.AddCommand(importItemsCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), liveCmd(),
-		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), judgeCmd())
+		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd())
 	return r
 }
 
@@ -466,7 +466,10 @@ the cases. Exits non-zero on any leak.`,
 					name = e.Model()
 				}
 				fmt.Printf("=== %s ===\n", name)
-				h := &eval.Harness{Store: st, Embedder: e, Modes: ms, InternalDomains: cfg.Owner.InternalDomains}
+				h := &eval.Harness{Store: st, Embedder: e, Modes: ms, InternalDomains: cfg.Owner.InternalDomains, OwnerName: cfg.Owner.Name}
+				if cfg.Owner.Email != "" {
+					h.OwnerID = "person:" + strings.ToLower(cfg.Owner.Email)
+				}
 				if !withKnowledge {
 					suite = withoutKnowledge(suite)
 				}
@@ -649,7 +652,7 @@ func withoutKnowledge(s *eval.Suite) *eval.Suite {
 	out := *s
 	out.Cases = nil
 	for _, c := range s.Cases {
-		if c.Kind != "statement" && c.Kind != "claim" && c.Kind != "topic" {
+		if c.Kind != "statement" && c.Kind != "claim" && c.Kind != "topic" && c.Kind != "card" {
 			out.Cases = append(out.Cases, c)
 		}
 	}

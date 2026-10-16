@@ -58,6 +58,8 @@ type Belief struct {
 	Last         time.Time      `json:"last"`
 	SupersededBy []int64        `json:"supersededBy,omitempty"`
 	AnsweredBy   []int64        `json:"answeredBy,omitempty"`
+	PendingBy    []int64        `json:"pendingBy,omitempty"` // promises to find out
+	CompletedBy  []int64        `json:"completedBy,omitempty"`
 	Verdict      string         `json:"verdict,omitempty"`
 	Why          string         `json:"why"`
 	Parts        []Contribution `json:"parts"`
@@ -154,6 +156,10 @@ func Compute(e *store.ClaimEvidence, now time.Time) Belief {
 			b.SupersededBy = append(b.SupersededBy, r.From)
 		case r.Rel == "answers" && r.To == e.ClaimID:
 			b.AnsweredBy = append(b.AnsweredBy, r.From)
+		case r.Rel == "pending" && r.To == e.ClaimID:
+			b.PendingBy = append(b.PendingBy, r.From)
+		case r.Rel == "completes" && r.To == e.ClaimID:
+			b.CompletedBy = append(b.CompletedBy, r.From)
 		}
 	}
 	b.Against, _ = combine(against)
@@ -172,8 +178,12 @@ func Compute(e *store.ClaimEvidence, now time.Time) Belief {
 		b.Status, b.Why = "contested", "you disputed it"
 	case len(b.SupersededBy) > 0:
 		b.Status, b.Why = "superseded", "a later claim replaces it"
+	case len(b.CompletedBy) > 0:
+		b.Status, b.Why = "done", "a later statement says it was done"
 	case e.Kind == "question" && len(b.AnsweredBy) > 0:
 		b.Status, b.Why = "answered", "a later statement answers it"
+	case e.Kind == "question" && len(b.PendingBy) > 0:
+		b.Status, b.Why = "open", "open; someone has committed to find out"
 	case e.Kind == "question":
 		b.Status, b.Why = "open", "an open question"
 		if b.Last.Before(now.Add(-2 * halfLife["question"])) {

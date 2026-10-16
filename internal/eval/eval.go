@@ -20,6 +20,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/sensitivity"
 	"github.com/anielsud/musubi/internal/store"
@@ -95,12 +96,27 @@ type Case struct {
 	LabelLacks  []string   `toml:"label_lacks"` // topic: words no visible topic label may contain
 	At          string     `toml:"at"`          // claim: belief time, overriding the suite's
 
+	// card: what was said (Query), under Scope, as of At. Each expected
+	// line names the section it belongs in (or "" for any) and words one
+	// line must all contain; CardLacks are lines no line may match.
+	// Absent: there must be no card in this scope.
+	CardExpect []CardExpect `toml:"card_expect"`
+	CardLacks  [][]string   `toml:"card_lacks"`
+	Collapsed  *bool        `toml:"collapsed"`
+	TermsOnly  bool         `toml:"terms_only"`
+
 	// graph
 	Node            string   `toml:"node"`
 	Visible         *bool    `toml:"visible"`
 	ExpectNeighbors []string `toml:"expect_neighbors"`
 	ForbidNeighbors []string `toml:"forbid_neighbors"`
 	ForbidItems     []string `toml:"forbid_items"`
+}
+
+// CardExpect is a line a card must show.
+type CardExpect struct {
+	Section string   `toml:"section"`
+	Has     []string `toml:"has"`
 }
 
 func Load(path string) (*Suite, error) {
@@ -124,6 +140,8 @@ type Result struct {
 	// Under is a classify result that labelled less sensitive than expected,
 	// the error that matters most.
 	Under bool
+	// Recall: card cases, the share of expected lines found; -1 otherwise.
+	Recall float64
 }
 
 type Report struct {
@@ -140,6 +158,10 @@ type Harness struct {
 	InternalDomains []string
 	Embedder        provider.Embedder // nil: keyword only
 	Modes           []store.SearchMode
+	// OwnerID and OwnerName mark the owner's own lines on cards.
+	OwnerID, OwnerName string
+
+	cards *knowledge.CardIndex
 }
 
 // searchDepth is how deep forbidden targets are looked for; deeper than any
@@ -186,6 +208,12 @@ func (h *Harness) Run(ctx context.Context, s *Suite) (*Report, error) {
 			rep.Results = append(rep.Results, r)
 		case "graph":
 			r, err := h.graph(c, rep)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", c.ID, err)
+			}
+			rep.Results = append(rep.Results, r)
+		case "card":
+			r, err := h.cardCase(ctx, c, s)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", c.ID, err)
 			}
@@ -460,8 +488,8 @@ func (h *Harness) graph(c Case, rep *Report) (Result, error) {
 
 func (rep *Report) summarize() {
 	type acc struct {
-		n, pass, under int
-		rr             float64
+		n, pass, under, recalls int
+		rr, recall              float64
 	}
 	by := map[string]*acc{}
 	for _, r := range rep.Results {
@@ -484,6 +512,10 @@ func (rep *Report) summarize() {
 		if r.Rank > 0 {
 			a.rr += 1 / float64(r.Rank)
 		}
+		if r.Kind == "card" && r.Recall >= 0 {
+			a.recall += r.Recall
+			a.recalls++
+		}
 	}
 	for k, a := range by {
 		rep.Summary[k+".pass"] = float64(a.pass) / float64(a.n)
@@ -493,6 +525,9 @@ func (rep *Report) summarize() {
 		}
 		if k == "classify" {
 			rep.Summary[k+".under"] = float64(a.under)
+		}
+		if a.recalls > 0 {
+			rep.Summary[k+".recall"] = a.recall / float64(a.recalls)
 		}
 	}
 	rep.Summary["violations"] = float64(len(rep.Violations))

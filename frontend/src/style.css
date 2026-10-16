@@ -197,6 +197,32 @@ main > div { height: 100%; }
 .card-meta, .card-nb { font-size: 11.5px; color: var(--text-dim); }
 .card-recent { font-size: 11.5px; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Topic cards: what someone needs about a subject when it comes up. */
+.topics { display: flex; flex-direction: column; gap: 10px; }
+.topic {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 6px; animation: rise 0.25s ease-out;
+  border-left: 3px solid var(--thread-term);
+}
+.topic header { display: flex; gap: 8px; align-items: center; }
+.topic-title { font-weight: 650; flex: 1; font-size: 14px; }
+.topic .lvl { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; text-transform: uppercase; letter-spacing: 0.04em; }
+.topic .lvl-restricted { color: var(--lvl-restricted); }
+.topic .lvl-confidential { color: var(--lvl-confidential); }
+.topic .reveal { align-self: flex-start; color: var(--text-dim); }
+.topic-sec { display: flex; flex-direction: column; gap: 3px; }
+.topic-sec-name { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-faint); margin-top: 2px; }
+.s-watch .topic-sec-name { color: var(--lvl-restricted); }
+.topic-line { font-size: 12.5px; line-height: 1.4; cursor: pointer; padding-left: 8px; border-left: 2px solid transparent; }
+.topic-line.mine { border-left-color: var(--accent); }
+.topic-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.topic-line.open .topic-text { display: block; }
+.topic-meta { display: block; font-size: 11px; color: var(--text-faint); }
+.topic .due { float: right; margin-left: 6px; font-size: 10.5px; padding: 0 6px; border-radius: 999px; background: rgba(245,201,122,0.12); color: var(--gold); }
+.topic .due.soon { background: rgba(245,201,122,0.28); font-weight: 650; }
+.topic .due.past { background: transparent; color: var(--text-faint); border: 1px solid var(--line); }
+.topic-people { font-size: 12px; color: var(--text-dim); }
+
 /* Hits */
 .hit { display: block; width: 100%; text-align: left; padding: 8px 10px; border-radius: 8px; border: 1px solid transparent; }
 .hit:hover { background: var(--surface-2); border-color: var(--line); }

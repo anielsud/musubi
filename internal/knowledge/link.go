@@ -13,7 +13,7 @@ import (
 )
 
 // LinkVersion changes with the linking rules or judge prompt.
-const LinkVersion = "k15"
+const LinkVersion = "k16"
 
 // Thresholds on cosine similarity between a statement and a claim's
 // centroid (nomic-embed-text). Above sameAt with the same kind family, the
@@ -31,6 +31,9 @@ const (
 )
 
 var relations = []string{"same", "contradicts", "refines", "supersedes", "answers", "unrelated"}
+
+// "pending" is never offered to the judge: it is what "answers" becomes
+// when the new statement only promises to find out (see settle).
 
 const judgePrompt = `You compare a new statement with earlier claims from one person's records (meetings, email, chat), to track how knowledge changes over time.
 
@@ -71,6 +74,9 @@ type Linker struct {
 	Entities func(text string) []string
 	// Trace receives one line per decision, for diagnostics and the eval.
 	Trace func(format string, args ...any)
+	// Strict applies the rules that keep linking from retiring live items
+	// (knowledge.strict_links; see settle). False is the earlier behaviour.
+	Strict bool
 
 	claims []*liveClaim
 	// df counts, per content word, the claims whose text has it, for
@@ -267,7 +273,8 @@ func (k *Linker) Link(ctx context.Context, sts []store.Statement) (LinkStats, er
 			if err != nil {
 				return stats, err
 			}
-			home = &liveClaim{ClaimRow: store.ClaimRow{ID: id, Kind: st.Kind, Centroid: normalized(v), Members: []int64{st.ID}, Text: st.Text, Holder: st.Holder, SaidAt: st.SaidAt, Value: st.Value}, sum: append([]float32(nil), v...)}
+			home = &liveClaim{ClaimRow: store.ClaimRow{ID: id, Kind: st.Kind, Centroid: normalized(v), Members: []int64{st.ID}, Text: st.Text, Holder: st.Holder, SaidAt: st.SaidAt, Value: st.Value,
+				Items: map[string]bool{st.ItemID: true}, Who: st.Who}, sum: append([]float32(nil), v...)}
 			k.claims = append(k.claims, home)
 			k.addDoc(st.Text)
 			stats.New++
@@ -314,6 +321,11 @@ func (k *Linker) join(st store.Statement, c *liveClaim, sim float64, how string)
 	c.sum = add(c.sum, v)
 	c.Centroid = normalized(c.sum)
 	c.Members = append(c.Members, st.ID)
+	if c.Items == nil {
+		c.Items = map[string]bool{}
+	}
+	c.Items[st.ItemID] = true
+	c.Who = append(c.Who, st.Who...)
 	return k.Store.JoinClaim(st.ID, c.ID, sim, how, c.Centroid)
 }
 
@@ -341,7 +353,7 @@ func notes(st store.Statement, c *liveClaim) string {
 
 // settle applies the rules the model's choice must pass, given the kinds
 // and values involved; "" means no relation.
-func settle(rel string, st store.Statement, c *liveClaim) string {
+func (k *Linker) settle(rel string, st store.Statement, c *liveClaim) string {
 	// A statement that settles an open question answers it, whatever else
 	// the model called it.
 	if c.Kind == "question" && st.Kind != "question" && (rel == "contradicts" || rel == "supersedes" || rel == "refines") {
@@ -352,10 +364,65 @@ func settle(rel string, st store.Statement, c *liveClaim) string {
 	if rel == "supersedes" && Compare(st.Value, c.Value) == "same" {
 		rel = "same"
 	}
+	if k.Strict {
+		rel = strictRule(rel, st, c)
+	}
 	if !fits(rel, st.Kind, c.Kind) {
 		return ""
 	}
 	return rel
+}
+
+// strictRule keeps linking from retiring items that are still live. On
+// real meetings the judge called complementary points from the same
+// minute "supersedes" (a status and the walk-through of it), one owner's
+// commitment superseded by another's, and a promise to find out an
+// "answer" that closed the question.
+func strictRule(rel string, st store.Statement, c *liveClaim) string {
+	switch rel {
+	case "supersedes":
+		// Within one meeting a point replaces an earlier one only when the
+		// speaker corrects it; otherwise it adds detail.
+		if c.Items[st.ItemID] && !correction(st.Text) {
+			rel = "refines"
+		}
+	case "answers":
+		if st.Kind == "commitment" || st.Kind == "opinion" && st.Status == "proposed" {
+			rel = "pending"
+		}
+	}
+	// Commitments are owned: one person's commitment neither replaces nor
+	// refines a different person's.
+	if (rel == "supersedes" || rel == "refines") && st.Kind == "commitment" && c.Kind == "commitment" &&
+		len(st.Who) > 0 && len(c.Who) > 0 && !overlaps(st.Who, c.Who) {
+		return ""
+	}
+	return rel
+}
+
+var correctionWords = []string{"correct", "actually", "revis", "updated", "update:", "instead", "changed", "no longer", "moved from", "moved to", "now expected", "now sitting", "not anymore", "rather than"}
+
+// correction reports whether a text says it corrects or replaces an
+// earlier figure or plan.
+func correction(s string) bool {
+	s = strings.ToLower(s)
+	for _, w := range correctionWords {
+		if strings.Contains(s, w) {
+			return true
+		}
+	}
+	return false
+}
+
+func overlaps(a, b []string) bool {
+	for _, x := range a {
+		for _, y := range b {
+			if strings.EqualFold(strings.TrimSpace(x), strings.TrimSpace(y)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // linkSystem is the one system prompt every link decision uses: the pair
@@ -382,6 +449,7 @@ Being about the same project, customer or person is NOT enough for any relation;
 var verifyQuestions = map[string]string{
 	"contradicts": "Do NEW and EARLIER make incompatible claims about the same specific thing, so that both cannot be true? A guess, expectation or hypothesis that the other statement rules out counts. yes or no.",
 	"answers":     "Does NEW give the information the EARLIER question asks for? yes or no.",
+	"pending":     "Does NEW commit someone to find out or provide what the EARLIER question asks for? yes or no.",
 	"refines":     "Is NEW a more precise or corrected version of the same specific point as EARLIER? yes or no.",
 	"supersedes":  "Is NEW a later update of the same plan, decision, position or status that replaces EARLIER? yes or no.",
 }
@@ -431,7 +499,7 @@ func (k *Linker) judgeEach(ctx context.Context, st store.Statement, cs []*liveCl
 		if bp < minRelP {
 			continue
 		}
-		rel := settle(best, st, c)
+		rel := k.settle(best, st, c)
 		if rel == "" {
 			continue
 		}
@@ -472,7 +540,7 @@ func (k *Linker) judge(ctx context.Context, st store.Statement, cs []*liveClaim)
 	res := map[int]string{}
 	// One relation per pair, the most consequential if the model gives
 	// several ("contradicts" and "refines" for the same claim).
-	rank := map[string]int{"same": 5, "supersedes": 4, "contradicts": 3, "answers": 2, "refines": 1, "unrelated": 0}
+	rank := map[string]int{"same": 5, "supersedes": 4, "contradicts": 3, "answers": 2, "pending": 2, "refines": 1, "unrelated": 0}
 	for _, r := range parsed.Relations {
 		rel := strings.ToLower(strings.TrimSpace(r.Relation))
 		ok := false
@@ -480,7 +548,7 @@ func (k *Linker) judge(ctx context.Context, st store.Statement, cs []*liveClaim)
 			ok = ok || rel == x
 		}
 		if ok && r.Claim >= 1 && r.Claim <= len(cs) {
-			rel = settle(rel, st, cs[r.Claim-1])
+			rel = k.settle(rel, st, cs[r.Claim-1])
 		}
 		if ok && rel != "" && r.Claim >= 1 && r.Claim <= len(cs) {
 			if cur, had := res[r.Claim-1]; !had || rank[rel] > rank[cur] {
@@ -495,7 +563,7 @@ func (k *Linker) judge(ctx context.Context, st store.Statement, cs []*liveClaim)
 // judge proposes some anyway ("answers" a statement that isn't a question).
 func fits(rel, newKind, oldKind string) bool {
 	switch rel {
-	case "answers":
+	case "answers", "pending":
 		return oldKind == "question" && newKind != "question"
 	case "supersedes", "refines", "contradicts":
 		return newKind != "question" && oldKind != "question"

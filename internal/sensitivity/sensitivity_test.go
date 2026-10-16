@@ -65,6 +65,9 @@ func TestClassifyText(t *testing.T) {
 		"They want a 15% discount on a two-year renewal":          DealTerms,
 		"The diligence on the acquisition of the startup is done": Strategy,
 		"He's going on medical leave next week":                   Health,
+		"Package the terminations together for one review":        HR,
+		"Twenty exit names came in from the platform team":        HR,
+		"The R&D headcount reduction target is low":               HR,
 	}
 	for text, want := range hit {
 		l, ok := ClassifyText(text)
@@ -75,6 +78,8 @@ func TestClassifyText(t *testing.T) {
 	miss := []string{
 		"Customer acquisition costs went down last quarter",
 		"Let's review the search latency dashboard",
+		"A huge reduction in time to go live for onboarding",
+		"The list of names for the awards isn't done",
 	}
 	for _, text := range miss {
 		if l, ok := ClassifyText(text); ok {

@@ -34,6 +34,9 @@ type KnowledgeOptions struct {
 	Decider provider.Decider
 	// LinkTrace receives the linker's decisions.
 	LinkTrace func(format string, args ...any)
+	// Threader does the threading (knowledge.grouping = "threads"); nil
+	// builds it from knowledge.threads.model, else uses LLM.
+	Threader provider.LLM
 }
 
 type KnowledgeStats struct {
@@ -45,6 +48,7 @@ type KnowledgeStats struct {
 	Link                        knowledge.LinkStats
 	Topics                      int
 	Pending                     int // items still to extract (when limited)
+	Threads                     knowledge.ThreadStats
 }
 
 // Knowledge runs the knowledge layer: extract statements from items whose
@@ -350,13 +354,19 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	if err != nil {
 		return ks, err
 	}
-	lk := &knowledge.Linker{Store: r.Store, LLM: o.LLM, Vecs: vecs, Trace: o.LinkTrace, Entities: topicEntities(reg)}
+	threads := kc.Grouping == "threads"
+	lk := &knowledge.Linker{Store: r.Store, LLM: o.LLM, Vecs: vecs, Trace: o.LinkTrace, Entities: topicEntities(reg), Strict: kc.StrictLinks}
 	if kc.Judge == "decide" && o.Decider != nil {
 		lk.Decider, lk.ConsiderAt, lk.MaxJudged = o.Decider, 0.65, 6
 	}
+	if threads {
+		// Threads relate statements with the whole subject in view; the
+		// pairwise judge would only add its own, less reliable relations.
+		lk.LLM, lk.Decider = nil, nil
+	}
 	// Claims are cheap to rebuild from stored statements; rebuild them when
 	// the rules that made them change, so old and new rules never mix.
-	linkStamp := hashOf("link", knowledge.LinkVersion, o.LLM.ModelName(), fmt.Sprint(kc.MinWorth), kc.Judge, knowledge.WorthVersion)
+	linkStamp := hashOf("link", knowledge.LinkVersion, o.LLM.ModelName(), fmt.Sprint(kc.MinWorth), kc.Judge, knowledge.WorthVersion, fmt.Sprint(kc.StrictLinks), kc.Grouping)
 	// The claims stamp is separate from the calendar-link stamp ("link"),
 	// which Process sets; sharing one name made every update look like a
 	// rule change and rebuilt all claims.
@@ -408,7 +418,10 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 			len(unlinked), ks.Link.New, ks.Link.Joined, ks.Link.Judged, ks.Link.Related, time.Since(t0).Round(time.Second))
 	}
 
-	// 4. Topics, when the claims changed.
+	// 4. Threads or topics.
+	if threads {
+		return ks, r.thread(ctx, o, linkStamp, &ks)
+	}
 	sig, err := r.Store.ClaimSignature()
 	if err != nil {
 		return ks, err
@@ -486,7 +499,7 @@ func topicEntities(reg *registry.Registry) func(string) []string {
 
 // ImportVersion stamps statements loaded by ImportItems, so a later
 // extraction (knowledge.extract other than "none") would replace them.
-const ImportVersion = "import1"
+const ImportVersion = "import2"
 
 // ImportItems replaces an item's statements with items extracted outside
 // Musubi (see knowledge.Imported). It returns how many were stored and how
@@ -517,7 +530,21 @@ func (r *Runner) ImportItems(itemID string, imported []knowledge.Imported, sourc
 	if err != nil {
 		return 0, 0, err
 	}
-	m := knowledge.NewMeeting(it.Title, it.OccurredAt, "", r.Cfg.Owner.Name, chunks)
+	// The check accepts figures and names the meeting itself vouches for:
+	// its date (extractors write "on 2026-09-16") and the full names of
+	// known people (extractors complete "Sam" to a surname nobody said).
+	known := ""
+	if r.Cfg.Knowledge.ImportKeepProposed {
+		var b strings.Builder
+		fmt.Fprintf(&b, "Meeting date: %s, %s.", it.OccurredAt.Format("2006-01-02"), it.OccurredAt.Format("2 January 2006"))
+		for _, e := range reg.Entities {
+			if e.Type == "person" {
+				fmt.Fprintf(&b, " %s.", e.Name)
+			}
+		}
+		known = b.String()
+	}
+	m := knowledge.NewMeeting(it.Title, it.OccurredAt, known, r.Cfg.Owner.Name, chunks)
 	holder := func(name string) string {
 		switch {
 		case name == "":
@@ -527,10 +554,95 @@ func (r *Runner) ImportItems(itemID string, imported []knowledge.Imported, sourc
 		}
 		return reg.Participant(item.Participant{Name: name})
 	}
-	sts, skipped := m.ImportStatements(imported, it.OccurredAt, holder, labels)
+	sts, skipped := m.ImportStatements(imported, it.OccurredAt, holder, labels, r.Cfg.Knowledge.ImportKeepProposed)
 	chunkStamp, _ := r.Store.StageStamp("chunk", itemID)
 	if err := r.Store.ReplaceStatements(itemID, ImportVersion, hashOf("import", chunkStamp, sourceTag), sts); err != nil {
 		return 0, 0, err
 	}
 	return len(sts), skipped, nil
+}
+
+// thread threads every item not yet threaded under the current rules,
+// oldest first (knowledge.grouping = "threads").
+func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp string, ks *KnowledgeStats) error {
+	kc := r.Cfg.Knowledge
+	llm := o.Threader
+	if llm == nil && kc.Threads.Model.Provider != "" {
+		var err error
+		if llm, err = provider.NewLLM(kc.Threads.Model); err != nil {
+			return err
+		}
+	}
+	if llm == nil {
+		llm = o.LLM
+	}
+	if !llm.Local() {
+		return fmt.Errorf("threads read meeting text, so they need a local model (got %s)", llm.ModelName())
+	}
+	stamp := hashOf("threads", knowledge.ThreadsVersion, llm.ModelName(), linkStamp)
+	// Recorded before threading, so an interrupted run resumes; threads are
+	// cleared only when the rules really change.
+	if old, _ := r.Store.GlobalStamp("threads"); old != stamp {
+		if err := r.Store.ClearThreads(); err != nil {
+			return err
+		}
+		if old != "" {
+			r.logf("threads: rules changed, rethreading every item")
+		}
+		if err := r.Store.SetGlobalStamp("threads", stamp); err != nil {
+			return err
+		}
+	}
+	done, err := r.Store.ThreadedItems()
+	if err != nil {
+		return err
+	}
+	items, err := r.Store.AllItems()
+	if err != nil {
+		return err
+	}
+	var todo []knowledge.ThreadItem
+	for _, it := range items {
+		if done[it.ID] != stamp {
+			todo = append(todo, knowledge.ThreadItem{ID: it.ID, Start: it.OccurredAt})
+		}
+	}
+	knowledge.ThreadOrder(todo)
+	var vecs map[int64][]float32
+	if o.Embedder != nil {
+		if vecs, err = r.Store.StatementVecs(o.Embedder.Model()); err != nil {
+			return err
+		}
+	}
+	th := &knowledge.Threader{Store: r.Store, LLM: llm, Vecs: vecs, Chunk: kc.Threads.Chunk, Parallel: kc.Threads.Parallel,
+		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, Logf: r.logf}
+	for _, it := range todo {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		t0 := time.Now()
+		st, err := th.Thread(ctx, it)
+		if err != nil {
+			return fmt.Errorf("threads %s: %w", it.ID, err)
+		}
+		if st.Statements > 0 {
+			r.logf("threads %s: %d statements, %d new threads, %d touched, %d relations, %d calls in %s",
+				it.ID, st.Statements, st.NewThreads, st.Touched, st.Relations, st.Calls, time.Since(t0).Round(time.Second))
+		}
+		ks.Threads.Items += st.Items
+		ks.Threads.Statements += st.Statements
+		ks.Threads.NewThreads += st.NewThreads
+		ks.Threads.Touched += st.Touched
+		ks.Threads.Relations += st.Relations
+		ks.Threads.Calls += st.Calls
+		if err := r.Store.MarkThreaded(it.ID, stamp); err != nil {
+			return err
+		}
+	}
+	if err := r.Store.PlaceClaimsInThreads(); err != nil {
+		return err
+	}
+	all, err := r.Store.Threads()
+	ks.Topics = len(all)
+	return err
 }

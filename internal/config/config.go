@@ -47,8 +47,44 @@ type Knowledge struct {
 	// brief, then self-contained points per run of passages, read with the
 	// neighbouring passages as context; see docs/research-log.md).
 	Extract string `toml:"extract"`
+	// StrictLinks stops linking from retiring live items: a same-meeting
+	// "supersedes" without a spoken correction becomes "refines", one
+	// owner's commitment never replaces another's, and a promise to find
+	// out leaves a question open ("pending"). false: the earlier rules.
+	StrictLinks bool `toml:"strict_links"`
+	// ImportKeepProposed: imported proposed decisions and commitments keep
+	// their kind, imported items get typed values read from their text,
+	// and the import check accepts the meeting's date and known people's
+	// full names. false: the earlier import.
+	ImportKeepProposed bool `toml:"import_keep_proposed"`
 	// Points configures extract = "points".
 	Points Points `toml:"points"`
+	// Grouping is how claims are grouped and related: "topics" (pairwise
+	// judging, then clustering; the earlier behaviour) or "threads" (a model
+	// assigns each meeting's items to specific threads, then reconciles
+	// each thread it touched; docs/linking-benchmark.md). Threads read
+	// meeting text, so they need a local model (Threads.Model), and they
+	// replace the pairwise judge: only near-identical statements join.
+	Grouping string  `toml:"grouping"`
+	Threads  Threads `toml:"threads"`
+}
+
+// Threads configures grouping = "threads".
+type Threads struct {
+	// Model does the threading; provider "" uses [llm]. Measured with
+	// Qwen3.8-27B on llama-server (provider "openai").
+	Model LLM `toml:"model"`
+	// Chunk is how many items one assign call reads; Parallel how many
+	// threads are reconciled at once (match the server's slots).
+	Chunk    int `toml:"chunk"`
+	Parallel int `toml:"parallel"`
+	// Candidates is how many threads, nearest by embedding, an assign call
+	// chooses from (plus the most recently active); StateCap how many of a
+	// thread's current statements a reconcile call sees. They keep a
+	// meeting's cost flat however long the history (research-log.md,
+	// 2026-10-15/16). 0 uses the defaults (40, 25).
+	Candidates int `toml:"candidates"`
+	StateCap   int `toml:"state_cap"`
 }
 
 // Points configures meeting-level point extraction.
@@ -88,6 +124,10 @@ type Live struct {
 	// false, with suggest_every = 20, restores the first behaviour: one
 	// cycle every 20 s doing everything.
 	FastLane bool `toml:"fast_lane"`
+	// TopicCards shows a topic's card (docs/topic-cards.md) when a line says
+	// one of its trigger terms, or a lookup's nearest claims are on it.
+	// false: no topic cards, the earlier panel.
+	TopicCards bool `toml:"topic_cards"`
 	// PhraseLookups looks up distinctive phrases from single lines on
 	// their own. Off: on real meetings they were mostly fragments ("moves
 	// the bar"); the model's queries cover topics better.
@@ -141,11 +181,11 @@ func DefaultConfig() Config {
 		TomoeSessions: filepath.Join(home, ".local", "share", "tomoe", "sessions"),
 		Embed:         Embed{Provider: "ollama", Model: "nomic-embed-text", URL: "http://127.0.0.1:11434"},
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", Points: Points{Think: true, Segment: 5, Parallel: 4}},
+		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4}, Points: Points{Think: true, Segment: 5, Parallel: 4}},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
-			FastLane:    true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true,
+			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true,
 		},
 	}
 }

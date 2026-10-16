@@ -8,7 +8,7 @@ import (
 
 // RulesVersion changes whenever rule behavior changes, so the classify stage
 // re-runs everything it labelled with older rules.
-const RulesVersion = "r3"
+const RulesVersion = "r4"
 
 // ItemFacts is what the item-level rules look at.
 type ItemFacts struct {
@@ -181,6 +181,9 @@ var textRules = []textRule{
 	{cat: Compensation, re: rx(`salary|salaries|pay raise|merit increase|bonus(?:es)? (?:payout|target|pool)|equity (?:grant|refresh)|stock options|RSUs?|comp(?:ensation)? (?:band|review|package|adjustment|increase)|base pay|pay band|offer letter|raise to \$?\d[\d,.]*k?`)},
 	{cat: HR, re: regexp.MustCompile(`\bPIP\b`)},
 	{cat: HR, re: rx(`performance (?:review|improvement plan|issue|concern)s?|disciplinary|terminat(?:e|ed|ing|ion) (?:him|her|them|employment|his|her|their)|let (?:him|her|them) go|laid off|layoffs?|RIF|reduction in force|harassment|grievance|resign(?:ed|ation)|notice period|promotion case|HR (?:complaint|investigation|case)`)},
+	// Reduction programmes are rarely called layoffs in the room: "the
+	// terminations", "exit names", "headcount reductions" (r4).
+	{cat: HR, re: rx(`terminations|headcount reductions?|exit (?:names|lists?)|redundanc(?:y|ies)|severance|unfair dismissal|role eliminations?|reductions? (?:target|list)s?`)},
 	{cat: Legal, re: rx(`litigation|lawsuit|sued|subpoena|legal hold|attorney[- ]client|privileged and confidential|outside counsel|settlement agreement|cease and desist`)},
 	{cat: Health, re: rx(`medical leave|sick leave|diagnos(?:is|ed)|surgery|maternity leave|paternity leave|mental health|disability|FMLA`)},
 	{cat: Strategy, re: rx(`acqui(?:re|ring|sition)s?|M&A|merger|due diligence|term sheet|board (?:meeting|deck)|reorg(?:anization)?|codename`), not: rx(`customer|user|lead|talent|data|traffic|new logo|client`)},

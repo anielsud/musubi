@@ -289,3 +289,19 @@ CREATE TABLE IF NOT EXISTS judgments (
 	line       INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (item_id, text)
 );
+
+-- Threads (knowledge.grouping = "threads"; docs/linking-benchmark.md). A
+-- thread is a topics row; thread_items says which statements it holds (a
+-- statement can be in two) and which state its current position.
+-- thread_runs records which items have been threaded, under which rules.
+CREATE TABLE IF NOT EXISTS thread_items (
+	topic_id     INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+	statement_id INTEGER NOT NULL REFERENCES statements(id) ON DELETE CASCADE,
+	current      INTEGER NOT NULL DEFAULT 1,
+	PRIMARY KEY (topic_id, statement_id)
+);
+CREATE INDEX IF NOT EXISTS thread_items_statement ON thread_items(statement_id);
+CREATE TABLE IF NOT EXISTS thread_runs (
+	item_id TEXT PRIMARY KEY,
+	stamp   TEXT NOT NULL
+);

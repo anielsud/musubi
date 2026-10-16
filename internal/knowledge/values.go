@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"math"
+	"sort"
 
 	"github.com/anielsud/musubi/internal/store"
 	"regexp"
@@ -273,3 +274,110 @@ func parseDuration(raw string) (float64, bool) {
 }
 
 func formatFloat(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
+
+const monthRx = `(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)`
+
+// reDatePhrase finds the phrases parseDate reads, in free text: "October
+// 1st", "1 November", "mid-December", "Q4 2026", "next week", "by Friday",
+// "end of the year". A bare month needs a preposition before it, so "may"
+// the verb and "march" the noun aren't dates.
+var reDatePhrase = regexp.MustCompile(`(?i)\b(?:` +
+	`\d{4}-\d{1,2}-\d{1,2}` +
+	`|(?:early|mid|late|end of|beginning of)[- ]` + monthRx + `\b` +
+	`|` + monthRx + `\.?\s+\d{1,2}(?:st|nd|rd|th)?\b(?:,?\s+20\d{2})?` +
+	`|\d{1,2}(?:st|nd|rd|th)?\s+(?:of\s+)?` + monthRx + `\b(?:\s+20\d{2})?` +
+	`|(?:by|in|until|before|after|from|since|through|during)\s+` + monthRx + `\b(?:\.?\s+\d{1,2}(?:st|nd|rd|th)?\b)?(?:,?\s+20\d{2})?` +
+	`|q[1-4](?:\s+20\d{2})?` +
+	`|h[12](?:\s+20\d{2})?` +
+	`|end of (?:the )?year|year[- ]end` +
+	`|next week|this week|tomorrow|next month|end of (?:the )?month|next quarter` +
+	`|(?:by|on|next|this)\s+(?:monday|tuesday|wednesday|thursday|friday)` +
+	`)`)
+
+// reAfter is a date relative to the one before it: "two weeks after
+// that", "10 days later".
+var reAfter = regexp.MustCompile(`(?i)\b(\d+|a|one|two|three|four|five|six|seven|eight|nine|ten)\s+(day|week|month)s?\s+(?:after|later)`)
+
+// DatesIn returns the dates a text names, in order, relative to when it was
+// said. Imported items and points carry no typed value; this lets a card
+// say "due tomorrow" and lets linking compare plans by their dates.
+func DatesIn(text string, said time.Time) []Value {
+	type found struct {
+		at int
+		v  Value
+	}
+	var fs []found
+	for _, ix := range reDatePhrase.FindAllStringIndex(text, -1) {
+		m := text[ix[0]:ix[1]]
+		raw := m
+		if strings.Contains(strings.ToLower(m), "year") {
+			raw = "late December"
+		}
+		if v := Normalize("date", raw, said); v.Normalized {
+			v.Raw = m
+			fs = append(fs, found{ix[0], v})
+		}
+	}
+	for _, ix := range reAfter.FindAllStringSubmatchIndex(text, -1) {
+		n, ok := parseNumber(text[ix[2]:ix[3]])
+		if !ok {
+			continue
+		}
+		var base *Value
+		for k := range fs {
+			if fs[k].at < ix[0] {
+				base = &fs[k].v
+			}
+		}
+		if base == nil {
+			continue
+		}
+		lo := time.Unix(int64(base.Lo), 0).In(said.Location())
+		switch strings.ToLower(text[ix[4]:ix[5]]) {
+		case "day":
+			lo = lo.AddDate(0, 0, int(n))
+		case "week":
+			lo = lo.AddDate(0, 0, 7*int(n))
+		case "month":
+			lo = lo.AddDate(0, int(n), 0)
+		}
+		fs = append(fs, found{ix[0], Value{Type: "date", Raw: text[ix[0]:ix[1]], Lo: float64(lo.Unix()), Hi: float64(lo.AddDate(0, 0, 1).Unix()), Normalized: true}})
+	}
+	sort.SliceStable(fs, func(i, j int) bool { return fs[i].at < fs[j].at })
+	out := make([]Value, len(fs))
+	for i, f := range fs {
+		out[i] = f.v
+	}
+	return out
+}
+
+var reFigure = regexp.MustCompile(`(?i)[$€£]?\d+(?:[.,]\d+)*\s*(?:%|percent\b|k\b|m\b|mm\b|bn\b|million\b|thousand\b|billion\b)?`)
+
+// ValueFromText gives a statement written without a typed value (imports,
+// points) the value its kind is about: a commitment's or decision's date,
+// a metric's first figure. Years alone ("2026") are not a metric's figure.
+func ValueFromText(kind, text string, said time.Time) Value {
+	switch kind {
+	case "commitment", "decision", "outside_fact", "sensitivity_cue", "opinion":
+		if ds := DatesIn(text, said); len(ds) > 0 {
+			return ds[0]
+		}
+	case "metric":
+		for _, m := range reFigure.FindAllString(text, -1) {
+			m = strings.TrimSpace(m)
+			if reYear.MatchString(m) && len(m) == 4 {
+				continue
+			}
+			typ := "number"
+			if strings.HasSuffix(m, "%") || strings.HasSuffix(strings.ToLower(m), "percent") {
+				typ = "percent"
+			} else if strings.ContainsAny(m[:1], "$€£") {
+				typ = "money"
+			}
+			if v := Normalize(typ, m, said); v.Normalized {
+				return v
+			}
+		}
+	}
+	return Normalize("none", "", said)
+}

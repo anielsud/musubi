@@ -76,6 +76,36 @@ export interface Card {
   mentions: number;
 }
 
+export interface TopicLine {
+  claimId: number;
+  kind: string;
+  text: string;
+  who?: string;
+  said: string;
+  meeting?: string;
+  due?: string;
+  dueAt?: string;
+  status: string;
+  note?: string;
+  mine?: boolean;
+  salience: number;
+}
+
+export interface TopicCard {
+  topicId: number;
+  title: string;
+  terms?: string[] | null;
+  last: string;
+  meetings: number;
+  label: { level: string; categories: string };
+  collapsed: boolean;
+  sections: { name: string; lines: TopicLine[] }[];
+  people?: string[] | null;
+  why: string;
+  at: string;
+  spokenAgo: number;
+}
+
 export interface EntityRef {
   id: string;
   type: string;

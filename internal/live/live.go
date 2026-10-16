@@ -69,6 +69,8 @@ type Live struct {
 	mode      string
 	scope     string
 	sug       *Suggester
+	topicIx   *engine.Cards
+	topics    []shownTopic
 	briefed   map[string]time.Time
 	onSaved   func()
 
@@ -106,8 +108,15 @@ func (l *Live) Reload() error {
 	if err != nil {
 		return err
 	}
+	var cs *engine.Cards
+	if l.eng.Cfg.Live.TopicCards {
+		if cs, err = l.eng.LoadCards(); err != nil {
+			return err
+		}
+	}
 	l.mu.Lock()
 	l.sug = s
+	l.topicIx = cs
 	l.mu.Unlock()
 	return nil
 }
@@ -185,6 +194,7 @@ func (l *Live) SetScope(name string) error {
 	l.mu.Unlock()
 	l.trace(0, "cycle", "scope set to "+name, 0, nil)
 	l.pushStatus()
+	l.emitTopics(0)
 	return nil
 }
 
@@ -239,6 +249,7 @@ func (l *Live) handle(ev Event, mode string) {
 			l.mode = mode
 			l.briefed = map[string]time.Time{}
 			l.chips = nil
+			l.topics = nil
 			l.lastModelVer = 0
 			l.mu.Unlock()
 			l.resetTraces()
@@ -344,12 +355,19 @@ func (l *Live) nextCycle() int {
 func (l *Live) fastLane(seg Segment) {
 	t0 := time.Now()
 	l.mu.Lock()
-	sug, m, scopeName, ctx := l.sug, l.meeting, l.scope, l.ctx
+	sug, m, scopeName, ctx, topics := l.sug, l.meeting, l.scope, l.ctx, l.topicIx != nil
+	var recentLines []Segment
+	if m != nil && topics {
+		recentLines = m.RecentLines(float64(max(30, l.eng.Cfg.Live.Window)))
+	}
 	l.mu.Unlock()
 	if sug == nil || m == nil {
 		return
 	}
 	spotted := sug.Entities(seg.Text)
+	if topics {
+		l.termTopics(l.nextCycle(), seg.Text, recentLines)
+	}
 	var phrases []PhraseScore
 	if seg.Status == "" && l.eng.Cfg.Live.PhraseLookups {
 		for _, p := range sug.PhraseScores(seg.Text, 2) {
@@ -597,6 +615,7 @@ func (l *Live) brief(ctx context.Context, cycle int, s Suggestion, exclude []str
 	if err != nil {
 		return
 	}
+	go l.lookupTopic(ctx, cycle, s)
 	t0 := time.Now()
 	hits, err := l.eng.Search(ctx, sc, s.Query, 4, exclude)
 	if err != nil {

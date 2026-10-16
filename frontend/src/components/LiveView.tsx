@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, fmtDate, on, speakerName } from '../api';
-import type { Brief, Card, Hit, LiveStatus, MeetingRef, Segment, Session, Suggestion } from '../types';
+import type { Brief, Card, Hit, LiveStatus, MeetingRef, Segment, Session, Suggestion, TopicCard, TopicLine } from '../types';
 import { CitedText, Empty, HitRow, Spinner } from './common';
 
 const kindGlyph: Record<string, string> = { llm: '✦', entity: '◉', phrase: '¶', typed: '›' };
@@ -16,6 +16,7 @@ export function LiveView({ status, onOpen, onEntity }: Props) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [briefs, setBriefs] = useState<Brief[]>([]);
   const [cards, setCards] = useState<Card[]>([]);
+  const [topics, setTopics] = useState<TopicCard[]>([]);
   const [typed, setTyped] = useState('');
   const [showAll, setShowAll] = useState(false);
   const [err, setErr] = useState('');
@@ -35,6 +36,7 @@ export function LiveView({ status, onOpen, onEntity }: Props) {
         setSuggestions([]);
         setBriefs([]);
         setCards([]);
+        setTopics([]);
         setErr('');
       }),
       on<Segment>('live:segment', (s) =>
@@ -49,6 +51,7 @@ export function LiveView({ status, onOpen, onEntity }: Props) {
       ),
       on<Suggestion[]>('live:suggestions', (s) => setSuggestions(s ?? [])),
       on<Card[]>('live:entities', (c) => setCards(c ?? [])),
+      on<TopicCard[]>('live:topics', (t) => setTopics(t ?? [])),
       on<Brief>('live:brief', (b) =>
         setBriefs((prev) => {
           const rest = prev.filter((x) => x.query.toLowerCase() !== b.query.toLowerCase());
@@ -120,11 +123,17 @@ export function LiveView({ status, onOpen, onEntity }: Props) {
 
       {err && <div className="error small">{err}</div>}
 
+      {topics.length > 0 && (
+        <section className="topics">
+          {topics.map((t) => <TopicCardView key={t.topicId} card={t} />)}
+        </section>
+      )}
+
       <section className="briefs">
         {briefs.map((b) => (
           <BriefCard key={b.query + b.at} brief={b} onOpen={(h) => onOpen(h, scope)} />
         ))}
-        {active && briefs.length === 0 && (
+        {active && briefs.length === 0 && topics.length === 0 && (
           <Empty>Briefings appear here as the conversation names people, customers and topics you have history on.</Empty>
         )}
       </section>
@@ -266,5 +275,59 @@ function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: (h: Hit) => void }
         </>
       )}
     </article>
+  );
+}
+
+const sectionLabel: Record<string, string> = {
+  Watch: 'Don\u2019t repeat', Now: 'Where it stands', Due: 'Due', Yours: 'Yours', Open: 'Open', Rules: 'Rules',
+};
+
+// TopicCardView is a subject's card: where it stands, what is due, what is
+// yours, what is open, the rules, what must not be repeated, and who to
+// ask. Cards about people's jobs, pay or health, or restricted ones, show
+// their title only until opened.
+function TopicCardView({ card }: { card: TopicCard }) {
+  const [reveal, setReveal] = useState(false);
+  const hidden = card.collapsed && !reveal;
+  const lag = card.spokenAgo >= 0 ? `${card.spokenAgo.toFixed(1)}s after it was said` : '';
+  const sensitive = card.label.level === 'restricted' || card.collapsed;
+  return (
+    <article className={'topic' + (hidden ? ' hidden' : '')}>
+      <header>
+        <span className="topic-title">{card.title}</span>
+        {sensitive && <span className={'lvl lvl-' + card.label.level}>{card.label.level}{card.label.categories && card.label.categories !== '-' ? ' · ' + card.label.categories : ''}</span>}
+      </header>
+      <div className="brief-why">
+        {[card.why, `last discussed ${fmtDate(card.last)}`, `${card.meetings} meeting${card.meetings === 1 ? '' : 's'}`, lag].filter(Boolean).join(' · ')}
+      </div>
+      {hidden ? (
+        <button className="link reveal" onClick={() => setReveal(true)}>Show — not for a shared screen</button>
+      ) : (
+        <>
+          {card.sections.map((s) => (
+            <div key={s.name} className={'topic-sec s-' + s.name.toLowerCase()}>
+              <div className="topic-sec-name">{sectionLabel[s.name] ?? s.name}</div>
+              {s.lines.map((l) => <TopicLineView key={l.claimId} line={l} />)}
+            </div>
+          ))}
+          {card.people && card.people.length > 0 && (
+            <div className="topic-people"><span className="topic-sec-name">Ask</span> {card.people.join(' · ')}</div>
+          )}
+          {card.collapsed && <button className="link" onClick={() => setReveal(false)}>hide</button>}
+        </>
+      )}
+    </article>
+  );
+}
+
+function TopicLineView({ line }: { line: TopicLine }) {
+  const [open, setOpen] = useState(false);
+  const soon = line.due && /today|tomorrow|in \d+ days/.test(line.due);
+  return (
+    <div className={'topic-line' + (line.mine ? ' mine' : '') + (open ? ' open' : '')} onClick={() => setOpen(!open)} title={line.meeting}>
+      {line.due && <span className={'due' + (soon ? ' soon' : line.due.startsWith('was') ? ' past' : '')}>{line.due}</span>}
+      <span className="topic-text">{line.text}</span>
+      <span className="topic-meta">{[line.who, fmtDate(line.said), line.note].filter(Boolean).join(' · ')}</span>
+    </div>
   );
 }

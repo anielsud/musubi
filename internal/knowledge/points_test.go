@@ -191,7 +191,7 @@ func TestImportStatements(t *testing.T) {
 		{Kind: "metric", Status: "stated", Text: "The Platinum team found about $400k in ARR.", Who: []string{"Raj Patel"}, Lines: []int{4}},
 		{Kind: "gossip", Status: "stated", Text: "Not a kind.", Lines: []int{1}},
 		{Kind: "fact", Status: "stated", Text: "Outside the meeting.", Lines: []int{99}},
-	}, m.Date, holder, nil)
+	}, m.Date, holder, nil, false)
 	if skipped != 2 || len(sts) != 4 {
 		t.Fatalf("stored %d, skipped %d", len(sts), skipped)
 	}
@@ -206,5 +206,13 @@ func TestImportStatements(t *testing.T) {
 	}
 	if !sts[0].Grounded || sts[0].HolderID != "person:raj patel" {
 		t.Errorf("framing: grounded=%v holder=%q issues=%q", sts[0].Grounded, sts[0].HolderID, sts[0].Issues)
+	}
+
+	// keepProposed: a proposed decision stays a decision and gets its date.
+	sts, _ = m.ImportStatements([]Imported{
+		{Kind: "decision", Status: "proposed", Text: "No one is notified before December.", Who: []string{"Raj Patel"}, Lines: []int{3}},
+	}, m.Date, holder, nil, true)
+	if len(sts) != 1 || sts[0].Kind != "decision" || sts[0].Status != "proposed" || sts[0].Value.Type != "date" {
+		t.Errorf("kept proposed: %+v", sts)
 	}
 }

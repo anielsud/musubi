@@ -19,7 +19,10 @@ Keep that doc current when the design changes.
   `Scope`. New derived tables carry provenance and an inherited sensitivity
   label. Unknown sensitivity fails closed (`confidential`).
 - **Raw is immutable.** Stages write stamped rows `(stage, stage_version,
-  input_hash)`; fix a stage by bumping its version and re-running.
+  input_hash)`; fix a stage by bumping its version and re-running (for the
+  knowledge stages, `musubi knowledge --redo <stage>`: a new version is
+  never applied to earlier items silently; see architecture.md, "Derive
+  stages").
 - **New behaviour gets a config key** that restores the previous behaviour.
 - **Measure before changing defaults;** write findings, dated and with numbers,
   into `docs/`.

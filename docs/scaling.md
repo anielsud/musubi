@@ -57,6 +57,8 @@ its quality.
 | Pairwise linker | grows | cosine scan over all claims per statement | ~10⁵ claims (minutes), ~10⁶ (hours) | O(n) scan per statement, O(n²) total |
 | Topic clustering (HAC) | full rebuild | claims² | ~20k claims | average link is O(n²) memory and time |
 | Card index | full rebuild at load | all statements and centroids in memory | ~10⁶ statements (GBs, seconds to load) | built in memory from `CardRows` |
+| Thread links (`LinkThreads`) | full rebuild after threading | threads² (pairs compared) | ~10⁴ threads (10⁸ pairs; minutes) | all pairs of centroids; needs nearest-neighbour candidates |
+| Topic map (Explore) | per view, when read | topics² in the browser layout, stored relations | ~1–2k topics on screen | all-pairs force layout; needs aggregation by cluster first |
 | Passage search | per query | passages in scope | ~10⁵–10⁶ passages (exact scan in seconds) | exact cosine over float32 vectors |
 | Storage | linear | vectors dominate | ~10M statements ≈ 30 GB of float32 vectors | 768 × 4 bytes each, plus passages |
 | Rebuild on a rule change | all of history | everything | at 40,000 meetings: weeks locally, days hosted | rethreading is sequential |
@@ -117,7 +119,7 @@ come in tiers, each with a job:
 | Synthetic | planted failures, invented company (`testdata/synthetic/link-bench`) | 250 items | every change, minutes, cents |
 | Real, whole meetings | the first two ELT meetings, complete | ~475 items | quick real check (a hand-picked subset misleads: research log 2026-10-16) |
 | Real, full benchmark | the four ELT meetings, Opus reference | 1,014 items | before a default changes; two runs each |
-| Long synthetic history | a generated year: subjects with lifecycles (start, recur, go quiet, return, rename, end), cross-source | 50–100 meetings plus mail | coherence over time |
+| Long real history | a run of real meetings (and later mail) chosen with the owner, long enough for subjects to start, recur, go quiet, return, be renamed and end; reference by Opus as for the four meetings | 50–100 meetings plus mail | coherence over time |
 | Real, new types | one reference per kind: a 1:1, a customer call, an email thread, a chat channel | a few hundred items each | source mix |
 | Production signals | no reference: invariants and the owner's feedback | everything | drift |
 
@@ -127,7 +129,8 @@ Next additions to the benchmark itself:
    cost cuts looked harmless there and failed on real data.
 2. **Candidate recall** as a scored measure: for each item whose reference
    thread already existed, was it among the candidates?
-3. **The long synthetic history** (generator plus reference), scored on
+3. **The long real history** (real meetings, Opus reference; the owner
+   chose real data over a generated year on 2026-10-16), scored on
    duplicate threads, umbrella threads, purity over time, and
    update recall across long gaps.
 4. **Email and chat references**: one real email thread and one chat
@@ -232,17 +235,84 @@ they keep up.
 
 ## 8. Order of work
 
-1. Measure: empty-reconcile rate, candidate recall, the whole-meeting real
-   tier, and a synthetic set with real-like in-meeting updates.
-2. Build the long synthetic history and score coherence over a year.
-3. Gate and batch reconcile; prompt caching. (Cost.)
-4. Incremental card index; search prefilter and exact-hit priority.
-   (Reads at 10⁵–10⁶.)
-5. Merge, split, thread state and dormancy. (Coherence.)
-6. Email and chat: triage, conversation-level extraction, and their
+Cost first (the owner's call, 2026-10-16), so every later refinement runs
+on the cheaper pipeline. Each item says whether later work is likely to
+replace or redo it.
+
+**A. Cost**
+
+1. **Measure what the cost steps depend on.** *Done 2026-10-16
+   (research log): reconcile reasoning is the cost; empty reconciles are
+   17% of it, caching about 6%; candidate recall needs the long history.*
+   Empty-reconcile rate;
+   tokens and dollars per step, split into reasoning and answer; how
+   often assign's candidates include the right thread (candidate recall);
+   cached-prefix share of each prompt. A few small hosted runs on the
+   full benchmark.
+   *Lasting:* the measures are reused by everything below.
+2. **Reasoning effort per step** (§6.10). *Reconcile at low measured
+   2026-10-16: 35–37% cheaper, update recall about 3 points lower on
+   average; adoption is the owner's call.* Then **prompt caching** (§6.3,
+   worth about 6% at four meetings):
+   stable system prompt and candidate list first, the batch last.
+   *Done for extraction (2026-10-16): 42% of segment input is a prefix
+   shared within a meeting; with Baseten's `x-session-affinity` header
+   and the first segment sent alone, 21% of it is served from cache
+   (segments 6% cheaper). Reconcile's shared start is too short to
+   cache. Reconcile's first attempt now has room enough not to be cut off
+   (3% of threading). Low reconcile effort and dropping the brief were
+   measured cheaper but lose quality: not adopted (owner, 2026-10-16).*
+   *Lasting, cheap to redo:* any prompt change (C2's thread state, A6's
+   folded extraction) means re-checking effort and re-laying the cache
+   prefix, which is small work.
+3. **Gate reconcile** (§6.1): a cheap check skips the full call when no
+   new item changes an earlier one. *Measured: no-effect calls are the
+   small ones, 17% of cost at default reasoning and less at low. Low
+   priority.*
+   *Mostly lasting:* C2's thread state changes what reconcile reads, so
+   the gate is re-measured then, but the mechanism stays.
+4. **Batch small reconciles** (§6.2). *Measured: calls with 1–2 new
+   items cost $0.003 of $0.082. Low priority.*
+   *Likely made smaller by (3):* if most single-item reconciles are
+   gated away, few are left to batch. Decide after (3).
+5. *Done 2026-10-16 (`knowledge.updates = "explicit"`, architecture.md
+   "Derive stages").* **Forward-only rule changes** (§6.14): a prompt or rule change applies
+   to new items; a full rethread is a deliberate background job. We
+   change rules often, and today each change rethreads everything.
+   *Lasting.* Partitioned rethreads (C4) build on it.
+6. **Fold assign into extraction** (§6.5), or else **a small or distilled
+   model for assign** (§6.6). Pick one by the benchmark.
+   *Folding replaces* the small assign model and assign's own cache
+   layout from (2). Needs good candidate recall from (1) first, because
+   the extractor then sees the candidates. Riskier on quality than (2)
+   to (5).
+7. **Lazy extraction for the long tail** (§6.9).
+   *Lasting, but later in practice:* threading must see items in time
+   order, so an item extracted late needs the out-of-order handling of
+   C4. It matters only once there's a backfill.
+
+Cost items deferred by the owner or by missing data, not replaced:
+- extract and thread each shared meeting once (§6.7): not a priority on
+  one person's data;
+- email and chat triage (§6.8): when those sources arrive (C3).
+
+Coherence passes (C2) add model calls; budget them against what A saved.
+
+**B. Reads at scale**
+
+1. Incremental card index; search prefilter and exact-hit priority.
+2. Nearest-neighbour candidates for thread links and the topic map, which
+   compare every pair today.
+
+**C. Quality and coherence**
+
+1. The long real history (§5): real meetings chosen with the owner,
+   referenced by Opus, scored on duplicates, umbrellas, purity over time
+   and update recall across long gaps.
+2. Merge, split, thread state and dormancy (§4).
+3. Email and chat: triage, conversation-level extraction, and their
    references.
-7. Partitioned backfill and forward-only rebuilds.
-8. Folding assign into extraction; small or distilled models.
+4. Partitioned backfill (§6.4).
 
 Decided by the owner (2026-10-16):
 - the approved hosted endpoints may read anything, meeting text included,

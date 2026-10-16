@@ -100,6 +100,30 @@ Each stage is a named, versioned processor. Every row it writes is stamped with
 `(stage, stage_version, input_hash)`. A job queue in the database runs whatever
 is stale; bumping a stage's version reprocesses exactly what it produced.
 
+**Versions in the knowledge layer are explicit** (`knowledge.updates`,
+default "explicit"). A version is everything that shapes a stage's
+output: its prompt version, model, rules in code and settings.
+- **Extraction** records per item both its version and a hash of its
+  input alone (passages, labels, the meeting's known facts). A changed
+  input is always re-extracted. A new version is used for new items;
+  items done under an earlier one are kept and reported, and redone only
+  with `musubi knowledge --redo extract` (`--newest N` for the most
+  recent first).
+- **Claims** (linking rules) and **threads** (`ThreadsVersion`, model,
+  linking rules) work the same way: new statements are linked and new
+  items threaded under the current rules; earlier claims and threads are
+  kept and reported until `--redo links` or `--redo threads`. In thread
+  mode a claims rebuild also rethreads, because threading's relations
+  live on claims.
+- **Reporting:** every run names what is on an earlier version and the
+  command that updates it; `--plan` says what a run would do without
+  doing it.
+- **Re-extraction requeues threading:** a re-extracted item is threaded
+  again, after the items already threaded. Before this, its statements
+  silently left their threads.
+- **Old behaviour:** `knowledge.updates = "auto"` redoes everything when
+  a version changes.
+
 | Stage | Output |
 |---|---|
 | `classify` | sensitivity label for each item (see below) |
@@ -176,15 +200,27 @@ cold lane like any other source.
   opens one in a window of its own (another app process with
   `MUSUBI_CONFIG` set), so two can sit side by side. The window title
   names the dataset; the last one opened is reopened at start. Entries
-  whose config doesn't exist yet show as not built.
+  whose config doesn't exist yet show as not built. Explore → Compare
+  lines the window's topics up with another dataset's (see "Topic map").
+- **Landscape**: the ▭ button widens the window to most of the screen
+  (and back). From 1000 px wide the layout uses columns: in Explore, the
+  topic views stay on the left and the list or a topic's page opens beside
+  them; in Live, the conversation is on the left and cards and briefs fill
+  a grid on the right.
 - **Screen-safe**: a toggle switches the panel's scope to `shared-screen`.
   Detecting the owner's own screen share is not built (Tomoe can see a
   meeting app's sharing state but doesn't send it); restricted and HR cards
   are collapsed to their title meanwhile.
 - **Ask** (`internal/ask`): scoped hybrid retrieval, then the local model
   answers citing excerpts; citations open the source under the same scope.
-- **Explore**: passage search, entity lookup, and a radial "threads" graph of
-  an entity's connections with its timeline.
+- **Explore**:
+  - **Topics**: the topic map in four views, picked with small buttons
+    under it: Graph, Meaning, Timeline and Clusters (see "Topic map").
+    Clicking a topic opens its page; a filter box and the cluster chips
+    narrow what is lit.
+  - **Search**: passage search, entity lookup, and a radial graph of an
+    entity's connections with its timeline.
+  - **Compare**: this dataset's topics against another's.
 - Policy (2026-10-16): the approved hosted endpoints may read any data,
   meeting text included. The code still behaves as before: with a cloud
   chat model configured, Q&A filters passages to the cloud scope and live
@@ -479,16 +515,79 @@ real updates are within one meeting.
 Storage: threads are rows of `topics` (name and scope as label and
 summary), so Explore and cards read them as topics. `thread_items` holds
 membership (a statement can be in two threads) and which statements are
-current; `thread_runs` which items are done under which rules. Relations
+current; `thread_runs` which items are done under which rules. After
+threading, `LinkThreads` (no model call; also `musubi thread-links`)
+writes what threading doesn't: each thread's centroid (the mean of its
+claims' centroids, which places it on the meaning map), its organisations
+and projects, and relations by meaning or a shared organisation. Without
+it every thread sat at one point on the map and had no related threads.
+Sharing meetings isn't stored as a relation in thread mode: a recurring
+meeting's threads all share it (1,523 of 1,540 pairs did on four
+meetings). Relations
 are claim relations. In thread mode the pairwise judge is off: only
 near-identical statements join a claim, and linking takes seconds. A
 thread is as sensitive as the statements it was named from. A change of
-prompts (`ThreadsVersion`), model or link rules rethreads everything.
+prompts (`ThreadsVersion`), model or link rules applies to items threaded
+from then on; everything is rethreaded only on request (see "Derive
+stages": versions are explicit).
+
+Calls that share a prompt start carry a session (`x-session-affinity`,
+hashed: per meeting for points, per item for threads), so a hosted
+provider routes them to one replica and serves the shared start from its
+cache; with `knowledge.warm_cache` the first segment and the first
+reconcile go alone, so the others find it cached.
 
 Model settings: Qwen's non-thinking sampling (temperature 0.7, top-p 0.8,
 top-k 20) and token caps of 6k (assign) and 3k (reconcile). At temperature
 0 the local 27B looped to 16k tokens on long JSON replies. On the M5 Pro
 four ELT meetings take 34 minutes (8 parallel slots).
+
+### Topic map (`Views.Map`, computed when read)
+
+What Explore draws, from what the scope can see, in 40–80 ms on four
+meetings:
+- **Links** between topics, for four reasons:
+  - *shared*: statements in both (threads can share members);
+  - *together*: discussed back to back (a statement and the next two in
+    the same item, within five minutes, in different topics; once is
+    chance, so it takes two);
+  - *same*: the same organisation or project;
+  - *similar*: alike in meaning, counted only above the top fifth of the
+    dataset's stored pairs, because one organisation's topics all read
+    alike (thread centroids sit at 0.8–0.9).
+
+  Counts are divided by the square root of the two topics' sizes, so a
+  catch-all topic doesn't pull everything to it, and each topic keeps its
+  five strongest links. A topic page's related topics are these links.
+- **Clusters**: communities of the link graph (Louvain, deterministic),
+  named after their largest topic. Topics with no links are "not linked".
+- **Activity**: statements per topic per item, for the timeline.
+
+The views:
+- **Graph**: a force layout where each cluster has a home on a ring, with
+  linked clusters next to each other, so clusters read as regions. Links
+  between clusters are drawn faint.
+- **Meaning**: the first two principal components of the topics'
+  centroids, spread half by rank so outliers don't squeeze the rest.
+  Datasets without vectors (imported reference items) have none.
+- **Timeline**: a row per topic, a column per meeting, grouped by cluster.
+- **Clusters**: a card per cluster with its topics and the clusters it
+  links to most.
+
+**Compare** (`CompareDatasets`) lines up two datasets' topics. Datasets
+over the same statements are matched by shared statements (keyed by item
+and normalised text): for each topic of one side, the share found in each
+topic of the other, and the reverse. Datasets extracted separately are
+matched by wording (TF-IDF cosine over the topics' statements). Each row
+is "same", "split" (spread over several), "merged" (held together with
+other topics), "partial" or "only here"; topics only on the other side are
+listed too. It runs in about 0.2 s. On Best GLM against the reference
+subjects: 83% of statements shared; 4 same, 5 split, 22 merged, 6 partial,
+19 only here (the reference covers only 15 subjects).
+
+Both are quadratic in topics (pairs of stored relations, all-pairs layout
+in the browser); fine for hundreds, not for the 4,000+ threads of a large
+corpus (scaling.md).
 
 ### Topic cards (`knowledge.CardIndex`, `Views.Card`)
 
@@ -655,8 +754,9 @@ A dedicated graph database is not warranted at this scale (thousands of items
 and entities). The schema is plain relational behind a `store` interface so it
 can move to Postgres + pgvector (and Apache AGE if needed) without redesign.
 
-Visualization (Wails frontend): graph explorer (sigma.js or Cytoscape), timeline,
-2D topic map from projected vectors, trend charts.
+Visualization (Wails frontend, as built): hand-written SVG for the entity
+graph and the four topic views (no graph library). Trend charts are not
+built.
 
 ## Sensitivity
 

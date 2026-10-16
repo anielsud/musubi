@@ -1364,3 +1364,187 @@ base copy for rebuilding. All were assembled from existing outputs with no
 model calls. The old real instance (81 recordings, 9 pilot meetings on the
 old statement prompt) and the earlier experiment instances were deleted;
 their scores are above and their outputs remain as system files.
+
+## 2026-10-16: Topic map, thread links and dataset comparison
+
+**What was wrong.** Thread mode never wrote topic centroids or relations,
+so every thread sat at the same point on the topic map and no topic page
+had related topics. Where the map did work (topic mode), it was a scatter
+by meaning with no links drawn; links existed only as lists on topic
+pages. And comparing two datasets side by side was hard because their
+topics don't line up.
+
+**Thread links** (`LinkThreads`, no model call). Centroids from member
+claims and relations by meaning or a shared organisation or project.
+Sharing meetings is not stored for threads: on four meetings, 1,523 of
+1,540 thread pairs shared two of them.
+
+**Links and clusters when read** (`Views.Map`). Discussed back to back (two
+or more times), shared statements, the same organisation or project, and
+meaning above the dataset's top fifth of pairs. A fixed meaning threshold
+(0.62) made 187 of 210 links "similar"; the relative one, 95 of 154.
+Louvain over those links:
+
+| Dataset | Topics | Links | Clusters | Not linked | Time |
+|---|---|---|---|---|---|
+| Best GLM | 56 | 154 | 7 | 1 | 80 ms |
+| Reference · Opus items (no vectors) | 153 | 147 (all "together") | 15 | 13 | 37 ms |
+
+The clusters read as subjects: one holds the Salesforce partnership,
+Dreamforce, the Slack integration, the Marketo migration and the Q2R
+migration. Another holds a confidential programme with the HR and
+litigation threads. Not evaluated against a reference grouping yet.
+
+**Comparison** (`CompareDatasets`):
+
+| Left → right | Matched by | Same | Split | Merged | Partial | Only left | Only right |
+|---|---|---|---|---|---|---|---|
+| Best GLM → reference subjects | statements (83% shared) | 4 | 5 | 22 | 6 | 19 | 0 |
+| Opus items → Best GLM | wording | 26 | 8 | 12 | 57 | 50 | 2 |
+
+"Merged" dominates the first row because the reference has 15 broad
+subjects and Best GLM 56 narrower threads; "only left" is mostly threads
+outside those 15 subjects. Wording matches are weaker evidence than
+shared statements; the "partial" band (similarity 0.25–0.5) needs
+reading, not counting.
+
+## 2026-10-16: Cost measures (scaling.md §8, A1) and low reasoning for reconcile (A2)
+
+**A1, measured without new calls.** The best GLM run (lean, low-reasoning
+assign) replayed exactly from the call cache with a trace
+(`threads2.py TRACE=`), scored by `tools/link-bench/costs.py` against the
+spend ledger and the reference subjects:
+
+| Step | Calls | Input | Served from cache | Output | Reasoning | $ | Share |
+|---|---|---|---|---|---|---|---|
+| assign | 18 | 110k | 0% | 17k | 52% | $0.025 | 30% |
+| reconcile | 77 | 119k | 2% | 78k | 94% | $0.057 | 70% |
+
+Fitted prices: $0.15 per million input tokens, $0.50 per million output.
+
+- **Reconcile calls that change nothing are cheap.** 59% of reconcile
+  calls kept no effect after the rules (39% returned none), but they are
+  the small ones: with 1–2 new items, 90% kept nothing; with 10 or more,
+  21%. The no-effect calls cost $0.014 of $0.082 (17%). Gating them
+  (A3) saves at most that; batching the 1–2 item calls (A4) at most
+  $0.003.
+- **Prompt caching is worth little here.** Baseten served 0–2% of input
+  from its cache. 5% of assign prompts and 19% of reconcile prompts repeat
+  an earlier call's start (the system prompt); a candidate list in stable
+  order raises assign to 16%. Caching all of it would save about 6%.
+- **Candidate recall can't be measured on four meetings**: 56 threads
+  fit in the 40 + 15 candidates, so every item saw every thread (100%).
+  When a thread holding the item's reference subject was offered, the item
+  joined one 55% of the time; 257 of the 285 others started a new thread
+  in the same call, mostly a finer split than the reference's 15 broad
+  subjects. Needs the long real history.
+- **Where the money is:** reconcile's reasoning, 94% of its output and
+  about 45% of the whole bill.
+
+**A2: low reasoning for reconcile, on the real set** (it had been ruled
+out on the synthetic set only). Assign stays low; three runs each:
+
+| Reconcile effort | $ per 4 meetings | Reconcile $ | Retiring updates retired | Updates found | Live items wrongly retired | Grouping P / R |
+|---|---|---|---|---|---|---|
+| default (= medium) | $0.082, $0.085, $0.085 | $0.057–0.059 | 31%, 30%, 31% | 25%, 25%, 26% | 1.5%, 1.0%, 0.5% | 0.87–0.92 / 0.50–0.53 |
+| low | $0.052, $0.052, $0.056 | $0.024 | 33%, 24%, 26% | 26%, 20%, 21% | 1.5%, 1.5%, 1.0% | 0.87–0.92 / 0.48–0.52 |
+
+- "medium" costs the same as sending no effort: it is the default.
+- Low reasoning cuts reconcile's output from 78k to 16k tokens (reasoning
+  94% → 72%) and **total cost by 35–37%**, with no replies cut off at the
+  token cap (3–4 per run at the default).
+- Update recall drops about 3 points on average (28% against 31% retired;
+  22% against 25% found), within one run's noise but consistent across
+  three; wrong retirements don't rise; grouping is unchanged.
+- With assign also at low, threading costs about 1.3¢ per ELT meeting,
+  down from 2.1¢. This is the hosted prototype; the Go threader runs the
+  local 27B without thinking, so the setting applies when it gets a
+  hosted model.
+
+Spend for A1 and A2: about $0.33.
+
+**A1 for extraction** (the GLM-5.3-Flash v2 run behind every GLM dataset;
+ledger, and its prompts rebuilt at their real sizes without calls):
+
+| Part | Calls | Input | Output (reasoning) | $ | Share |
+|---|---|---|---|---|---|
+| Brief (whole transcript, once per meeting) | 4 | ~72k | ~10k (13%) | ~$0.024 | ~24% |
+| Segments (50 lines + 8 of context each side) | 40 | 245k | 77k (6%) | $0.075 | ~76% |
+
+- Extraction is about $0.10 per four meetings against $0.053–0.082 for
+  threading: now the larger part of the bill.
+- Reasoning is already low (6% of segment output); the output is the
+  items themselves. No reply hit the token cap.
+- **Each segment prompt starts with 11.8k characters that are the same
+  for every segment of the meeting** (instructions 5.0k, company
+  directory and brief 6.8k), 42% of all segment input. Baseten cached
+  none of it, because all segments were sent at once. Earlier runs that
+  sent calls one at a time had about 29% of their input served from cache,
+  at about a fifth of the price (~$0.03 per million tokens, implied by
+  the ledger). Sending each meeting's first segment alone and the rest
+  after it should save about $0.012 per four meetings (~12% of
+  extraction), for one call's wait per meeting.
+- The brief costs about a quarter of extraction and was measured
+  (2026-10-12) at about 3 points fewer missed items. Dropping it is the
+  other lever; segment size (30 or 100 lines) and reasoning were measured
+  then too and stay.
+
+**Cost-only changes, verified (owner: no quality loss accepted, so low
+reconcile effort and dropping the brief are not adopted).** Fresh hosted
+runs, the prompts unchanged:
+
+| Change | Before | After |
+|---|---|---|
+| Extraction: one meeting's segments sent with the same `x-session-affinity` header, first segment alone | 0% of segment input cached, $0.075 | 21% cached, $0.071 |
+| Same, without the header (first segment alone only) | | 1% cached: Baseten's cache is per replica, and parallel calls spread over replicas |
+| Reconcile: first attempt at 8,000 tokens instead of 4,000 | 3–4 replies cut off and rerun per run | 0–1; threading $0.081–0.082 against $0.082–0.085 |
+| Reconcile: the same header | | 0% cached: its shared start (the instructions, ~500 tokens) is likely below the cacheable minimum |
+
+Threading quality on the two runs: retiring updates retired 33% and 28%,
+live items wrongly retired 1.0% and 2.0%, grouping 0.88–0.89 / 0.48–0.51,
+all within the three default runs' range. Together about 4% off the
+total. Only half the shareable extraction prefix was served from cache;
+why is not known. Spend for these checks: about $0.36.
+
+The header is in `bt.py` (`session=`) and in the Go provider
+(`ChatOptions.Session`, sent as `x-session-affinity`, hashed); points and
+threads send it per meeting and per item, and with
+`knowledge.warm_cache` (default on) send the first segment and the first
+reconcile alone.
+
+## 2026-10-16: More context for extraction (no gain)
+
+Question: with prompt caching, does giving extraction more context improve
+quality? GLM-5.3-Flash, prompt v2, temperature 0, low reasoning, four ELT
+meetings (670 reference items), graded by Gemini Flash. Two variants
+(`extract_lean.py`):
+- **rich**: the brief in full (every role, the subjects in order, every
+  glossary term) instead of a few truncated lines;
+- **full**: the whole transcript at the start of every call (shared by a
+  meeting's calls, so cached), the part to cover named at the end; no
+  brief.
+
+| Run | Items | Reference found / partly / missed | Wrong + invented | Extraction $ | Input cached |
+|---|---|---|---|---|---|
+| base (original) | 1,014 | 85.7 / 10.4 / 3.9% | 4.6% | ~$0.10 | 0% |
+| base (rerun) | 999 | 84.8 / 11.5 / 3.7% | 4.3% | $0.073 + brief | 10% |
+| rich | 912 | 84.6 / 11.3 / 4.0% | 5.2% | $0.077–0.081 + brief | 12–20% |
+| full | 899 | **80.7 / 13.4 / 5.8%** | 5.2% | $0.110–0.112 | **71–72%** |
+
+The second rich run and the first full run were cut short by the grading
+spend cap; on the meetings they covered they agree with the table (rich:
+295 found, 7 missed on the first two meetings against the baseline's 295
+and 9; full: 414 found, 24 missed on the first three against 449 and 10).
+
+- **The whole transcript makes extraction worse**: fewer items, 4–5
+  points fewer references found, about 50% more missed. Given 900 lines,
+  the model extracts less from its 50; the narrow excerpt keeps it
+  exhaustive.
+- **The full brief changes nothing** within the noise, with fewer items
+  and slightly more wrong ones.
+- Kept: today's prompt (brief cut short, 50-line excerpts).
+- On caching: a meeting-wide shared start was 71–72% cached with session
+  affinity, so 4.6 times the input cost only 50% more. Caching works
+  when the shared part is most of the prompt.
+
+Spend: about $0.55 on extraction and $4.83 on grading.

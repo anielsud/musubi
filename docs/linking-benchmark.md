@@ -124,7 +124,11 @@ by side), all on the same four meetings, under
 | `_base` | GLM items with embeddings and no grouping, the starting point for rebuilding any of the above (not listed) |
 
 A system output (`system-*.json`) becomes a dataset with `apply_threads.py`
-on a copy of `_base`, with no model calls.
+on a copy of `_base`, then `musubi --config <dataset>/config.toml
+thread-links` for the threads' centroids and relations, with no model
+calls. Explore → Compare in the app lines two datasets' subjects up
+(architecture.md, "Topic map"): which match, which one side splits or
+merges, and what only one side has.
 
 ## Running it
 
@@ -148,12 +152,19 @@ from that ledger, not from the printed total, which includes concurrent
 runs):
 ```
 RUN=base SPEND_CAP=25 MODEL=zai-org/GLM-5.3-Flash python3 tools/link-bench/threads.py <bench> system-base.json
-RUN=lean SPEND_CAP=25 SKIP_NEW=0 INLINE=0 ASSIGN_EFFORT=low ASSIGN_MAX=8000 REC_MAX=4000 \
+RUN=lean SPEND_CAP=25 SPECIFIC=1 SKIP_NEW=0 INLINE=0 ASSIGN_EFFORT=low ASSIGN_MAX=8000 REC_MAX=8000 \
   python3 tools/link-bench/threads2.py <bench> <db with statement vectors, or - to embed via Ollama> system-lean.json
 ```
 `threads2.py` options: `CAND` (40), `RECENT` (15), `CAP` (25), `CHUNK` (70),
 `SKIP_NEW` and `INLINE` (both measured worse; set 0), `SPECIFIC`
 (measured no effect), `ASSIGN_EFFORT` (low: measured cheaper, no loss).
+`EFFORT` sets reconcile's reasoning effort (low: 35–37% cheaper, about 3
+points less update recall over three runs). `TRACE=<file>` records every
+call; `costs.py <bench> <trace> <run tag>` turns it and the spend ledger
+into cost per step, reconcile calls that changed nothing, candidate
+recall and prompt-caching potential. A rerun with the same settings
+replays from the call cache at no cost (set `SPEND_CAP` to the amount
+already spent so a miss fails instead of calling).
 
 Cards and search end to end: load a thread system into a copy of the
 instance and score queries per subject:

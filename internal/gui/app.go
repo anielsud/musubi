@@ -14,7 +14,6 @@ import (
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/anielsud/musubi/internal/ask"
-	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/engine"
 	"github.com/anielsud/musubi/internal/live"
 	"github.com/anielsud/musubi/internal/store"
@@ -25,6 +24,11 @@ type App struct {
 	eng  *engine.Engine
 	live *live.Live
 	err  string
+
+	// cfgPath is the open dataset's config; liveCancel stops its live lane
+	// when another dataset is opened in this window.
+	cfgPath    string
+	liveCancel context.CancelFunc
 
 	mu         sync.Mutex
 	updating   bool
@@ -43,24 +47,46 @@ func (a *App) emit(ev string, data any) {
 
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-	e, err := engine.Open(config.Path())
-	if err != nil {
+	if err := a.openConfig(startConfig()); err != nil {
 		a.err = err.Error()
-		return
 	}
-	a.eng = e
+}
+
+// openConfig opens a dataset's config in this window, closing the one open
+// before (its live lane stops and its store closes).
+func (a *App) openConfig(path string) error {
+	if a.liveCancel != nil {
+		a.liveCancel()
+		a.liveCancel = nil
+	}
+	if a.eng != nil {
+		a.eng.Close()
+		a.eng, a.live = nil, nil
+	}
+	e, err := engine.Open(path)
+	if err != nil {
+		return err
+	}
+	a.eng, a.cfgPath, a.err = e, path, ""
 	a.live = live.New(e, a.emit, func() { a.Update() })
+	lctx, cancel := context.WithCancel(a.ctx)
+	a.liveCancel = cancel
+	wruntime.WindowSetTitle(a.ctx, "Musubi — "+datasetName(path))
 	go func() {
-		up := e.EnsureOllama(ctx)
+		up := e.EnsureOllama(lctx)
 		a.mu.Lock()
 		a.ollamaUp = up
 		a.mu.Unlock()
 		a.emit("app:status", a.Status())
 	}()
-	go a.live.Run(ctx)
+	go a.live.Run(lctx)
+	return nil
 }
 
 func (a *App) Shutdown(ctx context.Context) {
+	if a.liveCancel != nil {
+		a.liveCancel()
+	}
 	if a.eng != nil {
 		a.eng.Close()
 	}
@@ -78,10 +104,11 @@ type AppStatus struct {
 	Stats      *store.Stats      `json:"stats,omitempty"`
 	Live       live.Status       `json:"live"`
 	Config     map[string]string `json:"config"`
+	Dataset    string            `json:"dataset"`
 }
 
 func (a *App) Status() AppStatus {
-	st := AppStatus{Error: a.err}
+	st := AppStatus{Error: a.err, Dataset: datasetName(a.cfgPath)}
 	if a.eng == nil {
 		return st
 	}
@@ -98,7 +125,7 @@ func (a *App) Status() AppStatus {
 	st.Stats, _ = a.eng.Store.Stats()
 	st.Live = a.live.Status()
 	st.Config = map[string]string{
-		"config":        config.Path(),
+		"config":        a.cfgPath,
 		"data":          a.eng.Cfg.DataDir,
 		"tomoe socket":  a.eng.Cfg.Live.TomoeSocket,
 		"suggest every": fmt.Sprintf("%ds", a.eng.Cfg.Live.SuggestEvery),

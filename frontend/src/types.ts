@@ -171,6 +171,15 @@ export interface AppStatus {
   stats?: Stats;
   live: LiveStatus;
   config: Record<string, string>;
+  dataset: string;
+}
+
+export interface DatasetView {
+  key: string;
+  name: string;
+  note?: string;
+  available: boolean;
+  current: boolean;
 }
 
 export interface Statement {

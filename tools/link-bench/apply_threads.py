@@ -4,6 +4,9 @@ database in place of its topics and claim relations, so cards and search can
 be scored end to end on it. Claims are kept; a claim's topic is the thread
 of its first statement.
 
+Membership (`thread_items`) and current state come from the system's
+"threads" (items, current) when it has them.
+
 Usage: apply_threads.py <system.json> <copy of musubi.db>
 """
 import json, sqlite3, sys
@@ -35,5 +38,16 @@ for r in sysj["relations"]:
     if a and b and a != b:
         db.execute("INSERT OR IGNORE INTO claim_relations(from_claim, to_claim, rel, statement_id) VALUES (?,?,?,?)", (a, b, r["rel"], r["later"]))
         n += 1
+# Membership and current state, so cards read each thread as itself
+# (thread mode in the card index), when the system records them.
+db.execute("DELETE FROM thread_items")
+tnums = {tid: k for k, tid in enumerate(sysj["threads"], 1)}
+m = 0
+for tid, t in sysj["threads"].items():
+    cur = set(t.get("current") or [])
+    for sid in t.get("items") or []:
+        db.execute("INSERT OR IGNORE INTO thread_items(topic_id, statement_id, current) VALUES (?,?,?)",
+                   (tnums[tid], sid, 1 if (not cur or sid in cur) else 0))
+        m += 1
 db.commit()
-print(f"{len(sysj['threads'])} threads as topics, {len(first)} claims placed, {n} relations")
+print(f"{len(sysj['threads'])} threads as topics, {len(first)} claims placed, {n} relations, {m} memberships")

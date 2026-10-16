@@ -170,6 +170,13 @@ cold lane like any other source.
   topic's card (see "Topic cards" below), rebuilt under the current scope
   whenever the scope changes. A replay sees only what was known when the
   replayed meeting happened.
+- **Datasets**: a dropdown under the title bar switches the window to
+  another instance listed in `~/.config/musubi/datasets.toml` (key, name,
+  config, note; `MUSUBI_DATASETS` overrides the path), and "compare with…"
+  opens one in a window of its own (another app process with
+  `MUSUBI_CONFIG` set), so two can sit side by side. The window title
+  names the dataset; the last one opened is reopened at start. Entries
+  whose config doesn't exist yet show as not built.
 - **Screen-safe**: a toggle switches the panel's scope to `shared-screen`.
   Detecting the owner's own screen share is not built (Tomoe can see a
   meeting app's sharing state but doesn't send it); restricted and HR cards

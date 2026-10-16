@@ -57,7 +57,17 @@ Config: `~/.config/musubi/config.toml` (owner email and internal domains at
 least). Calendar, mail and chat arrive as JSON envelopes in
 `~/.local/share/musubi/inbox/<source>/` (format in
 `internal/source/mcpdrop`). `MUSUBI_CONFIG` points the CLI and the app at
-another config, for experiment instances beside the real one.
+another config, for experiment instances beside the real one. The app lists
+datasets from `~/.config/musubi/datasets.toml` in a dropdown and can open
+two side by side:
+
+```toml
+[[dataset]]
+key = "best-glm"
+name = "Best GLM"
+config = "/path/to/datasets/best-glm/config.toml"
+note = "what is in it"
+```
 
 Knowledge extraction and threading run best on a larger local model
 served by llama.cpp (`brew install llama.cpp`); the measured settings are

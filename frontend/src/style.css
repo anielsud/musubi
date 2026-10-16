@@ -412,3 +412,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .events { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
 .stmt-quote { font-size: 11.5px; color: var(--text-dim); font-style: italic; }
 .ungrounded { font-size: 10.5px; color: var(--lvl-confidential); margin-right: 6px; font-style: normal; }
+
+/* Dataset picker: a row under the title bar */
+.datasets { display: flex; gap: 6px; align-items: center; padding: 4px 12px 6px; border-bottom: 1px solid var(--line); }
+.datasets select { min-width: 0; flex: 3; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 6px; font-size: 12px; padding: 3px 6px; }
+.datasets select.other { flex: 2; color: var(--text-dim); }

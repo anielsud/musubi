@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { AppStatus, ClaimView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, TopicSummary, TopicView } from './types';
+import type { AppStatus, ClaimView, DatasetView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, TopicSummary, TopicView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -38,6 +38,9 @@ export const api = {
   claim: (id: number, scope: string): Promise<ClaimView | null> => app().Claim(id, scope),
   searchClaims: (q: string, scope: string): Promise<ClaimView[] | null> => app().SearchClaims(q, scope),
   judge: (statementId: number, verdict: string, note = ''): Promise<void> => app().Judge(statementId, verdict, note),
+  datasets: (): Promise<DatasetView[] | null> => app().Datasets(),
+  switchDataset: (key: string): Promise<void> => app().SwitchDataset(key),
+  openDatasetWindow: (key: string): Promise<void> => app().OpenDatasetWindow(key),
 };
 
 export function on<T>(event: string, fn: (data: T) => void): () => void {

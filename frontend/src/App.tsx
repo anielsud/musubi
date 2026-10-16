@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, on } from './api';
-import type { AppStatus, Hit, LiveStatus } from './types';
+import type { AppStatus, DatasetView, Hit, LiveStatus } from './types';
 import { LiveView } from './components/LiveView';
 import { AskView } from './components/AskView';
 import { ExploreView } from './components/ExploreView';
@@ -74,6 +74,8 @@ export function App() {
         </div>
       </header>
 
+      <DatasetPicker onError={setToast} />
+
       <nav className="tabs" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
         {(['live', 'ask', 'explore', 'status'] as View[]).map((v) => (
           <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
@@ -97,6 +99,44 @@ export function App() {
       {toast && <div className="toast">{toast}</div>}
       </div>
       {diag && <DiagPanel />}
+    </div>
+  );
+}
+
+// DatasetPicker switches this window to another dataset, or opens one in a
+// window of its own to compare side by side.
+function DatasetPicker({ onError }: { onError: (m: string) => void }) {
+  const [sets, setSets] = useState<DatasetView[]>([]);
+  const [other, setOther] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => api.datasets().then((d) => setSets(d ?? [])).catch(() => {}), 200);
+    return () => clearTimeout(t);
+  }, []);
+  if (sets.length === 0) return null;
+  const current = sets.find((d) => d.current)?.key ?? '';
+  const switchTo = (key: string) => {
+    if (!key || key === current) return;
+    api.switchDataset(key).then(() => window.location.reload(), (e) => onError(String(e)));
+  };
+  const openWindow = () => {
+    const key = other || sets.find((d) => d.available && !d.current)?.key;
+    if (key) api.openDatasetWindow(key).catch((e) => onError(String(e)));
+  };
+  return (
+    <div className="datasets" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
+      <select value={current} onChange={(e) => switchTo(e.target.value)} title="Dataset shown in this window">
+        {!current && <option value="">default config</option>}
+        {sets.map((d) => (
+          <option key={d.key} value={d.key} disabled={!d.available} title={d.note}>
+            {d.name}{d.available ? '' : ' (not built)'}
+          </option>
+        ))}
+      </select>
+      <select className="other" value={other} onChange={(e) => setOther(e.target.value)} title="Dataset to open in a new window">
+        <option value="">compare with…</option>
+        {sets.filter((d) => d.available && !d.current).map((d) => <option key={d.key} value={d.key}>{d.name}</option>)}
+      </select>
+      <button className="icon-btn" title="Open the chosen dataset in a new window, side by side" onClick={openWindow}>⧉</button>
     </div>
   );
 }

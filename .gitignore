@@ -15,3 +15,5 @@ frontend/dist/
 
 /build/
 cmd/musubi-gui/frontend/
+__pycache__/
+testdata/synthetic/link-bench/vectors.json

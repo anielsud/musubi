@@ -24,7 +24,8 @@ CACHE=os.path.join(DATA,"cache")
 def chat(model,messages,schema,tag,max_tokens=32000):
     import hashlib
     os.makedirs(CACHE,exist_ok=True)
-    k=hashlib.sha256(json.dumps([model,messages,schema,os.environ.get("TEMP","0.7"),os.environ.get("EFFORT","")]).encode()).hexdigest()[:20]
+    # CACHE_SALT reruns the same prompts afresh (to measure run-to-run variance).
+    k=hashlib.sha256(json.dumps([model,messages,schema,os.environ.get("TEMP","0.7"),os.environ.get("EFFORT","")]+([os.environ["CACHE_SALT"]] if os.environ.get("CACHE_SALT") else [])).encode()).hexdigest()[:20]
     cp=os.path.join(CACHE,k+".json")
     if os.path.exists(cp): return json.load(open(cp))
     try:
@@ -45,14 +46,43 @@ def _chat(model,messages,schema,tag,max_tokens):
         _key=subprocess.run(["security","find-generic-password","-s","baseten-api-key","-w"],capture_output=True,text=True).stdout.strip()
     body={**({"reasoning_effort":os.environ["EFFORT"]} if os.environ.get("EFFORT") else {}),"model":model,"temperature":float(os.environ.get("TEMP","0.7")),"top_p":0.95,"max_tokens":max_tokens,"messages":messages,
           "response_format":{"type":"json_schema","json_schema":{"name":"out","schema":closed(schema),"strict":True}}}
+    # Streamed: a long, non-streamed generation sends nothing until it is
+    # done, and such requests hung for 5-30 minutes (2026-10-15) while the
+    # same request streamed in seconds. BT_TIMEOUT bounds the wait for each
+    # chunk, not the whole reply.
+    body["stream"]=True
+    body["stream_options"]={"include_usage":True}
     t=time.time()
-    req=urllib.request.Request("https://inference.baseten.co/v1/chat/completions",json.dumps(body).encode(),
-        {"Content-Type":"application/json","Authorization":"Bearer "+_key})
     for attempt in range(6):
         try:
-            r=json.load(urllib.request.urlopen(urllib.request.Request(req.full_url,req.data,dict(req.header_items())),timeout=1800)); break
+            resp=urllib.request.urlopen(urllib.request.Request("https://inference.baseten.co/v1/chat/completions",json.dumps(body).encode(),
+                {"Content-Type":"application/json","Authorization":"Bearer "+_key}),timeout=float(os.environ.get("BT_TIMEOUT","120")))
+            parts,finish,usage=[],None,{}
+            t1=time.time()
+            for raw in resp:
+                # A reply still streaming after BT_WALL seconds is a reasoning
+                # loop at a crawl (seen: 4k reasoning tokens at ~2/s); a fresh
+                # sample usually doesn't loop.
+                if time.time()-t1>float(os.environ.get("BT_WALL","180")):
+                    resp.close(); raise TimeoutError("reply still streaming after BT_WALL")
+                raw=raw.strip()
+                if not raw.startswith(b"data:"): continue
+                data=raw[5:].strip()
+                if data==b"[DONE]": break
+                ev=json.loads(data)
+                if ev.get("usage"): usage=ev["usage"]
+                for ch in ev.get("choices") or []:
+                    d=ch.get("delta") or {}
+                    if d.get("content"): parts.append(d["content"])
+                    if ch.get("finish_reason"): finish=ch["finish_reason"]
+            r={"usage":usage,"choices":[{"message":{"content":"".join(parts)},"finish_reason":finish}]}
+            break
         except urllib.error.HTTPError as e:
             if e.code in (429,500,502,503) and attempt<5: time.sleep(4*2**attempt); continue
+            raise
+        except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
+            # dropped or stalled connections: retry like a 5xx
+            if attempt<5: time.sleep(4*2**attempt); continue
             raise
     u=r.get("usage") or {}
     cached=((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0)
@@ -71,6 +101,9 @@ def _local(model,messages,schema,tag,max_tokens):
     """llama-server (OpenAI-compatible): same prompts and schema, no cost."""
     think=os.environ.get("THINK")=="1"
     samp={"temperature":0.6,"top_p":0.95,"top_k":20} if think else {"temperature":0}
+    if os.environ.get("LOCAL_SAMPLE")=="1" and not think:
+        # Qwen's settings for non-thinking mode; greedy decoding loops on long JSON.
+        samp={"temperature":0.7,"top_p":0.8,"top_k":20}
     body={"model":"local",**samp,"max_tokens":max_tokens,"messages":messages,
           "response_format":{"type":"json_schema","json_schema":{"name":"out","schema":schema}},
           "chat_template_kwargs":{"enable_thinking":think}}
@@ -79,6 +112,8 @@ def _local(model,messages,schema,tag,max_tokens):
     u=r.get("usage") or {}; tm=r.get("timings") or {}
     with _lock:
         open(LEDGER.replace("spend","local"),"a").write(json.dumps({"tag":tag,"model":model,"in":u.get("prompt_tokens",0),"out":u.get("completion_tokens",0),"s":round(time.time()-t,1),"pp_tps":round(tm.get("prompt_per_second",0),1),"tg_tps":round(tm.get("predicted_per_second",0),1),"finish":r["choices"][0].get("finish_reason")})+"\n")
+    if r["choices"][0].get("finish_reason")=="length":
+        raise json.JSONDecodeError("reply hit max_tokens","",0)
     c=r["choices"][0]["message"]["content"]; c=c[c.find("{"):c.rfind("}")+1]
     return json.loads(c)
 

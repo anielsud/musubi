@@ -1,0 +1,1923 @@
+{
+ "threads": [
+  {
+   "thread": "Project Larch restructuring",
+   "scope": "The confidential restructuring of Customer Success and the Rotterdam office: org design, cost, works council deadline, announcement and confidentiality handling.",
+   "members": [
+    6,
+    7,
+    8,
+    9,
+    10,
+    59,
+    60,
+    61,
+    62,
+    96,
+    97,
+    98,
+    99,
+    100,
+    101,
+    102,
+    144,
+    171,
+    181,
+    182,
+    183,
+    216,
+    217,
+    218,
+    219
+   ],
+   "near_misses": [
+    {
+     "id": 234,
+     "why": "Rotterdam customer meetup for brand packs; shares the city only"
+    },
+    {
+     "id": 248,
+     "why": "Samir's Rotterdam marathon; shares the city only"
+    },
+    {
+     "id": 48,
+     "why": "Lisbon office lease; Larch affects Lisbon roles but the lease is a separate facilities matter"
+    },
+    {
+     "id": 140,
+     "why": "a confidentiality cue about Tomas's departure, not about Larch"
+    },
+    {
+     "id": 103,
+     "why": "hiring pause caused by Larch, but it belongs to the hiring freeze question"
+    }
+   ],
+   "states": [
+    {
+     "meeting": "2026-03-02",
+     "summary": "Org design phase starts; draft due March 16; works council question open with Ola; Rotterdam kept out of minutes.",
+     "current": [
+      6,
+      8,
+      9,
+      10
+     ]
+    },
+    {
+     "meeting": "2026-03-09",
+     "summary": "Works council consultation required; notice due April 10; Ola to file; nothing to Rotterdam staff before filing.",
+     "current": [
+      6,
+      59,
+      60,
+      61,
+      62
+     ]
+    },
+    {
+     "meeting": "2026-03-16",
+     "summary": "Draft design delivered (23 roles, Rotterdam support to Utrecht); approved in principle; announcement April 14; one-off cost $1.9M, savings $3.4M/yr.",
+     "current": [
+      96,
+      97,
+      98,
+      99,
+      101,
+      102,
+      60,
+      61
+     ]
+    },
+    {
+     "meeting": "2026-03-23",
+     "summary": "Global CS lead role to be hired externally; offsite day two on Larch comms.",
+     "current": [
+      96,
+      97,
+      99,
+      101,
+      102,
+      144,
+      171,
+      60,
+      61
+     ]
+    },
+    {
+     "meeting": "2026-03-30",
+     "summary": "Notice drafted and under counsel review; one-off cost revised to $2.3M; Utrecht move embargoed.",
+     "current": [
+      96,
+      97,
+      99,
+      101,
+      144,
+      181,
+      182,
+      183,
+      60
+     ]
+    },
+    {
+     "meeting": "2026-04-06",
+     "summary": "Notice filed April 3; announcement April 14; manager briefings April 13; refer to it as 'the April changes'.",
+     "current": [
+      96,
+      97,
+      99,
+      101,
+      144,
+      183,
+      216,
+      217,
+      218,
+      219
+     ]
+    }
+   ],
+   "updates": [
+    {
+     "later": 59,
+     "earlier": 8,
+     "relation": "answers",
+     "note": "counsel confirms consultation is required and gives the April 10 deadline"
+    },
+    {
+     "later": 59,
+     "earlier": 9,
+     "relation": "completes",
+     "note": "Ola's find-out commitment is done"
+    },
+    {
+     "later": 96,
+     "earlier": 7,
+     "relation": "completes",
+     "note": "draft org design delivered on March 16"
+    },
+    {
+     "later": 102,
+     "earlier": 100,
+     "relation": "answers",
+     "note": "one-off cost given in the same minute"
+    },
+    {
+     "later": 183,
+     "earlier": 102,
+     "relation": "supersedes",
+     "note": "one-off cost revised from $1.9M to $2.3M"
+    },
+    {
+     "later": 181,
+     "earlier": 61,
+     "relation": "pending",
+     "note": "notice drafted, filing still to come"
+    },
+    {
+     "later": 216,
+     "earlier": 61,
+     "relation": "completes",
+     "note": "notice filed April 3"
+    },
+    {
+     "later": 216,
+     "earlier": 181,
+     "relation": "supersedes",
+     "note": "drafted/in review becomes filed"
+    }
+   ],
+   "open_at_end": [
+    218
+   ]
+  },
+  {
+   "thread": "Gross revenue churn",
+   "scope": "The trailing-12-month gross revenue churn figure, its drivers, the Kestrel save, and who owns the forecast.",
+   "members": [
+    11,
+    12,
+    13,
+    14,
+    63,
+    64,
+    65,
+    66,
+    67,
+    68,
+    104,
+    105,
+    106,
+    107,
+    147,
+    148,
+    184,
+    185,
+    186,
+    220,
+    221,
+    222,
+    223
+   ],
+   "near_misses": [
+    {
+     "id": 83,
+     "why": "12.9% is a Cirrusbase cost increase, not churn"
+    },
+    {
+     "id": 38,
+     "why": "$410k is the tooling forecast, not Marlow's churned ARR"
+    },
+    {
+     "id": 110,
+     "why": "Kestrel's Copilot pilot belongs to the Copilot thread"
+    },
+    {
+     "id": 149,
+     "why": "Copilot usage at Kestrel, raised during churn discussion, belongs to the Copilot thread"
+    }
+   ],
+   "states": [
+    {
+     "meeting": "2026-03-02",
+     "summary": "Churn 12.4% (from 11.8%); three logos drive ~4 points; Kestrel save plan with Copilot credits; call March 12.",
+     "current": [
+      11,
+      12,
+      13,
+      14
+     ]
+    },
+    {
+     "meeting": "2026-03-09",
+     "summary": "Churn corrected in-meeting to 12.9% (Marlow $410k); segment cut promised.",
+     "current": [
+      64,
+      65,
+      13,
+      14,
+      68,
+      67
+     ]
+    },
+    {
+     "meeting": "2026-03-16",
+     "summary": "Churn 13.1%; by segment 7.8/13.5/21.0; Kestrel will renew at 80% with credits.",
+     "current": [
+      104,
+      105,
+      106,
+      107,
+      13,
+      67
+     ]
+    },
+    {
+     "meeting": "2026-03-23",
+     "summary": "Churn holds at 13.1%; Kestrel signed at 80% with 200 Copilot credits.",
+     "current": [
+      104,
+      105,
+      147,
+      148,
+      67
+     ]
+    },
+    {
+     "meeting": "2026-03-30",
+     "summary": "Churn 12.8% as Kestrel counts as a 20% downgrade; Rosa takes the forecast.",
+     "current": [
+      184,
+      185,
+      148,
+      186,
+      67
+     ]
+    },
+    {
+     "meeting": "2026-04-06",
+     "summary": "Churn 12.7% at Q1 close; Rosa targets under 11% by year end.",
+     "current": [
+      220,
+      221,
+      222,
+      186,
+      67,
+      223
+     ]
+    }
+   ],
+   "updates": [
+    {
+     "later": 64,
+     "earlier": 63,
+     "relation": "corrects",
+     "note": "in-meeting correction: 12.9 not 12.6"
+    },
+    {
+     "later": 64,
+     "earlier": 11,
+     "relation": "supersedes",
+     "note": "12.4% replaced by 12.9%"
+    },
+    {
+     "later": 104,
+     "earlier": 64,
+     "relation": "supersedes",
+     "note": "13.1% replaces 12.9%"
+    },
+    {
+     "later": 105,
+     "earlier": 68,
+     "relation": "completes",
+     "note": "segment cut delivered"
+    },
+    {
+     "later": 184,
+     "earlier": 104,
+     "relation": "supersedes",
+     "note": "12.8% replaces 13.1%"
+    },
+    {
+     "later": 184,
+     "earlier": 147,
+     "relation": "supersedes",
+     "note": "12.8% replaces the restated 13.1%"
+    },
+    {
+     "later": 220,
+     "earlier": 184,
+     "relation": "supersedes",
+     "note": "12.7% at Q1 close"
+    },
+    {
+     "later": 148,
+     "earlier": 13,
+     "relation": "completes",
+     "note": "Kestrel save landed"
+    },
+    {
+     "later": 148,
+     "earlier": 106,
+     "relation": "supersedes",
+     "note": "conditional renewal became a signed renewal"
+    },
+    {
+     "later": 67,
+     "earlier": 66,
+     "relation": "answers",
+     "note": "Marlow is lost, chose an EHR-bundled competitor"
+    }
+   ],
+   "open_at_end": [
+    222,
+    223
+   ]
+  },
+  {
+   "thread": "Northwind Alliance partner programme",
+   "scope": "Terms, certification and sign-ups for the Northwind Alliance SI partner programme.",
+   "members": [
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    56,
+    91,
+    112,
+    113,
+    114,
+    115,
+    116,
+    145,
+    146,
+    173,
+    207,
+    241,
+    242
+   ],
+   "near_misses": [
+    {
+     "id": 21,
+     "why": "Pinecrest SOC 2 request; no partner involved"
+    },
+    {
+     "id": 213,
+     "why": "stroopwafels from the partner council; small talk"
+    }
+   ],
+   "states": [
+    {
+     "meeting": "2026-03-02",
+     "summary": "Draft: 20% referral on first-year ARR, no resale; renewals question pending; certification = two courses + one supervised implementation.",
+     "current": [
+      15,
+      16,
+      18,
+      19,
+      20
+     ]
+    },
+    {
+     "meeting": "2026-03-09",
+     "summary": "Greyfield wants 25% resale; three SI firms applied.",
+     "current": [
+      15,
+      16,
+      18,
+      19,
+      20,
+      56,
+      91
+     ]
+    },
+    {
+     "meeting": "2026-03-16",
+     "summary": "Revised proposal: 15% referral plus 25% resale for certified partners only.",
+     "current": [
+      112,
+      113,
+      116,
+      16,
+      18,
+      19,
+      56,
+      91,
+      114,
+      115
+     ]
+    },
+    {
+     "meeting": "2026-03-23",
+     "summary": "Margin is first-year only (renewals none); Greyfield signed at 25% resale; council invite April 2.",
+     "current": [
+      112,
+      113,
+      116,
+      145,
+      146,
+      173,
+      19,
+      114,
+      115
+     ]
+    },
+    {
+     "meeting": "2026-03-30",
+     "summary": "4 certified partners, 11 registered deals, $3.1M pipeline.",
+     "current": [
+      112,
+      113,
+      145,
+      146,
+      207,
+      19,
+      114,
+      115
+     ]
+    },
+    {
+     "meeting": "2026-04-06",
+     "summary": "Final terms: 15% referral (first year), 25% resale certified, from May 1; Arcturus certified, Delvan training.",
+     "current": [
+      241,
+      113,
+      145,
+      146,
+      207,
+      242,
+      19,
+      114,
+      115
+     ]
+    }
+   ],
+   "updates": [
+    {
+     "later": 18,
+     "earlier": 16,
+     "relation": "pending",
+     "note": "Ines will check renewals with Ola"
+    },
+    {
+     "later": 19,
+     "earlier": 17,
+     "relation": "answers",
+     "note": "certification requirement answers Hana's question"
+    },
+    {
+     "later": 20,
+     "earlier": 15,
+     "relation": "contradicts",
+     "note": "Dario thinks 20% is too rich"
+    },
+    {
+     "later": 112,
+     "earlier": 15,
+     "relation": "supersedes",
+     "note": "20% referral replaced by 15% + 25% resale tier"
+    },
+    {
+     "later": 145,
+     "earlier": 16,
+     "relation": "answers",
+     "note": "first-year only, renewals carry no margin"
+    },
+    {
+     "later": 145,
+     "earlier": 18,
+     "relation": "completes",
+     "note": "Ines came back with the answer"
+    },
+    {
+     "later": 241,
+     "earlier": 112,
+     "relation": "supersedes",
+     "note": "proposal becomes final agreed terms"
+    },
+    {
+     "later": 115,
+     "earlier": 114,
+     "relation": "pending",
+     "note": "partial: leaning to a 10% floor, not settled"
+    }
+   ],
+   "open_at_end": [
+    114
+   ]
+  },
+  {
+   "thread": "Halvorsen Retail deal and reporting",
+   "scope": "The three-year Halvorsen Retail Group deal: value, signature timing and the sales-versus-finance dispute over how to report it.",
+   "members": [
+    22,
+    23,
+    24,
+    25,
+    26,
+    70,
+    71,
+    72,
+    117,
+    118,
+    119,
+    155,
+    156,
+    187,
+    188,
+    189,
+    190,
+    191,
+    215,
+    245
+   ],
+   "near_misses": [
+    {
+     "id": 73,
+     "why": "Halvorsen's onboarding expectation, raised in passing; belongs to the onboarding metric thread"
+    },
+    {
+     "id": 169,
+     "why": "Pinecrest contract; a different customer deal"
+    }
+   ],
+   "states": [
+    {
+     "meeting": "2026-03-02",
+     "summary": "Verbal yes at $2.4M ARR incl. $300k Copilot, ramped; Dario wants $2.4M as new ARR, Theo will report ~$1.68M; memo owed.",
+     "current": [
+      22,
+      23,
+      24,
+      25,
+      26
+     ]
+    },
+    {
+     "meeting": "2026-03-09",
+     "summary": "6% multi-year discount; value corrected to $2.25M ARR.",
+     "current": [
+      23,
+      24,
+      25,
+      26,
+      70,
+      72
+     ]
+    },
+    {
+     "meeting": "2026-03-16",
+     "summary": "Signature slips to March 27; dispute continues: $2.25M new ARR vs $2.25M contracted/$1.58M recognised.",
+     "current": [
+      26,
+      70,
+      72,
+      117,
+      118,
+      119
+     ]
+    },
+    {
+     "meeting": "2026-03-23",
+     "summary": "Signing on track for March 27; Margit asks which number goes to the board.",
+     "current": [
+      26,
+      72,
+      118,
+      119,
+      155,
+      156
+     ]
+    },
+    {
+     "meeting": "2026-03-30",
+     "summary": "Signed March 27 at $2.25M ARR; board deck shows contracted with $1.58M recognised footnote; Dario accepts.",
+     "current": [
+      26,
+      187,
+      188,
+      189,
+      190,
+      191
+     ]
+    },
+    {
+     "meeting": "2026-04-06",
+     "summary": "Theo's memo is in the board pre-read.",
+     "current": [
+      187,
+      188,
+      189,
+      190,
+      245,
+      191,
+      215
+     ]
+    }
+   ],
+   "updates": [
+    {
+     "later": 25,
+     "earlier": 24,
+     "relation": "contradicts",
+     "note": "finance rejects booking the full value"
+    },
+    {
+     "later": 72,
+     "earlier": 71,
+     "relation": "corrects",
+     "note": "in-meeting correction: $2.25M not $2.4M"
+    },
+    {
+     "later": 72,
+     "earlier": 22,
+     "relation": "supersedes",
+     "note": "deal value revised after discount"
+    },
+    {
+     "later": 117,
+     "earlier": 22,
+     "relation": "supersedes",
+     "note": "signature date moves from March 20 to March 27"
+    },
+    {
+     "later": 118,
+     "earlier": 24,
+     "relation": "supersedes",
+     "note": "Dario's position restated at the corrected value"
+    },
+    {
+     "later": 119,
+     "earlier": 25,
+     "relation": "supersedes",
+     "note": "finance line restated: $1.58M recognised"
+    },
+    {
+     "later": 119,
+     "earlier": 118,
+     "relation": "contradicts",
+     "note": "dispute continues"
+    },
+    {
+     "later": 187,
+     "earlier": 155,
+     "relation": "supersedes",
+     "note": "on-track status replaced by signed; H13 was a status fact, not a commitment"
+    },
+    {
+     "later": 189,
+     "earlier": 156,
+     "relation": "answers",
+     "note": "board deck uses contracted value with recognised footnote"
+    },
+    {
+     "later": 189,
+     "earlier": 118,
+     "relation": "supersedes",
+     "note": "dispute resolved"
+    },
+    {
+     "later": 189,
+     "earlier": 119,
+     "relation": "supersedes",
+     "note": "dispute resolved"
+    },
+    {
+     "later": 245,
+     "earlier": 26,
+     "relation": "completes",
+     "note": "memo delivered"
+    }
+   ],
+   "open_at_end": []
+  },
+  {
+   "thread": "Tomas Lindqvist departure",
+   "scope": "Tomas Lindqvist (VP Customer Success) leaving at the end of April: announcement, interim cover, handover and successor search.",
+   "members": [
+    138,
+    139,
+    140,
+    141,
+    142,
+    143,
+    194,
+    195,
+    196,
+    238,
+    239,
+    240
+   ],
+   "near_misses": [
+    {
+     "id": 158,
+     "why": "Tom Feeney at Brightwater; similar first name only"
+    },
+    {
+     "id": 228,
+     "why": "Tom Feeney at Brightwater; similar first name only"
+    },
+    {
+     "id": 136,
+     "why": "Tomas's anniversary; small talk before the announcement"
+    },
+    {
+     "id": 144,
+     "why": "Larch global CS lead role; separate from the departure even though both touch CS leadership"
+    }
+   ],
+   "states": [
+    {
+     "meeting": "2026-03-23",
+     "summary": "Tomas leaves April 30; CS team told Wednesday; not to customers before then; Rosa interim.",
+     "current": [
+      138,
+      139,
+      140,
+      142,
+      143
+     ]
+    },
+    {
+     "meeting": "2026-03-30",
+     "summary": "Rosa shadows April QBRs; top 20 accounts handed over by April 24; successor search after April 14.",
+     "current": [
+      138,
+      139,
+      142,
+      194,
+      195,
+      196,
+      143
+     ]
+    },
+    {
+     "meeting": "2026-04-06",
+     "summary": "15 of 20 accounts handed over; farewell April 29.",
+     "current": [
+      138,
+      139,
+      142,
+      194,
+      195,
+      196,
+      238,
+      239,
+      240,
+      143
+     ]
+    }
+   ],
+   "updates": [
+    {
+     "later": 142,
+     "earlier": 141,
+     "relation": "answers",
+     "note": "Rosa is interim head"
+    },
+    {
+     "later": 238,
+     "earlier": 195,
+     "relation": "pending",
+     "note": "handover partly done; 5 accounts remain"
+    }
+   ],
+   "open_at_end": [
+    195,
+    196
+   ]
+  },
+  {
+   "thread": "Lumen Copilot product bet",
+   "scope": "Adoption, cost, pricing and deployment questions for the Lumen Copilot AI assistant.",
+   "members": [
+    27,
+    28,
+    29,
+    30,
+    31,
+    32,
+    33,
+    79,
+    80,
+    81,
+    82,
+    108,
+    109,
+    110,
+    111,
+    149,
+    157,
+    158,
+    192,
+    193,
+    211,
+    224,
+    225,
+    226,
+    227,
+    228
+   ],
+   "near_misses": [
+    {
+     "id": 106,
+     "why": "Kestrel renewal call with Copilot credits; belongs to churn"
+    },
+    {
+     "id": 148,
+     "why": "Kestrel renewal signed with Copilot credits; belongs to churn"
+    },
+    {
+     "id": 23,
+     "why": "Copilot is part of the Halvorsen deal value; belongs to the deal"
+    },
+    {
+     "id": 152,
+     "why": "AI developer tools in the tooling forecast; not the product"
+    },
+    {
+     "id": 126,
+     "why": "AI-generated social copy in marketing; not the product"
+    },
+    {
+     "id": 53,
+     "why": "Summitcon lesson about AI agents; a conference lesson, not Copilot"
+    },
+    {
+     "id": 128,
+     "why": "Growth pack bundles Copilot seats; belongs to the pricing analysis"
+    }
+   ],
+   "states": [
+    {
+     "meeting": "2026-03-02",
+     "summary": "41 accounts, 14% WAU; Hana's bet; inference cost asked, Samir to pull it; $18 list.",
+     "current": [
+      28,
+      30,
+      31,
+      32,
+      33,
+      29
+     ]
+    },
+    {
+     "meeting": "2026-03-09",
+     "summary": "Inference ~$4.10/active seat/month; Brightwater asks about own-tenant deployment (pending); Dario: stop discounting.",
+     "current": [
+      28,
+      30,
+      32,
+      81,
+      79,
+      80,
+      82
+     ]
+    },
+    {
+     "meeting": "2026-03-16",
+     "summary": "63 accounts, 18% WAU (22 mid-market); Kestrel pilot.",
+     "current": [
+      108,
+      109,
+      110,
+      111,
+      30,
+      32,
+      81,
+      79,
+      80,
+      82
+     ]
+    },
+    {
+     "meeting": "2026-03-23",
+     "summary": "71 accounts; Kestrel pilot team 40% weekly active; Brightwater wants references.",
+     "current": [
+      157,
+      109,
+      149,
+      158,
+      30,
+      32,
+      81,
+      79,
+      80,
+      82
+     ]
+    },
+    {
+     "meeting": "2026-03-30",
+     "summary": "79 accounts, 20% WAU; discounts capped at 30% from April 1; still waiting on Vantor.",
+     "current": [
+      192,
+      193,
+      30,
+      32,
+      81,
+      79,
+      80,
+      211,
+      158,
+      149
+     ]
+    },
+    {
+     "meeting": "2026-04-06",
+     "summary": "88 accounts, 22% WAU, growth from Growth pack deals; customer-tenant deployment confirmed for June; Dario to tell Brightwater.",
+     "current": [
+      224,
+      225,
+      193,
+      30,
+      32,
+      81,
+      227,
+      228,
+      158,
+      149,
+      226
+     ]
+    }
+   ],
+   "updates": [
+    {
+     "later": 33,
+     "earlier": 31,
+     "relation": "pending",
+     "note": "Samir will pull cost per seat"
+    },
+    {
+     "later": 80,
+     "earlier": 79,
+     "relation": "pending",
+     "note": "Samir will find out from Vantor"
+    },
+    {
+     "later": 81,
+     "earlier": 31,
+     "relation": "answers",
+     "note": "inference cost given a week later"
+    },
+    {
+     "later": 81,
+     "earlier": 33,
+     "relation": "completes",
+     "note": "Samir pulled the number"
+    },
+    {
+     "later": 108,
+     "earlier": 28,
+     "relation": "supersedes",
+     "note": "63 accounts / 18% replaces 41 / 14%"
+    },
+    {
+     "later": 157,
+     "earlier": 108,
+     "relation": "supersedes",
+     "note": "71 accounts"
+    },
+    {
+     "later": 192,
+     "earlier": 157,
+     "relation": "supersedes",
+     "note": "79 accounts / 20%"
+    },
+    {
+     "later": 211,
+     "earlier": 79,
+     "relation": "pending",
+     "note": "still chasing Vantor"
+    },
+    {
+     "later": 224,
+     "earlier": 192,
+     "relation": "supersedes",
+     "note": "88 accounts / 22%"
+    },
+    {
+     "later": 227,
+     "earlier": 79,
+     "relation": "answers",
+     "note": "customer tenant works from June"
+    },
+    {
+     "later": 227,
+     "earlier": 80,
+     "relation": "completes",
+     "note": "Samir got the answer"
+    },
+    {
+     "later": 227,
+     "earlier": 211,
+     "relation": "supersedes",
+     "note": "no-answer status replaced by the answer"
+    }
+   ],
+   "open_at_end": [
+    158,
+    228
+   ]
+  },
+  {
+   "thread": "Mid-market pricing analysis",
+   "scope": "The mid-market pricing analysis: its target, the Growth pack test and the launch decision.",
+   "members": [
+    44,
+    45,
+    87,
+    127,
+    128,
+    163,
+    205,
+    206,
+    229,
+    230
+   ],
+   "near_misses": [
+    {
+     "id": 42,
+     "why": "brand packs; shares the word 'pack' only"
+    },
+    {
+     "id": 217,
+     "why": "Larch manager briefing packs; shares the word 'pack' only"
+    }
+   ],
+   "states": [
+    {
+     "meeting": "2026-03-02",
+     "summary": "Analysis started; target +9% ASP; baseline $46k over 212 deals.",
+     "current": [
+      44,
+      45
+     ]
+    },
+    {
+     "meeting": "2026-03-09",
+     "summary": "9% looks unrealistic; revised target coming.",
+     "current": [
+      44,
+      45,
+      87
+     ]
+    },
+    {
+     "meeting": "2026-03-16",
+     "summary": "Target replaced: +6% ASP holding win rate >= 24%; Growth pack $52k proposed.",
+     "current": [
+      127,
+      45,
+      128
+     ]
+    },
+    {
+     "meeting": "2026-03-23",
+     "summary": "Preliminary: +5.2% ASP, 25% win rate.",
+     "current": [
+      127,
+      45,
+      128,
+      163
+     ]
+    },
+    {
+     "meeting": "2026-03-30",
+     "summary": "Final readout April 6.",
+     "current": [
+      127,
+      45,
+      128,
+      163,
+      205,
+      206
+     ]
+    },
+    {
+     "meeting": "2026-04-06",
+     "summary": "Concluded: Growth pack launches May 1 at $52k; +6.1% ASP, 24.6% win rate over 37 deals.",
+     "current": [
+      229,
+      230,
+      127,
+      45,
+      206
+     ]
+    }
+   ],
+   "updates": [
+    {
+     "later": 87,
+     "earlier": 44,
+     "relation": "contradicts",
+     "note": "9% judged unrealistic"
+    },
+    {
+     "later": 127,
+     "earlier": 44,
+     "relation": "supersedes",
+     "note": "+9% ASP target replaced by +6% ASP with win-rate floor"
+    },
+    {
+     "later": 230,
+     "earlier": 163,
+     "relation": "supersedes",
+     "note": "final results replace preliminary"
+    },
+    {
+     "later": 229,
+     "earlier": 128,
+     "relation": "supersedes",
+     "note": "proposed bundle becomes a launch decision"
+    }
+   ],
+   "open_at_end": [
+    206
+   ]
+  },
+  {
+   "thread": "Internal tooling spend forecast",
+   "scope": "The FY26 forecast for internal engineering tooling spend (Codewright seats, Cirrusbase dev compute) and seat reclamation.",
+   "members": [
+    38,
+    39,
+    40,
+    83,
+    123,
+    124,
+    150,
+    151,
+    152,
+    153,
+    154,
+    203,
+    204,
+    244
+   ],
+   "near_misses": [
+    {
+     "id": 65,
+     "why": "$410k is Marlow's churned ARR; same number as the first tooling forecast"
+    },
+    {
+     "id": 64,
+     "why": "12.9% churn; same number as the Cirrusbase cost increase"
+    },
+    {
+     "id": 81,
+     "why": "Copilot inference cost on Vantor AI; a product cost, not internal tooling"
+    }
+   ],
+   "states": [
+    {
+     "meeting": "2026-03-02",
+     "summary": "FY26 forecast $410k; bottom-up by March 23 (Samir); Theo folds it into reforecast.",
+     "current": [
+      38,
+      39,
+      40
+     ]
+    },
+    {
+     "meeting": "2026-03-09",
+     "summary": "Cirrusbase dev compute up 12.9% MoM.",
+     "current": [
+      38,
+      39,
+      40,
+      83
+     ]
+    },
+    {
+     "meeting": "2026-03-16",
+     "summary": "Codewright utilisation 71% (38 of 130 idle); Samir to reclaim seats.",
+     "current": [
+      38,
+      39,
+      40,
+      83,
+      123,
+      124
+     ]
+    },
+    {
+     "meeting": "2026-03-23",
+     "summary": "Bottom-up delivered: $530k, corrected in-meeting to $560k (Codewright 290, Cirrusbase 230, other 40); Theo wants <= $500k.",
+     "current": [
+      151,
+      152,
+      153,
+      40,
+      123,
+      124,
+      154
+     ]
+    },
+    {
+     "meeting": "2026-03-30",
+     "summary": "32 of 38 idle seats reclaimed; forecast $495k, now in the Q2 reforecast.",
+     "current": [
+      203,
+      204,
+      152
+     ]
+    },
+    {
+     "meeting": "2026-04-06",
+     "summary": "Codewright renewed at 100 seats.",
+     "current": [
+      203,
+      204,
+      244
+     ]
+    }
+   ],
+   "updates": [
+    {
+     "later": 150,
+     "earlier": 38,
+     "relation": "supersedes",
+     "note": "bottom-up replaces the top-down $410k"
+    },
+    {
+     "later": 150,
+     "earlier": 39,
+     "relation": "completes",
+     "note": "bottom-up forecast delivered"
+    },
+    {
+     "later": 151,
+     "earlier": 150,
+     "relation": "corrects",
+     "note": "in-meeting correction: $560k with reserved instance"
+    },
+    {
+     "later": 153,
+     "earlier": 151,
+     "relation": "contradicts",
+     "note": "Theo wants a $500k ceiling"
+    },
+    {
+     "later": 203,
+     "earlier": 151,
+     "relation": "supersedes",
+     "note": "$495k after reclaiming seats"
+    },
+    {
+     "later": 203,
+     "earlier": 124,
+     "relation": "completes",
+     "note": "seats reclaimed"
+    },
+    {
+     "later": 204,
+     "earlier": 40,
+     "relation": "completes",
+     "note": "forecast folded into the reforecast"
+    },
+    {
+     "later": 244,
+     "earlier": 123,
+     "relation": "supersedes",
+     "note": "seat count now 100"
+    },
+    {
+     "later": 203,
+     "earlier": 154,
+     "relation": "completes",
+     "note": "under $500k: $495k"
+    }
+   ],
+   "open_at_end": []
+  },
+  {
+   "thread": "Customer onboarding time to first dashboard",
+   "scope": "Median time from signature to first live dashboard for new customers, against the 10-day target, and the work to reduce it.",
+   "members": [
+    34,
+    35,
+    36,
+    37,
+    73,
+    120,
+    121,
+    122,
+    159,
+    197,
+    198,
+    231,
+    232
+   ],
+   "near_misses": [
+    {
+     "id": 50,
+     "why": "employee onboarding cohort; HR, not customer onboarding"
+    },
+    {
+     "id": 201,
+     "why": "agencies 'onboarded'; marketing vendors"
+    },
+    {
+     "id": 22,
+     "why": "Halvorsen deal; the onboarding remark about Halvorsen sits in this thread but the deal does not"
+    }
+   ],
+   "states": [
+    {
+     "meeting": "2026-03-02",
+     "summary": "Median 19 days vs 10-day target by end of Q2; guided setup beta April (Hana); 10-day CSM playbook from March 16 (Tomas).",
+     "current": [
+      34,
+      35,
+      36,
+      37
+     ]
+    },
+    {
+     "meeting": "2026-03-09",
+     "summary": "Halvorsen expects 10 days, today is 19.",
+     "current": [
+      34,
+      35,
+      36,
+      73,
+      37
+     ]
+    },
+    {
+     "meeting": "2026-03-16",
+     "summary": "February cohort 17 days (corrected from 16); guided setup beta on track for April 6.",
+     "current": [
+      121,
+      35,
+      36,
+      122,
+      73,
+      37
+     ]
+    },
+    {
+     "meeting": "2026-03-23",
+     "summary": "Guided setup beta slips to April 13 (code freeze).",
+     "current": [
+      121,
+      35,
+      36,
+      159,
+      73,
+      37
+     ]
+    },
+    {
+     "meeting": "2026-03-30",
+     "summary": "March cohort 15 days; playbook live since March 16.",
+     "current": [
+      197,
+      198,
+      35,
+      159,
+      73,
+      37
+     ]
+    },
+    {
+     "meeting": "2026-04-06",
+     "summary": "First April cohort 13 days; guided setup beta live April 13.",
+     "current": [
+      231,
+      198,
+      232,
+      73,
+      37
+     ]
+    }
+   ],
+   "updates": [
+    {
+     "later": 121,
+     "earlier": 120,
+     "relation": "corrects",
+     "note": "in-meeting correction: 17 not 16"
+    },
+    {
+     "later": 121,
+     "earlier": 34,
+     "relation": "supersedes",
+     "note": "19 days becomes 17"
+    },
+    {
+     "later": 159,
+     "earlier": 122,
+     "relation": "supersedes",
+     "note": "beta date slips to April 13"
+    },
+    {
+     "later": 197,
+     "earlier": 121,
+     "relation": "supersedes",
+     "note": "15 days"
+    },
+    {
+     "later": 198,
+     "earlier": 36,
+     "relation": "completes",
+     "note": "playbook went live"
+    },
+    {
+     "later": 231,
+     "earlier": 197,
+     "relation": "supersedes",
+     "note": "13 days"
+    },
+    {
+     "later": 232,
+     "earlier": 159,
+     "relation": "supersedes",
+     "note": "beta date confirmed"
+    }
+   ],
+   "open_at_end": [
+    35
+   ]
+  },
+  {
+   "thread": "Marketing transformation",
+   "scope": "Lucia's marketing transformation: agency consolidation, website replatform, and the brand system including brand packs for event social graphics.",
+   "members": [
+    41,
+    42,
+    43,
+    84,
+    85,
+    86,
+    125,
+    126,
+    160,
+    161,
+    162,
+    201,
+    202,
+    233,
+    234,
+    235
+   ],
+   "near_misses": [
+    {
+     "id": 4,
+     "why": "Summitcon attendance; an event, but the conference thread"
+    },
+    {
+     "id": 236,
+     "why": "Summitcon follow-up demos; an event, but the conference thread"
+    },
+    {
+     "id": 128,
+     "why": "Growth pack; shares the word 'pack' only"
+    },
+    {
+     "id": 46,
+     "why": "7.2 code freeze vs website content freeze; shares the word only"
+    }
+   ],
+   "states": [
+    {
+     "meeting": "2026-03-02",
+     "summary": "Three workstreams; brand packs for event social graphics due March 27; field teams improvise graphics.",
+     "current": [
+      41,
+      42,
+      43
+     ]
+    },
+    {
+     "meeting": "2026-03-09",
+     "summary": "Five agencies to two; Jonas owns replatform plan (March 23); brand packs 60%.",
+     "current": [
+      41,
+      42,
+      43,
+      84,
+      85,
+      86
+     ]
+    },
+    {
+     "meeting": "2026-03-16",
+     "summary": "Fernleaf CMS chosen; AI-drafted social copy in use.",
+     "current": [
+      41,
+      42,
+      84,
+      85,
+      86,
+      125,
+      126
+     ]
+    },
+    {
+     "meeting": "2026-03-23",
+     "summary": "Migration plan: content freeze May 4, launch June 1; brand packs slip to April 3; 11 Q2 events.",
+     "current": [
+      41,
+      84,
+      125,
+      126,
+      160,
+      161,
+      162
+     ]
+    },
+    {
+     "meeting": "2026-03-30",
+     "summary": "Agencies consolidated; templates approved, speaker cards waiting.",
+     "current": [
+      41,
+      125,
+      126,
+      160,
+      201,
+      202,
+      162
+     ]
+    },
+    {
+     "meeting": "2026-04-06",
+     "summary": "Brand packs shipped April 3; first use at the Rotterdam meetup; website is the long pole.",
+     "current": [
+      41,
+      125,
+      126,
+      160,
+      201,
+      233,
+      234,
+      235
+     ]
+    }
+   ],
+   "updates": [
+    {
+     "later": 86,
+     "earlier": 42,
+     "relation": "pending",
+     "note": "brand packs 60% done"
+    },
+    {
+     "later": 160,
+     "earlier": 85,
+     "relation": "completes",
+     "note": "migration plan delivered"
+    },
+    {
+     "later": 161,
+     "earlier": 42,
+     "relation": "supersedes",
+     "note": "due date moves from March 27 to April 3"
+    },
+    {
+     "later": 201,
+     "earlier": 84,
+     "relation": "completes",
+     "note": "agency consolidation done"
+    },
+    {
+     "later": 202,
+     "earlier": 86,
+     "relation": "supersedes",
+     "note": "status advances: templates approved"
+    },
+    {
+     "later": 233,
+     "earlier": 42,
+     "relation": "completes",
+     "note": "brand packs shipped"
+    },
+    {
+     "later": 233,
+     "earlier": 202,
+     "relation": "supersedes",
+     "note": "shipped"
+    }
+   ],
+   "open_at_end": [
+    235
+   ]
+  },
+  {
+   "thread": "Summitcon conference and lessons",
+   "scope": "Margit's attendance at Summitcon in Lisbon, the lessons she told from it, and Northwind's presence there next year.",
+   "members": [
+    4,
+    51,
+    53,
+    54,
+    55,
+    57,
+    58,
+    131,
+    132,
+    170,
+    200,
+    236,
+    237
+   ],
+   "near_misses": [
+    {
+     "id": 42,
+     "why": "brand packs for event social graphics; events, but the marketing thread"
+    },
+    {
+     "id": 162,
+     "why": "brand packs matter for events; marketing thread"
+    },
+    {
+     "id": 56,
+     "why": "Greyfield's resale ask was heard at Summitcon but belongs to the partner programme"
+    },
+    {
+     "id": 48,
+     "why": "Lisbon office lease; shares the city"
+    },
+    {
+     "id": 175,
+     "why": "Theo's Lisbon holiday; shares the city"
+    },
+    {
+     "id": 30,
+     "why": "Copilot bet; AI theme only"
+    }
+   ],
+   "states": [
+    {
+     "meeting": "2026-03-02",
+     "summary": "Margit attends Summitcon March 3-5 on the buyers panel.",
+     "current": [
+      4
+     ]
+    },
+    {
+     "meeting": "2026-03-09",
+     "summary": "Lessons: everyone pitches agents, buyers want proof and outcome pricing; 'AI is our wedge or our tax'; booth question.",
+     "current": [
+      53,
+      55,
+      57,
+      58,
+      54
+     ]
+    },
+    {
+     "meeting": "2026-03-16",
+     "summary": "Notes shared; Margit prefers a breakfast sponsorship to a booth.",
+     "current": [
+      53,
+      55,
+      57,
+      131,
+      132,
+      54
+     ]
+    },
+    {
+     "meeting": "2026-03-23",
+     "summary": "Margit invited to keynote next year.",
+     "current": [
+      53,
+      55,
+      57,
+      131,
+      132,
+      170,
+      54
+     ]
+    },
+    {
+     "meeting": "2026-03-30",
+     "summary": "Panel story: CIO cut six BI vendors to two on support quality.",
+     "current": [
+      53,
+      55,
+      57,
+      131,
+      132,
+      170,
+      200,
+      54
+     ]
+    },
+    {
+     "meeting": "2026-04-06",
+     "summary": "Two Summitcon prospects booked demos; breakfast sponsorship decided, no booth.",
+     "current": [
+      53,
+      55,
+      57,
+      131,
+      170,
+      200,
+      236,
+      237,
+      54
+     ]
+    }
+   ],
+   "updates": [
+    {
+     "later": 132,
+     "earlier": 58,
+     "relation": "answers",
+     "note": "no booth, breakfast sponsorship proposed"
+    },
+    {
+     "later": 237,
+     "earlier": 132,
+     "relation": "supersedes",
+     "note": "proposal becomes decision"
+    },
+    {
+     "later": 237,
+     "earlier": 58,
+     "relation": "answers",
+     "note": "booth question decided"
+    }
+   ],
+   "open_at_end": []
+  },
+  {
+   "thread": "Hiring freeze question",
+   "scope": "Whether Northwind has a hiring freeze, raised by Lucia's open reqs, and the rule that resulted.",
+   "members": [
+    74,
+    77,
+    103,
+    164,
+    165,
+    178,
+    179,
+    180,
+    243
+   ],
+   "near_misses": [
+    {
+     "id": 46,
+     "why": "Lumen 7.2 code freeze; shares the word 'freeze'"
+    },
+    {
+     "id": 78,
+     "why": "Lumen 7.2 code freeze; shares the word 'freeze'"
+    },
+    {
+     "id": 160,
+     "why": "website content freeze; shares the word 'freeze'"
+    },
+    {
+     "id": 50,
+     "why": "Q1 hiring offers; hiring but not the freeze question"
+    },
+    {
+     "id": 75,
+     "why": "contractor SDR extension; asked alongside but a different question"
+    },
+    {
+     "id": 76,
+     "why": "answers Dario's contractor question, not the freeze question"
+    },
+    {
+     "id": 168,
+     "why": "backfills after resignations; hiring, but not the freeze question"
+    }
+   ],
+   "states": [
+    {
+     "meeting": "2026-03-09",
+     "summary": "Lucia asks if there's a freeze (two open reqs); Margit will find out; contractors can extend to June.",
+     "current": [
+      74,
+      77
+     ]
+    },
+    {
+     "meeting": "2026-03-16",
+     "summary": "Because of Larch, CS and support reqs are paused until the announcement; main question still open.",
+     "current": [
+      74,
+      77,
+      103
+     ]
+    },
+    {
+     "meeting": "2026-03-23",
+     "summary": "Lucia asks again; Margit promises an answer next week.",
+     "current": [
+      164,
+      165,
+      103
+     ]
+    },
+    {
+     "meeting": "2026-03-30",
+     "summary": "No formal freeze: backfills through Q2, new reqs need CFO sign-off, CS/support paused to April 14; Lucia submits designer req.",
+     "current": [
+      178,
+      179,
+      180
+     ]
+    },
+    {
+     "meeting": "2026-04-06",
+     "summary": "Designer req approved; offer going out.",
+     "current": [
+      178,
+      179,
+      243
+     ]
+    }
+   ],
+   "updates": [
+    {
+     "later": 77,
+     "earlier": 74,
+     "relation": "pending",
+     "note": "Margit will find out"
+    },
+    {
+     "later": 165,
+     "earlier": 164,
+     "relation": "pending",
+     "note": "answer promised next week"
+    },
+    {
+     "later": 178,
+     "earlier": 74,
+     "relation": "answers",
+     "note": "no formal freeze"
+    },
+    {
+     "later": 178,
+     "earlier": 164,
+     "relation": "answers",
+     "note": "no formal freeze"
+    },
+    {
+     "later": 178,
+     "earlier": 77,
+     "relation": "completes",
+     "note": "Margit/Theo came back"
+    },
+    {
+     "later": 178,
+     "earlier": 165,
+     "relation": "completes",
+     "note": "answered as promised"
+    },
+    {
+     "later": 243,
+     "earlier": 180,
+     "relation": "completes",
+     "note": "req approved"
+    }
+   ],
+   "open_at_end": []
+  }
+ ]
+}

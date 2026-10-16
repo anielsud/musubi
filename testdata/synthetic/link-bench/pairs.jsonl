@@ -1,0 +1,142 @@
+{"pair": "S001", "stratum": "lookalike", "earlier": 42, "later": 51, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S002", "stratum": "lookalike", "earlier": 53, "later": 162, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S003", "stratum": "lookalike", "earlier": 233, "later": 236, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S004", "stratum": "lookalike", "earlier": 42, "later": 128, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S005", "stratum": "lookalike", "earlier": 217, "later": 233, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S006", "stratum": "lookalike", "earlier": 64, "later": 83, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S007", "stratum": "lookalike", "earlier": 38, "later": 65, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S008", "stratum": "lookalike", "earlier": 138, "later": 158, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S009", "stratum": "lookalike", "earlier": 139, "later": 228, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S010", "stratum": "lookalike", "earlier": 46, "later": 74, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S011", "stratum": "lookalike", "earlier": 160, "later": 164, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S012", "stratum": "lookalike", "earlier": 74, "later": 159, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S013", "stratum": "lookalike", "earlier": 34, "later": 50, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S014", "stratum": "lookalike", "earlier": 121, "later": 201, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S015", "stratum": "lookalike", "earlier": 4, "later": 48, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S016", "stratum": "lookalike", "earlier": 97, "later": 200, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S017", "stratum": "lookalike", "earlier": 10, "later": 234, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S018", "stratum": "lookalike", "earlier": 96, "later": 248, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S019", "stratum": "lookalike", "earlier": 106, "later": 110, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S020", "stratum": "lookalike", "earlier": 10, "later": 140, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S021", "stratum": "lookalike", "earlier": 187, "later": 247, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S022", "stratum": "same-minute walkthrough", "earlier": 11, "later": 12, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S023", "stratum": "same-minute walkthrough", "earlier": 22, "later": 23, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S024", "stratum": "same-minute walkthrough", "earlier": 44, "later": 45, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S025", "stratum": "same-minute walkthrough", "earlier": 96, "later": 97, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S026", "stratum": "same-minute walkthrough", "earlier": 108, "later": 109, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S027", "stratum": "same-minute walkthrough", "earlier": 104, "later": 105, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S028", "stratum": "same-minute walkthrough", "earlier": 151, "later": 152, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S029", "stratum": "same-minute walkthrough", "earlier": 184, "later": 185, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S030", "stratum": "same-minute walkthrough", "earlier": 224, "later": 225, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S031", "stratum": "same-minute walkthrough", "earlier": 138, "later": 139, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S032", "stratum": "in-meeting correction", "earlier": 63, "later": 64, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S033", "stratum": "in-meeting correction", "earlier": 71, "later": 72, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S034", "stratum": "in-meeting correction", "earlier": 120, "later": 121, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S035", "stratum": "in-meeting correction", "earlier": 150, "later": 151, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S036", "stratum": "later revision", "earlier": 11, "later": 64, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S037", "stratum": "later revision", "earlier": 64, "later": 104, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S038", "stratum": "later revision", "earlier": 147, "later": 184, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S039", "stratum": "later revision", "earlier": 184, "later": 220, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S040", "stratum": "later revision", "earlier": 28, "later": 108, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S041", "stratum": "later revision", "earlier": 108, "later": 157, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S042", "stratum": "later revision", "earlier": 157, "later": 192, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S043", "stratum": "later revision", "earlier": 192, "later": 224, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S044", "stratum": "later revision", "earlier": 34, "later": 121, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S045", "stratum": "later revision", "earlier": 121, "later": 197, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S046", "stratum": "later revision", "earlier": 197, "later": 231, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S047", "stratum": "later revision", "earlier": 38, "later": 150, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S048", "stratum": "later revision", "earlier": 151, "later": 203, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S049", "stratum": "later revision", "earlier": 102, "later": 183, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S050", "stratum": "later revision", "earlier": 15, "later": 112, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S051", "stratum": "later revision", "earlier": 112, "later": 241, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S052", "stratum": "later revision", "earlier": 44, "later": 127, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S053", "stratum": "later revision", "earlier": 22, "later": 72, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S054", "stratum": "later revision", "earlier": 42, "later": 161, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S055", "stratum": "later revision", "earlier": 122, "later": 159, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S056", "stratum": "promise to find out", "earlier": 8, "later": 9, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S057", "stratum": "promise to find out", "earlier": 16, "later": 18, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S058", "stratum": "promise to find out", "earlier": 31, "later": 33, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S059", "stratum": "promise to find out", "earlier": 74, "later": 77, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S060", "stratum": "promise to find out", "earlier": 79, "later": 80, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S061", "stratum": "promise to find out", "earlier": 164, "later": 165, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S062", "stratum": "promise to find out", "earlier": 79, "later": 211, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S063", "stratum": "real answer later", "earlier": 8, "later": 59, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S064", "stratum": "real answer later", "earlier": 16, "later": 145, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S065", "stratum": "real answer later", "earlier": 31, "later": 81, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S066", "stratum": "real answer later", "earlier": 74, "later": 178, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S067", "stratum": "real answer later", "earlier": 79, "later": 227, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S068", "stratum": "real answer later", "earlier": 141, "later": 142, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S069", "stratum": "real answer later", "earlier": 100, "later": 102, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S070", "stratum": "real answer later", "earlier": 156, "later": 189, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S071", "stratum": "real answer later", "earlier": 17, "later": 19, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S072", "stratum": "real answer later", "earlier": 75, "later": 76, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S073", "stratum": "real answer later", "earlier": 58, "later": 237, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S074", "stratum": "nearby answer to a different question", "earlier": 16, "later": 19, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S075", "stratum": "nearby answer to a different question", "earlier": 74, "later": 76, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S076", "stratum": "nearby answer to a different question", "earlier": 31, "later": 32, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S077", "stratum": "nearby answer to a different question", "earlier": 100, "later": 101, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S078", "stratum": "different owner commitment", "earlier": 39, "later": 40, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S079", "stratum": "different owner commitment", "earlier": 35, "later": 36, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S080", "stratum": "different owner commitment", "earlier": 7, "later": 61, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S081", "stratum": "different owner commitment", "earlier": 42, "later": 85, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S082", "stratum": "different owner commitment", "earlier": 80, "later": 228, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S083", "stratum": "different owner commitment", "earlier": 195, "later": 196, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S084", "stratum": "different owner commitment", "earlier": 13, "later": 186, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S085", "stratum": "done said of opinion or fact", "earlier": 4, "later": 51, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S086", "stratum": "done said of opinion or fact", "earlier": 14, "later": 106, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S087", "stratum": "done said of opinion or fact", "earlier": 30, "later": 111, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S088", "stratum": "done said of opinion or fact", "earlier": 47, "later": 167, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S089", "stratum": "done said of opinion or fact", "earlier": 3, "later": 176, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S090", "stratum": "commitment completed later", "earlier": 7, "later": 96, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S091", "stratum": "commitment completed later", "earlier": 9, "later": 59, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S092", "stratum": "commitment completed later", "earlier": 39, "later": 150, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S093", "stratum": "commitment completed later", "earlier": 124, "later": 203, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S094", "stratum": "commitment completed later", "earlier": 40, "later": 204, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S095", "stratum": "commitment completed later", "earlier": 42, "later": 233, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S096", "stratum": "commitment completed later", "earlier": 85, "later": 160, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S097", "stratum": "commitment completed later", "earlier": 61, "later": 216, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S098", "stratum": "commitment completed later", "earlier": 26, "later": 245, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S099", "stratum": "commitment completed later", "earlier": 36, "later": 198, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S100", "stratum": "commitment completed later", "earlier": 68, "later": 105, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S101", "stratum": "commitment completed later", "earlier": 180, "later": 243, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S102", "stratum": "commitment completed later", "earlier": 13, "later": 148, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S103", "stratum": "commitment completed later", "earlier": 80, "later": 227, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S104", "stratum": "commitment completed later", "earlier": 77, "later": 178, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S105", "stratum": "commitment completed later", "earlier": 33, "later": 81, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S106", "stratum": "commitment completed later", "earlier": 18, "later": 145, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S107", "stratum": "same point two kinds", "earlier": 6, "later": 7, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S108", "stratum": "same point two kinds", "earlier": 27, "later": 28, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S109", "stratum": "same point two kinds", "earlier": 178, "later": 179, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S110", "stratum": "same point two kinds", "earlier": 187, "later": 188, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S111", "stratum": "same point two kinds", "earlier": 220, "later": 221, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S112", "stratum": "raised in passing", "earlier": 15, "later": 56, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S113", "stratum": "raised in passing", "earlier": 53, "later": 56, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S114", "stratum": "raised in passing", "earlier": 74, "later": 103, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S115", "stratum": "raised in passing", "earlier": 99, "later": 103, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S116", "stratum": "raised in passing", "earlier": 34, "later": 73, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S117", "stratum": "raised in passing", "earlier": 72, "later": 73, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S118", "stratum": "raised in passing", "earlier": 108, "later": 149, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S119", "stratum": "raised in passing", "earlier": 148, "later": 149, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S120", "stratum": "raised in passing", "earlier": 96, "later": 144, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S121", "stratum": "raised in passing", "earlier": 142, "later": 144, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S122", "stratum": "broad AI theme", "earlier": 27, "later": 53, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S123", "stratum": "broad AI theme", "earlier": 38, "later": 57, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S124", "stratum": "broad AI theme", "earlier": 108, "later": 126, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S125", "stratum": "broad AI theme", "earlier": 81, "later": 152, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S126", "stratum": "broad AI theme", "earlier": 55, "later": 126, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S127", "stratum": "broad AI theme", "earlier": 23, "later": 32, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S128", "stratum": "sensitivity cue", "earlier": 6, "later": 10, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S129", "stratum": "sensitivity cue", "earlier": 60, "later": 62, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S130", "stratum": "sensitivity cue", "earlier": 96, "later": 98, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S131", "stratum": "sensitivity cue", "earlier": 99, "later": 182, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S132", "stratum": "sensitivity cue", "earlier": 217, "later": 219, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S133", "stratum": "contradicts", "earlier": 24, "later": 25, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S134", "stratum": "contradicts", "earlier": 118, "later": 119, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S135", "stratum": "contradicts", "earlier": 15, "later": 20, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S136", "stratum": "contradicts", "earlier": 151, "later": 153, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S137", "stratum": "contradicts", "earlier": 44, "later": 87, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S138", "stratum": "partial answer", "earlier": 114, "later": 115, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S139", "stratum": "partial answer", "earlier": 195, "later": 238, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S140", "stratum": "partial answer", "earlier": 66, "later": 67, "sim": 0, "same_meeting": true, "system": "not judged"}
+{"pair": "S141", "stratum": "partial answer", "earlier": 61, "later": 181, "sim": 0, "same_meeting": false, "system": "not judged"}
+{"pair": "S142", "stratum": "commitment completed later", "earlier": 154, "later": 203, "sim": 0, "same_meeting": false, "system": "not judged"}

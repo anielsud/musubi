@@ -1,0 +1,142 @@
+{"pair": "S001", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "brand packs for event graphics vs Summitcon having happened; both about events"}
+{"pair": "S002", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "Summitcon lesson vs brand packs mattering for events"}
+{"pair": "S003", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "brand packs shipped vs Summitcon prospects booking demos"}
+{"pair": "S004", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "brand packs vs Growth pack bundle; shared word 'pack'"}
+{"pair": "S005", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "brand packs shipped vs Larch manager briefing packs"}
+{"pair": "S006", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "12.9% churn vs Cirrusbase cost up 12.9%"}
+{"pair": "S007", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "$410k tooling forecast vs Marlow's $410k non-renewal"}
+{"pair": "S008", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "Tomas leaving vs Tom Feeney asking for references"}
+{"pair": "S009", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "Tomas's last day vs Dario telling Tom Feeney about tenant option"}
+{"pair": "S010", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "code freeze vs hiring freeze question"}
+{"pair": "S011", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "hiring freeze re-ask vs website content freeze"}
+{"pair": "S012", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "hiring freeze vs beta slipping due to code freeze"}
+{"pair": "S013", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "employee onboarding cohort vs customer time to first dashboard"}
+{"pair": "S014", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "customer onboarding metric vs agencies onboarded"}
+{"pair": "S015", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "Summitcon in Lisbon vs Lisbon office lease"}
+{"pair": "S016", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "Lisbon roles in Larch vs Summitcon panel story; Lisbon only"}
+{"pair": "S017", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "Rotterdam kept out of minutes vs Rotterdam customer meetup"}
+{"pair": "S018", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "Rotterdam support moving vs Samir's Rotterdam marathon"}
+{"pair": "S019", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "Kestrel renewal call vs Kestrel Copilot pilot"}
+{"pair": "S020", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "two confidentiality cues on different subjects"}
+{"pair": "S021", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "two signed deals with different customers"}
+{"pair": "S022", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "status then its breakdown in the same minute"}
+{"pair": "S023", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "deal value then what it includes"}
+{"pair": "S024", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "analysis target then baseline"}
+{"pair": "S025", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "Larch draft status then role breakdown"}
+{"pair": "S026", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "adoption number then segment split and definition"}
+{"pair": "S027", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "churn total then segment split"}
+{"pair": "S028", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "corrected forecast then its breakdown"}
+{"pair": "S029", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "churn figure then explanation of the change"}
+{"pair": "S030", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "adoption number then where growth came from"}
+{"pair": "S031", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "departure then dates and comms plan"}
+{"pair": "S032", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "actually it's 12.9 not 12.6"}
+{"pair": "S033", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "$2.25M after discount, not $2.4M"}
+{"pair": "S034", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "17 days, the 16 was January"}
+{"pair": "S035", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "$560k with reserved instance, not $530k"}
+{"pair": "S036", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "12.4% -> 12.9%"}
+{"pair": "S037", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "12.9% -> 13.1%"}
+{"pair": "S038", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "13.1% -> 12.8%"}
+{"pair": "S039", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "12.8% -> 12.7%"}
+{"pair": "S040", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "41 -> 63 accounts"}
+{"pair": "S041", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "63 -> 71"}
+{"pair": "S042", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "71 -> 79"}
+{"pair": "S043", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "79 -> 88"}
+{"pair": "S044", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "19 -> 17 days"}
+{"pair": "S045", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "17 -> 15 days"}
+{"pair": "S046", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "15 -> 13 days"}
+{"pair": "S047", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "$410k -> $530k bottom-up"}
+{"pair": "S048", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "$560k -> $495k"}
+{"pair": "S049", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "$1.9M -> $2.3M one-off"}
+{"pair": "S050", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "20% referral -> 15% + 25% resale"}
+{"pair": "S051", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "proposal -> final terms"}
+{"pair": "S052", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "+9% ASP target replaced by +6% with win-rate floor"}
+{"pair": "S053", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "$2.4M -> $2.25M"}
+{"pair": "S054", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "brand packs due March 27 -> April 3"}
+{"pair": "S055", "relation": "supersedes", "retires_earlier": true, "confidence": "high", "note": "beta April 6 -> April 13"}
+{"pair": "S056", "relation": "pending", "retires_earlier": false, "confidence": "high", "note": "Ola will check with Dutch counsel; question stays open"}
+{"pair": "S057", "relation": "pending", "retires_earlier": false, "confidence": "high", "note": "Ines will check renewals; question stays open"}
+{"pair": "S058", "relation": "pending", "retires_earlier": false, "confidence": "high", "note": "Samir will pull inference cost"}
+{"pair": "S059", "relation": "pending", "retires_earlier": false, "confidence": "high", "note": "Margit will find out about the freeze"}
+{"pair": "S060", "relation": "pending", "retires_earlier": false, "confidence": "high", "note": "Samir will ask Vantor"}
+{"pair": "S061", "relation": "pending", "retires_earlier": false, "confidence": "high", "note": "answer promised for next week"}
+{"pair": "S062", "relation": "pending", "retires_earlier": false, "confidence": "high", "note": "still chasing Vantor; not an answer"}
+{"pair": "S063", "relation": "answers", "retires_earlier": true, "confidence": "high", "note": "counsel confirms; deadline April 10"}
+{"pair": "S064", "relation": "answers", "retires_earlier": true, "confidence": "high", "note": "first-year only; two meetings later"}
+{"pair": "S065", "relation": "answers", "retires_earlier": true, "confidence": "high", "note": "$4.10 per active seat, next meeting"}
+{"pair": "S066", "relation": "answers", "retires_earlier": true, "confidence": "high", "note": "no formal freeze, three weeks later"}
+{"pair": "S067", "relation": "answers", "retires_earlier": true, "confidence": "high", "note": "customer tenant from June, four weeks later"}
+{"pair": "S068", "relation": "answers", "retires_earlier": true, "confidence": "high", "note": "Rosa interim, same meeting"}
+{"pair": "S069", "relation": "answers", "retires_earlier": true, "confidence": "high", "note": "one-off cost, same minute"}
+{"pair": "S070", "relation": "answers", "retires_earlier": true, "confidence": "high", "note": "board deck treatment decided"}
+{"pair": "S071", "relation": "answers", "retires_earlier": true, "confidence": "high", "note": "certification requirement"}
+{"pair": "S072", "relation": "answers", "retires_earlier": true, "confidence": "high", "note": "contractors through June"}
+{"pair": "S073", "relation": "answers", "retires_earlier": true, "confidence": "high", "note": "breakfast sponsorship, no booth"}
+{"pair": "S074", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "P4 answers Hana's certification question, not Dario's renewals question"}
+{"pair": "S075", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "Q3 answers the contractor question, not the freeze question"}
+{"pair": "S076", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "X5 gives list price, not inference cost"}
+{"pair": "S077", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "L14b gives savings, not the one-off cost asked"}
+{"pair": "S078", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "Samir delivers forecast; Theo folds it in"}
+{"pair": "S079", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "Hana's guided setup vs Tomas's playbook"}
+{"pair": "S080", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "Benedikt's org design vs Ola's works council filing"}
+{"pair": "S081", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "Lucia's brand packs vs Jonas's replatform plan"}
+{"pair": "S082", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "Samir finds out vs Dario tells the customer"}
+{"pair": "S083", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "Tomas's handover vs Benedikt's successor search"}
+{"pair": "S084", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "Tomas's Kestrel save plan vs Rosa owning the forecast"}
+{"pair": "S085", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "'Summitcon happened' about a fact; nothing was owed"}
+{"pair": "S086", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "'the call happened' about a scheduled fact; adds the outcome"}
+{"pair": "S087", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "'the debate is done' about an opinion"}
+{"pair": "S088", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "'half marathon done' about a personal fact"}
+{"pair": "S089", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "'the offsite happened' about a logistics fact"}
+{"pair": "S090", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "draft org design delivered"}
+{"pair": "S091", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "counsel answer obtained"}
+{"pair": "S092", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "bottom-up forecast delivered"}
+{"pair": "S093", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "idle seats reclaimed"}
+{"pair": "S094", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "folded into reforecast"}
+{"pair": "S095", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "brand packs shipped"}
+{"pair": "S096", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "migration plan delivered"}
+{"pair": "S097", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "notice filed"}
+{"pair": "S098", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "memo delivered"}
+{"pair": "S099", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "playbook live"}
+{"pair": "S100", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "segment cut delivered"}
+{"pair": "S101", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "designer req approved"}
+{"pair": "S102", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "Kestrel save landed"}
+{"pair": "S103", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "Samir got the answer"}
+{"pair": "S104", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "freeze answer delivered"}
+{"pair": "S105", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "cost pulled"}
+{"pair": "S106", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "Ines came back"}
+{"pair": "S107", "relation": "same", "retires_earlier": false, "confidence": "high", "note": "decision and commitment: draft org design by March 16"}
+{"pair": "S108", "relation": "same", "retires_earlier": false, "confidence": "high", "note": "fact and metric: 41 accounts, 14%"}
+{"pair": "S109", "relation": "same", "retires_earlier": false, "confidence": "high", "note": "fact and rule: new reqs need CFO sign-off"}
+{"pair": "S110", "relation": "same", "retires_earlier": false, "confidence": "high", "note": "fact and metric: $2.25M signed"}
+{"pair": "S111", "relation": "same", "retires_earlier": false, "confidence": "high", "note": "metric and fact: 12.7% at Q1 close"}
+{"pair": "S112", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "Greyfield's resale ask, told during the Summitcon recap, belongs to the partner programme"}
+{"pair": "S113", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "same discussion, different subjects"}
+{"pair": "S114", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "CS/support reqs paused, said during Larch; partial, does not answer the freeze question"}
+{"pair": "S115", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "said in the Larch discussion but it is about hiring"}
+{"pair": "S116", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "onboarding target raised during the Halvorsen discussion"}
+{"pair": "S117", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "same discussion; deal value vs onboarding expectation"}
+{"pair": "S118", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "Copilot usage at Kestrel, raised in the churn discussion"}
+{"pair": "S119", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "same discussion; renewal vs product usage"}
+{"pair": "S120", "relation": "refines", "retires_earlier": false, "confidence": "high", "note": "Larch role filled externally, raised during the departure discussion"}
+{"pair": "S121", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "interim cover for Tomas vs the Larch org role"}
+{"pair": "S122", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "AI agents lesson vs Copilot adoption"}
+{"pair": "S123", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "'AI wedge or tax' framing vs AI coding seat spend"}
+{"pair": "S124", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "AI social copy vs Copilot adoption"}
+{"pair": "S125", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "AI dev tools spend vs Copilot inference cost"}
+{"pair": "S126", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "outcome pricing lesson vs AI-drafted social copy"}
+{"pair": "S127", "relation": "unrelated", "retires_earlier": false, "confidence": "high", "note": "Copilot inside the Halvorsen deal vs Copilot list price"}
+{"pair": "S128", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "keep Rotterdam out of the minutes: Larch, unnamed"}
+{"pair": "S129", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "don't forward the draft org chart"}
+{"pair": "S130", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "names on the role list don't leave the room"}
+{"pair": "S131", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "Utrecht move embargoed"}
+{"pair": "S132", "relation": "same_subject", "retires_earlier": false, "confidence": "high", "note": "call it 'the April changes'"}
+{"pair": "S133", "relation": "contradicts", "retires_earlier": false, "confidence": "high", "note": "sales vs finance on booking"}
+{"pair": "S134", "relation": "contradicts", "retires_earlier": false, "confidence": "high", "note": "dispute continues at corrected value"}
+{"pair": "S135", "relation": "contradicts", "retires_earlier": false, "confidence": "high", "note": "20% too rich"}
+{"pair": "S136", "relation": "contradicts", "retires_earlier": false, "confidence": "high", "note": "Theo wants a $500k ceiling"}
+{"pair": "S137", "relation": "contradicts", "retires_earlier": false, "confidence": "high", "note": "9% unrealistic"}
+{"pair": "S138", "relation": "pending", "retires_earlier": false, "confidence": "high", "note": "leaning towards a floor; question stays open"}
+{"pair": "S139", "relation": "pending", "retires_earlier": false, "confidence": "high", "note": "15 of 20 handed over; commitment not complete"}
+{"pair": "S140", "relation": "answers", "retires_earlier": true, "confidence": "high", "note": "Marlow lost, same minute"}
+{"pair": "S141", "relation": "pending", "retires_earlier": false, "confidence": "high", "note": "drafted, not filed"}
+{"pair": "S142", "relation": "completes", "retires_earlier": true, "confidence": "high", "note": "under $500k"}

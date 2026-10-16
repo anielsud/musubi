@@ -15,6 +15,7 @@ import (
 
 	"github.com/anielsud/musubi/internal/ask"
 	"github.com/anielsud/musubi/internal/engine"
+	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/live"
 	"github.com/anielsud/musubi/internal/store"
 )
@@ -82,6 +83,16 @@ func (a *App) openConfig(path string) error {
 		a.emit("app:status", a.Status())
 	}()
 	go a.live.Run(lctx)
+	// Build the topic map now, so Explore opens without waiting for every
+	// claim's evidence to load (seconds on a large corpus). The result is
+	// cached until the data, the scope or the day changes.
+	go func() {
+		for _, name := range []string{"owner", "shared-screen"} {
+			if sc, err := e.Scope(name); err == nil {
+				knowledge.Views{Store: e.Store, Scope: sc, Now: time.Now()}.Map()
+			}
+		}
+	}()
 	return nil
 }
 

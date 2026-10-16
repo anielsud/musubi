@@ -3,7 +3,6 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -624,29 +623,40 @@ func (s *Store) visibleRelations(sc sensitivity.Scope, claimIDs []int64) ([]Rela
 		return nil, nil
 	}
 	vis, vargs := statementVis(sc)
-	ph := strings.TrimSuffix(strings.Repeat("?,", len(claimIDs)), ",")
-	args := []any{}
-	for _, id := range claimIDs {
-		args = append(args, id)
-	}
-	for _, id := range claimIDs {
-		args = append(args, id)
-	}
-	args = append(args, vargs...)
-	rows, err := s.db.Query(`SELECT r.from_claim, r.to_claim, r.rel, r.statement_id FROM claim_relations r
-		JOIN statements st ON st.id = r.statement_id JOIN chunks c ON c.id = st.chunk_id`+chunkVisJoin+`
-		WHERE (r.from_claim IN (`+ph+`) OR r.to_claim IN (`+ph+`)) AND `+vis, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+	// In batches (SQLite caps a statement's variables); a relation between
+	// claims of two batches comes back twice.
 	var out []Relation
-	for rows.Next() {
-		var r Relation
-		rows.Scan(&r.From, &r.To, &r.Rel, &r.StatementID)
-		out = append(out, r)
+	seen := map[Relation]bool{}
+	for i := 0; i < len(claimIDs); i += 400 {
+		part := claimIDs[i:min(i+400, len(claimIDs))]
+		ph := strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")
+		args := make([]any, 0, 2*len(part)+len(vargs))
+		for _, id := range part {
+			args = append(args, id)
+		}
+		for _, id := range part {
+			args = append(args, id)
+		}
+		args = append(args, vargs...)
+		rows, err := s.db.Query(`SELECT r.from_claim, r.to_claim, r.rel, r.statement_id FROM claim_relations r
+			JOIN statements st ON st.id = r.statement_id JOIN chunks c ON c.id = st.chunk_id`+chunkVisJoin+`
+			WHERE (r.from_claim IN (`+ph+`) OR r.to_claim IN (`+ph+`)) AND `+vis, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var r Relation
+			rows.Scan(&r.From, &r.To, &r.Rel, &r.StatementID)
+			if !seen[r] {
+				seen[r] = true
+				out = append(out, r)
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
+		}
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // ClaimEvidence is everything belief is computed from, for one claim, as
@@ -728,22 +738,103 @@ func (s *Store) Evidence(sc sensitivity.Scope, claimIDs []int64) (map[int64]*Cla
 			e.Related[o] = byClaim[o]
 		}
 	}
-	// Kinds, topics and judgements.
+	// Kinds, topics and judgements, in batches rather than a query per
+	// claim and per statement.
+	itemSet := map[string]bool{}
 	for _, e := range out {
-		s.db.QueryRow(`SELECT kind, coalesce(topic_id, 0) FROM claims WHERE id = ?`, e.ClaimID).Scan(&e.Kind, &e.TopicID)
 		for _, st := range e.Statements {
-			var j Judgment
-			var at int64
-			// Anchored by source line first, wording second.
-			err := s.db.QueryRow(`SELECT verdict, note, at FROM judgments WHERE item_id = ?
-				AND ((chunk_hash = ? AND line = ? AND chunk_hash != '') OR text = ?) ORDER BY at DESC LIMIT 1`,
-				st.ItemID, st.ChunkHash, st.Line, st.Text).Scan(&j.Verdict, &j.Note, &at)
-			if err == nil {
-				j.StatementID, j.At = st.ID, time.Unix(at, 0)
-				e.Judgments = append(e.Judgments, j)
-			} else if !errors.Is(err, sql.ErrNoRows) {
+			itemSet[st.ItemID] = true
+		}
+	}
+	if err := s.claimKinds(ids, out); err != nil {
+		return nil, err
+	}
+	judged, err := s.judgmentsFor(itemSet)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range out {
+		for _, st := range e.Statements {
+			// Anchored by source line first, wording second; the latest wins.
+			var best *storedJudgment
+			for i, j := range judged[st.ItemID] {
+				if (j.chunkHash != "" && j.chunkHash == st.ChunkHash && j.line == st.Line) || j.text == st.Text {
+					if best == nil || j.at > best.at {
+						best = &judged[st.ItemID][i]
+					}
+				}
+			}
+			if best != nil {
+				e.Judgments = append(e.Judgments, Judgment{StatementID: st.ID, Verdict: best.verdict, Note: best.note, At: time.Unix(best.at, 0)})
+			}
+		}
+	}
+	return out, nil
+}
+
+// claimKinds fills in the kind and topic of the given claims.
+func (s *Store) claimKinds(ids []int64, out map[int64]*ClaimEvidence) error {
+	for i := 0; i < len(ids); i += 500 {
+		part := ids[i:min(i+500, len(ids))]
+		args := make([]any, len(part))
+		for k, id := range part {
+			args[k] = id
+		}
+		rows, err := s.db.Query(`SELECT id, kind, coalesce(topic_id, 0) FROM claims WHERE id IN (`+
+			strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")+`)`, args...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id int64
+			var kind string
+			var topic int64
+			if err := rows.Scan(&id, &kind, &topic); err != nil {
+				rows.Close()
+				return err
+			}
+			if e := out[id]; e != nil {
+				e.Kind, e.TopicID = kind, topic
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type storedJudgment struct {
+	text, verdict, note, chunkHash string
+	line                           int
+	at                             int64
+}
+
+// judgmentsFor loads the owner's verdicts on statements of these items.
+func (s *Store) judgmentsFor(items map[string]bool) (map[string][]storedJudgment, error) {
+	out := map[string][]storedJudgment{}
+	var ids []any
+	for id := range items {
+		ids = append(ids, id)
+	}
+	for i := 0; i < len(ids); i += 500 {
+		part := ids[i:min(i+500, len(ids))]
+		rows, err := s.db.Query(`SELECT item_id, text, verdict, note, at, chunk_hash, line FROM judgments WHERE item_id IN (`+
+			strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")+`)`, part...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var item string
+			var j storedJudgment
+			if err := rows.Scan(&item, &j.text, &j.verdict, &j.note, &j.at, &j.chunkHash, &j.line); err != nil {
+				rows.Close()
 				return nil, err
 			}
+			out[item] = append(out[item], j)
+		}
+		if err := rows.Close(); err != nil {
+			return nil, err
 		}
 	}
 	return out, nil
@@ -903,4 +994,16 @@ func (s *Store) KnowledgeCounts() (KnowledgeCounts, error) {
 	s.db.QueryRow(`SELECT count(*) FROM stage_runs WHERE stage = 'extract'`).Scan(&k.Extracted)
 	err := s.db.QueryRow(`SELECT count(*) FROM items WHERE kind != 'event'`).Scan(&k.Extractable)
 	return k, err
+}
+
+// KnowledgeSignature changes whenever the database changes: data_version
+// moves when another process commits (musubi knowledge, an update) and
+// total_changes counts this connection's own writes (the store keeps one
+// connection). Constant time, unlike counting rows: the views it guards
+// must not pay for the check as the corpus grows. Any write invalidates,
+// which is conservative.
+func (s *Store) KnowledgeSignature() (string, error) {
+	var dv, own int64
+	err := s.db.QueryRow(`SELECT (SELECT data_version FROM pragma_data_version), total_changes()`).Scan(&dv, &own)
+	return fmt.Sprint(dv, ".", own), err
 }

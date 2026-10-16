@@ -175,3 +175,36 @@ func TestStatementFilterMatchesVisible(t *testing.T) {
 		t.Error("personal visibility rule changed")
 	}
 }
+
+func TestKnowledgeSignature(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Open(dir + "/k.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	s0, _ := a.KnowledgeSignature()
+	if s1, _ := a.KnowledgeSignature(); s1 != s0 {
+		t.Fatal("signature moved without a write")
+	}
+	// Our own write.
+	if err := a.SetGlobalStamp("x", "1"); err != nil {
+		t.Fatal(err)
+	}
+	s1, _ := a.KnowledgeSignature()
+	if s1 == s0 {
+		t.Fatal("own write not seen")
+	}
+	// Another process's write (another connection to the same file).
+	b, err := Open(dir + "/k.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if err := b.SetGlobalStamp("x", "2"); err != nil {
+		t.Fatal(err)
+	}
+	if s2, _ := a.KnowledgeSignature(); s2 == s1 {
+		t.Fatal("another connection's write not seen")
+	}
+}

@@ -173,6 +173,27 @@ func labelVisible(sc sensitivity.Scope, l sensitivity.Level) bool {
 // Topics lists the topics with at least one visible claim, placed on a 2D
 // map by meaning (the first two principal components of their centroids).
 func (v Views) Topics() ([]TopicSummary, error) {
+	d, err := v.loadTopics()
+	if err != nil {
+		return nil, err
+	}
+	return d.summaries, nil
+}
+
+// topicData is one load of what the topic views need: the visible topics'
+// summaries and their claims' evidence.
+type topicData struct {
+	summaries []TopicSummary
+	rows      []store.TopicRow
+	ev        map[int64]*store.ClaimEvidence
+}
+
+// loadTopics loads every topic's claims under the scope once (cached, see
+// viewCache): the topic list, the map and a topic page all start from it.
+func (v Views) loadTopics() (*topicData, error) {
+	if d, ok := viewCache.get(v, "topics"); ok {
+		return d.(*topicData), nil
+	}
 	rows, err := v.Store.Topics()
 	if err != nil {
 		return nil, err
@@ -220,21 +241,23 @@ func (v Views) Topics() ([]TopicSummary, error) {
 	for i := range out {
 		out[i].X, out[i].Y = xy[i][0], xy[i][1]
 	}
-	return out, nil
+	d := &topicData{summaries: out, rows: rows, ev: ev}
+	viewCache.put(v, "topics", d)
+	return d, nil
 }
 
 // Topic returns one topic's page, or nil if nothing of it is visible.
 func (v Views) Topic(id int64) (*TopicView, error) {
-	all, err := v.Topics()
+	m, err := v.Map()
 	if err != nil {
 		return nil, err
 	}
 	var tv *TopicView
 	labels := map[int64]string{}
-	for _, t := range all {
+	for _, t := range m.Topics {
 		labels[t.ID] = t.Label
 		if t.ID == id {
-			tv = &TopicView{TopicSummary: t}
+			tv = &TopicView{TopicSummary: t.TopicSummary}
 		}
 	}
 	if tv == nil {
@@ -290,10 +313,6 @@ func (v Views) Topic(id int64) (*TopicView, error) {
 		}
 	}
 	// The same links the topic map draws, strongest first.
-	m, err := v.Map()
-	if err != nil {
-		return nil, err
-	}
 	for _, e := range m.Edges {
 		other := e.B
 		if e.B == id {

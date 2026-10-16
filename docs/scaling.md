@@ -280,7 +280,13 @@ replace or redo it.
    to new items; a full rethread is a deliberate background job. We
    change rules often, and today each change rethreads everything.
    *Lasting.* Partitioned rethreads (C4) build on it.
-6. **Fold assign into extraction** (§6.5), or else **a small or distilled
+6. *Parked 2026-10-16: assign is about 15% of the bill ($0.025–0.028 of
+   ~$0.18 per four meetings); folding adds the candidate list (~2.7k
+   tokens) to every extraction call, a thread code per item, and a merge
+   of new threads started by parallel segments, for a net ~4–7%. Proving
+   no extraction loss would take several graded runs and a new threading
+   score for re-extracted items.*
+   **Fold assign into extraction** (§6.5), or else **a small or distilled
    model for assign** (§6.6). Pick one by the benchmark.
    *Folding replaces* the small assign model and assign's own cache
    layout from (2). Needs good candidate recall from (1) first, because

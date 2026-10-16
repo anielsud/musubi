@@ -57,11 +57,11 @@ func (v Views) sideTopics() (sideTopics, error) {
 	if err != nil {
 		return sideTopics{}, err
 	}
-	ts := make([]TopicSummary, len(m.Topics))
-	for i, t := range m.Topics {
-		ts[i] = t.TopicSummary
+	d, err := v.loadTopics()
+	if err != nil {
+		return sideTopics{}, err
 	}
-	sts, err := v.topicStatements(ts)
+	sts, err := v.topicStatements(d)
 	if err != nil {
 		return sideTopics{}, err
 	}

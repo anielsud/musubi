@@ -63,28 +63,15 @@ const (
 )
 
 // topicStatements returns each visible topic's visible statements. In
-// thread mode a statement can belong to several threads.
-func (v Views) topicStatements(ts []TopicSummary) (map[int64][]store.Statement, error) {
-	rows, err := v.Store.Topics()
-	if err != nil {
-		return nil, err
-	}
+// thread mode a statement can belong to several threads; every member's
+// claim is placed in a thread, so the loaded evidence covers them.
+func (v Views) topicStatements(d *topicData) (map[int64][]store.Statement, error) {
+	rows, ev := d.rows, d.ev
 	visible := map[int64]bool{}
-	for _, t := range ts {
+	for _, t := range d.summaries {
 		visible[t.ID] = true
 	}
 	members, err := v.Store.ThreadMembers()
-	if err != nil {
-		return nil, err
-	}
-	var ids []int64
-	for _, r := range rows {
-		ids = append(ids, r.Claims...)
-	}
-	for _, m := range members {
-		ids = append(ids, m.Claim)
-	}
-	ev, err := v.Store.Evidence(v.Scope, ids)
 	if err != nil {
 		return nil, err
 	}
@@ -116,13 +103,17 @@ func (v Views) topicStatements(ts []TopicSummary) (map[int64][]store.Statement, 
 	return out, nil
 }
 
-// Map builds the topic map.
+// Map builds the topic map (cached, see viewCache).
 func (v Views) Map() (*TopicMap, error) {
-	ts, err := v.Topics()
+	if m, ok := viewCache.get(v, "map"); ok {
+		return m.(*TopicMap), nil
+	}
+	d, err := v.loadTopics()
 	if err != nil {
 		return nil, err
 	}
-	sts, err := v.topicStatements(ts)
+	ts := d.summaries
+	sts, err := v.topicStatements(d)
 	if err != nil {
 		return nil, err
 	}
@@ -393,6 +384,7 @@ func (v Views) Map() (*TopicMap, error) {
 		}
 		return m.Items[i].ID < m.Items[j].ID
 	})
+	viewCache.put(v, "map", m)
 	return m, nil
 }
 

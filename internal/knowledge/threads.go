@@ -79,7 +79,10 @@ type Threader struct {
 	// Parallel how many threads are reconciled at once (default 4);
 	// Candidates and StateCap override the bounds above.
 	Chunk, Parallel, Candidates, StateCap int
-	Logf                                  func(format string, args ...any)
+	// WarmFirst reconciles one thread alone before the rest, so their
+	// shared instructions are cached by the server.
+	WarmFirst bool
+	Logf      func(format string, args ...any)
 }
 
 // ThreadItem is an item to thread: its id, and when it happened (minutes
@@ -216,7 +219,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 		for _, s := range part {
 			lines = append(lines, itemLine(s, it.Start))
 		}
-		res, err := t.assign(ctx, fmt.Sprintf("Candidate threads:\n%s\nNew items from the %s meeting:\n%s\n\nPut every new item in a group (by id).",
+		res, err := t.assign(ctx, it, fmt.Sprintf("Candidate threads:\n%s\nNew items from the %s meeting:\n%s\n\nPut every new item in a group (by id).",
 			reg, it.Start.Format("2006-01-02"), strings.Join(lines, "\n")))
 		if err != nil {
 			return stats, err
@@ -244,7 +247,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 			for _, n := range res.NewThreads {
 				named = append(named, n.Code+": "+n.Name+" — "+n.Scope)
 			}
-			more, err := t.assign(ctx, fmt.Sprintf("Candidate threads:\n%s%s\n\nItems from the %s meeting still to place:\n%s\n\nPut every one of these items in a group (by id); new threads continue the n… numbering.",
+			more, err := t.assign(ctx, it, fmt.Sprintf("Candidate threads:\n%s%s\n\nItems from the %s meeting still to place:\n%s\n\nPut every one of these items in a group (by id); new threads continue the n… numbering.",
 				reg, strings.Join(named, "\n"), it.Start.Format("2006-01-02"), strings.Join(missing, "\n")))
 			if err != nil {
 				return stats, err
@@ -434,6 +437,10 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 	jobs := make(chan int64)
 	results := make(chan result)
 	var wg sync.WaitGroup
+	// The first reconcile alone when warming: the others then find the
+	// shared instructions cached.
+	warm := make(chan struct{})
+	var warmOnce sync.Once
 	for w := 0; w < par; w++ {
 		wg.Add(1)
 		go func() {
@@ -445,13 +452,19 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 					shown = shown[len(shown)-capN:]
 				}
 				out, err := t.reconcile(ctx, it, th.row, shown, th.members, known, byID)
+				if tid == order[0] {
+					warmOnce.Do(func() { close(warm) })
+				}
 				results <- result{tid, out, err}
 			}
 		}()
 	}
 	go func() {
-		for _, tid := range order {
+		for i, tid := range order {
 			jobs <- tid
+			if i == 0 && t.WarmFirst {
+				<-warm
+			}
 		}
 		close(jobs)
 		wg.Wait()
@@ -531,10 +544,11 @@ type assignOut struct {
 	} `json:"groups"`
 }
 
-func (t *Threader) assign(ctx context.Context, msg string) (assignOut, error) {
+func (t *Threader) assign(ctx context.Context, it ThreadItem, msg string) (assignOut, error) {
 	var out assignOut
-	raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: assignSystem}, {Role: "user", Content: msg}},
-		threadOptions(assignSchema, assignMaxTokens), nil)
+	opt := threadOptions(assignSchema, assignMaxTokens)
+	opt.Session = "threads " + it.ID
+	raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: assignSystem}, {Role: "user", Content: msg}}, opt, nil)
 	if err != nil {
 		return out, err
 	}
@@ -569,9 +583,10 @@ func (t *Threader) reconcile(ctx context.Context, it ThreadItem, th store.Thread
 	}
 	msg := fmt.Sprintf("Thread: %s — %s\n\nCurrent items:\n%s\n\nNew items from the %s meeting:\n%s",
 		th.Name, th.Scope, strings.Join(old, "\n"), it.Start.Format("2006-01-02"), strings.Join(neu, "\n"))
+	opt := threadOptions(reconcileSchema, reconcileMaxTokens)
+	opt.Session = "threads " + it.ID
 	for try := 0; try < 2; try++ {
-		raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: reconcileSystem}, {Role: "user", Content: msg}},
-			threadOptions(reconcileSchema, reconcileMaxTokens), nil)
+		raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: reconcileSystem}, {Role: "user", Content: msg}}, opt, nil)
 		if err != nil {
 			return out, err
 		}

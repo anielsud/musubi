@@ -42,6 +42,12 @@ type ChatOptions struct {
 	// Context, when set, is the context window to load the model with
 	// (Ollama; llama-server fixes it at start-up).
 	Context int `json:",omitempty"`
+	// Session groups calls that share a prompt start (one meeting's
+	// segments, one item's threading). An OpenAI-compatible server is sent
+	// it as x-session-affinity, which Baseten uses to route the calls to one
+	// replica, where the shared start is served from cache at a discount.
+	// Routing only: not part of a recorded reply's key.
+	Session string `json:"-"`
 }
 
 // Chat is a local chat model served by Ollama.

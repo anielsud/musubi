@@ -88,9 +88,28 @@ func jsonOrEmpty(v any, empty bool) string {
 // ReplaceStatements swaps the statements extracted from an item's chunks.
 // Their claim memberships go with them (cascade); the link step relinks.
 func (s *Store) ReplaceStatements(itemID, version, hash string, sts []Statement) error {
+	return s.ReplaceStatementsFrom(itemID, version, hash, "", sts)
+}
+
+// ReplaceStatementsFrom is ReplaceStatements recording, apart from the
+// stage's stamp, a hash of the input alone (input, when set: the passages,
+// labels and facts it read, without the prompt version or model). With
+// both, a later run tells a changed input, which is always re-extracted,
+// from a new version, which is redone only when asked
+// (knowledge.updates). The item is also queued for threading again: its
+// old statements, and so its thread memberships, are gone.
+func (s *Store) ReplaceStatementsFrom(itemID, version, hash, input string, sts []Statement) error {
 	return s.tx(func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`DELETE FROM statements WHERE item_id = ?`, itemID); err != nil {
 			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM thread_runs WHERE item_id = ?`, itemID); err != nil {
+			return err
+		}
+		if input != "" {
+			if err := stamp(tx, "extract-input", itemID, "in", input); err != nil {
+				return err
+			}
 		}
 		for _, st := range sts {
 			var holder any

@@ -234,7 +234,11 @@ type Pointer struct {
 	Think bool
 	// Segment is chunks per call; Parallel, calls at once.
 	Segment, Parallel int
-	Logf              func(format string, args ...any)
+	// WarmFirst sends the first segment alone, so the others find the
+	// shared start of their prompt (instructions, header, brief) cached.
+	WarmFirst bool
+	session   string // set per meeting by Extract
+	Logf      func(format string, args ...any)
 }
 
 type brief struct {
@@ -288,6 +292,7 @@ func (p *Pointer) Extract(ctx context.Context, m *Meeting) ([]Point, error) {
 	if len(m.lines) == 0 {
 		return nil, nil
 	}
+	p.session = "points " + m.Title + " " + m.Date.Format(time.RFC3339)
 	var br brief
 	if err := p.call(ctx, false, "You read a whole meeting transcript and write a brief that helps someone interpret any excerpt of it.",
 		fmt.Sprintf("%s\nKnown facts (use as given, do not contradict):\n%s\n\n%s\n\nWrite: the meeting's purpose (one sentence); each participant's role or organisation only as far as the transcript shows it (say unclear rather than guess; the user named in the known facts is the person whose records these are); the subjects discussed, in order; and a glossary that resolves vague references used in the meeting (\"the agreement\", \"the project\", acronyms, misheard names) to what they mean.",
@@ -306,12 +311,22 @@ func (p *Pointer) Extract(ctx context.Context, m *Meeting) ([]Point, error) {
 	errs := make([]error, len(starts))
 	sem := make(chan struct{}, max(p.Parallel, 1))
 	var wg sync.WaitGroup
+	warm := make(chan struct{})
+	if !p.WarmFirst {
+		close(warm)
+	}
 	for i, a := range starts {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			if i > 0 {
+				<-warm
+			}
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			if i == 0 && p.WarmFirst {
+				defer close(warm)
+			}
 			b := min(a+seg, len(m.Chunks))
 			user := fmt.Sprintf("%s\n%s\n\nTranscript excerpt. Lines marked [context] come just before or after the part you cover: use them to understand and complete points, but only extract points whose substance is in the unmarked lines.\n\n%s\n\nList the points in the unmarked lines (usually 2 to 6; none if it is all small talk). Evidence: the line numbers and exact words each point rests on.",
 				m.header(), bt, m.transcript(max(0, a-1), b+1, a, b))
@@ -345,7 +360,7 @@ func (p *Pointer) logf(format string, args ...any) {
 }
 
 func (p *Pointer) call(ctx context.Context, think bool, system, user string, schema json.RawMessage, maxTokens int, out any) error {
-	opt := provider.ChatOptions{Schema: schema, Temperature: 0, MaxTokens: maxTokens, Context: 16384, Timeout: 10 * time.Minute}
+	opt := provider.ChatOptions{Schema: schema, Temperature: 0, MaxTokens: maxTokens, Context: 16384, Timeout: 10 * time.Minute, Session: p.session}
 	if think {
 		// Qwen's recommended thinking sampling: greedy decoding loops. The
 		// token limit covers reasoning too; bound reasoning on the server

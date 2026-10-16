@@ -3,6 +3,8 @@ package provider
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -76,7 +78,7 @@ func (o *OpenAI) complete(ctx context.Context, msgs []Message, opt ChatOptions) 
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 	}
-	if err := o.post(ctx, body, &out); err != nil {
+	if err := o.post(ctx, body, opt.Session, &out); err != nil {
 		return "", err
 	}
 	if len(out.Choices) == 0 {
@@ -111,7 +113,7 @@ func (o *OpenAI) Decide(ctx context.Context, msgs []Message, choices []string) (
 			} `json:"logprobs"`
 		} `json:"choices"`
 	}
-	if err := o.post(ctx, body, &out); err != nil {
+	if err := o.post(ctx, body, "", &out); err != nil {
 		return nil, err
 	}
 	if len(out.Choices) == 0 || len(out.Choices[0].Logprobs.Content) == 0 {
@@ -126,13 +128,17 @@ func (o *OpenAI) Decide(ctx context.Context, msgs []Message, choices []string) (
 	return shares(mass, choices), nil
 }
 
-func (o *OpenAI) post(ctx context.Context, body map[string]any, out any) error {
+func (o *OpenAI) post(ctx context.Context, body map[string]any, session string, out any) error {
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST", o.URL+"/v1/chat/completions", bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if session != "" {
+		h := sha256.Sum256([]byte(session))
+		req.Header.Set("x-session-affinity", hex.EncodeToString(h[:16]))
+	}
 	resp, err := o.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("openai: %w", err)

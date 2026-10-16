@@ -48,7 +48,7 @@ func root() *cobra.Command {
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
 	r.AddCommand(importItemsCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), liveCmd(),
-		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd())
+		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd())
 	return r
 }
 
@@ -705,9 +705,9 @@ func importItemsCmd() *cobra.Command {
 }
 
 func knowledgeCmd() *cobra.Command {
-	var items []string
-	var limit, workers int
-	var verbose bool
+	var items, redo []string
+	var limit, workers, newest int
+	var verbose, plan bool
 	c := &cobra.Command{
 		Use:   "knowledge",
 		Short: "Extract statements, link them into claims, and build topics (uses the local model)",
@@ -724,7 +724,13 @@ func knowledgeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			o := pipeline.KnowledgeOptions{LLM: e.Chat, Embedder: e.Embedder, Items: items, Limit: limit, Workers: workers}
+			for _, s := range redo {
+				if s != "extract" && s != "links" && s != "threads" {
+					return fmt.Errorf("--redo takes extract, links or threads (got %q)", s)
+				}
+			}
+			o := pipeline.KnowledgeOptions{LLM: e.Chat, Embedder: e.Embedder, Items: items, Limit: limit, Workers: workers,
+				Redo: redo, RedoNewest: newest, Plan: plan}
 			if pm := e.Cfg.Knowledge.Points.Model; e.Cfg.Knowledge.Extract == "points" && pm.Provider != "" {
 				if o.Extractor, err = provider.NewLLM(pm); err != nil {
 					return err
@@ -735,6 +741,14 @@ func knowledgeCmd() *cobra.Command {
 			}
 			start := time.Now()
 			ks, err := r.Knowledge(cmd.Context(), o)
+			defer printOutdated(ks.Outdated, e.Cfg.Knowledge.Updates)
+			if plan {
+				p := ks.Planned
+				fmt.Fprintf(os.Stderr, "plan: extract %d items; %s; thread %d items%s\n", p.Extract,
+					map[bool]string{true: "rebuild every claim", false: "link new statements"}[p.RebuildLinks], p.Thread,
+					map[bool]string{true: " (every thread cleared first)", false: ""}[p.RebuildThreads])
+				return err
+			}
 			per := time.Duration(0)
 			if ks.Chunks > 0 {
 				per = ks.ExtractTime / time.Duration(ks.Chunks)
@@ -749,7 +763,27 @@ func knowledgeCmd() *cobra.Command {
 	c.Flags().IntVar(&limit, "limit", 0, "extract at most this many items this run")
 	c.Flags().IntVar(&workers, "workers", 2, "parallel model requests")
 	c.Flags().BoolVarP(&verbose, "verbose", "v", false, "print each linking decision")
+	c.Flags().StringSliceVar(&redo, "redo", nil, "bring these stages up to their current version: extract, links (rethreads too, in thread mode), threads")
+	c.Flags().IntVar(&newest, "newest", 0, "with --redo extract: only this many items, newest first")
+	c.Flags().BoolVar(&plan, "plan", false, "say what a run would do, and what is on an earlier version, without doing it")
 	return c
+}
+
+// printOutdated says what was done under an earlier version and kept, and
+// how to bring it up to date.
+func printOutdated(o pipeline.Outdated, mode string) {
+	if mode == "auto" {
+		return
+	}
+	if o.Extract > 0 {
+		fmt.Fprintf(os.Stderr, "older version: %d items were extracted under an earlier extraction version (musubi knowledge --redo extract [--newest N])\n", o.Extract)
+	}
+	if o.Links {
+		fmt.Fprintln(os.Stderr, "older version: claims were built under earlier linking rules (musubi knowledge --redo links)")
+	}
+	if o.Threads > 0 {
+		fmt.Fprintf(os.Stderr, "older version: %d items were threaded under earlier rules (musubi knowledge --redo threads)\n", o.Threads)
+	}
 }
 
 func gateCmd() *cobra.Command {
@@ -969,6 +1003,30 @@ func judgeCmd() *cobra.Command {
 				v = ""
 			}
 			return st.Judge(id, v, note)
+		},
+	}
+}
+
+func threadLinksCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "thread-links",
+		Short: "Rebuild the threads' centroids, entities and relations from what is stored (no model calls)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			r, err := e.Runner(nil, os.Stderr)
+			if err != nil {
+				return err
+			}
+			n, err := r.LinkThreads()
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "%d threads linked\n", n)
+			return nil
 		},
 	}
 }

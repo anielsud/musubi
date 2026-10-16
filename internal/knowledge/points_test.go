@@ -216,3 +216,43 @@ func TestImportStatements(t *testing.T) {
 		t.Errorf("kept proposed: %+v", sts)
 	}
 }
+
+// orderLLM records when segment calls start and end; each takes a moment,
+// so calls sent together overlap.
+type orderLLM struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (f *orderLLM) Local() bool       { return true }
+func (f *orderLLM) ModelName() string { return "order" }
+func (f *orderLLM) Complete(_ context.Context, msgs []provider.Message, _ provider.ChatOptions, _ func(string)) (string, error) {
+	if strings.HasPrefix(msgs[0].Content, "You read a whole meeting") {
+		return `{"purpose":"p","participants":[],"subjects":[],"glossary":[]}`, nil
+	}
+	f.mu.Lock()
+	f.events = append(f.events, "start")
+	f.mu.Unlock()
+	time.Sleep(20 * time.Millisecond)
+	f.mu.Lock()
+	f.events = append(f.events, "end")
+	f.mu.Unlock()
+	return `{"points":[]}`, nil
+}
+
+func TestPointerWarmFirst(t *testing.T) {
+	for _, warm := range []bool{true, false} {
+		f := &orderLLM{}
+		if _, err := (&Pointer{LLM: f, Segment: 1, Parallel: 4, WarmFirst: warm}).Extract(context.Background(), testMeeting()); err != nil {
+			t.Fatal(err)
+		}
+		if len(f.events) < 6 {
+			t.Fatalf("want at least 3 segments, got events %v", f.events)
+		}
+		// Warm: the first segment ends before any other starts. Not warm:
+		// they start together.
+		if got := f.events[1] == "end"; got != warm {
+			t.Errorf("warm=%v: events %v", warm, f.events)
+		}
+	}
+}

@@ -45,3 +45,27 @@ func TestOpenAI(t *testing.T) {
 		t.Errorf("decide: %v %v", p, err)
 	}
 }
+
+func TestOpenAISessionAffinity(t *testing.T) {
+	var headers []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = append(headers, r.Header.Get("x-session-affinity"))
+		w.Write([]byte(`{"choices":[{"message":{"content":"{}"},"finish_reason":"stop"}]}`))
+	}))
+	defer srv.Close()
+	llm, err := NewLLM(config.LLM{Provider: "openai", URL: srv.URL + "/", Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs := []Message{{Role: "user", Content: "hi"}}
+	for _, s := range []string{"points m:1", "points m:1", "points m:2", ""} {
+		if _, err := llm.Complete(context.Background(), msgs, ChatOptions{Session: s}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The same session routes alike, another differently, and none sends
+	// no header. The value is a hash, not the meeting's name.
+	if headers[0] == "" || headers[0] != headers[1] || headers[0] == headers[2] || headers[3] != "" || headers[0] == "points m:1" {
+		t.Errorf("headers %q", headers)
+	}
+}

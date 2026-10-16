@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -37,6 +38,41 @@ type KnowledgeOptions struct {
 	// Threader does the threading (knowledge.grouping = "threads"); nil
 	// builds it from knowledge.threads.model, else uses LLM.
 	Threader provider.LLM
+	// Redo names stages to bring up to their current version now: "extract"
+	// (items extracted under an earlier version; RedoNewest of them, newest
+	// first, when set), "links" (claims; in thread mode this rethreads too,
+	// as threading's relations live on claims), "threads" (every item
+	// rethreaded in order).
+	Redo       []string
+	RedoNewest int
+	// Plan reports what a run would do, and what is on an earlier version,
+	// without extracting, linking or threading.
+	Plan bool
+}
+
+func (o KnowledgeOptions) redo(stage string) bool {
+	for _, s := range o.Redo {
+		if s == stage {
+			return true
+		}
+	}
+	return false
+}
+
+// Outdated is what was done under an earlier version and kept
+// (knowledge.updates = "explicit").
+type Outdated struct {
+	Extract int  // items extracted under an earlier version
+	Links   bool // claims built under earlier linking rules
+	Threads int  // items threaded under earlier rules
+}
+
+// Planned is what a run would do (KnowledgeOptions.Plan).
+type Planned struct {
+	Extract        int  // items to extract: new, changed, or asked to redo
+	RebuildLinks   bool // claims to rebuild from stored statements
+	Thread         int  // items to thread
+	RebuildThreads bool // every thread cleared first
 }
 
 type KnowledgeStats struct {
@@ -49,6 +85,8 @@ type KnowledgeStats struct {
 	Topics                      int
 	Pending                     int // items still to extract (when limited)
 	Threads                     knowledge.ThreadStats
+	Outdated                    Outdated
+	Planned                     Planned
 }
 
 // Knowledge runs the knowledge layer: extract statements from items whose
@@ -143,13 +181,14 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	type job struct {
 		it      *item.Item
 		hash    string
+		input   string // the hash of what it reads, without version or model
 		version string
 		chunks  []store.Chunk
 		title   string
 		orgs    map[string]string
 		known   string // points: the facts sheet; "" extracts statements
 	}
-	var jobs []job
+	var jobs, older []job
 	for i := range items {
 		it := &items[i]
 		if it.Kind == item.KindEvent || !wanted(it.ID) || kc.Extract == "none" {
@@ -161,6 +200,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		}
 		version, known := knowledge.ExtractVersion, ""
 		h := hashOf("extract", knowledge.ExtractVersion, chunkStamp, o.LLM.ModelName(), r.Cfg.Owner.Name)
+		input := hashOf("input", chunkStamp)
 		if gated {
 			h = hashOf(h, knowledge.GateVersion, fmt.Sprint(kc.Gate))
 		}
@@ -171,23 +211,56 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 			version = knowledge.PointsVersion
 			h = hashOf("points", version, chunkStamp, clsStamp, o.Extractor.ModelName(), r.Cfg.Owner.Name, known,
 				fmt.Sprint(pc.Think), fmt.Sprint(pc.Segment))
+			input = hashOf("input", chunkStamp, clsStamp, known)
 		}
-		if cur, _ := r.Store.StageStamp("extract", it.ID); cur == version+"/"+h {
+		cur, _ := r.Store.StageStamp("extract", it.ID)
+		if cur == version+"/"+h {
 			continue
-		}
-		chunks, err := r.Store.Chunks(it.ID)
-		if err != nil {
-			return ks, err
 		}
 		title := it.Title
 		if e, ok := links[it.ID]; ok && byID[e] != nil {
 			title = byID[e].Title
 		}
-		jobs = append(jobs, job{it, h, version, chunks, title, speakerOrgs(it), known})
+		j := job{it: it, hash: h, input: input, version: version, title: title, orgs: speakerOrgs(it), known: known}
+		if cur != "" && kc.Updates != "auto" {
+			// Extracted before under another version. Its input changed too
+			// (or it is new) → extract; only the version changed → keep it
+			// until asked. Items extracted before inputs were recorded count
+			// as unchanged.
+			if in, _ := r.Store.StageStamp("extract-input", it.ID); in == "" || in == "in/"+input {
+				older = append(older, j)
+				continue
+			}
+		}
+		jobs = append(jobs, j)
 	}
+	if o.redo("extract") && len(older) > 0 {
+		sort.Slice(older, func(a, b int) bool { return older[a].it.OccurredAt.After(older[b].it.OccurredAt) })
+		n := len(older)
+		if o.RedoNewest > 0 && o.RedoNewest < n {
+			n = o.RedoNewest
+		}
+		r.logf("extract: redoing %d of %d items extracted under an earlier version, newest first", n, len(older))
+		jobs = append(jobs, older[:n]...)
+		older = older[n:]
+	}
+	ks.Outdated.Extract = len(older)
 	if o.Limit > 0 && len(jobs) > o.Limit {
 		ks.Pending = len(jobs) - o.Limit
 		jobs = jobs[:o.Limit]
+	}
+	if o.Plan {
+		ks.Planned.Extract = len(jobs)
+		requeued := map[string]bool{}
+		for _, j := range jobs {
+			requeued[j.it.ID] = true
+		}
+		return ks, r.planLinksAndThreads(o, requeued, &ks)
+	}
+	for i := range jobs {
+		if jobs[i].chunks, err = r.Store.Chunks(jobs[i].it.ID); err != nil {
+			return ks, err
+		}
 	}
 	for _, j := range jobs {
 		ks.Chunks += len(j.chunks)
@@ -210,7 +283,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 					return func() error {
 						ks.Items++
 						ks.Statements += len(sts)
-						return r.Store.ReplaceStatements(j.it.ID, j.version, j.hash, sts)
+						return r.Store.ReplaceStatementsFrom(j.it.ID, j.version, j.hash, j.input, sts)
 					}, nil
 				}
 				var sts []store.Statement
@@ -261,7 +334,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 				return func() error {
 					ks.Items++
 					ks.Statements += len(sts)
-					return r.Store.ReplaceStatements(j.it.ID, knowledge.ExtractVersion, j.hash, sts)
+					return r.Store.ReplaceStatementsFrom(j.it.ID, knowledge.ExtractVersion, j.hash, j.input, sts)
 				}, nil
 			})
 		}
@@ -364,9 +437,14 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		// pairwise judge would only add its own, less reliable relations.
 		lk.LLM, lk.Decider = nil, nil
 	}
-	// Claims are cheap to rebuild from stored statements; rebuild them when
-	// the rules that made them change, so old and new rules never mix.
-	linkStamp := hashOf("link", knowledge.LinkVersion, o.LLM.ModelName(), fmt.Sprint(kc.MinWorth), kc.Judge, knowledge.WorthVersion, fmt.Sprint(kc.StrictLinks), kc.Grouping)
+	// Claims are cheap to rebuild from stored statements, but in thread mode
+	// threading's relations live on them, so a rebuild means rethreading:
+	// done when asked (or with knowledge.updates = "auto").
+	linkStamp, rebuildLinks, linksOld := r.linkDecision(o)
+	ks.Outdated.Links = linksOld
+	if linksOld {
+		r.logf("link: claims were built under earlier linking rules and are kept; new statements are linked under the current ones (musubi knowledge --redo links)")
+	}
 	// The claims stamp is separate from the calendar-link stamp ("link"),
 	// which Process sets; sharing one name made every update look like a
 	// rule change and rebuilt all claims.
@@ -374,16 +452,14 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	// resumes under the same rules instead of clearing its progress; claims
 	// are cleared only when the rules really change. A database linked
 	// before this change and never stamped keeps its claims.
-	if old, _ := r.Store.GlobalStamp("claims"); old != linkStamp {
-		if old != "" {
-			if err := r.Store.ClearClaims(); err != nil {
-				return ks, err
-			}
-			r.logf("link: rules changed, rebuilding claims")
-		}
-		if err := r.Store.SetGlobalStamp("claims", linkStamp); err != nil {
+	if rebuildLinks {
+		if err := r.Store.ClearClaims(); err != nil {
 			return ks, err
 		}
+		r.logf("link: rebuilding claims under the current rules")
+	}
+	if err := r.Store.SetGlobalStamp("claims", linkStamp); err != nil {
+		return ks, err
 	}
 	if err := lk.Load(); err != nil {
 		return ks, err
@@ -420,7 +496,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 
 	// 4. Threads or topics.
 	if threads {
-		return ks, r.thread(ctx, o, linkStamp, &ks)
+		return ks, r.thread(ctx, o, linkStamp, rebuildLinks, &ks)
 	}
 	sig, err := r.Store.ClaimSignature()
 	if err != nil {
@@ -445,7 +521,7 @@ func (r *Runner) extractPoints(ctx context.Context, llm provider.LLM, pc config.
 		return nil, err
 	}
 	m := knowledge.NewMeeting(title, it.OccurredAt, known, r.Cfg.Owner.Name, chunks)
-	px := &knowledge.Pointer{LLM: llm, Think: pc.Think, Segment: pc.Segment, Parallel: pc.Parallel, Logf: r.logf}
+	px := &knowledge.Pointer{LLM: llm, Think: pc.Think, Segment: pc.Segment, Parallel: pc.Parallel, WarmFirst: r.Cfg.Knowledge.WarmCache, Logf: r.logf}
 	ps, err := px.Extract(ctx, m)
 	if err != nil {
 		return nil, err
@@ -495,6 +571,20 @@ func topicEntities(reg *registry.Registry) func(string) []string {
 		}
 		return out
 	}
+}
+
+// LinkThreads derives the threads' centroids, entities and relations (no
+// model call), for the topic map and topic pages.
+func (r *Runner) LinkThreads() (int, error) {
+	items, err := r.Store.AllItems()
+	if err != nil {
+		return 0, err
+	}
+	reg, err := registry.Build(r.Cfg, r.CuratedPath, items)
+	if err != nil {
+		return 0, err
+	}
+	return knowledge.LinkThreads(r.Store, topicEntities(reg))
 }
 
 // ImportVersion stamps statements loaded by ImportItems, so a later
@@ -564,49 +654,141 @@ func (r *Runner) ImportItems(itemID string, imported []knowledge.Imported, sourc
 
 // thread threads every item not yet threaded under the current rules,
 // oldest first (knowledge.grouping = "threads").
-func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp string, ks *KnowledgeStats) error {
+// linkStamp is the version of the rules claims are built under.
+func (r *Runner) linkStamp(o KnowledgeOptions) string {
 	kc := r.Cfg.Knowledge
+	return hashOf("link", knowledge.LinkVersion, o.LLM.ModelName(), fmt.Sprint(kc.MinWorth), kc.Judge, knowledge.WorthVersion, fmt.Sprint(kc.StrictLinks), kc.Grouping)
+}
+
+// linkDecision returns the version claims stand under after this run,
+// whether to rebuild them now, and whether they are kept under an earlier
+// version.
+func (r *Runner) linkDecision(o KnowledgeOptions) (stamp string, rebuild, older bool) {
+	cur := r.linkStamp(o)
+	old, _ := r.Store.GlobalStamp("claims")
+	switch {
+	case old == "" || old == cur:
+		return cur, false, false
+	case r.Cfg.Knowledge.Updates == "auto" || o.redo("links"):
+		return cur, true, false
+	}
+	return old, false, true
+}
+
+// threadPlan is what threading will do.
+type threadPlan struct {
+	stamp, old string
+	rebuild    bool // clear every thread and rethread every item
+	todo       []knowledge.ThreadItem
+	older      int // items threaded under earlier rules, kept
+}
+
+func (r *Runner) threadLLM(o KnowledgeOptions) (provider.LLM, error) {
 	llm := o.Threader
-	if llm == nil && kc.Threads.Model.Provider != "" {
+	if llm == nil && r.Cfg.Knowledge.Threads.Model.Provider != "" {
 		var err error
-		if llm, err = provider.NewLLM(kc.Threads.Model); err != nil {
-			return err
+		if llm, err = provider.NewLLM(r.Cfg.Knowledge.Threads.Model); err != nil {
+			return nil, err
 		}
 	}
 	if llm == nil {
 		llm = o.LLM
 	}
 	if !llm.Local() {
-		return fmt.Errorf("threads read meeting text, so they need a local model (got %s)", llm.ModelName())
+		return nil, fmt.Errorf("threads read meeting text, so they need a local model (got %s)", llm.ModelName())
 	}
-	stamp := hashOf("threads", knowledge.ThreadsVersion, llm.ModelName(), linkStamp)
+	return llm, nil
+}
+
+// planThreads decides what threading does: in "explicit" mode, items never
+// threaded are threaded under the current rules and earlier ones keep
+// their threads; everything is rethreaded only when asked (redo, or claims
+// rebuilt); "auto" rethreads everything when the rules change.
+func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp string, claimsRebuilt bool) (threadPlan, error) {
+	p := threadPlan{stamp: hashOf("threads", knowledge.ThreadsVersion, llm.ModelName(), linkStamp)}
+	p.old, _ = r.Store.GlobalStamp("threads")
+	auto := r.Cfg.Knowledge.Updates == "auto"
+	p.rebuild = claimsRebuilt || o.redo("threads") || o.redo("links") || (auto && p.old != "" && p.old != p.stamp)
+	done, err := r.Store.ThreadedItems()
+	if err != nil {
+		return p, err
+	}
+	items, err := r.Store.AllItems()
+	if err != nil {
+		return p, err
+	}
+	for _, it := range items {
+		d := done[it.ID]
+		switch {
+		case p.rebuild, auto && d != p.stamp, d == "":
+			p.todo = append(p.todo, knowledge.ThreadItem{ID: it.ID, Start: it.OccurredAt})
+		case d != p.stamp:
+			p.older++
+		}
+	}
+	return p, nil
+}
+
+// planLinksAndThreads fills in what linking and threading would do, for a
+// plan; requeued are items the run would extract (they are threaded again).
+func (r *Runner) planLinksAndThreads(o KnowledgeOptions, requeued map[string]bool, ks *KnowledgeStats) error {
+	linkStamp, rebuild, older := r.linkDecision(o)
+	ks.Planned.RebuildLinks, ks.Outdated.Links = rebuild, older
+	if r.Cfg.Knowledge.Grouping != "threads" {
+		return nil
+	}
+	llm, err := r.threadLLM(o)
+	if err != nil {
+		return err
+	}
+	p, err := r.planThreads(o, llm, linkStamp, rebuild)
+	if err != nil {
+		return err
+	}
+	ks.Planned.RebuildThreads, ks.Outdated.Threads = p.rebuild, p.older
+	n := len(p.todo)
+	in := map[string]bool{}
+	for _, t := range p.todo {
+		in[t.ID] = true
+	}
+	for id := range requeued {
+		if !in[id] {
+			n++
+		}
+	}
+	ks.Planned.Thread = n
+	return nil
+}
+
+func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp string, claimsRebuilt bool, ks *KnowledgeStats) error {
+	kc := r.Cfg.Knowledge
+	llm, err := r.threadLLM(o)
+	if err != nil {
+		return err
+	}
+	p, err := r.planThreads(o, llm, linkStamp, claimsRebuilt)
+	if err != nil {
+		return err
+	}
+	stamp := p.stamp
 	// Recorded before threading, so an interrupted run resumes; threads are
-	// cleared only when the rules really change.
-	if old, _ := r.Store.GlobalStamp("threads"); old != stamp {
+	// cleared only when everything is to be rethreaded.
+	if p.rebuild {
 		if err := r.Store.ClearThreads(); err != nil {
 			return err
 		}
-		if old != "" {
-			r.logf("threads: rules changed, rethreading every item")
-		}
+		r.logf("threads: rethreading every item under the current rules")
+	}
+	if p.rebuild || p.old == "" {
 		if err := r.Store.SetGlobalStamp("threads", stamp); err != nil {
 			return err
 		}
 	}
-	done, err := r.Store.ThreadedItems()
-	if err != nil {
-		return err
+	ks.Outdated.Threads = p.older
+	if p.older > 0 {
+		r.logf("threads: %d items were threaded under earlier rules and keep their threads; new items use the current ones (musubi knowledge --redo threads)", p.older)
 	}
-	items, err := r.Store.AllItems()
-	if err != nil {
-		return err
-	}
-	var todo []knowledge.ThreadItem
-	for _, it := range items {
-		if done[it.ID] != stamp {
-			todo = append(todo, knowledge.ThreadItem{ID: it.ID, Start: it.OccurredAt})
-		}
-	}
+	todo := p.todo
 	knowledge.ThreadOrder(todo)
 	var vecs map[int64][]float32
 	if o.Embedder != nil {
@@ -615,7 +797,7 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 		}
 	}
 	th := &knowledge.Threader{Store: r.Store, LLM: llm, Vecs: vecs, Chunk: kc.Threads.Chunk, Parallel: kc.Threads.Parallel,
-		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, Logf: r.logf}
+		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, WarmFirst: kc.WarmCache, Logf: r.logf}
 	for _, it := range todo {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -640,6 +822,9 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 		}
 	}
 	if err := r.Store.PlaceClaimsInThreads(); err != nil {
+		return err
+	}
+	if _, err := r.LinkThreads(); err != nil {
 		return err
 	}
 	all, err := r.Store.Threads()

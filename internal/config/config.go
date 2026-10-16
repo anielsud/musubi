@@ -67,6 +67,21 @@ type Knowledge struct {
 	// replace the pairwise judge: only near-identical statements join.
 	Grouping string  `toml:"grouping"`
 	Threads  Threads `toml:"threads"`
+	// WarmCache sends a meeting's first point segment, and an item's first
+	// reconcile, before the rest: their prompts start alike, and a server
+	// that caches prompt prefixes (hosted APIs; llama-server per slot)
+	// reuses the start only once one call has finished with it. The
+	// replies are the same; it costs one call's wait per meeting
+	// (research-log.md, 2026-10-16). false sends all at once.
+	WarmCache bool `toml:"warm_cache"`
+	// Updates says what happens when a stage's version changes (its prompt,
+	// model, rules or settings): "explicit" keeps what was done under the
+	// earlier version, uses the new one for new items, and reports what is
+	// older until `musubi knowledge --redo <stage>` asks for it; "auto"
+	// (the earlier behaviour) redoes it all at once: every item re-extracted,
+	// claims rebuilt, every item rethreaded in order. A changed input (a
+	// meeting's passages or labels) is re-extracted either way.
+	Updates string `toml:"updates"`
 }
 
 // Threads configures grouping = "threads".
@@ -181,7 +196,7 @@ func DefaultConfig() Config {
 		TomoeSessions: filepath.Join(home, ".local", "share", "tomoe", "sessions"),
 		Embed:         Embed{Provider: "ollama", Model: "nomic-embed-text", URL: "http://127.0.0.1:11434"},
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4}, Points: Points{Think: true, Segment: 5, Parallel: 4}},
+		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit"},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

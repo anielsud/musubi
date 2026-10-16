@@ -64,7 +64,9 @@ install-gui-mac: build build-gui
 	iconutil -c icns build/icon.iconset -o $(APP_BUNDLE)/Contents/Resources/Musubi.icns
 	sed 's/__VERSION__/$(VERSION)/g' packaging/macos/Info.plist.template > $(APP_BUNDLE)/Contents/Info.plist
 	codesign --sign - --force --deep $(APP_BUNDLE)
-	rm -rf /Applications/Musubi.app
+	# Replace the contents, not the folder: an account without admin rights
+	# can't delete entries in /Applications, but owns the app folder it made.
+	rm -rf /Applications/Musubi.app/Contents
 	ditto $(APP_BUNDLE) /Applications/Musubi.app
 	@if ! defaults read com.apple.dock persistent-apps | grep -q 'Musubi.app'; then \
 		defaults write com.apple.dock persistent-apps -array-add '<dict><key>tile-data</key><dict><key>file-data</key><dict><key>_CFURLString</key><string>file:///Applications/Musubi.app/</string><key>_CFURLStringType</key><integer>15</integer></dict></dict></dict>'; \

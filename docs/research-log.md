@@ -1350,3 +1350,17 @@ in the right thread. When the query's words (2–5 content words) appear
 verbatim in at most 12 claims, most of them in one thread, that thread's
 card opens. On-subject card lines 78% → 84% on the lean threads; 75% on
 topics, unchanged.
+
+## 2026-10-16: Datasets for side-by-side comparison
+
+The app now opens any instance listed in `~/.config/musubi/datasets.toml`
+and can show two side by side. The experiment instances were replaced by
+datasets (linking-benchmark.md, "Datasets"): two references built from the
+Opus outputs (the 670 reference items, grouped by their own thread labels;
+and the GLM items in the 15 reference subjects with the 182 reference
+updates), the best GLM setup (lean threads on GLM), an unbuilt best-local
+slot (needs local extraction of all four meetings), candidate slots, and a
+base copy for rebuilding. All were assembled from existing outputs with no
+model calls. The old real instance (81 recordings, 9 pilot meetings on the
+old statement prompt) and the earlier experiment instances were deleted;
+their scores are above and their outputs remain as system files.

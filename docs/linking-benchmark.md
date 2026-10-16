@@ -107,6 +107,25 @@ Two lessons on the tiers themselves (research log, 2026-10-16):
 the update measures from run to run. A decision closer than that needs two
 runs per variant (`CACHE_SALT` reruns the same prompts afresh).
 
+## Datasets
+
+The benchmark's systems are kept as app datasets (listed in
+`~/.config/musubi/datasets.toml`, opened from the app's dropdown, two side
+by side), all on the same four meetings, under
+`testdata/private/datasets/`:
+
+| Dataset | Holds |
+|---|---|
+| `reference-extraction` | the Opus reference items, grouped by their own thread labels |
+| `reference-linking` | the GLM items in the 15 Opus reference subjects, with the reference updates |
+| `best-glm` | the best GLM setup to date (GLM extraction, GLM lean threads) |
+| `best-local` | the best fully local setup (not built: needs local extraction) |
+| `candidate-glm`, `candidate-local` | a copy of the matching best, for trying a technique; promoted if it wins on the benchmark |
+| `_base` | GLM items with embeddings and no grouping, the starting point for rebuilding any of the above (not listed) |
+
+A system output (`system-*.json`) becomes a dataset with `apply_threads.py`
+on a copy of `_base`, with no model calls.
+
 ## Running it
 
 Export an instance's statements, the linker's verdicts and stratified

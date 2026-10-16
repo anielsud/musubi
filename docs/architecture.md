@@ -178,8 +178,11 @@ cold lane like any other source.
   answers citing excerpts; citations open the source under the same scope.
 - **Explore**: passage search, entity lookup, and a radial "threads" graph of
   an entity's connections with its timeline.
-- Only a local model ever reads meeting text; with a cloud model configured,
-  Q&A filters passages to the cloud scope and live suggestions are off.
+- Policy (2026-10-16): the approved hosted endpoints may read any data,
+  meeting text included. The code still behaves as before: with a cloud
+  chat model configured, Q&A filters passages to the cloud scope and live
+  suggestions are off, and points and threads refuse a hosted model. A
+  config switch to allow them is still to add.
 
 ## Knowledge layer
 
@@ -433,8 +436,8 @@ The alternative to pairwise linking and clustering, chosen by the linking
 benchmark ([linking-benchmark.md](linking-benchmark.md)): grouping
 precision 0.86–0.95 against 0.73, recall 0.43–0.53 against 0.21, and 0.5–2.5%
 of live items wrongly retired against 22%. Items are threaded one at a time,
-oldest first, with a local model (`knowledge.threads.model`; it reads
-meeting text, so a hosted model is refused):
+oldest first, with `knowledge.threads.model` (local today: the code refuses
+a hosted model, although policy now allows one; see "Desktop app"):
 
 1. **Assign.** The item's statements, 70 at a time (`threads.chunk`), with
    a list of candidate threads: the 40 nearest by embedding

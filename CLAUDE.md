@@ -32,7 +32,10 @@ Keep that doc current when the design changes.
   needs a webview; `make build-gui` builds it (frontend in `frontend/`,
   React + TypeScript + Vite, embedded from `cmd/musubi-gui/frontend/dist`).
 - The app only shows data through scoped reads; the live panel's scope
-  follows the screen-safe toggle. Only a local model reads meeting text.
+  follows the screen-safe toggle. The approved hosted endpoints (Baseten,
+  Vertex) may read any data, meeting text included (owner's decision,
+  2026-10-16); the code still defaults to local models and refuses hosted
+  ones for points and threads until a config switch lifts that.
 - Config is TOML at `~/.config/musubi/config.toml`, loaded over
   `DefaultConfig()`. Data lives under `~/.local/share/musubi/`.
 - Comments explain why, not what.

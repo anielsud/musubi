@@ -226,10 +226,9 @@ per ELT-length meeting; average meetings are smaller):
 Locally, the constraint is time, not money: an ELT-length meeting takes
 about 20 minutes of model time end to end on the M5 Pro. Twenty meetings
 a week fit overnight; a backfill of thousands does not (4,000 average
-meetings ≈ several hundred hours). Backfill therefore needs either a
-company-approved hosted endpoint for meeting text, a much smaller model,
-or the lazy path; that is a product decision, since today only a local
-model may read meeting text.
+meetings ≈ several hundred hours). Backfill therefore runs hosted (allowed
+since 2026-10-16) or lazily, with local models for incremental work where
+they keep up.
 
 ## 8. Order of work
 
@@ -245,6 +244,9 @@ model may read meeting text.
 7. Partitioned backfill and forward-only rebuilds.
 8. Folding assign into extraction; small or distilled models.
 
-Decisions for the owner: whether a hosted endpoint may read meeting text
-for backfill (or for everything), and whether shared meetings may be
-processed once for all attendees.
+Decided by the owner (2026-10-16):
+- the approved hosted endpoints may read anything, meeting text included,
+  so backfill and heavy steps can run hosted;
+- shared meetings, chats and emails may be processed once for all the
+  people who were party to them. Not a priority while Musubi works on one
+  person's data.

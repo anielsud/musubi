@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/anielsud/musubi/internal/config"
@@ -22,12 +23,16 @@ import (
 type OpenAI struct {
 	URL, Model string
 	client     *http.Client
+	// Hosted endpoints (hosted.go): where the key is kept, and the default
+	// reasoning effort.
+	apiKey, effort string
+	key            string // resolved on first use
 }
 
 func NewOpenAI(c config.LLM) *OpenAI {
 	// No client timeout: calls carry their own (withRetry), and a thinking
 	// pass legitimately runs for minutes.
-	return &OpenAI{URL: strings.TrimRight(c.URL, "/"), Model: c.Model, client: &http.Client{}}
+	return &OpenAI{URL: strings.TrimRight(c.URL, "/"), Model: c.Model, client: &http.Client{}, apiKey: c.APIKey, effort: c.ReasoningEffort}
 }
 
 func (o *OpenAI) ModelName() string { return o.Model }
@@ -39,6 +44,13 @@ func (o *OpenAI) Local() bool {
 // Complete returns the reply. Streaming isn't implemented: onToken gets the
 // whole reply at once.
 func (o *OpenAI) Complete(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error) {
+	if !o.Local() {
+		out, err := o.completeHosted(ctx, msgs, opt)
+		if err == nil && onToken != nil {
+			onToken(out)
+		}
+		return out, err
+	}
 	out, err := withRetry(ctx, "openai", opt, func(ctx context.Context) (string, error) { return o.complete(ctx, msgs, opt) })
 	if err == nil && onToken != nil {
 		onToken(out)
@@ -135,9 +147,13 @@ func (o *OpenAI) post(ctx context.Context, body map[string]any, session string, 
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if key, err := o.resolveKey(); err != nil {
+		return err
+	} else if key != "" {
+		req.Header.Set("Authorization", "Bearer "+key)
+	}
 	if session != "" {
-		h := sha256.Sum256([]byte(session))
-		req.Header.Set("x-session-affinity", hex.EncodeToString(h[:16]))
+		req.Header.Set("x-session-affinity", sessionHash(session))
 	}
 	resp, err := o.client.Do(req)
 	if err != nil {
@@ -155,4 +171,15 @@ func (o *OpenAI) post(ctx context.Context, body map[string]any, session string, 
 		return fmt.Errorf("openai: %w", err)
 	}
 	return nil
+}
+
+// sessionHash is a session's opaque x-session-affinity value.
+func sessionHash(session string) string {
+	h := sha256.Sum256([]byte(session))
+	return hex.EncodeToString(h[:16])
+}
+
+func sortedStrings(xs []string) []string {
+	sort.Strings(xs)
+	return xs
 }

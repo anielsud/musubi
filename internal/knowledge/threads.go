@@ -931,6 +931,7 @@ func (t *Threader) assign(ctx context.Context, it ThreadItem, msg string) (assig
 	var out assignOut
 	opt := threadOptions(assignSchema, assignMaxTokens)
 	opt.Session = "threads " + it.ID
+	opt.Effort = "low" // hosted: assigning needs little reasoning (measured, research log 2026-10-16)
 	system := assignSystem
 	if t.AuditFixes {
 		system += assignFix

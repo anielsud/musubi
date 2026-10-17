@@ -165,7 +165,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	if o.Extractor == nil {
 		o.Extractor = o.LLM
 	}
-	if kc.Extract == "points" && !o.Extractor.Local() {
+	if kc.Extract == "points" && !o.Extractor.Local() && !kc.AllowHosted {
 		return ks, fmt.Errorf("points extraction reads meeting text, so it needs a local model (got %s)", o.Extractor.ModelName())
 	}
 	pc := kc.Points
@@ -710,8 +710,8 @@ func (r *Runner) threadLLM(o KnowledgeOptions) (provider.LLM, error) {
 	if llm == nil {
 		llm = o.LLM
 	}
-	if !llm.Local() {
-		return nil, fmt.Errorf("threads read meeting text, so they need a local model (got %s)", llm.ModelName())
+	if !llm.Local() && !r.Cfg.Knowledge.AllowHosted {
+		return nil, fmt.Errorf("threads read meeting text, so they need a local model, or knowledge.allow_hosted (got %s)", llm.ModelName())
 	}
 	return llm, nil
 }
@@ -862,8 +862,8 @@ func (r *Runner) labelStatements(ctx context.Context, o KnowledgeOptions, ks *Kn
 		if err != nil {
 			return err
 		}
-		if !llm.Local() {
-			return fmt.Errorf("the statement labeller reads meeting text, so it needs a local model (got %s)", llm.ModelName())
+		if !llm.Local() && !kc.AllowHosted {
+			return fmt.Errorf("the statement labeller reads meeting text, so it needs a local model, or knowledge.allow_hosted (got %s)", llm.ModelName())
 		}
 		d, _ = llm.(provider.Decider)
 	}

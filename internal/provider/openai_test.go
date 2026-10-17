@@ -3,8 +3,11 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/anielsud/musubi/internal/config"
@@ -67,5 +70,53 @@ func TestOpenAISessionAffinity(t *testing.T) {
 	// no header. The value is a hash, not the meeting's name.
 	if headers[0] == "" || headers[0] != headers[1] || headers[0] == headers[2] || headers[3] != "" || headers[0] == "points m:1" {
 		t.Errorf("headers %q", headers)
+	}
+}
+
+// A hosted endpoint: the key is sent, replies stream, the schema is made
+// strict, and a reply cut off at the token cap is asked again with more.
+func TestOpenAIHosted(t *testing.T) {
+	var calls int
+	var lastMax float64
+	var auth, effort string
+	var strict bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		auth = r.Header.Get("Authorization")
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		lastMax = body["max_tokens"].(float64)
+		effort, _ = body["reasoning_effort"].(string)
+		js := body["response_format"].(map[string]any)["json_schema"].(map[string]any)
+		strict = js["strict"] == true && js["schema"].(map[string]any)["additionalProperties"] == false
+		w.Header().Set("Content-Type", "text/event-stream")
+		finish := "stop"
+		if calls == 1 {
+			finish = "length"
+		}
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"ok\\\":\"}}]}\n\n")
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"true}\"},\"finish_reason\":%q}]}\n\ndata: [DONE]\n\n", finish)
+	}))
+	defer srv.Close()
+	t.Setenv("TEST_KEY", "sekret")
+	// "127.0.0.1" marks a server local; a hostname that resolves to it doesn't.
+	url := strings.Replace(srv.URL, "127.0.0.1", "localtest.me", 1)
+	if _, err := net.LookupHost("localtest.me"); err != nil {
+		t.Skip("needs localtest.me to resolve to 127.0.0.1")
+	}
+	llm, err := NewLLM(config.LLM{Provider: "openai", URL: url, Model: "m", APIKey: "env:TEST_KEY", ReasoningEffort: "medium"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if llm.Local() {
+		t.Fatal("hosted endpoint taken for local")
+	}
+	out, err := llm.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}},
+		ChatOptions{Schema: json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}}}`), MaxTokens: 100, Effort: "low"}, nil)
+	if err != nil || out != `{"ok":true}` {
+		t.Fatalf("reply %q %v", out, err)
+	}
+	if calls != 2 || lastMax != 2*hostedMinTokens || auth != "Bearer sekret" || effort != "low" || !strict {
+		t.Errorf("calls %d, max %v, auth %q, effort %q, strict %v", calls, lastMax, auth, effort, strict)
 	}
 }

@@ -87,6 +87,10 @@ type Knowledge struct {
 	// matters, private life) with a local model, and raises its label so
 	// scopes hide it where they should (knowledge.StatementSensitivity).
 	Label Label `toml:"label"`
+	// AllowHosted lets points, threads and labels use a hosted model (the
+	// owner's policy since 2026-10-16 allows the approved endpoints to read
+	// meeting text). false keeps them local.
+	AllowHosted bool `toml:"allow_hosted"`
 }
 
 // Label configures statement sensitivity labelling.
@@ -150,6 +154,13 @@ type LLM struct {
 	URL      string `toml:"url"`
 	// StartOllama lets the app start `ollama serve` if it isn't running.
 	StartOllama bool `toml:"start_ollama"`
+	// APIKey says where a hosted endpoint's key is kept: "keychain:<service>"
+	// (macOS keychain) or "env:<VARIABLE>". Empty for local servers.
+	APIKey string `toml:"api_key"`
+	// ReasoningEffort is sent to hosted reasoning models ("low", "medium",
+	// "high"); empty leaves the model's default. Calls may ask for their own
+	// (threads ask for low on assign, as measured).
+	ReasoningEffort string `toml:"reasoning_effort"`
 }
 
 // Live configures the side panel during a meeting.

@@ -74,6 +74,9 @@ type Outdated struct {
 	Extract int  // items extracted under an earlier version
 	Links   bool // claims built under earlier linking rules
 	Threads int  // items threaded under earlier rules
+	// Backfilled: items threaded after newer ones (older meetings added
+	// later); --redo threads puts everything in time order.
+	Backfilled int
 }
 
 // Planned is what a run would do (KnowledgeOptions.Plan).
@@ -788,6 +791,10 @@ func (r *Runner) planLinksAndThreads(o KnowledgeOptions, requeued map[string]boo
 	return nil
 }
 
+// threadShowEvery: in a long threading run, the views are brought up to
+// date after this many items.
+const threadShowEvery = 10
+
 func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp string, claimsRebuilt bool, ks *KnowledgeStats) error {
 	kc := r.Cfg.Knowledge
 	llm, err := r.threadLLM(o)
@@ -818,6 +825,21 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 	}
 	todo := p.todo
 	knowledge.ThreadOrder(todo)
+	// Threading follows time: an item is matched against threads as they
+	// stood when it happened. Items older than ones already threaded (a
+	// backfill) are threaded after them all the same, so say so.
+	if !p.rebuild && len(todo) > 0 {
+		if latest, err := r.Store.LatestThreaded(); err == nil && todo[0].Start.Before(latest) {
+			older := 0
+			for _, it := range todo {
+				if it.Start.Before(latest) {
+					older++
+				}
+			}
+			ks.Outdated.Backfilled = older
+			r.logf("threads: %d new items are older than ones already threaded (latest %s); they are threaded after them. To thread everything in time order: musubi knowledge --redo threads", older, latest.Format("2006-01-02"))
+		}
+	}
 	var vecs map[int64][]float32
 	if o.Embedder != nil {
 		if vecs, err = r.Store.StatementVecs(o.Embedder.Model()); err != nil {
@@ -826,7 +848,7 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 	}
 	th := &knowledge.Threader{Store: r.Store, LLM: llm, Vecs: vecs, Chunk: kc.Threads.Chunk, Parallel: kc.Threads.Parallel,
 		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, WarmFirst: kc.WarmCache, AuditFixes: kc.Threads.AuditFixes, Logf: r.logf}
-	for _, it := range todo {
+	for i, it := range todo {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -847,6 +869,17 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 		ks.Threads.Calls += st.Calls
 		if err := r.Store.MarkThreaded(it.ID, stamp); err != nil {
 			return err
+		}
+		// A long run shows its threads as it goes: the topic views read a
+		// claim's thread and the threads' centroids, set here every few
+		// items as well as at the end.
+		if n := len(todo); n > threadShowEvery && (i+1)%threadShowEvery == 0 && i+1 < n {
+			if err := r.Store.PlaceClaimsInThreads(); err != nil {
+				return err
+			}
+			if _, err := r.LinkThreads(); err != nil {
+				return err
+			}
 		}
 	}
 	if err := r.Store.PlaceClaimsInThreads(); err != nil {

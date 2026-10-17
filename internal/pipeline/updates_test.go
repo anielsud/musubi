@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/provider"
@@ -269,5 +270,21 @@ func TestThreadStatuses(t *testing.T) {
 	st.SetThreadCurrent(tid, ids)
 	if r.writeStatuses(context.Background(), o, &ks); ks.Statuses != 0 {
 		t.Errorf("disabled, wrote %d", ks.Statuses)
+	}
+}
+
+// Items older than threaded ones are counted as backfilled.
+func TestLatestThreaded(t *testing.T) {
+	_, st := build(t)
+	if at, err := st.LatestThreaded(); err != nil || !at.IsZero() {
+		t.Fatalf("empty store: %v %v", at, err)
+	}
+	items, _ := st.AllItems()
+	if len(items) == 0 {
+		t.Skip("fixture has no items")
+	}
+	st.MarkThreaded(items[len(items)-1].ID, "s")
+	if at, _ := st.LatestThreaded(); !at.Equal(items[len(items)-1].OccurredAt.Truncate(time.Second)) {
+		t.Errorf("latest %v, want %v", at, items[len(items)-1].OccurredAt)
 	}
 }

@@ -857,6 +857,9 @@ func printOutdated(o pipeline.Outdated, mode string) {
 	if o.Threads > 0 {
 		fmt.Fprintf(os.Stderr, "older version: %d items were threaded under earlier rules (musubi knowledge --redo threads)\n", o.Threads)
 	}
+	if o.Backfilled > 0 {
+		fmt.Fprintf(os.Stderr, "out of order: %d items older than ones already threaded were threaded after them (musubi knowledge --redo threads)\n", o.Backfilled)
+	}
 }
 
 func gateCmd() *cobra.Command {

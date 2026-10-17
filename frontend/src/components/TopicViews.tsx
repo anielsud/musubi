@@ -373,7 +373,7 @@ function Timeline({ map, lit, selected, onOpen, width, wide }: ViewProps) {
       <g key={'g' + g.c.id} className={'tl-grow' + (folding ? ' foldable' : '')} onClick={() => folding && toggle(g.c.id)}>
         <rect x={0} y={yy} width={svgW} height={groupH} className="tl-hit" />
         <rect x={0} y={yy + 4} width={4} height={groupH - 8} fill={clusterColor(g.c.id)} rx={2} />
-        <text x={10} y={yy + 14} className="tl-group">{folding ? (opened ? '▾ ' : '▸ ') : ''}{short(g.c.label, wide ? 60 : 30)} · {g.rows.length}</text>
+        <text x={10} y={yy + 14} className="tl-group">{folding ? (opened ? '▾ ' : '▸ ') : ''}{short(g.c.label, wide ? 60 : 20)} · {g.rows.length}</text>
         {[...sum.entries()].map(([i, n]) => <circle key={i} cx={cx(i)} cy={yy + groupH / 2} r={2 + 5.5 * Math.sqrt(n / maxSum)} fill={clusterColor(g.c.id)} fillOpacity={0.8}><title>{n} statements</title></circle>)}
       </g>,
     );

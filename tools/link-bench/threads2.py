@@ -109,6 +109,11 @@ CONSOLIDATE_MAX = int(os.environ.get("CONSOLIDATE_MAX", "80"))
 # framings and standing facts: R4, research log 2026-10-17); lapse covers
 # dated commitments and questions.
 CONS_PAST = os.environ.get("CONS_PAST", "1") == "1"
+# CONS_RULE=1: consolidation's replacements pass the same rules as
+# reconcile's (rule()); R5 retired live items through in-meeting
+# walk-throughs taken for replacement.
+CONS_RULE = os.environ.get("CONS_RULE") == "1"
+SAME_LATER = os.environ.get("SAME_LATER") == "1"
 CONS_SYS = """You keep one thread of a leadership team's notes up to date, so that someone asking about the subject sees only where things stand now. You get the thread's current items, oldest first, each with its meeting date, and today's date.
 
 List the items that are no longer the current word on this subject:
@@ -542,7 +547,11 @@ def main():
                     continue
                 rel = e.get("relation")
                 if rel == "same":
-                    cur = [i for i in cur if i != a]
+                    # SAME_LATER: keep the newer wording (it may add detail,
+                    # and it dates the subject); dropping it was most of
+                    # t4's audited wrong retirements (research log 2026-10-17).
+                    gone = b if SAME_LATER else a
+                    cur = [i for i in cur if i != gone]
                     continue
                 rel = rule(rel, by[b], by[a])
                 if rel is None:
@@ -584,6 +593,12 @@ def main():
                             if midx[by[b]["meeting"]] < midx[by[i]["meeting"]] or (by[b]["meeting"] == by[i]["meeting"] and b < i):
                                 continue  # only a later item replaces an earlier one
                             rel = {"superseded": "supersedes", "completed": "completes", "answered": "answers"}.get(o.get("why"))
+                            if rel and CONS_RULE:
+                                # The same rules as reconcile: no in-meeting
+                                # walk-through "supersedes", completes only plans.
+                                rel = rule(rel, by[i], by[b])
+                                if rel not in RETIRE:
+                                    continue
                             if rel:
                                 relations.append({"later": b, "earlier": i, "rel": rel})
                         elif o.get("why") != "past" or not CONS_PAST:

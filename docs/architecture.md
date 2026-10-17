@@ -222,10 +222,13 @@ cold lane like any other source.
     entity's connections with its timeline.
   - **Compare**: this dataset's topics against another's.
 - Policy (2026-10-16): the approved hosted endpoints may read any data,
-  meeting text included. The code still behaves as before: with a cloud
-  chat model configured, Q&A filters passages to the cloud scope and live
-  suggestions are off, and points and threads refuse a hosted model. A
-  config switch to allow them is still to add.
+  meeting text included. With a cloud chat model configured, Q&A still
+  filters passages to the cloud scope and live suggestions are off. Points,
+  threads and statement labels use a hosted model only with
+  `knowledge.allow_hosted`. The OpenAI-compatible provider then sends the
+  key named by `llm.api_key` (`keychain:<service>` or `env:<VAR>`), streams
+  replies (a hung reply is cut off and retried), allows room for reasoning,
+  and sends strict schemas and `llm.reasoning_effort`.
 
 ## Knowledge layer
 
@@ -537,6 +540,34 @@ provider routes them to one replica and serves the shared start from its
 cache; with `knowledge.warm_cache` the first segment and the first
 reconcile go alone, so the others find it cached.
 
+**t4 (`knowledge.threads.audit_fixes`, default on).** The backfill audits
+(research log, 2026-10-16) found subjects fragmenting as history grew and
+86% of items still current months after they were settled. The changes,
+measured on the ELT year (research log, 2026-10-17):
+- **Assign** prefers continuing a subject over starting one: a new figure,
+  an outcome or a new angle continues it, and a person or a meeting is
+  not a subject. Each candidate shows its size, dates and two latest
+  items.
+- **Merge:** threads born in an item are offered, with their most similar
+  older threads (centroid ≥ 0.75), to one call that merges those on the
+  same subject.
+- **Reconcile** sees the thread's current items nearest the new ones plus
+  the five latest (not just the latest 25), and related current items of
+  other threads (similarity ≥ 0.80, at most 10), which it may retire. Its
+  prompt says what replaces what: a later figure for the same quantity and
+  period, an outcome settling a plan, months later. Added detail isn't
+  replacement, and an item is never retired by an older one. "Completes"
+  also takes positions and proposals.
+- **Consolidate:** each touched thread with more than 8 current items has
+  its list (up to 80) reviewed once. Items a later item in it replaced,
+  completed or answered stop being current, with the relation recorded. A
+  replacing item is required: "no longer current" without one retired
+  valid positions.
+- **Lapse:** open commitments and questions untouched for 60 days stop
+  being current.
+- Threads named in an assign reply but given no statements are removed
+  (all versions).
+
 Model settings: Qwen's non-thinking sampling (temperature 0.7, top-p 0.8,
 top-k 20) and token caps of 6k (assign) and 3k (reconcile). At temperature
 0 the local 27B looped to 16k tokens on long JSON replies. On the M5 Pro
@@ -692,6 +723,15 @@ stay cheap.
 
 - A statement is visible exactly when its passage is and its own label
   allows (a point's: personal, or a more sensitive passage it rests on).
+- **Statement labels** (`knowledge.label`, on by default; `LabelVersion`):
+  a local model reads each statement once, with one forward pass over six
+  choices. It labels what passage rules miss: a named person's
+  performance, exit or replacement, anything about a job candidate, pay,
+  health, legal matters and private life. The label is raised, never
+  lowered (HR, Compensation, Health, Legal or Personal, at that category's
+  level). On items the backfill audits flagged, the 27B on llama-server
+  found 69% at `min_p` 0.3, and most of what it flagged beyond them was
+  sensitive too; the 8B found fewer and misfired more.
 - A claim is visible when any of its statements is, and it shows the text of
   a visible one.
 - **Belief is computed only from visible statements**, so a confidence or

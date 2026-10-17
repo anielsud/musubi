@@ -504,6 +504,13 @@ func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64
 			if !ok1 || !ok2 || early.SaidAt.After(late.SaidAt) || (early.SaidAt.Equal(late.SaidAt) && o.By < o.ID) {
 				continue // only a later item replaces an earlier one
 			}
+			// The same rules as reconcile's: no in-meeting walk-through taken
+			// for replacement, and only plans are completed.
+			_, sameA := byID[o.ID]
+			_, sameB := byID[o.By]
+			if rel = threadRuleV4(rel, early.Kind, early.Status, sameA && sameB, late.Text); rel != "supersedes" && rel != "completes" && rel != "answers" {
+				continue
+			}
 			if err := t.Store.RelateStatements(o.By, o.ID, rel); err != nil {
 				return err
 			}
@@ -750,7 +757,14 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 			}
 			seen[[2]int64{e.Later, e.Earlier}] = true
 			if e.Relation == "same" {
-				retired[e.Later] = true // the earlier wording stays
+				if t.AuditFixes {
+					// The newer wording stays: it may add detail, and it dates
+					// the subject. Dropping it was most of the audited wrong
+					// retirements of t4's first run.
+					retired[e.Earlier] = true
+				} else {
+					retired[e.Later] = true // the earlier wording stays
+				}
 				continue
 			}
 			ek, es, eat := known[e.Earlier].Kind, known[e.Earlier].Status, known[e.Earlier].SaidAt

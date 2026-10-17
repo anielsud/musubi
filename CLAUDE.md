@@ -37,8 +37,9 @@ Keep that doc current when the design changes.
 - The app only shows data through scoped reads; the live panel's scope
   follows the screen-safe toggle. The approved hosted endpoints (Baseten,
   Vertex) may read any data, meeting text included (owner's decision,
-  2026-10-16); the code still defaults to local models and refuses hosted
-  ones for points and threads until a config switch lifts that.
+  2026-10-16); the code still defaults to local models, and points,
+  threads and statement labels use a hosted one only with
+  `knowledge.allow_hosted`.
 - Config is TOML at `~/.config/musubi/config.toml`, loaded over
   `DefaultConfig()`. Data lives under `~/.local/share/musubi/`.
 - Comments explain why, not what.

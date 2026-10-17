@@ -1681,3 +1681,99 @@ item joined one 24% of the time (55% on the 4 meetings).
 duplicates), joining a specifically named subject across rooms (a
 programme, a resignation, a search across 9–27 meetings), and speaker
 attribution in leadership meetings.
+
+## 2026-10-17: Fixing the memory: threads t4, statement labels
+
+Scored on the ELT-year audit findings: whether the audited missed updates
+and stale items are now retired, and whether the audited wrong retirements
+are now current. Statement ids don't change when a dataset is rethreaded
+(`tools/link-bench/memory_eval.py`), and the benchmark reference guards
+against retiring everything. All runs: hosted GLM-5.3-Flash, `threads2.py`
+with switches, one run each (runs vary by 5–10 points).
+
+| Run | Threads | Current | Missed fixed | Stale fixed | Wrong fixed | Live items wrongly retired | Retiring updates retired | Grouping P/R | $ |
+|---|---|---|---|---|---|---|---|---|---|
+| Baseline (t3 lean) | 353 | 86% | 0/71 | 0/108 | 1/45 | 1.0% | 30% | 0.92/0.36 | 0.56 |
+| R1 reconcile fixes | 352 | 86% | 15 | 16 | 25 | 1.0% | 30% | 0.93/0.44 | 0.57 |
+| R2 + cross-thread | 342 | 85% | 18 | 21 | 29 | 1.0% | 28% | 0.91/0.39 | 0.72 |
+| R3 + assign wording + merge | 292 | 84% | 19 | 16 | 26 | 0.5% | 31% | 0.93/0.54 | 0.78 |
+| R3 with a 60-day lapse (applied after) | 292 | 78% | 25 | 31 | 26 | 0.5% | 31% | 0.93/0.54 | – |
+| R4 + consolidation + lapse | 258 | **68%** | **44** | **68** | 22 | 2.0% | 33% | 0.90/0.52 | 0.81 |
+| R5 = R4, retirement needs a replacing item | 284 | 69% | 43 | 61 | 20 | 3.0% | 26% | 0.90/0.54 | 1.15 |
+
+What each part does:
+- **Reconcile fixes:**
+  - the history reconcile sees is the current items nearest the new ones
+    plus the latest five, not the latest 25;
+  - its prompt says what replaces what;
+  - an item can't be retired by an older one;
+  - "completes" also takes positions and proposals.
+
+  These fix most wrong retirements (25 of 45), but they barely move the
+  share of items current: reconcile only judges what the new items do.
+- **Cross-thread context** (related current items of other threads, which
+  reconcile may retire): a few more fixes.
+- **Assign wording and merge:**
+  - assign prefers continuing a subject; a person or a meeting is not a
+    subject;
+  - candidates show size, dates and latest items;
+  - a cheap call merges same-subject threads born in an item.
+
+  Together they fix fragmentation: grouping recall goes from 0.36 back to
+  0.54 (the 4-meeting level) at the same precision, and 353 threads become
+  292.
+- **Consolidation** (each touched thread's current list reviewed once) does
+  most of the work on staleness: 62% of audited missed updates and 63% of
+  stale items fixed. It costs about 1 point of live items wrongly retired.
+  - Retiring "past" items without a replacing item retired valid positions
+    and framings, so a replacing item is now required.
+  - The extra false retirements came from replacements inside one
+    meeting's walk-through, which reconcile's rules forbid; R6 applies the
+    same rules.
+- **Lapse** (open commitments and questions untouched for 60 days) is
+  free. On its own it fixes 31 of 108 stale items with no false
+  retirements.
+
+**Statement labels** (local 27B, one forward pass per statement, 1 h 50 m
+for 12,328 statements):
+- 18% of September's statements carry a sensitivity label;
+- 73% of the items the auditors flagged sensitive are labelled (248 of
+  338);
+- 88% of those that sat beside business items from other meetings are
+  labelled (60 of 68).
+
+**R6** (R5 with reconcile's relation rules applied to consolidation): 287
+threads, 71% current, missed 40/71, stale 60/108, wrong 22/45, live items
+wrongly retired 2.0%, retiring updates retired 32%, grouping 0.93/0.51,
+$0.98. Within noise of R4; kept as the configuration, since every
+retirement then names the later item and passes the same rules.
+
+**Re-audit of R6** (same rubric, 46 threads including the same 12
+fragmented subjects):
+
+| | t3 (first audit) | t4 (R6) |
+|---|---|---|
+| Items current | 86% | 73% |
+| Missed updates | 59 | 37 |
+| Stale current | 84 | 65 |
+| Fragmented subjects: mixed / sensible / one thread | 11 / 1 / 0 | 6 / 4 / 2 |
+| Wrong retirements | 40 | **78** |
+| Misplaced items | 70 | 91 |
+| Card quality | 3.1 | 3.1 |
+
+Of the 78 wrong retirements:
+- 54 came from one rule: when reconcile calls a new item the "same" as an
+  earlier one, the code dropped the new item (no relation recorded), so
+  the newest statement vanished;
+- 13 are lapsed commitments and questions;
+- 6 were retired by an item in another thread.
+
+Fix: keep the newer wording and retire the earlier one (`SAME_LATER`; in
+Go, with `audit_fixes`). R7 measures it.
+
+Still open, from the re-audit:
+- year-long catch-all threads (a pipeline, a retention, a strategy
+  thread) keep absorbing items;
+- updates still don't cross between split halves of a subject;
+- near-duplicates pad the cards;
+- debate threads keep every position current.

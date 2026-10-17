@@ -55,6 +55,26 @@ const mergeSystem = `You keep a leadership team's notes organised in threads, on
 
 var mergeSchema = json.RawMessage(`{"type":"object","required":["merges"],"properties":{"merges":{"type":"array","items":{"type":"object","required":["new","into"],"properties":{"new":{"type":"string"},"into":{"type":"string"}}}}}}`)
 
+const consolidateSystem = `You keep one thread of a leadership team's notes up to date, so that someone asking about the subject sees only where things stand now. You get the thread's current items, oldest first, each with its meeting date, and today's date.
+
+List the items that are no longer the current word on this subject, each with the later item in the list that makes it so:
+- superseded: a later item gives a newer version of the same figure, target, date, plan, decision, status or position
+- completed: a later item says the commitment or plan was done, or the event happened
+- answered: a later item answers the question
+Keep everything still true or still open: rules, standing facts, decisions still in force, open questions nobody answered, commitments not yet due. When unsure, keep the item.`
+
+var consolidateSchema = json.RawMessage(`{"type":"object","required":["outdated"],"properties":{"outdated":{"type":"array","items":{"type":"object","required":["id","by","why"],"properties":{"id":{"type":"integer"},"by":{"type":"integer"},"why":{"type":"string","enum":["superseded","completed","answered"]}}}}}}`)
+
+// Consolidation and lapse (AuditFixes): a touched thread with more than
+// consolidateMin current items has up to consolidateMax of them reviewed;
+// open commitments and questions untouched for lapseAfter stop being
+// current. Measured on the ELT year (research log 2026-10-17).
+const (
+	consolidateMin = 8
+	consolidateMax = 80
+	lapseAfter     = 60 * 24 * time.Hour
+)
+
 // mergeSim: a new thread is offered for merging into older threads at least
 // this similar (centroids).
 const mergeSim = 0.75
@@ -387,7 +407,148 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 		}
 	}
 	stats.Touched = len(order)
-	return stats, t.reconcileAll(ctx, it, order, threads, known, byID, &stats)
+	if err := t.reconcileAll(ctx, it, order, threads, known, byID, &stats); err != nil {
+		return stats, err
+	}
+	if !t.AuditFixes {
+		return stats, nil
+	}
+	if err := t.consolidate(ctx, it, order, threads, known, byID, &stats); err != nil {
+		return stats, err
+	}
+	return stats, t.lapse(it, threads, known)
+}
+
+// statementAt returns a statement's kind, time and text, from this item or
+// from earlier ones.
+func statementAt(id int64, known map[int64]store.Statement, byID map[int64]store.ItemStatement) (store.ItemStatement, bool) {
+	if s, ok := byID[id]; ok {
+		return s, true
+	}
+	if s, ok := known[id]; ok {
+		return fromStatement(s), true
+	}
+	return store.ItemStatement{}, false
+}
+
+// consolidate reviews each touched thread's whole current list once: which
+// items a later item in it has replaced, completed or answered. Reconcile
+// only judges what the new items do; the audits found 86% of items still
+// current months after they were settled.
+func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64, threads map[int64]*threadState, known map[int64]store.Statement, byID map[int64]store.ItemStatement, stats *ThreadStats) error {
+	type result struct {
+		tid int64
+		cur []int64
+		out struct {
+			Outdated []struct {
+				ID, By int64
+				Why    string
+			} `json:"outdated"`
+		}
+		err error
+	}
+	var todo []int64
+	for _, tid := range order {
+		if th := threads[tid]; th != nil && len(th.previous) > consolidateMin {
+			todo = append(todo, tid)
+		}
+	}
+	results := make([]result, len(todo))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, max(t.Parallel, 1))
+	for i, tid := range todo {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			th := threads[tid]
+			cur := th.previous[max(0, len(th.previous)-consolidateMax):]
+			var lines []string
+			for _, id := range cur {
+				if s, ok := statementAt(id, known, byID); ok {
+					lines = append(lines, itemLine(s, time.Time{}))
+				}
+			}
+			msg := fmt.Sprintf("Thread: %s — %s\nToday: %s\n\nCurrent items (oldest first):\n%s\n\nList the items that are no longer the current word.",
+				th.row.Name, th.row.Scope, it.Start.Format("2006-01-02"), strings.Join(lines, "\n"))
+			opt := threadOptions(consolidateSchema, reconcileMaxTokens)
+			opt.Session = "threads " + it.ID
+			raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: consolidateSystem}, {Role: "user", Content: msg}}, opt, nil)
+			results[i] = result{tid: tid, cur: cur, err: err}
+			if err == nil {
+				json.Unmarshal([]byte(jsonPart(raw)), &results[i].out)
+			}
+		}()
+	}
+	wg.Wait()
+	rels := map[string]string{"superseded": "supersedes", "completed": "completes", "answered": "answers"}
+	for _, r := range results {
+		stats.Calls++
+		if r.err != nil {
+			t.logf("threads %s: consolidate T%d: %v", it.ID, r.tid, r.err)
+			continue // the thread just isn't consolidated this time
+		}
+		in := map[int64]bool{}
+		for _, id := range r.cur {
+			in[id] = true
+		}
+		gone := map[int64]bool{}
+		for _, o := range r.out.Outdated {
+			rel := rels[o.Why]
+			if rel == "" || !in[o.ID] || !in[o.By] || o.ID == o.By {
+				continue
+			}
+			early, ok1 := statementAt(o.ID, known, byID)
+			late, ok2 := statementAt(o.By, known, byID)
+			if !ok1 || !ok2 || early.SaidAt.After(late.SaidAt) || (early.SaidAt.Equal(late.SaidAt) && o.By < o.ID) {
+				continue // only a later item replaces an earlier one
+			}
+			if err := t.Store.RelateStatements(o.By, o.ID, rel); err != nil {
+				return err
+			}
+			stats.Relations++
+			gone[o.ID] = true
+		}
+		if len(gone) == 0 {
+			continue
+		}
+		th := threads[r.tid]
+		var now []int64
+		for _, id := range th.previous {
+			if !gone[id] {
+				now = append(now, id)
+			}
+		}
+		if err := t.Store.SetThreadCurrent(r.tid, now); err != nil {
+			return err
+		}
+		th.previous = now
+	}
+	return nil
+}
+
+// lapse drops open commitments and questions said more than lapseAfter
+// before this item from every thread's current list: dated plans otherwise
+// stay current for ever (the backfill audits).
+func (t *Threader) lapse(it ThreadItem, threads map[int64]*threadState, known map[int64]store.Statement) error {
+	for tid, th := range threads {
+		var now []int64
+		for _, id := range th.previous {
+			s, ok := known[id]
+			if ok && (s.Kind == "commitment" || s.Kind == "question") && it.Start.Sub(s.SaidAt) > lapseAfter {
+				continue
+			}
+			now = append(now, id)
+		}
+		if len(now) != len(th.previous) {
+			if err := t.Store.SetThreadCurrent(tid, now); err != nil {
+				return err
+			}
+			th.previous = now
+		}
+	}
+	return nil
 }
 
 // registry lists the threads an assign call chooses from: the nearest to

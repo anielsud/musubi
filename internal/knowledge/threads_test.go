@@ -214,7 +214,10 @@ func TestAuditFixSelection(t *testing.T) {
 // fragmentingThreads starts a fresh thread for the programme in every
 // meeting (the fragmentation the backfill audits found) and, asked to merge,
 // merges each new thread into the first similar older one.
-type fragmentingThreads struct{ n int }
+type fragmentingThreads struct {
+	n            int
+	consolidated bool
+}
 
 func (f *fragmentingThreads) Local() bool       { return true }
 func (f *fragmentingThreads) ModelName() string { return "fragmenting" }
@@ -240,8 +243,53 @@ func (f *fragmentingThreads) Complete(_ context.Context, msgs []provider.Message
 			return `{"merges":[]}`, nil
 		}
 		return fmt.Sprintf(`{"merges":[{"new":%q,"into":%q}]}`, born[1], older[1]), nil
+	case msgs[0].Content == consolidateSystem:
+		// The first listed item is replaced by the last.
+		ids := regexp.MustCompile(`(?m)^\[(\d+)\]`).FindAllStringSubmatch(user, -1)
+		if len(ids) < 2 {
+			return `{"outdated":[]}`, nil
+		}
+		f.consolidated = true
+		return fmt.Sprintf(`{"outdated":[{"id":%s,"by":%s,"why":"superseded"}]}`, ids[0][1], ids[len(ids)-1][1]), nil
 	default:
 		return `{"effects":[]}`, nil
+	}
+}
+
+func TestThreaderConsolidatesAndLapses(t *testing.T) {
+	f := newCardFixture(t)
+	if err := f.st.ClearThreads(); err != nil {
+		t.Fatal(err)
+	}
+	sts, _ := f.st.AllStatements()
+	vecs := map[int64][]float32{}
+	for _, s := range sts {
+		vecs[s.ID] = []float32{1, 0, 0}
+	}
+	llm := &fragmentingThreads{}
+	th := &Threader{Store: f.st, LLM: llm, Vecs: vecs, AuditFixes: true}
+	if _, err := th.Thread(context.Background(), ThreadItem{ID: "m:1", Start: time.Date(2026, 9, 16, 15, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	// Three months on: the first meeting's open question and commitment
+	// lapse; consolidation retires the oldest item by the newest.
+	if _, err := th.Thread(context.Background(), ThreadItem{ID: "m:2", Start: time.Date(2026, 12, 30, 15, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	if !llm.consolidated {
+		t.Fatal("no consolidation call")
+	}
+	rows, _ := f.st.Threads()
+	cur := map[int64]bool{}
+	for _, r := range rows {
+		for _, id := range r.Current {
+			cur[id] = true
+		}
+	}
+	for _, s := range sts {
+		if s.ItemID == "m:1" && (s.Kind == "question" || s.Kind == "commitment") && cur[s.ID] {
+			t.Errorf("%s from three months earlier still current: %q", s.Kind, s.Text)
+		}
 	}
 }
 

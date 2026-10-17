@@ -104,6 +104,11 @@ LAPSE_KINDS = ("commitment", "question")
 CONSOLIDATE = os.environ.get("CONSOLIDATE") == "1"
 CONSOLIDATE_MIN = int(os.environ.get("CONSOLIDATE_MIN", "8"))
 CONSOLIDATE_MAX = int(os.environ.get("CONSOLIDATE_MAX", "80"))
+# CONS_PAST=0: consolidation may only retire an item that a later item in
+# the list replaces ("past" without a replacement retired positions,
+# framings and standing facts: R4, research log 2026-10-17); lapse covers
+# dated commitments and questions.
+CONS_PAST = os.environ.get("CONS_PAST", "1") == "1"
 CONS_SYS = """You keep one thread of a leadership team's notes up to date, so that someone asking about the subject sees only where things stand now. You get the thread's current items, oldest first, each with its meeting date, and today's date.
 
 List the items that are no longer the current word on this subject:
@@ -581,7 +586,7 @@ def main():
                             rel = {"superseded": "supersedes", "completed": "completes", "answered": "answers"}.get(o.get("why"))
                             if rel:
                                 relations.append({"later": b, "earlier": i, "rel": rel})
-                        elif o.get("why") != "past":
+                        elif o.get("why") != "past" or not CONS_PAST:
                             continue  # a replacement needs the item that replaces it
                         gone.add(i)
                     threads[code]["current"] = [i for i in threads[code]["current"] if i not in gone]

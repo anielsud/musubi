@@ -565,6 +565,9 @@ measured on the ELT year (research log, 2026-10-17):
   valid positions.
 - **Lapse:** open commitments and questions untouched for 60 days stop
   being current.
+- **Repeats:** when reconcile calls a new item the same as an earlier one,
+  the newer wording stays current (t3 kept the older one, which dropped
+  the newest statement of a subject).
 - Threads named in an assign reply but given no statements are removed
   (all versions).
 

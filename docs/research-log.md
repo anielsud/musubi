@@ -1777,3 +1777,37 @@ Still open, from the re-audit:
 - updates still don't cross between split halves of a subject;
 - near-duplicates pad the cards;
 - debate threads keep every position current.
+
+**R7** (R6 with the newer duplicate kept): 275 threads, 73% current,
+missed 51/71, stale 69/108, wrong 35/45, live items wrongly retired 1.0%,
+retiring updates retired 33%, grouping 0.91/0.50, $1.14. On the re-audit's
+own findings for R6, it makes 50 of its 83 wrong retirements current again,
+retires 19 of its 43 missed updates, and retires 23 of its 87 stale items.
+This is the configuration; the Go t4 threader matches it.
+
+**Final audit of R7** (same rubric, explaining the new retirement kinds:
+a later repeat shown instead, a 60-day lapse, a retirement by another
+thread's item; 41 threads):
+
+| Per 100 audited items | t3 | t4 R6 | t4 R7 |
+|---|---|---|---|
+| Missed updates | 3.3 | 1.7 | **0.5** |
+| Stale current | 4.6 | 2.9 | **1.3** |
+| Wrong retirements | 2.2 | 3.5 | **0.5** |
+| Misplaced | 3.9 | 4.1 | 4.5 |
+
+| | t3 | t4 R6 | t4 R7 |
+|---|---|---|---|
+| Card quality | 3.1 (eleven 2s, fifteen 4s) | 3.1 | **3.3** (six 2s, nineteen 4s) |
+| Fragmented subjects: mixed / sensible / one thread | 11 / 1 / 0 | 6 / 4 / 2 | 7 / 2 / 3 |
+
+Left for the next round, all grouping:
+- **catch-all threads:** a year of pipeline in one 354-item thread, an HR
+  catch-all, a "strategy" thread;
+- **single-meeting fragments** that should have joined their parent;
+- **cross-month updates in different words** (a later rule set that doesn't
+  retire the old amounts);
+- **the same item current in one thread and retired in another.**
+
+The next lever is a split pass for threads over a size or span bound; the
+merge pass only looks at threads born in the item.

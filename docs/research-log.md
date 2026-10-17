@@ -1984,8 +1984,8 @@ time is fine; eight at once timed out at the earlier 2-minute limit, now
 5 minutes.
 
 **Sharing suggestions** (prep).
-- The first version suggested an item from the reduction plan to
-  sharing with VPs: the labeller hadn't marked that line.
+- The first version suggested sharing an item from the reduction plan
+  with VPs: the labeller hadn't marked that line.
 - The fix leaves out any thread where 15% or more of the items are
   labelled. On September:
   - people subjects (the reduction plan, a resignation, the SRE

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -95,16 +96,19 @@ func TestOpenAIHosted(t *testing.T) {
 			finish = "length"
 		}
 		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"{\\\"ok\\\":\"}}]}\n\n")
-		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"true}\"},\"finish_reason\":%q}]}\n\ndata: [DONE]\n\n", finish)
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"true}\"},\"finish_reason\":%q}]}\n\n", finish)
+		fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1000000,\"completion_tokens\":2000000}}\n\ndata: [DONE]\n\n")
 	}))
 	defer srv.Close()
 	t.Setenv("TEST_KEY", "sekret")
+	ledger := filepath.Join(t.TempDir(), "spend.jsonl")
+	t.Setenv("MUSUBI_SPEND_LEDGER", ledger)
 	// "127.0.0.1" marks a server local; a hostname that resolves to it doesn't.
 	url := strings.Replace(srv.URL, "127.0.0.1", "localtest.me", 1)
 	if _, err := net.LookupHost("localtest.me"); err != nil {
 		t.Skip("needs localtest.me to resolve to 127.0.0.1")
 	}
-	llm, err := NewLLM(config.LLM{Provider: "openai", URL: url, Model: "m", APIKey: "env:TEST_KEY", ReasoningEffort: "medium"})
+	llm, err := NewLLM(config.LLM{Provider: "openai", URL: url, Model: "m", APIKey: "env:TEST_KEY", ReasoningEffort: "medium", PriceIn: 0.15, PriceOut: 0.5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,5 +122,13 @@ func TestOpenAIHosted(t *testing.T) {
 	}
 	if calls != 2 || lastMax != 2*hostedMinTokens || auth != "Bearer sekret" || effort != "low" || !strict {
 		t.Errorf("calls %d, max %v, auth %q, effort %q, strict %v", calls, lastMax, auth, effort, strict)
+	}
+	// Both calls metered: 2 × (1M in × $0.15 + 2M out × $0.50).
+	if got := ledgerTotal(ledger); got < 2.29 || got > 2.31 {
+		t.Errorf("ledger total %v, want 2.30", got)
+	}
+	t.Setenv("MUSUBI_SPEND_CAP", "2")
+	if _, err := llm.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}}, ChatOptions{}, nil); err == nil || !strings.Contains(err.Error(), "spend cap") {
+		t.Errorf("past the cap: %v", err)
 	}
 }

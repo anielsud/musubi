@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -73,7 +74,82 @@ func (o *OpenAI) completeHosted(ctx context.Context, msgs []Message, opt ChatOpt
 	return "", fmt.Errorf("openai: %d tries: %w", hostedTries, lastErr)
 }
 
+// Spend metering for hosted calls: with MUSUBI_SPEND_LEDGER set, every call
+// appends a row (tag, model, tokens, dollars) to that JSONL file, the
+// ledger the hosted prototypes keep (tools/insights-eval/bt.py), and with
+// MUSUBI_SPEND_CAP set, a call is refused once the ledger's total reaches
+// it.
+var ledgerMu sync.Mutex
+
+func ledgerTotal(path string) float64 {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	var total float64
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		var r struct {
+			USD float64 `json:"usd"`
+		}
+		if json.Unmarshal(sc.Bytes(), &r) == nil {
+			total += r.USD
+		}
+	}
+	return total
+}
+
+func (o *OpenAI) checkSpend() error {
+	path, capS := os.Getenv("MUSUBI_SPEND_LEDGER"), os.Getenv("MUSUBI_SPEND_CAP")
+	if path == "" || capS == "" {
+		return nil
+	}
+	var limit float64
+	fmt.Sscan(capS, &limit)
+	ledgerMu.Lock()
+	defer ledgerMu.Unlock()
+	if t := ledgerTotal(path); t >= limit {
+		return fmt.Errorf("openai: spend cap $%.2f reached ($%.2f in the ledger)", limit, t)
+	}
+	return nil
+}
+
+type usage struct {
+	Prompt     int `json:"prompt_tokens"`
+	Completion int `json:"completion_tokens"`
+	Details    struct {
+		Reasoning int `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
+	PromptDetails struct {
+		Cached int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+}
+
+func (o *OpenAI) record(u usage, finish string, took time.Duration) {
+	path := os.Getenv("MUSUBI_SPEND_LEDGER")
+	if path == "" {
+		return
+	}
+	usd := (float64(u.Prompt)*o.priceIn + float64(u.Completion)*o.priceOut) / 1e6
+	row, _ := json.Marshal(map[string]any{"tag": cmpOr(os.Getenv("MUSUBI_SPEND_TAG"), "musubi") + "-go", "model": o.Model,
+		"in": u.Prompt, "cached": u.PromptDetails.Cached, "out": u.Completion, "reasoning": u.Details.Reasoning,
+		"usd": usd, "s": took.Round(100 * time.Millisecond).Seconds(), "finish": finish})
+	ledgerMu.Lock()
+	defer ledgerMu.Unlock()
+	if f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		f.Write(append(row, '\n'))
+		f.Close()
+	}
+}
+
 func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, maxTokens int) (string, string, error) {
+	if err := o.checkSpend(); err != nil {
+		return "", "", err
+	}
+	started := time.Now()
+	var used usage
 	body := map[string]any{
 		"model": o.Model, "messages": msgs, "temperature": opt.Temperature, "max_tokens": maxTokens,
 		"stream": true, "stream_options": map[string]any{"include_usage": true},
@@ -144,6 +220,7 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 				if err := <-errc; err != nil {
 					return "", "", fmt.Errorf("openai: stream: %w", err)
 				}
+				o.record(used, finish, time.Since(started))
 				return text.String(), finish, nil
 			}
 			l = strings.TrimSpace(l)
@@ -152,6 +229,7 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 			}
 			data := strings.TrimSpace(strings.TrimPrefix(l, "data:"))
 			if data == "[DONE]" {
+				o.record(used, finish, time.Since(started))
 				return text.String(), finish, nil
 			}
 			var ev struct {
@@ -161,9 +239,13 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 					} `json:"delta"`
 					FinishReason string `json:"finish_reason"`
 				} `json:"choices"`
+				Usage *usage `json:"usage"`
 			}
 			if json.Unmarshal([]byte(data), &ev) != nil {
 				continue
+			}
+			if ev.Usage != nil {
+				used = *ev.Usage
 			}
 			for _, c := range ev.Choices {
 				text.WriteString(c.Delta.Content)

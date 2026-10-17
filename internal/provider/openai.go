@@ -25,14 +25,16 @@ type OpenAI struct {
 	client     *http.Client
 	// Hosted endpoints (hosted.go): where the key is kept, and the default
 	// reasoning effort.
-	apiKey, effort string
-	key            string // resolved on first use
+	apiKey, effort    string
+	key               string // resolved on first use
+	priceIn, priceOut float64
 }
 
 func NewOpenAI(c config.LLM) *OpenAI {
 	// No client timeout: calls carry their own (withRetry), and a thinking
 	// pass legitimately runs for minutes.
-	return &OpenAI{URL: strings.TrimRight(c.URL, "/"), Model: c.Model, client: &http.Client{}, apiKey: c.APIKey, effort: c.ReasoningEffort}
+	return &OpenAI{URL: strings.TrimRight(c.URL, "/"), Model: c.Model, client: &http.Client{}, apiKey: c.APIKey, effort: c.ReasoningEffort,
+		priceIn: c.PriceIn, priceOut: c.PriceOut}
 }
 
 func (o *OpenAI) ModelName() string { return o.Model }

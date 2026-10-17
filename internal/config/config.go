@@ -161,6 +161,10 @@ type LLM struct {
 	// "high"); empty leaves the model's default. Calls may ask for their own
 	// (threads ask for low on assign, as measured).
 	ReasoningEffort string `toml:"reasoning_effort"`
+	// PriceIn and PriceOut (dollars per million tokens) price hosted calls
+	// for the spend ledger (MUSUBI_SPEND_LEDGER); 0 records tokens only.
+	PriceIn  float64 `toml:"price_in"`
+	PriceOut float64 `toml:"price_out"`
 }
 
 // Live configures the side panel during a meeting.

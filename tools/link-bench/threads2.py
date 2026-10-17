@@ -18,6 +18,8 @@ Usage: RUN=<name> MODEL=zai-org/GLM-5.3-Flash threads2.py <bench dir> <musubi.db
 """
 import collections, concurrent.futures as cf, json, math, os, sqlite3, struct, sys, time
 
+import numpy as np
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "insights-eval"))
 import bt  # noqa: E402
 
@@ -43,6 +45,18 @@ REC_MAX = int(os.environ.get("REC_MAX", "1500"))
 # placed, effects returned) for the cost measures in costs.py. A rerun with
 # the same settings replays from the call cache at no cost.
 TRACE = os.environ.get("TRACE")
+# Fixes from the backfill audits (research log 2026-10-16), off by default:
+# FIX_REC=1  reconcile sees the thread's current items most relevant to the
+#            new ones (by meaning, plus the latest few) instead of only the
+#            latest CAP; its prompt says what replaces what; an item is never
+#            retired by one from an earlier meeting; "completes" also takes
+#            positions and proposals.
+# CROSS=1    reconcile also sees closely related current items of other
+#            threads, and may retire them (updates often land in a sibling).
+FIX_REC = os.environ.get("FIX_REC") == "1"
+CROSS = os.environ.get("CROSS") == "1"
+CROSS_SIM = float(os.environ.get("CROSS_SIM", "0.80"))
+CROSS_MAX = int(os.environ.get("CROSS_MAX", "10"))
 _trace_lock = __import__("threading").Lock()
 
 
@@ -62,6 +76,50 @@ if os.environ.get("SPECIFIC") == "1":
     ASSIGN_SYS += """
 
 Use an existing thread only when the item is about that same specific subject, not merely the same theme; otherwise start a new thread. A thread that keeps absorbing items on different specifics has become a theme: split them."""
+
+# ASSIGN_V2 (backfill audits): subjects fragmented by the angle of each
+# sentence and merged through people and meetings; this wording replaces
+# SPECIFIC's, and candidates show their size, dates and two latest items.
+ASSIGN_V2 = os.environ.get("ASSIGN_V2") == "1"
+if ASSIGN_V2:
+    ASSIGN_SYS = ASSIGN_SYS.split("\n\nUse an existing thread only when")[0] + """
+
+Prefer an existing thread when the item continues its subject: a new figure, an outcome, a follow-up, a decision, or a different angle on the same initiative, deal, programme or event, even when the wording differs. Start a new thread only for a subject none of the candidates covers.
+A person is not a subject: put items about someone's role, hire, departure or performance in the thread about that event (one thread per hire, departure or case), not in a thread about the person.
+A meeting is not a subject either: an interview, a 1:1 or a review covers several subjects; put each item in the thread of its own subject."""
+# MERGE=1: after each meeting's assignment, threads born in it are compared
+# with the most similar older threads (one call per meeting) and merged
+# into them when they are the same subject.
+MERGE = os.environ.get("MERGE") == "1"
+MERGE_SIM = float(os.environ.get("MERGE_SIM", "0.75"))
+# LAPSE_DAYS=N: open commitments and questions not touched for N days stop
+# being current (dated plans otherwise stay current for ever).
+LAPSE_DAYS = int(os.environ.get("LAPSE_DAYS", "0"))
+LAPSE_KINDS = ("commitment", "question")
+
+# CONSOLIDATE=1: after reconcile, each touched thread with more than
+# CONSOLIDATE_MIN current items has its whole current list reviewed once:
+# which items are no longer the current word on the subject (the audits
+# found 86% of items current: reconcile only judges what new items do).
+CONSOLIDATE = os.environ.get("CONSOLIDATE") == "1"
+CONSOLIDATE_MIN = int(os.environ.get("CONSOLIDATE_MIN", "8"))
+CONSOLIDATE_MAX = int(os.environ.get("CONSOLIDATE_MAX", "80"))
+CONS_SYS = """You keep one thread of a leadership team's notes up to date, so that someone asking about the subject sees only where things stand now. You get the thread's current items, oldest first, each with its meeting date, and today's date.
+
+List the items that are no longer the current word on this subject:
+- superseded: a later item in the list gives a newer version of the same figure, target, date, plan, decision, status or position
+- completed: a later item says the commitment or plan was done, or the event happened
+- answered: a later item answers the question
+- past: the item was about something now over (an event that has happened, a deadline long past) and a later item shows things moved on
+For superseded, completed and answered, give the later item that does it.
+Keep everything still true or still open: rules, standing facts, decisions still in force, open questions nobody answered, commitments not yet due. When unsure, keep the item."""
+CONS_SCHEMA = {"type": "object", "properties": {"outdated": {"type": "array", "items": {"type": "object", "properties": {
+    "id": {"type": "integer"}, "by": {"type": "integer"},
+    "why": {"type": "string", "enum": ["superseded", "completed", "answered", "past"]}}}}}}
+
+MERGE_SYS = """You keep a leadership team's notes organised in threads, one per specific subject. Some threads were just started in today's meeting; each is shown with older threads that look similar. Say which new threads are the same specific subject as an older one (the same initiative, deal, programme, metric, issue, event or hire), so they can be merged. Different subjects that share a word, a person, a customer or a meeting are not the same. When unsure, do not merge."""
+MERGE_SCHEMA = {"type": "object", "properties": {"merges": {"type": "array", "items": {"type": "object", "properties": {
+    "new": {"type": "string"}, "into": {"type": "string"}}}}}}
 
 INLINE_SYS = """
 
@@ -99,6 +157,15 @@ List only what a new item does to an earlier item in this thread (a current one,
 - same: says the same thing again
 Most new items do none of these: they add to the thread. Only list real effects; an empty list is common."""
 
+REC_FIX = """
+
+What replaces what:
+- A later figure for the same quantity and period (a forecast, a target, a count, a date) supersedes the earlier one, even months later.
+- An outcome (done, launched, decided, signed, lost, cancelled, hired, left) completes or supersedes the plans, proposals, commitments and open questions it settles, even months later.
+- Adding detail or context to an earlier item does not supersede it; a disagreement is "contradicts", not "supersedes".
+- Only a newer item can replace an older one; never mark the newest statement of something as replaced by an older one.
+Items under "Related items in other threads" may be affected too, by the same rules."""
+
 REC_SCHEMA = {"type": "object", "properties": {
     "effects": {"type": "array", "items": {"type": "object", "properties": {
         "later": {"type": "integer"}, "earlier": {"type": "integer"},
@@ -114,7 +181,8 @@ def rule(rel, earlier, later):
     same = earlier["meeting"] == later["meeting"]
     if rel == "corrects":
         return "supersedes"
-    if rel == "completes" and (same or earlier["kind"] not in ("commitment", "decision", "opinion")):
+    kinds = ("commitment", "decision", "opinion") + (("position",) if FIX_REC else ())
+    if rel == "completes" and (same or (earlier["kind"] not in kinds and not (FIX_REC and earlier.get("status") == "proposed"))):
         return None
     if rel == "supersedes" and same and not any(w in later["text"].lower() for w in CORRECTION):
         return None
@@ -179,6 +247,73 @@ def main():
     else:
         vec = embed_all(bench, stm)
     meetings = sorted({s["meeting"] for s in stm})
+    midx = {mm: k for k, mm in enumerate(meetings)}
+    seq = [0]  # thread codes: T1, T2, … (merged threads leave gaps)
+
+    def tcent(code):
+        ids = [i for i in threads[code]["items"] if i in vrow]
+        if not ids:
+            return None
+        c = V[[vrow[i] for i in ids]].mean(axis=0)
+        return c / (np.linalg.norm(c) or 1)
+
+    def merge_new_threads(m, mi, born, touched):
+        """MERGE: ask, in one call, which threads born in this meeting are
+        an older thread's subject, and fold them in."""
+        old = [c for c in threads if c not in born]
+        if not old:
+            return
+        oc = {c: tcent(c) for c in old}
+        oc = {c: v for c, v in oc.items() if v is not None}
+        if not oc:
+            return
+        codes = list(oc)
+        M = np.array([oc[c] for c in codes])
+        pairs = []
+        for n in sorted(born):
+            v = tcent(n)
+            if v is None:
+                continue
+            sims = M @ v
+            near = [codes[k] for k in np.argsort(-sims)[:2] if sims[k] >= MERGE_SIM]
+            if near:
+                pairs.append((n, near))
+        if not pairs:
+            return
+        def show(c, k):
+            t = threads[c]
+            return f"{c}: {t['name']} — {t['scope']}\n" + "\n".join(f"   - {by[i]['text'][:160]}" for i in t["items"][-k:])
+        msg = "\n\n".join("New thread " + show(n, 5) + "\nSimilar older threads:\n" + "\n".join(show(o, 3) for o in near) for n, near in pairs) + \
+              "\n\nList the new threads that are the same subject as one of their older threads."
+        try:
+            r = bt.chat(MODEL, [{"role": "system", "content": MERGE_SYS}, {"role": "user", "content": msg}], MERGE_SCHEMA,
+                        f"{RUN}-merge-{m}", max_tokens=REC_MAX, session=f"{RUN}-{os.environ.get('CACHE_SALT', '')}-merge")
+        except (RuntimeError, json.JSONDecodeError) as e:
+            print(f"  merge {m}: {e}", flush=True)
+            return
+        calls["merge"] += 1
+        allowed = {n: set(near) for n, near in pairs}
+        for mg in r.get("merges", []):
+            n, o = mg.get("new", "").strip(), mg.get("into", "").strip()
+            if n not in allowed or o not in allowed[n] or n not in threads or o not in threads:
+                continue
+            src, dst = threads.pop(n), threads[o]
+            for i in src["items"]:
+                if i not in dst["items"]:
+                    dst["items"].append(i)
+                member[i] = [o if c == n else c for c in member[i]]
+                member[i] = list(dict.fromkeys(member[i]))
+            dst["last"] = mi
+            moved = touched.pop(n, [])
+            touched.setdefault(o, [])
+            for i in moved:
+                if i not in touched[o]:
+                    touched[o].append(i)
+            born.discard(n)
+            calls["merged"] += 1
+            trace({"step": "merge", "meeting": m, "new": n, "into": o})
+    vrow = {sid: k for k, sid in enumerate(vec)}
+    V = np.array([vec[sid] for sid in vec], dtype=np.float32) if vec else np.zeros((0, 1), dtype=np.float32)
     threads = {}  # code → {"name","scope","items","current","sum","last"}
     member = collections.defaultdict(list)
     relations = []
@@ -211,8 +346,16 @@ def main():
             else:
                 recent = sorted((c for c, t in threads.items() if t["last"] >= mi - 2), key=lambda c: -threads[c]["last"])[:RECENT]
             show = list(dict.fromkeys(cand + recent + sorted(born)))
-            reg = "\n".join(f"{c}: {threads[c]['name']} — {threads[c]['scope']} (latest: {by[threads[c]['current'][-1]]['text'][:140] if threads[c]['current'] else '-'})"
-                            for c in show) or "(none yet)"
+            if ASSIGN_V2:
+                def desc(c):
+                    t = threads[c]
+                    span = f"{len(t['items'])} items, {meetings[t['first']][:10]} to {meetings[t['last']][:10]}"
+                    lat = " | ".join(by[i]["text"][:110] for i in t["current"][-2:]) or "-"
+                    return f"{c}: {t['name']} — {t['scope']} ({span}; latest: {lat})"
+                reg = "\n".join(desc(c) for c in show) or "(none yet)"
+            else:
+                reg = "\n".join(f"{c}: {threads[c]['name']} — {threads[c]['scope']} (latest: {by[threads[c]['current'][-1]]['text'][:140] if threads[c]['current'] else '-'})"
+                                for c in show) or "(none yet)"
             msg = f"Candidate threads:\n{reg}\n\nNew items from the {m} meeting:\n" + "\n".join(line(s) for s in part) + \
                   "\n\nPut every new item in a group (by id)."
             r = {}
@@ -251,8 +394,9 @@ def main():
                 key = nt["name"].strip().lower()
                 code = next((c for c, t in threads.items() if t["name"].strip().lower() == key), None)
                 if code is None:
-                    code = f"T{len(threads)+1}"
-                    threads[code] = {"name": nt["name"].strip(), "scope": nt.get("scope", ""), "items": [], "current": [], "sum": None, "last": mi}
+                    seq[0] += 1
+                    code = f"T{seq[0]}"
+                    threads[code] = {"name": nt["name"].strip(), "scope": nt.get("scope", ""), "items": [], "current": [], "sum": None, "last": mi, "first": mi}
                     born.add(code)
                 local[nt.get("code", "").strip()] = code
             ids = {s["id"] for s in part}
@@ -274,16 +418,58 @@ def main():
                     touched.setdefault(code, []).append(i)
             trace({"step": "placed", "meeting": m, "k": k, "member": {i: member[i] for i in ids}})
 
+        if MERGE and born:
+            merge_new_threads(m, mi, born, touched)
+
+        def shown_for(code):
+            """The thread's current items reconcile sees: the latest CAP, or
+            (FIX_REC) those nearest the new items plus the latest few."""
+            cur = threads[code]["current"]
+            if not FIX_REC or len(cur) <= CAP:
+                return cur[-CAP:]
+            new = [i for i in touched[code] if i in vrow]
+            recent = cur[-5:]
+            rest = [i for i in cur if i not in recent and i in vrow]
+            if not new or not rest:
+                return cur[-CAP:]
+            sims = (V[[vrow[i] for i in rest]] @ V[[vrow[i] for i in new]].T).max(axis=1)
+            top = [rest[k] for k in np.argsort(-sims)[:CAP - len(recent)]]
+            keep = set(top) | set(recent)
+            return [i for i in cur if i in keep]
+
+        def cross_for(code):
+            """(CROSS) Current items of other threads nearest the new items."""
+            if not CROSS:
+                return []
+            new = [i for i in touched[code] if i in vrow]
+            pool = [(i, c) for c, t2 in threads.items() if c != code for i in t2["current"] if i in vrow and i not in touched[code]]
+            if not new or not pool:
+                return []
+            sims = (V[[vrow[i] for i, _ in pool]] @ V[[vrow[i] for i in new]].T).max(axis=1)
+            out, seen = [], set()
+            for k in np.argsort(-sims):
+                if sims[k] < CROSS_SIM or len(out) >= CROSS_MAX:
+                    break
+                i, c = pool[k]
+                if i not in seen:
+                    seen.add(i)
+                    out.append((i, c))
+            return out
+
         def rec(code):
             t = threads[code]
-            shown = t["current"][-CAP:]
+            shown = shown_for(code)
+            cross = cross_for(code)
             msg = f"Thread: {t['name']} — {t['scope']}\n\nCurrent items:\n" + "\n".join(line(by[i]) for i in shown) + \
+                  (("\n\nRelated items in other threads:\n" + "\n".join(f"{line(by[i])} [thread: {threads[c]['name']}]" for i, c in cross)) if cross else "") + \
                   f"\n\nNew items from the {m} meeting:\n" + "\n".join(line(by[i]) for i in touched[code])
+            system = REC_SYS + (REC_FIX if FIX_REC else "")
+            shown_by[code], cross_by[code] = shown, cross
             # Reasoning counts against the cap; a reply cut off there is
             # asked again with twice the room, then given up (no effects).
             for cap in (REC_MAX, 2 * REC_MAX):
                 try:
-                    out = bt.chat(MODEL, [{"role": "system", "content": REC_SYS}, {"role": "user", "content": msg}], REC_SCHEMA,
+                    out = bt.chat(MODEL, [{"role": "system", "content": system}, {"role": "user", "content": msg}], REC_SCHEMA,
                                   f"{RUN}-rec-{m}-{code}", max_tokens=cap, session=f"{RUN}-{os.environ.get('CACHE_SALT', '')}-rec-{m}")
                     trace({"step": "rec", "meeting": m, "code": code, "tag": f"{RUN}-rec-{m}-{code}", "system": REC_SYS, "user": msg,
                            "current": len(shown), "new": len(touched[code]), "effects": len(out.get("effects", []))})
@@ -319,6 +505,7 @@ def main():
         todo = [c for c in touched if needs(c)]
         calls["reconcile skipped"] += len(touched) - len(todo)
         results = {}
+        shown_by, cross_by = {}, {}
         # One reconcile alone first, so the rest find the shared instructions
         # in the provider's cache. WARM=0 sends all at once, as before.
         first = todo[:1] if os.environ.get("WARM", "1") == "1" else []
@@ -330,12 +517,14 @@ def main():
                 calls["reconcile"] += 1
                 results[code] = r
         kept, retired = collections.Counter(), collections.Counter()
+        retired_elsewhere = set()
         for code in touched:
             t = threads[code]
             new = touched[code]
             cur = t["current"] + new
             fresh = set(new)
-            valid = set(t["current"][-CAP:]) | fresh
+            others = {i for i, _ in cross_by.get(code, [])}
+            valid = set(shown_by.get(code, t["current"][-CAP:])) | fresh | others
             mine = [e for e in inline_effects if e["later"] in fresh and e["earlier"] in fresh]
             seen_e = set()
             for e in results.get(code, {}).get("effects", []) + mine:
@@ -353,13 +542,60 @@ def main():
                 rel = rule(rel, by[b], by[a])
                 if rel is None:
                     continue
+                if FIX_REC and midx[by[b]["meeting"]] > midx[by[a]["meeting"]]:
+                    continue  # never retired by an older item
                 relations.append({"later": a, "earlier": b, "rel": rel})
                 kept[code] += 1
                 if rel in RETIRE:
                     cur = [i for i in cur if i != b]
                     retired[code] += 1
+                    if b in others:
+                        retired_elsewhere.add(b)
             t["current"] = cur
             trace({"step": "kept", "meeting": m, "code": code, "kept": kept.get(code, 0), "retired": retired.get(code, 0)})
+        if CONSOLIDATE:
+            def cons(code):
+                t = threads[code]
+                cur = t["current"][-CONSOLIDATE_MAX:]
+                msg = f"Thread: {t['name']} — {t['scope']}\nToday: {m[:10]}\n\nCurrent items (oldest first):\n" + "\n".join(line(by[i]) for i in cur) + \
+                      "\n\nList the items that are no longer the current word."
+                try:
+                    return code, cur, bt.chat(MODEL, [{"role": "system", "content": CONS_SYS}, {"role": "user", "content": msg}], CONS_SCHEMA,
+                                              f"{RUN}-cons-{m}-{code}", max_tokens=REC_MAX, session=f"{RUN}-{os.environ.get('CACHE_SALT', '')}-cons-{m}")
+                except (RuntimeError, json.JSONDecodeError) as e:
+                    print(f"  consolidate {code}: {e}", flush=True)
+                    return code, cur, {"outdated": []}
+            todo_c = [c for c in touched if c in threads and len(threads[c]["current"]) > CONSOLIDATE_MIN]
+            with cf.ThreadPoolExecutor(PAR) as ex:
+                for code, cur, r in ex.map(cons, todo_c):
+                    calls["consolidate"] += 1
+                    shownset = set(cur)
+                    gone = set()
+                    for o in r.get("outdated", []):
+                        i, b = o.get("id"), o.get("by")
+                        if i not in shownset:
+                            continue
+                        if b in shownset and b != i:
+                            if midx[by[b]["meeting"]] < midx[by[i]["meeting"]] or (by[b]["meeting"] == by[i]["meeting"] and b < i):
+                                continue  # only a later item replaces an earlier one
+                            rel = {"superseded": "supersedes", "completed": "completes", "answered": "answers"}.get(o.get("why"))
+                            if rel:
+                                relations.append({"later": b, "earlier": i, "rel": rel})
+                        elif o.get("why") != "past":
+                            continue  # a replacement needs the item that replaces it
+                        gone.add(i)
+                    threads[code]["current"] = [i for i in threads[code]["current"] if i not in gone]
+                    calls["consolidated"] += len(gone)
+                    trace({"step": "consolidate", "meeting": m, "code": code, "shown": len(cur), "outdated": len(gone)})
+        if LAPSE_DAYS:
+            today = day_of(m)
+            for t in threads.values():
+                keep = [i for i in t["current"] if not (by[i]["kind"] in LAPSE_KINDS and (today - day_of(by[i]["meeting"])).days > LAPSE_DAYS)]
+                calls["lapsed"] += len(t["current"]) - len(keep)
+                t["current"] = keep
+        if retired_elsewhere:
+            for t in threads.values():
+                t["current"] = [i for i in t["current"] if i not in retired_elsewhere]
         print(f"{m}: {len(items)} items, {len(threads)} threads, {len(touched)} touched, {len(todo)} reconciled, "
               f"{dict(calls)}, {time.time()-t0:.0f}s, ${bt.spent()-spend0:.3f}", flush=True)
     claim = {s["id"]: s["id"] for s in stm}

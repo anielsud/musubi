@@ -2,9 +2,11 @@ package pipeline
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/anielsud/musubi/internal/provider"
+	"github.com/anielsud/musubi/internal/sensitivity"
 )
 
 // emptyLLM extracts nothing: enough to stamp items as extracted.
@@ -121,4 +123,53 @@ func TestLinkAndThreadUpdatesAreExplicit(t *testing.T) {
 	if p, _ = r.planThreads(o, llm, cur, false); !p.rebuild || len(p.todo) != len(items) {
 		t.Fatalf("auto, rules changed: rebuild=%v todo=%d", p.rebuild, len(p.todo))
 	}
+}
+
+// labelLLM extracts two statements per passage and, as the labeller, calls
+// the one about a person's exit sensitive.
+type labelLLM struct{ emptyLLM }
+
+func (labelLLM) Complete(context.Context, []provider.Message, provider.ChatOptions, func(string)) (string, error) {
+	return `{"statements":[{"kind":"fact","text":"Dana Ruiz is leaving the company in December after a performance review.","holder":"","certainty":0.9,"quote":""},
+		{"kind":"fact","text":"The pricing page launches next week.","holder":"","certainty":0.9,"quote":""}]}`, nil
+}
+
+func (labelLLM) Decide(_ context.Context, msgs []provider.Message, choices []string) (map[string]float64, error) {
+	p := map[string]float64{}
+	for _, c := range choices {
+		p[c] = 0
+	}
+	if strings.Contains(msgs[len(msgs)-1].Content, "leaving") {
+		p["people"] = 0.9
+		p["none"] = 0.1
+	} else {
+		p["none"] = 1
+	}
+	return p, nil
+}
+
+func TestStatementLabels(t *testing.T) {
+	r, st := build(t)
+	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate, r.Cfg.Knowledge.MinWorth = "statements", 0, 0
+	ks := knowledgeRun(t, r, KnowledgeOptions{LLM: labelLLM{emptyLLM{"m1"}}})
+	if ks.Checked == 0 || ks.Labelled == 0 || ks.Labelled*2 > ks.Checked {
+		t.Fatalf("checked %d, labelled %d", ks.Checked, ks.Labelled)
+	}
+	sts, _ := st.AllStatements()
+	for _, s := range sts {
+		hr := s.Own.Categories&sensitivity.HR != 0
+		if hr != strings.Contains(s.Text, "leaving") {
+			t.Errorf("%q: HR=%v", s.Text, hr)
+		}
+		if hr && s.Own.Level < sensitivity.Confidential {
+			t.Errorf("%q labelled HR at %v", s.Text, s.Own.Level)
+		}
+	}
+	// Checked once per version.
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: labelLLM{emptyLLM{"m1"}}}); ks.Checked != 0 {
+		t.Errorf("rechecked %d statements", ks.Checked)
+	}
+	// Off restores the earlier behaviour.
+	r.Cfg.Knowledge.Label.Enabled = false
+	_ = st
 }

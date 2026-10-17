@@ -211,7 +211,8 @@ CREATE TABLE IF NOT EXISTS statements (
 	who        TEXT NOT NULL DEFAULT '',     -- JSON array of the people it belongs to
 	evidence   TEXT NOT NULL DEFAULT '',     -- JSON array of {line, quote, chunk_id}
 	level      INTEGER NOT NULL DEFAULT 0,   -- the statement's own label, combined with its passage's on every read
-	categories INTEGER NOT NULL DEFAULT 0
+	categories INTEGER NOT NULL DEFAULT 0,
+	label_version TEXT NOT NULL DEFAULT ''  -- the sensitivity labeller that checked it
 );
 CREATE INDEX IF NOT EXISTS statements_item ON statements(item_id);
 CREATE INDEX IF NOT EXISTS statements_chunk ON statements(chunk_id);

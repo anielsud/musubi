@@ -34,11 +34,30 @@ import (
 // rebuilds every thread.
 const ThreadsVersion = "t3"
 
+// ThreadsVersionFixes is the version with Threader.AuditFixes.
+const ThreadsVersionFixes = "t4"
+
 const assignSystem = `You organise a leadership team's meeting notes into threads, so that later someone can see the current state of any subject.
 
 A thread is ONE specific subject that can have a state over time: an initiative, programme, deal, account, metric, decision, problem, launch, event, hire or departure. It is never a broad theme ("AI strategy", "marketing", "growth"): if a theme holds several specific subjects, those are separate threads. Two items that share a word, a customer name, an event or a number are not in the same thread unless they are about the same subject.
 
 You get candidate threads (codes T…) and new items. Put every new item in a group: an existing thread's code, a new thread you define (codes n1, n2, … with a short, specific name and a one-line scope), or none (meeting logistics, greetings, jokes, small talk). An item may be in two groups only when it genuinely bears on two subjects.`
+
+// assignFix is added to assignSystem with AuditFixes: subjects fragmented by
+// the angle of each sentence and merged through people and meetings.
+const assignFix = `
+
+Prefer an existing thread when the item continues its subject: a new figure, an outcome, a follow-up, a decision, or a different angle on the same initiative, deal, programme or event, even when the wording differs. Start a new thread only for a subject none of the candidates covers.
+A person is not a subject: put items about someone's role, hire, departure or performance in the thread about that event (one thread per hire, departure or case), not in a thread about the person.
+A meeting is not a subject either: an interview, a 1:1 or a review covers several subjects; put each item in the thread of its own subject.`
+
+const mergeSystem = `You keep a leadership team's notes organised in threads, one per specific subject. Some threads were just started in today's meeting; each is shown with older threads that look similar. Say which new threads are the same specific subject as an older one (the same initiative, deal, programme, metric, issue, event or hire), so they can be merged. Different subjects that share a word, a person, a customer or a meeting are not the same. When unsure, do not merge.`
+
+var mergeSchema = json.RawMessage(`{"type":"object","required":["merges"],"properties":{"merges":{"type":"array","items":{"type":"object","required":["new","into"],"properties":{"new":{"type":"string"},"into":{"type":"string"}}}}}}`)
+
+// mergeSim: a new thread is offered for merging into older threads at least
+// this similar (centroids).
+const mergeSim = 0.75
 
 var assignSchema = json.RawMessage(`{"type":"object","required":["new_threads","groups"],"properties":{
 "new_threads":{"type":"array","items":{"type":"object","required":["code","name","scope"],"properties":{"code":{"type":"string"},"name":{"type":"string"},"scope":{"type":"string"}}}},
@@ -55,6 +74,26 @@ List only what a new item does to an earlier item in this thread (a current one,
 - contradicts: both cannot be true, about the same specific thing, and neither is clearly the later word
 - same: says the same thing again
 Most new items do none of these: they add to the thread. Only list real effects; an empty list is common.`
+
+// reconcileFix is added to reconcileSystem with AuditFixes: the audits found
+// later figures, outcomes and decisions months on not retiring what they
+// settle, and added detail or disagreement taken for replacement.
+const reconcileFix = `
+
+What replaces what:
+- A later figure for the same quantity and period (a forecast, a target, a count, a date) supersedes the earlier one, even months later.
+- An outcome (done, launched, decided, signed, lost, cancelled, hired, left) completes or supersedes the plans, proposals, commitments and open questions it settles, even months later.
+- Adding detail or context to an earlier item does not supersede it; a disagreement is "contradicts", not "supersedes".
+- Only a newer item can replace an older one; never mark the newest statement of something as replaced by an older one.
+Items under "Related items in other threads" may be affected too, by the same rules.`
+
+// Cross-thread context (AuditFixes): other threads' current items at least
+// this similar to a new item, at most crossMax of them.
+const (
+	crossSim    = 0.80
+	crossMax    = 10
+	recentShown = 5 // the latest current items always shown
+)
 
 var reconcileSchema = json.RawMessage(`{"type":"object","required":["effects"],"properties":{
 "effects":{"type":"array","items":{"type":"object","required":["later","earlier","relation"],"properties":{"later":{"type":"integer"},"earlier":{"type":"integer"},
@@ -79,6 +118,13 @@ type Threader struct {
 	// Parallel how many threads are reconciled at once (default 4);
 	// Candidates and StateCap override the bounds above.
 	Chunk, Parallel, Candidates, StateCap int
+	// AuditFixes (knowledge.threads.audit_fixes; research log 2026-10-16,
+	// backfill): reconcile sees the thread's current items nearest the new
+	// ones (plus the latest few) instead of only the latest, and related
+	// current items of other threads, which it may retire; its prompt says
+	// what replaces what; an item is never retired by an older one;
+	// "completes" also takes positions and proposals. false is t3.
+	AuditFixes bool
 	// WarmFirst reconciles one thread alone before the rest, so their
 	// shared instructions are cached by the server.
 	WarmFirst bool
@@ -134,6 +180,8 @@ type threadState struct {
 	born     bool      // created while threading this item
 	members  []int64   // new statements, in order
 	previous []int64   // current statements before this item
+	size     int       // statements before this item
+	first    time.Time // when its first statement was said
 }
 
 func (st *threadState) centroid() []float64 {
@@ -205,6 +253,10 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 			if m.SaidAt.After(th.last) {
 				th.last = m.SaidAt
 			}
+			if th.first.IsZero() || m.SaidAt.Before(th.first) {
+				th.first = m.SaidAt
+			}
+			th.size++
 		}
 	}
 	known, err := t.Store.StatementsByID(current)
@@ -307,6 +359,23 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 			}
 		}
 	}
+	// A thread named in an assign reply (often a retry's) that got no
+	// statements would stay as an empty thread for ever.
+	for tid, th := range threads {
+		if th.born && len(th.members) == 0 {
+			if err := t.Store.DeleteThread(tid); err != nil {
+				return stats, err
+			}
+			delete(threads, tid)
+			stats.NewThreads--
+		}
+	}
+	if t.AuditFixes {
+		var err error
+		if order, err = t.mergeBorn(ctx, it, threads, order, byID, known, &stats); err != nil {
+			return stats, err
+		}
+	}
 	for _, tid := range order {
 		th := threads[tid]
 		var lvl sensitivity.Level
@@ -386,6 +455,26 @@ func (t *Threader) registry(part []store.ItemStatement, start time.Time, threads
 		} else if n := len(th.members); n > 0 {
 			latest = clip(byID[th.members[n-1]].Text, 140)
 		}
+		if t.AuditFixes {
+			// Size, dates and the two latest items help tell a thread to
+			// continue from a lookalike.
+			var lat []string
+			for _, x := range th.previous[max(0, len(th.previous)-2):] {
+				lat = append(lat, clip(known[x].Text, 110))
+			}
+			if len(lat) == 0 && len(th.members) > 0 {
+				lat = append(lat, clip(byID[th.members[len(th.members)-1]].Text, 110))
+			}
+			if len(lat) == 0 {
+				lat = []string{"-"}
+			}
+			span := "new today"
+			if !th.first.IsZero() {
+				span = fmt.Sprintf("%d items, %s to %s", th.size, th.first.Format("2006-01-02"), th.last.Format("2006-01-02"))
+			}
+			fmt.Fprintf(&b, "T%d: %s — %s (%s; latest: %s)\n", id, th.row.Name, th.row.Scope, span, strings.Join(lat, " | "))
+			continue
+		}
 		fmt.Fprintf(&b, "T%d: %s — %s (latest: %s)\n", id, th.row.Name, th.row.Scope, latest)
 	}
 	if b.Len() == 0 {
@@ -430,9 +519,11 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 		par = 4
 	}
 	type result struct {
-		tid int64
-		out reconcileOut
-		err error
+		tid          int64
+		out          reconcileOut
+		err          error
+		shown, cross []int64
+		crossOf      map[int64]int64 // cross item → its thread
 	}
 	jobs := make(chan int64)
 	results := make(chan result)
@@ -447,15 +538,13 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 			defer wg.Done()
 			for tid := range jobs {
 				th := threads[tid]
-				shown := th.previous
-				if len(shown) > capN {
-					shown = shown[len(shown)-capN:]
-				}
-				out, err := t.reconcile(ctx, it, th.row, shown, th.members, known, byID)
+				shown := t.shownFor(th, capN)
+				cross, crossOf := t.crossFor(tid, threads)
+				out, err := t.reconcile(ctx, it, th.row, shown, th.members, known, byID, cross, crossOf, threads)
 				if tid == order[0] {
 					warmOnce.Do(func() { close(warm) })
 				}
-				results <- result{tid, out, err}
+				results <- result{tid, out, err, shown, cross, crossOf}
 			}
 		}()
 	}
@@ -471,6 +560,7 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 		close(results)
 	}()
 	var firstErr error
+	elsewhere := map[int64][]int64{} // thread → items retired from it by another thread's update
 	for r := range results {
 		stats.Calls++
 		if r.err != nil && firstErr == nil {
@@ -481,12 +571,11 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 		for _, id := range th.members {
 			fresh[id] = true
 		}
-		shown := th.previous
-		if len(shown) > capN {
-			shown = shown[len(shown)-capN:]
-		}
 		valid := map[int64]bool{}
-		for _, id := range shown {
+		for _, id := range r.shown {
+			valid[id] = true
+		}
+		for _, id := range r.cross {
 			valid[id] = true
 		}
 		for id := range fresh {
@@ -503,11 +592,19 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 				retired[e.Later] = true // the earlier wording stays
 				continue
 			}
-			ek := known[e.Earlier].Kind
+			ek, es, eat := known[e.Earlier].Kind, known[e.Earlier].Status, known[e.Earlier].SaidAt
 			if fresh[e.Earlier] {
-				ek = byID[e.Earlier].Kind
+				ek, es, eat = byID[e.Earlier].Kind, byID[e.Earlier].Status, byID[e.Earlier].SaidAt
 			}
-			rel := threadRule(e.Relation, ek, fresh[e.Earlier], byID[e.Later].Text)
+			if t.AuditFixes && eat.After(byID[e.Later].SaidAt) {
+				continue // never retired by an older item
+			}
+			var rel string
+			if t.AuditFixes {
+				rel = threadRuleV4(e.Relation, ek, es, fresh[e.Earlier], byID[e.Later].Text)
+			} else {
+				rel = threadRule(e.Relation, ek, fresh[e.Earlier], byID[e.Later].Text)
+			}
 			if rel == "" {
 				continue
 			}
@@ -517,6 +614,9 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 			stats.Relations++
 			if rel == "supersedes" || rel == "completes" || rel == "answers" {
 				retired[e.Earlier] = true
+				if o, ok := r.crossOf[e.Earlier]; ok {
+					elsewhere[o] = append(elsewhere[o], e.Earlier)
+				}
 			}
 		}
 		var now []int64
@@ -528,8 +628,130 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 		if err := t.Store.SetThreadCurrent(r.tid, now); err != nil {
 			return err
 		}
+		th.previous, th.members = now, nil
+	}
+	// Items retired from other threads (AuditFixes' cross context).
+	for tid, gone := range elsewhere {
+		th := threads[tid]
+		if th == nil {
+			continue
+		}
+		cur := th.previous
+		if len(th.members) > 0 { // touched but not yet written: its own result will rebuild it
+			continue
+		}
+		var now []int64
+		for _, id := range cur {
+			if !contains64(gone, id) {
+				now = append(now, id)
+			}
+		}
+		if len(now) != len(cur) {
+			if err := t.Store.SetThreadCurrent(tid, now); err != nil {
+				return err
+			}
+			th.previous = now
+		}
 	}
 	return firstErr
+}
+
+// shownFor is the thread's current items a reconcile call sees: the latest
+// capN, or with AuditFixes the latest few plus those nearest the new items,
+// oldest first.
+func (t *Threader) shownFor(th *threadState, capN int) []int64 {
+	cur := th.previous
+	if !t.AuditFixes || len(cur) <= capN {
+		if len(cur) > capN {
+			return cur[len(cur)-capN:]
+		}
+		return cur
+	}
+	recent := map[int64]bool{}
+	for _, id := range cur[max(0, len(cur)-recentShown):] {
+		recent[id] = true
+	}
+	type scored struct {
+		id  int64
+		sim float64
+	}
+	var rest []scored
+	for _, id := range cur {
+		if recent[id] {
+			continue
+		}
+		best := -1.0
+		if v := t.Vecs[id]; v != nil {
+			for _, m := range th.members {
+				if w := t.Vecs[m]; w != nil {
+					best = math.Max(best, cos(v, w))
+				}
+			}
+		}
+		rest = append(rest, scored{id, best})
+	}
+	sort.SliceStable(rest, func(i, j int) bool { return rest[i].sim > rest[j].sim })
+	keep := recent
+	for i := 0; i < len(rest) && i < capN-recentShown; i++ {
+		keep[rest[i].id] = true
+	}
+	var out []int64
+	for _, id := range cur {
+		if keep[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// crossFor is, with AuditFixes, other threads' current items nearest the
+// new items of thread tid: updates often land in a sibling thread.
+func (t *Threader) crossFor(tid int64, threads map[int64]*threadState) ([]int64, map[int64]int64) {
+	if !t.AuditFixes {
+		return nil, nil
+	}
+	th := threads[tid]
+	type scored struct {
+		id, thread int64
+		sim        float64
+	}
+	var cands []scored
+	for oid, o := range threads {
+		if oid == tid {
+			continue
+		}
+		for _, id := range o.previous {
+			v := t.Vecs[id]
+			if v == nil {
+				continue
+			}
+			best := -1.0
+			for _, m := range th.members {
+				if w := t.Vecs[m]; w != nil {
+					best = math.Max(best, cos(v, w))
+				}
+			}
+			if best >= crossSim {
+				cands = append(cands, scored{id, oid, best})
+			}
+		}
+	}
+	sort.Slice(cands, func(i, j int) bool {
+		return cands[i].sim > cands[j].sim || cands[i].sim == cands[j].sim && cands[i].id < cands[j].id
+	})
+	var ids []int64
+	of := map[int64]int64{}
+	for _, c := range cands {
+		if len(ids) == crossMax {
+			break
+		}
+		if _, dup := of[c.id]; dup || contains64(th.members, c.id) {
+			continue
+		}
+		of[c.id] = c.thread
+		ids = append(ids, c.id)
+	}
+	return ids, of
 }
 
 type assignOut struct {
@@ -548,7 +770,11 @@ func (t *Threader) assign(ctx context.Context, it ThreadItem, msg string) (assig
 	var out assignOut
 	opt := threadOptions(assignSchema, assignMaxTokens)
 	opt.Session = "threads " + it.ID
-	raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: assignSystem}, {Role: "user", Content: msg}}, opt, nil)
+	system := assignSystem
+	if t.AuditFixes {
+		system += assignFix
+	}
+	raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: system}, {Role: "user", Content: msg}}, opt, nil)
 	if err != nil {
 		return out, err
 	}
@@ -566,7 +792,8 @@ type reconcileOut struct {
 	} `json:"effects"`
 }
 
-func (t *Threader) reconcile(ctx context.Context, it ThreadItem, th store.ThreadRow, cur, fresh []int64, known map[int64]store.Statement, byID map[int64]store.ItemStatement) (reconcileOut, error) {
+func (t *Threader) reconcile(ctx context.Context, it ThreadItem, th store.ThreadRow, cur, fresh []int64, known map[int64]store.Statement, byID map[int64]store.ItemStatement,
+	cross []int64, crossOf map[int64]int64, threads map[int64]*threadState) (reconcileOut, error) {
 	var out reconcileOut
 	var old []string
 	for _, id := range cur {
@@ -581,12 +808,28 @@ func (t *Threader) reconcile(ctx context.Context, it ThreadItem, th store.Thread
 	for _, id := range fresh {
 		neu = append(neu, itemLine(byID[id], it.Start))
 	}
-	msg := fmt.Sprintf("Thread: %s — %s\n\nCurrent items:\n%s\n\nNew items from the %s meeting:\n%s",
-		th.Name, th.Scope, strings.Join(old, "\n"), it.Start.Format("2006-01-02"), strings.Join(neu, "\n"))
+	related := ""
+	if len(cross) > 0 {
+		var rl []string
+		for _, id := range cross {
+			if s, ok := known[id]; ok {
+				rl = append(rl, itemLine(fromStatement(s), time.Time{})+" [thread: "+threads[crossOf[id]].row.Name+"]")
+			}
+		}
+		if len(rl) > 0 {
+			related = "\n\nRelated items in other threads:\n" + strings.Join(rl, "\n")
+		}
+	}
+	msg := fmt.Sprintf("Thread: %s — %s\n\nCurrent items:\n%s%s\n\nNew items from the %s meeting:\n%s",
+		th.Name, th.Scope, strings.Join(old, "\n"), related, it.Start.Format("2006-01-02"), strings.Join(neu, "\n"))
 	opt := threadOptions(reconcileSchema, reconcileMaxTokens)
 	opt.Session = "threads " + it.ID
 	for try := 0; try < 2; try++ {
-		raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: reconcileSystem}, {Role: "user", Content: msg}}, opt, nil)
+		system := reconcileSystem
+		if t.AuditFixes {
+			system += reconcileFix
+		}
+		raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: system}, {Role: "user", Content: msg}}, opt, nil)
 		if err != nil {
 			return out, err
 		}
@@ -643,6 +886,15 @@ func threadOptions(schema json.RawMessage, maxTokens int) provider.ChatOptions {
 // 2026-10-14): the local 27B called 84 pairs "completes", 70 of them on
 // views and facts, and in-meeting "supersedes" without a correction were
 // mostly elaborations; both hid current items.
+// threadRuleV4 is threadRule with AuditFixes: "completes" also takes a
+// position (the points extractor's opinion) or anything proposed.
+func threadRuleV4(rel, earlierKind, earlierStatus string, sameItem bool, laterText string) string {
+	if rel == "completes" && !sameItem && (earlierKind == "position" || earlierStatus == "proposed") {
+		return rel
+	}
+	return threadRule(rel, earlierKind, sameItem, laterText)
+}
+
 func threadRule(rel, earlierKind string, sameItem bool, laterText string) string {
 	switch rel {
 	case "corrects":
@@ -658,4 +910,140 @@ func threadRule(rel, earlierKind string, sameItem bool, laterText string) string
 		}
 	}
 	return rel
+}
+
+// mergeBorn (AuditFixes) asks, in one call, which threads born while
+// threading this item are an older thread's subject, and folds their new
+// statements into it before they are stored. Returns the touched threads.
+func (t *Threader) mergeBorn(ctx context.Context, it ThreadItem, threads map[int64]*threadState, order []int64, byID map[int64]store.ItemStatement, known map[int64]store.Statement, stats *ThreadStats) ([]int64, error) {
+	type cand struct {
+		born int64
+		near []int64
+	}
+	var cands []cand
+	for _, b := range order {
+		nb := threads[b]
+		if !nb.born {
+			continue
+		}
+		c := nb.centroid()
+		if c == nil {
+			continue
+		}
+		type scored struct {
+			id  int64
+			sim float64
+		}
+		var near []scored
+		for id, o := range threads {
+			if o.born || o.sum == nil {
+				continue
+			}
+			oc := o.centroid()
+			var d float64
+			for i := range c {
+				d += c[i] * oc[i]
+			}
+			if d >= mergeSim {
+				near = append(near, scored{id, d})
+			}
+		}
+		sort.Slice(near, func(i, j int) bool {
+			return near[i].sim > near[j].sim || near[i].sim == near[j].sim && near[i].id < near[j].id
+		})
+		var ids []int64
+		for i := 0; i < len(near) && i < 2; i++ {
+			ids = append(ids, near[i].id)
+		}
+		if len(ids) > 0 {
+			cands = append(cands, cand{b, ids})
+		}
+	}
+	if len(cands) == 0 {
+		return order, nil
+	}
+	show := func(id int64, items []string) string {
+		th := threads[id]
+		return fmt.Sprintf("T%d: %s — %s\n   - %s", id, th.row.Name, th.row.Scope, strings.Join(items, "\n   - "))
+	}
+	var parts []string
+	for _, c := range cands {
+		var mine []string
+		for _, id := range threads[c.born].members[max(0, len(threads[c.born].members)-5):] {
+			mine = append(mine, clip(byID[id].Text, 160))
+		}
+		var older []string
+		for _, o := range c.near {
+			var its []string
+			for _, id := range threads[o].previous[max(0, len(threads[o].previous)-3):] {
+				if s, ok := known[id]; ok {
+					its = append(its, clip(s.Text, 160))
+				}
+			}
+			older = append(older, show(o, its))
+		}
+		parts = append(parts, "New thread "+show(c.born, mine)+"\nSimilar older threads:\n"+strings.Join(older, "\n"))
+	}
+	opt := threadOptions(mergeSchema, reconcileMaxTokens)
+	opt.Session = "threads " + it.ID
+	raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: mergeSystem},
+		{Role: "user", Content: strings.Join(parts, "\n\n") + "\n\nList the new threads that are the same subject as one of their older threads."}}, opt, nil)
+	if err != nil {
+		return order, err
+	}
+	stats.Calls++
+	var out struct {
+		Merges []struct{ New, Into string } `json:"merges"`
+	}
+	if json.Unmarshal([]byte(jsonPart(raw)), &out) != nil {
+		return order, nil // no merges rather than a failed item
+	}
+	allowed := map[int64]map[int64]bool{}
+	for _, c := range cands {
+		allowed[c.born] = map[int64]bool{}
+		for _, o := range c.near {
+			allowed[c.born][o] = true
+		}
+	}
+	gone := map[int64]int64{}
+	for _, m := range out.Merges {
+		var n, into int64
+		if _, err := fmt.Sscanf(strings.TrimSpace(m.New), "T%d", &n); err != nil {
+			continue
+		}
+		if _, err := fmt.Sscanf(strings.TrimSpace(m.Into), "T%d", &into); err != nil {
+			continue
+		}
+		if !allowed[n][into] || gone[n] != 0 {
+			continue
+		}
+		src, dst := threads[n], threads[into]
+		for _, id := range src.members {
+			if !contains64(dst.members, id) {
+				dst.members = append(dst.members, id)
+				dst.add(t.Vecs[id])
+			}
+		}
+		if err := t.Store.DeleteThread(n); err != nil {
+			return order, err
+		}
+		delete(threads, n)
+		gone[n] = into
+		stats.NewThreads--
+	}
+	if len(gone) == 0 {
+		return order, nil
+	}
+	var next []int64
+	seen := map[int64]bool{}
+	for _, id := range order {
+		if into, ok := gone[id]; ok {
+			id = into
+		}
+		if !seen[id] {
+			seen[id] = true
+			next = append(next, id)
+		}
+	}
+	return next, nil
 }

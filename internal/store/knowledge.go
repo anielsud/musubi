@@ -1068,3 +1068,18 @@ func (s *Store) KnowledgeSignature() (string, error) {
 	err := s.db.QueryRow(`SELECT (SELECT data_version FROM pragma_data_version), total_changes()`).Scan(&dv, &own)
 	return fmt.Sprint(dv, ".", own), err
 }
+
+// StatementsToLabel returns statements this version of the sensitivity
+// labeller hasn't checked.
+func (s *Store) StatementsToLabel(version string) ([]Statement, error) {
+	return s.statements(`WHERE st.label_version != ? ORDER BY st.id`, version)
+}
+
+// LabelStatement raises a statement's own label (never lowers it: a
+// labeller only adds what it recognises) and records the labeller's
+// version.
+func (s *Store) LabelStatement(id int64, l sensitivity.Label, version string) error {
+	_, err := s.db.Exec(`UPDATE statements SET level = max(level, ?), categories = categories | ?, label_version = ? WHERE id = ?`,
+		int(l.Level), int64(l.Categories), version, id)
+	return err
+}

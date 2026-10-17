@@ -58,7 +58,7 @@ func Open(path string) (*Store, error) {
 	}
 	if err := addColumns(db, "statements", "worth REAL", "worth_version TEXT NOT NULL DEFAULT ''", "search_text TEXT NOT NULL DEFAULT ''",
 		"status TEXT NOT NULL DEFAULT ''", "who TEXT NOT NULL DEFAULT ''", "evidence TEXT NOT NULL DEFAULT ''",
-		"level INTEGER NOT NULL DEFAULT 0", "categories INTEGER NOT NULL DEFAULT 0"); err != nil {
+		"level INTEGER NOT NULL DEFAULT 0", "categories INTEGER NOT NULL DEFAULT 0", "label_version TEXT NOT NULL DEFAULT ''"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}

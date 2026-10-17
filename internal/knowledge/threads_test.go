@@ -181,3 +181,106 @@ func TestThreadRule(t *testing.T) {
 		}
 	}
 }
+
+func TestAuditFixSelection(t *testing.T) {
+	v := func(x, y float32) []float32 { return []float32{x, y} }
+	th := &threadState{previous: []int64{1, 2, 3, 4, 5, 6, 7, 8}, members: []int64{100}}
+	tr := &Threader{AuditFixes: true, Vecs: map[int64][]float32{
+		1: v(1, 0), 2: v(0, 1), 3: v(0, 1), 4: v(0, 1), 5: v(0, 1), 6: v(0, 1), 7: v(0, 1), 8: v(0, 1), 100: v(1, 0.05)}}
+	// Cap 6: the five latest, plus the oldest, which is nearest the new item.
+	if got := tr.shownFor(th, 6); len(got) != 6 || got[0] != 1 || got[5] != 8 {
+		t.Errorf("shown %v", got)
+	}
+	if got := (&Threader{Vecs: tr.Vecs}).shownFor(th, 6); got[0] != 3 {
+		t.Errorf("t3 shows the latest: %v", got)
+	}
+	other := &threadState{previous: []int64{50, 51}}
+	tr.Vecs[50], tr.Vecs[51] = v(1, 0.1), v(0, 1)
+	ids, of := tr.crossFor(9, map[int64]*threadState{9: th, 10: other})
+	if len(ids) != 1 || ids[0] != 50 || of[50] != 10 {
+		t.Errorf("cross %v %v", ids, of)
+	}
+	if got := threadRuleV4("completes", "position", "", false, "x"); got != "completes" {
+		t.Errorf("a position can be completed: %q", got)
+	}
+	if got := threadRuleV4("completes", "fact", "proposed", false, "x"); got != "completes" {
+		t.Errorf("a proposal can be completed: %q", got)
+	}
+	if got := threadRuleV4("completes", "fact", "stated", false, "x"); got != "" {
+		t.Errorf("a stated fact isn't completed: %q", got)
+	}
+}
+
+// fragmentingThreads starts a fresh thread for the programme in every
+// meeting (the fragmentation the backfill audits found) and, asked to merge,
+// merges each new thread into the first similar older one.
+type fragmentingThreads struct{ n int }
+
+func (f *fragmentingThreads) Local() bool       { return true }
+func (f *fragmentingThreads) ModelName() string { return "fragmenting" }
+func (f *fragmentingThreads) Complete(_ context.Context, msgs []provider.Message, _ provider.ChatOptions, _ func(string)) (string, error) {
+	user := msgs[len(msgs)-1].Content
+	switch {
+	case strings.HasPrefix(msgs[0].Content, assignSystem):
+		f.n++
+		var ids, rest []string
+		for _, m := range reItem.FindAllStringSubmatch(user, -1) {
+			if strings.Contains(m[2], "Juniper") {
+				ids = append(ids, m[1])
+			} else {
+				rest = append(rest, m[1])
+			}
+		}
+		return fmt.Sprintf(`{"new_threads":[{"code":"n1","name":"Juniper part %d","scope":"the programme"}],"groups":[{"thread":"n1","ids":[%s]},{"thread":"none","ids":[%s]}]}`,
+			f.n, strings.Join(ids, ","), strings.Join(rest, ",")), nil
+	case msgs[0].Content == mergeSystem:
+		born := regexp.MustCompile(`New thread (T\d+)`).FindStringSubmatch(user)
+		older := regexp.MustCompile(`Similar older threads:\n(T\d+)`).FindStringSubmatch(user)
+		if born == nil || older == nil {
+			return `{"merges":[]}`, nil
+		}
+		return fmt.Sprintf(`{"merges":[{"new":%q,"into":%q}]}`, born[1], older[1]), nil
+	default:
+		return `{"effects":[]}`, nil
+	}
+}
+
+func TestThreaderMergesFragments(t *testing.T) {
+	f := newCardFixture(t)
+	if err := f.st.ClearThreads(); err != nil {
+		t.Fatal(err)
+	}
+	sts, _ := f.st.AllStatements()
+	vecs := map[int64][]float32{}
+	for _, s := range sts {
+		if strings.Contains(s.Text, "Juniper") {
+			vecs[s.ID] = []float32{1, 0, 0}
+		} else {
+			vecs[s.ID] = []float32{0, 0, 1}
+		}
+	}
+	th := &Threader{Store: f.st, LLM: &fragmentingThreads{}, Vecs: vecs, AuditFixes: true}
+	for _, it := range []ThreadItem{{ID: "m:1", Start: time.Date(2026, 9, 16, 15, 0, 0, 0, time.UTC)}, {ID: "m:2", Start: time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)}} {
+		if _, err := th.Thread(context.Background(), it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	threads, _ := f.st.Threads()
+	if len(threads) != 1 {
+		var names []string
+		for _, x := range threads {
+			names = append(names, x.Name)
+		}
+		t.Fatalf("threads %v: the second meeting's fragment wasn't merged", names)
+	}
+	members, _ := f.st.ThreadMembers()
+	juniper := 0
+	for _, s := range sts {
+		if strings.Contains(s.Text, "Juniper") {
+			juniper++
+		}
+	}
+	if len(members) != juniper {
+		t.Errorf("thread holds %d statements, want all %d Juniper ones", len(members), juniper)
+	}
+}

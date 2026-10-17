@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/registry"
+	"github.com/anielsud/musubi/internal/sensitivity"
 	"github.com/anielsud/musubi/internal/stages"
 	"github.com/anielsud/musubi/internal/store"
 )
@@ -87,6 +89,7 @@ type KnowledgeStats struct {
 	Link                        knowledge.LinkStats
 	Topics                      int
 	Pending                     int // items still to extract (when limited)
+	Labelled, Checked           int // statements labelled sensitive; checked by the labeller
 	Threads                     knowledge.ThreadStats
 	Outdated                    Outdated
 	Planned                     Planned
@@ -422,6 +425,13 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		}
 	}
 
+	// 2b. Label statements that reveal sensitive things about people.
+	if kc.Label.Enabled {
+		if err := r.labelStatements(ctx, o, &ks); err != nil {
+			return ks, err
+		}
+	}
+
 	// 3. Link, oldest first.
 	if _, err := r.Store.DropEmptyClaims(); err != nil {
 		return ks, err
@@ -711,7 +721,11 @@ func (r *Runner) threadLLM(o KnowledgeOptions) (provider.LLM, error) {
 // their threads; everything is rethreaded only when asked (redo, or claims
 // rebuilt); "auto" rethreads everything when the rules change.
 func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp string, claimsRebuilt bool) (threadPlan, error) {
-	p := threadPlan{stamp: hashOf("threads", knowledge.ThreadsVersion, llm.ModelName(), linkStamp)}
+	version := knowledge.ThreadsVersion
+	if r.Cfg.Knowledge.Threads.AuditFixes {
+		version = knowledge.ThreadsVersionFixes
+	}
+	p := threadPlan{stamp: hashOf("threads", version, llm.ModelName(), linkStamp)}
 	p.old, _ = r.Store.GlobalStamp("threads")
 	auto := r.Cfg.Knowledge.Updates == "auto"
 	p.rebuild = claimsRebuilt || o.redo("threads") || o.redo("links") || (auto && p.old != "" && p.old != p.stamp)
@@ -803,7 +817,7 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 		}
 	}
 	th := &knowledge.Threader{Store: r.Store, LLM: llm, Vecs: vecs, Chunk: kc.Threads.Chunk, Parallel: kc.Threads.Parallel,
-		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, WarmFirst: kc.WarmCache, Logf: r.logf}
+		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, WarmFirst: kc.WarmCache, AuditFixes: kc.Threads.AuditFixes, Logf: r.logf}
 	for _, it := range todo {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -836,4 +850,82 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 	all, err := r.Store.Threads()
 	ks.Topics = len(all)
 	return err
+}
+
+// labelStatements runs the sensitivity labeller (knowledge.label) over
+// statements this version hasn't checked, a few at a time.
+func (r *Runner) labelStatements(ctx context.Context, o KnowledgeOptions, ks *KnowledgeStats) error {
+	kc := r.Cfg.Knowledge
+	d := o.Decider
+	if kc.Label.Model.Provider != "" {
+		llm, err := provider.NewLLM(kc.Label.Model)
+		if err != nil {
+			return err
+		}
+		if !llm.Local() {
+			return fmt.Errorf("the statement labeller reads meeting text, so it needs a local model (got %s)", llm.ModelName())
+		}
+		d, _ = llm.(provider.Decider)
+	}
+	if d == nil {
+		return nil
+	}
+	todo, err := r.Store.StatementsToLabel(knowledge.LabelVersion)
+	if err != nil || len(todo) == 0 {
+		return err
+	}
+	t0 := time.Now()
+	type result struct {
+		id  int64
+		l   sensitivity.Label
+		err error
+	}
+	jobs := make(chan store.Statement)
+	results := make(chan result)
+	var wg sync.WaitGroup
+	for w := 0; w < max(o.Workers, 1); w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for st := range jobs {
+				c, p, err := knowledge.StatementSensitivity(ctx, d, st.Text)
+				var l sensitivity.Label
+				if err == nil && c != 0 && p >= kc.Label.MinP {
+					l = sensitivity.Label{Level: sensitivity.LevelFor(c), Categories: c}
+				}
+				results <- result{st.ID, l, err}
+			}
+		}()
+	}
+	go func() {
+		for _, st := range todo {
+			if ctx.Err() != nil {
+				break
+			}
+			jobs <- st
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+	}()
+	failed := 0
+	for res := range results {
+		if res.err != nil {
+			// Left unchecked, so the next run tries again.
+			failed++
+			continue
+		}
+		if err := r.Store.LabelStatement(res.id, res.l, knowledge.LabelVersion); err != nil {
+			return err
+		}
+		ks.Checked++
+		if res.l.Categories != 0 {
+			ks.Labelled++
+		}
+		if ks.Checked%500 == 0 {
+			r.logf("label: %d of %d statements checked, %d sensitive", ks.Checked, len(todo), ks.Labelled)
+		}
+	}
+	r.logf("label: %d statements checked, %d labelled sensitive, %d failed, in %s", ks.Checked, ks.Labelled, failed, time.Since(t0).Round(time.Second))
+	return ctx.Err()
 }

@@ -264,3 +264,15 @@ func (s *Store) SetThreadLinks(l ThreadLinks) error {
 		return nil
 	})
 }
+
+// DeleteThread removes a thread that holds no statements yet (one merged
+// into another before its statements were stored).
+func (s *Store) DeleteThread(id int64) error {
+	return s.tx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`DELETE FROM thread_items WHERE topic_id = ?`, id); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`DELETE FROM topics WHERE id = ?`, id)
+		return err
+	})
+}

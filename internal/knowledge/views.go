@@ -268,7 +268,7 @@ func (v Views) loadTopics() (*topicData, error) {
 			if st, ok := sts[out[i].ID]; ok && !out[i].Hidden {
 				var s Status
 				if json.Unmarshal([]byte(st.Body), &s) == nil {
-					out[i].Now = firstSentence(StripIDs(s.Now))
+					out[i].Now = FirstSentence(StripIDs(s.Now))
 				}
 			}
 		}
@@ -521,7 +521,9 @@ var inlineIDs = regexp.MustCompile(`\s*[(\[]\s*\d{1,9}(?:\s*,\s*\d{1,9})*\s*[)\]
 // StripIDs removes a status's inline statement ids.
 func StripIDs(s string) string { return inlineIDs.ReplaceAllString(s, "") }
 
-func firstSentence(s string) string {
+// FirstSentence is a status's lead: up to its first full stop past 40
+// characters.
+func FirstSentence(s string) string {
 	for i := 0; i+1 < len(s); i++ {
 		if (s[i] == '.' || s[i] == ';') && s[i+1] == ' ' && i > 40 {
 			return s[:i+1]

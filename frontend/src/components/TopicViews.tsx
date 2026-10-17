@@ -88,17 +88,17 @@ export function TopicViews({ map, highlight, selected, onOpen, wide }: Props) {
 
   return (
     <div className="tviews" ref={ref}>
-      <div className="tview-stage">
-        {view === 'graph' && <GraphMap {...common} />}
-        {view === 'meaning' && (map.meaning ? <MeaningMap {...common} /> : <Empty>This dataset's items have no vectors, so there's no meaning layout. Graph and Timeline still work.</Empty>)}
-        {view === 'timeline' && <Timeline {...common} />}
-        {view === 'clusters' && <ClusterCards {...common} />}
-      </div>
       <div className="tview-switch">
         {viewNames.map(([k, name, tip]) => (
           <button key={k} className={view === k ? 'on' : ''} title={tip} onClick={() => pick(k)}>{name}</button>
         ))}
         <span className="tview-count">{topics.length} topics · {(map.edges ?? []).length} links · {(map.clusters ?? []).length} clusters</span>
+      </div>
+      <div className="tview-stage">
+        {view === 'graph' && <GraphMap {...common} />}
+        {view === 'meaning' && (map.meaning ? <MeaningMap {...common} /> : <Empty>This dataset's items have no vectors, so there's no meaning layout. Graph and Timeline still work.</Empty>)}
+        {view === 'timeline' && <Timeline {...common} />}
+        {view === 'clusters' && <ClusterCards {...common} />}
       </div>
       {view !== 'clusters' && (map.clusters?.length ?? 0) > 0 && (
         <div className="cluster-legend">
@@ -327,6 +327,9 @@ function NodeLink({ map, pos, lit, selected, onOpen, width, height, wide, edgeAl
 // dot's size is how much of that meeting was on the topic. Rows are grouped
 // by cluster, and within a cluster by when the topic first came up.
 function Timeline({ map, lit, selected, onOpen, width, wide }: ViewProps) {
+  // Clusters start folded when there are many rows: a folded cluster is
+  // one row, its topics' activity summed per meeting.
+  const [open, setOpen] = useState<Set<number> | 'all' | null>(null);
   const items = map.items ?? [];
   const col = new Map(items.map((it, i) => [it.id, i]));
   const ts = (map.topics ?? []).filter((t) => !lit || lit.has(t.id));
@@ -339,23 +342,49 @@ function Timeline({ map, lit, selected, onOpen, width, wide }: ViewProps) {
   const colW = Math.max(18, (width - labelW - 12) / Math.max(1, items.length));
   const rowH = 17, headH = 46, groupH = 20;
   const maxN = Math.max(1, ...ts.flatMap((t) => (t.activity ?? []).map((a) => a.n)));
+  // Lit topics (a filter, a cluster chip) open their clusters.
+  const folding = !lit && ts.length > 40;
+  const isOpen = (id: number) => !folding || open === 'all' || (open instanceof Set && open.has(id));
+  const toggle = (id: number) => {
+    const cur = open === 'all' ? new Set(groups.map((g) => g.c.id)) : new Set(open ?? []);
+    if (cur.has(id)) cur.delete(id);
+    else cur.add(id);
+    setOpen(cur);
+  };
+  const cx = (i: number) => labelW + colW * (i + 0.5);
+  // Many meetings: the timeline scrolls sideways, and dates label every
+  // few columns so they don't overlap.
+  const svgW = Math.max(width, labelW + colW * items.length + 12);
+  const step = Math.max(1, Math.ceil(48 / colW));
   let yy = headH;
   const rows: JSX.Element[] = [];
   for (const g of groups) {
+    const opened = isOpen(g.c.id);
+    // A folded cluster's dots: its topics' statements per meeting.
+    const sum = new Map<number, number>();
+    if (!opened) {
+      for (const t of g.rows) for (const a of t.activity ?? []) {
+        const i = col.get(a.item);
+        if (i !== undefined) sum.set(i, (sum.get(i) ?? 0) + a.n);
+      }
+    }
+    const maxSum = Math.max(1, ...sum.values());
     rows.push(
-      <g key={'g' + g.c.id}>
+      <g key={'g' + g.c.id} className={'tl-grow' + (folding ? ' foldable' : '')} onClick={() => folding && toggle(g.c.id)}>
+        <rect x={0} y={yy} width={svgW} height={groupH} className="tl-hit" />
         <rect x={0} y={yy + 4} width={4} height={groupH - 8} fill={clusterColor(g.c.id)} rx={2} />
-        <text x={10} y={yy + 14} className="tl-group">{short(g.c.label, wide ? 60 : 30)} · {g.rows.length}</text>
+        <text x={10} y={yy + 14} className="tl-group">{folding ? (opened ? '▾ ' : '▸ ') : ''}{short(g.c.label, wide ? 60 : 30)} · {g.rows.length}</text>
+        {[...sum.entries()].map(([i, n]) => <circle key={i} cx={cx(i)} cy={yy + groupH / 2} r={2 + 5.5 * Math.sqrt(n / maxSum)} fill={clusterColor(g.c.id)} fillOpacity={0.8}><title>{n} statements</title></circle>)}
       </g>,
     );
     yy += groupH;
+    if (!opened) continue;
     for (const t of g.rows) {
       const y = yy + rowH / 2;
       const cols = (t.activity ?? []).map((a) => ({ i: col.get(a.item) ?? -1, n: a.n })).filter((a) => a.i >= 0).sort((a, b) => a.i - b.i);
-      const cx = (i: number) => labelW + colW * (i + 0.5);
       rows.push(
         <g key={t.id} className={'tl-trow' + (t.id === selected ? ' sel' : '')} onClick={() => onOpen(t.id)}>
-          <rect x={0} y={yy} width={width} height={rowH} className="tl-hit" />
+          <rect x={0} y={yy} width={svgW} height={rowH} className="tl-hit" />
           <text x={10} y={y + 4} className="tl-label">{short(t.label, wide ? 40 : 22)}</text>
           {cols.length > 1 && <line x1={cx(cols[0].i)} x2={cx(cols[cols.length - 1].i)} y1={y} y2={y} stroke={clusterColor(t.cluster)} strokeOpacity={0.35} strokeWidth={2} />}
           {cols.map((a) => <circle key={a.i} cx={cx(a.i)} cy={y} r={2 + 5.5 * Math.sqrt(a.n / maxN)} fill={clusterColor(t.cluster)}><title>{a.n} statements</title></circle>)}
@@ -366,12 +395,20 @@ function Timeline({ map, lit, selected, onOpen, width, wide }: ViewProps) {
   }
   if (!items.length) return <Empty>No dated sources to lay out.</Empty>;
   return (
-    <div className="tl-scroll" style={{ maxHeight: wide ? window.innerHeight - 230 : 560 }}>
-      <svg className="topic-map tl" width={width} height={yy + 8}>
+    <>
+    {folding && (
+      <div className="tl-fold">
+        <button className="link" onClick={() => setOpen('all')}>open all clusters</button>
+        <button className="link" onClick={() => setOpen(null)}>fold all</button>
+        <span className="dim small">click a cluster to open it</span>
+      </div>
+    )}
+    <div className="tl-scroll" style={{ maxHeight: wide ? window.innerHeight - 260 : 560 }}>
+      <svg className="topic-map tl" width={svgW} height={yy + 8}>
         {items.map((it, i) => (
           <g key={it.id}>
             <line x1={labelW + colW * (i + 0.5)} x2={labelW + colW * (i + 0.5)} y1={headH - 6} y2={yy} className="tl-col" />
-            <text x={labelW + colW * (i + 0.5)} y={16} textAnchor="middle" className="tl-head">{fmtDate(it.occurredAt)}</text>
+            {i % step === 0 && <text x={labelW + colW * (i + 0.5)} y={16} textAnchor="middle" className="tl-head">{fmtDate(it.occurredAt)}</text>}
             {colW > 70 && <text x={labelW + colW * (i + 0.5)} y={30} textAnchor="middle" className="tl-sub">{short(it.title, Math.floor(colW / 6.5))}</text>}
             <title>{it.title}</title>
           </g>
@@ -379,6 +416,7 @@ function Timeline({ map, lit, selected, onOpen, width, wide }: ViewProps) {
         {rows}
       </svg>
     </div>
+    </>
   );
 }
 

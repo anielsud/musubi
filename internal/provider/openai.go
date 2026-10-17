@@ -43,21 +43,17 @@ func (o *OpenAI) Local() bool {
 	return strings.Contains(o.URL, "127.0.0.1") || strings.Contains(o.URL, "localhost")
 }
 
-// Complete returns the reply. Streaming isn't implemented: onToken gets the
-// whole reply at once.
+// Complete returns the reply. With onToken, the reply streams to it as it
+// is written (a hosted retry after a failed stream starts the text again).
 func (o *OpenAI) Complete(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error) {
 	if !o.Local() {
-		out, err := o.completeHosted(ctx, msgs, opt)
-		if err == nil && onToken != nil {
-			onToken(out)
-		}
+		return o.completeHosted(ctx, msgs, opt, onToken)
+	}
+	if onToken != nil {
+		out, _, err := o.stream(ctx, msgs, opt, opt.MaxTokens, onToken)
 		return out, err
 	}
-	out, err := withRetry(ctx, "openai", opt, func(ctx context.Context) (string, error) { return o.complete(ctx, msgs, opt) })
-	if err == nil && onToken != nil {
-		onToken(out)
-	}
-	return out, err
+	return withRetry(ctx, "openai", opt, func(ctx context.Context) (string, error) { return o.complete(ctx, msgs, opt) })
 }
 
 func (o *OpenAI) complete(ctx context.Context, msgs []Message, opt ChatOptions) (string, error) {

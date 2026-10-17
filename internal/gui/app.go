@@ -218,8 +218,13 @@ func (a *App) Ask(id, question, scope string) error {
 	a.mu.Unlock()
 	go func() {
 		defer cancel()
-		ans, err := ask.Ask(ctx, a.eng, sc, question, 8, nil, func(t string) {
-			a.emit("ask:token", map[string]string{"id": id, "text": t})
+		ans, err := ask.AskWith(ctx, a.eng, sc, question, 8, nil, ask.Hooks{
+			Found: func(f *ask.Answer) {
+				a.emit("ask:found", map[string]any{"id": id, "sources": f.Sources, "threads": f.Threads})
+			},
+			Token: func(t string) {
+				a.emit("ask:token", map[string]string{"id": id, "text": t})
+			},
 		})
 		res := map[string]any{"id": id}
 		if err != nil {

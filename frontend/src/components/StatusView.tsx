@@ -9,7 +9,7 @@ export function StatusView({ status }: { status: AppStatus | null }) {
   const s = status.stats;
   const chunkTotal = s ? levels.reduce((n, l) => n + (s.ChunkLevels[l] ?? 0), 0) : 0;
   return (
-    <div className="view status">
+    <div className="view status-page">
       {status.error && <div className="error">{status.error}</div>}
       <section className="tiles">
         <Tile n={s?.ItemsByKind.meeting ?? 0} label="meetings" />

@@ -54,11 +54,11 @@ func (o *OpenAI) resolveKey() (string, error) {
 	return o.key, nil
 }
 
-func (o *OpenAI) completeHosted(ctx context.Context, msgs []Message, opt ChatOptions) (string, error) {
+func (o *OpenAI) completeHosted(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error) {
 	maxTokens := max(opt.MaxTokens, hostedMinTokens)
 	var lastErr error
 	for try := 0; try < hostedTries; try++ {
-		out, finish, err := o.stream(ctx, msgs, opt, maxTokens)
+		out, finish, err := o.stream(ctx, msgs, opt, maxTokens, onToken)
 		switch {
 		case ctx.Err() != nil:
 			return "", ctx.Err()
@@ -144,7 +144,9 @@ func (o *OpenAI) record(u usage, finish string, took time.Duration) {
 	}
 }
 
-func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, maxTokens int) (string, string, error) {
+// stream sends one request and reads the reply as it streams, passing
+// each piece of text to onToken (nil: none).
+func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, maxTokens int, onToken func(string)) (string, string, error) {
 	if err := o.checkSpend(); err != nil {
 		return "", "", err
 	}
@@ -156,6 +158,18 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 	}
 	if opt.TopP > 0 {
 		body["top_p"] = opt.TopP
+	}
+	if maxTokens <= 0 {
+		delete(body, "max_tokens")
+	}
+	wall := hostedWall
+	if o.Local() {
+		// llama-server: the same settings as a call that isn't streamed.
+		body["chat_template_kwargs"] = map[string]any{"enable_thinking": opt.Think}
+		if opt.TopK > 0 {
+			body["top_k"] = opt.TopK
+		}
+		wall = max(wall, opt.Timeout)
 	}
 	if e := cmpOr(opt.Effort, o.effort); e != "" {
 		body["reasoning_effort"] = e
@@ -171,7 +185,7 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 		body["response_format"] = map[string]any{"type": "json_object"}
 	}
 	b, _ := json.Marshal(body)
-	cctx, cancel := context.WithTimeout(ctx, hostedWall)
+	cctx, cancel := context.WithTimeout(ctx, wall)
 	defer cancel()
 	req, err := http.NewRequestWithContext(cctx, "POST", o.URL+"/v1/chat/completions", bytes.NewReader(b))
 	if err != nil {
@@ -249,6 +263,9 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 			}
 			for _, c := range ev.Choices {
 				text.WriteString(c.Delta.Content)
+				if onToken != nil && c.Delta.Content != "" {
+					onToken(c.Delta.Content)
+				}
 				if c.FinishReason != "" {
 					finish = c.FinishReason
 				}
@@ -256,7 +273,7 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 		case <-time.After(hostedChunkWait):
 			return "", "", fmt.Errorf("openai: no reply chunk for %s", hostedChunkWait)
 		case <-cctx.Done():
-			return "", "", fmt.Errorf("openai: reply still streaming after %s", hostedWall)
+			return "", "", fmt.Errorf("openai: reply still streaming after %s", wall)
 		}
 	}
 }

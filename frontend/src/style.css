@@ -535,3 +535,10 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .prep-subject .topic-label { font-size: 13.5px; text-align: left; }
 .prep-open li { margin-bottom: 3px; }
 @media (max-width: 560px) { .prep-pick { grid-template-columns: 1fr; } }
+.tl-grow.foldable { cursor: pointer; }
+.tl-grow.foldable:hover .tl-hit { fill: var(--surface-2); }
+.tl-fold { display: flex; gap: 12px; align-items: baseline; margin: 4px 0; }
+.found { display: grid; gap: 4px; margin: 6px 0; }
+.found-row { text-align: left; padding: 6px 8px; border-radius: 7px; background: var(--bg-2); font-size: 12.5px; }
+.found-row:hover { background: var(--surface-2); }
+.found-now { color: var(--text-dim); font-size: 12px; margin-top: 2px; }

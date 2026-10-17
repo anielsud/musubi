@@ -29,6 +29,9 @@ export function AskView({ onOpen, scope, onTopic }: { onOpen: (h: Hit, scope: st
 
   useEffect(() => {
     const offs = [
+      on<{ id: string; sources?: Hit[]; threads?: ThreadRef[] }>('ask:found', (r) =>
+        setTurns((ts) => ts.map((t) => (t.id === r.id ? { ...t, sources: r.sources ?? [], threads: r.threads ?? [] } : t))),
+      ),
       on<{ id: string; text: string }>('ask:token', ({ id, text }) =>
         setTurns((ts) => ts.map((t) => (t.id === id ? { ...t, text: t.text + text } : t))),
       ),
@@ -71,6 +74,17 @@ export function AskView({ onOpen, scope, onTopic }: { onOpen: (h: Hit, scope: st
         {turns.map((t) => (
           <div key={t.id} className="turn">
             <div className="q">{t.q}{t.scope !== 'owner' && <span className="scope-pill">{t.scope}</span>}</div>
+            {!t.done && t.threads.length > 0 && (
+              <div className="found">
+                <div className="dim small">Where these stand, while the answer is written:</div>
+                {t.threads.map((th) => (
+                  <button key={th.id} className="found-row" onClick={() => onTopic(th.id)} title="Open the topic's page">
+                    <b>{th.name}</b> <span className="dim">· {fmtDate(th.asOf)}</span>
+                    {th.now && <div className="found-now">{th.now}</div>}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="a">
               {t.text ? <Answer text={t.text} hits={t.sources} onCite={(h) => onOpen(h, t.scope)} /> : !t.done && <Spinner />}
               {!t.done && t.text && <span className="caret" />}

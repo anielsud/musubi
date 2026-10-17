@@ -27,11 +27,21 @@ type Answer struct {
 	Threads []ThreadRef
 }
 
-// ThreadRef is a thread an answer drew on.
+// ThreadRef is a thread an answer drew on, with the first sentence of its
+// status: shown while the answer is written.
 type ThreadRef struct {
 	ID   int64     `json:"id"`
 	Name string    `json:"name"`
 	AsOf time.Time `json:"asOf"`
+	Now  string    `json:"now,omitempty"`
+}
+
+// Hooks follow an answer as it is made: Found when the subjects and
+// sources are known (before the model is asked), Token for each piece of
+// the answer.
+type Hooks struct {
+	Found func(*Answer)
+	Token func(string)
 }
 
 const system = `You answer questions about the user's own meetings, email and chats. Transcripts come from speech recognition and contain errors; "You" is the user.
@@ -59,6 +69,12 @@ const (
 // Ask finds what the question is about and, if a model is configured and
 // allowed to read it, writes an answer. Tokens stream to onToken.
 func Ask(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question string, k int, exclude []string, onToken func(string)) (*Answer, error) {
+	return AskWith(ctx, e, sc, question, k, exclude, Hooks{Token: onToken})
+}
+
+// AskWith is Ask with hooks for showing progress.
+func AskWith(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question string, k int, exclude []string, h Hooks) (*Answer, error) {
+	onToken := h.Token
 	llm := e.AskLLM
 	// A hosted model reads only what the cloud scope allows, unless the
 	// owner allows hosted models to read meeting text.
@@ -98,6 +114,9 @@ func Ask(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question s
 			n := add(h)
 			fmt.Fprintf(&ctxt, "[%d] %s — %s (%s)\n%s\n\n", n, h.OccurredAt.Format("Mon 2 Jan 2006"), h.Title, h.Kind, clip(h.Text, 1800))
 		}
+	}
+	if h.Found != nil {
+		h.Found(ans)
 	}
 	if llm == nil {
 		return ans, nil
@@ -167,7 +186,7 @@ func threadContext(e *engine.Engine, sc sensitivity.Scope, vec []float32, questi
 		if st, ok := statuses[t.ID]; ok {
 			var s knowledge.Status
 			if json.Unmarshal([]byte(st.Body), &s) == nil {
-				ref.AsOf = st.AsOf
+				ref.AsOf, ref.Now = st.AsOf, knowledge.FirstSentence(knowledge.StripIDs(s.Now))
 				fmt.Fprintf(b, "Status as of %s:\n%s\n", st.AsOf.Format("2 Jan 2006"), statusText(s, cite))
 			}
 		}
@@ -388,7 +407,11 @@ func personContext(e *engine.Engine, sc sensitivity.Scope, question string, b *s
 		if s.Status != nil {
 			fmt.Fprintf(b, "Status as of %s:\n%s", s.AsOf.Format("2 Jan 2006"), statusText(*s.Status, c))
 		}
-		ans.Threads = append(ans.Threads, ThreadRef{ID: s.ID, Name: s.Name, AsOf: s.AsOf})
+		ref := ThreadRef{ID: s.ID, Name: s.Name, AsOf: s.AsOf}
+		if s.Status != nil {
+			ref.Now = knowledge.FirstSentence(knowledge.StripIDs(s.Status.Now))
+		}
+		ans.Threads = append(ans.Threads, ref)
 	}
 	b.WriteString("\n")
 	return nil

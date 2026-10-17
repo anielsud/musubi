@@ -72,3 +72,28 @@ func TestPrep(t *testing.T) {
 		t.Errorf("the later Juniper count, said without her, wasn't suggested: %+v", v.Share)
 	}
 }
+
+func TestPersonIn(t *testing.T) {
+	mk := func(id string, names ...string) item.Item {
+		it := item.Item{ID: id, Kind: item.KindMeeting}
+		for _, n := range names {
+			it.Participants = append(it.Participants, item.Participant{Name: n})
+		}
+		return it
+	}
+	items := []item.Item{
+		mk("1", "Ruiz, Dana", "Lee Chen", "Sam Owner"), mk("2", "Dana Ruiz", "Lee Chen"),
+		mk("3", "Lee Park"), mk("4", "Lee Park"), mk("5", "Ana Once"),
+	}
+	for q, want := range map[string]string{
+		"what's open with dana?":                "Dana Ruiz",
+		"prep me for my 1:1 with Lee Chen":      "Lee Chen",
+		"what's open with lee?":                 "", // two Lees
+		"what should I raise with ana":          "", // met once
+		"what's open between me and sam owner?": "",
+	} {
+		if got := PersonIn(q, items, "Sam Owner"); got != want {
+			t.Errorf("PersonIn(%q) = %q, want %q", q, got, want)
+		}
+	}
+}

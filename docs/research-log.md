@@ -1920,3 +1920,80 @@ Spend in this round:
   together: they share a tag prefix, and their split is estimated from
   the ledger growth while September ran alone.
 
+
+## 2026-10-17 (evening): Thread statuses, Ask from threads, meeting prep
+
+Ask used to search raw passages, take the top 8, and have the local model
+summarise them. It never saw threads or what is current, so "where are we
+on X" got whichever old passages matched the words best.
+
+**What changed** (architecture.md, "Thread statuses", "Ask", "Prep"):
+- each thread gets a written status, rewritten when its items change;
+- Ask answers from the matching threads' statuses and current items plus
+  passages;
+- questions about a person go through the prep data;
+- the topic page leads with the status;
+- the Prep tab gathers what to bring to a meeting.
+
+**Statuses** (GLM-5.3-Flash, hosted):
+- ELT year: 275 threads, 2 minutes, $0.18;
+- September: 519 statuses for 484 threads, 3½ minutes.
+
+On reading, the statuses were specific (figures, owners, due dates,
+overdue promises) and flagged conflicts between items.
+
+**Question set** (private, testdata/private/ask-eval/):
+- 28 questions on September, drafted by Opus from the transcripts: 10
+  status, 5 change, 7 lookup, 4 prep, 2 the record can't answer;
+- each has a reference answer as of 30 Sept and the facts an answer must
+  give.
+
+Answered with the local Qwen3.8-27B on llama-server, then graded blind by
+Opus (tools/ask-eval/grade.md):
+
+| | Passages only (before) | Threads + passages |
+|---|---|---|
+| Wins | 5 | 22 (1 tie) |
+| Must facts | 32/105 | 63/105 |
+| Current position | 13/28 | 24/28 |
+| Wrong statements | 10 | 13 |
+| Invented | 2 | 0 |
+| Useful (0–3) | 1.54 | 2.46 |
+| Says when the record has no answer | 2/2 | 2/2 |
+
+By type (must facts, before → after):
+
+| Type | Before | After |
+|---|---|---|
+| Status | 11/40 | 24/40 |
+| Change | 3/21 | 15/21 |
+| Lookup | 12/22 | 16/22 |
+| Prep | 4/18 | 4/18 |
+
+Prep questions ("what's open with X?") now go through the prep data.
+That moved them from 5/18 to 8/18 must facts on a second grading, winning
+3 of 4. They are still the weakest type: what is open in a 1:1 sits in
+threads the prep ranking doesn't always reach.
+
+Of the wrong statements, two came from a status leading with an earlier
+recommendation (a migration recommendation, a hiring shortlist).
+
+**Speed.** With the local 27B, an answer takes about a minute; prep-style
+answers take about two (10–15k tokens of context). Two questions at a
+time is fine; eight at once timed out at the earlier 2-minute limit, now
+5 minutes.
+
+**Sharing suggestions** (prep).
+- The first version suggested an item from the reduction plan to
+  sharing with VPs: the labeller hadn't marked that line.
+- The fix leaves out any thread where 15% or more of the items are
+  labelled. On September:
+  - people subjects (the reduction plan, a resignation, the SRE
+    reorganisation) ran 38–49% labelled;
+  - most work subjects ran 4–6%;
+  - a deal and a team build-out ran about 25%, and are left out.
+
+**Also fixed.** The app crashed opening September: a bare "'s" in a
+statement made an empty word, and indexing it panicked on a background
+goroutine. The app couldn't start, as it reopens the last dataset. The
+live index now turns a panic into an error.

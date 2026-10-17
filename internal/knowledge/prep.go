@@ -400,3 +400,49 @@ func plural(n int, w string) string {
 	}
 	return strconv.Itoa(n) + " " + w + "s"
 }
+
+// PersonIn finds the person a question names among the people the owner
+// has met at least twice: a full name, or a first name only one of them
+// has. "" when none, or when it is ambiguous.
+func PersonIn(question string, items []item.Item, owner string) string {
+	met := map[string]int{}
+	display := map[string]string{}
+	ownerKey := PrepNameKey(owner)
+	for _, it := range items {
+		seen := map[string]bool{}
+		for _, pt := range it.Participants {
+			k := PrepNameKey(participantName(pt))
+			if pt.Owner || k == "" || k == ownerKey || seen[k] || !strings.Contains(k, " ") {
+				continue
+			}
+			seen[k] = true
+			met[k]++
+			display[k] = participantName(pt)
+		}
+	}
+	q := " " + PrepNameKey(question) + " "
+	firsts := map[string][]string{}
+	for k, n := range met {
+		if n < 2 {
+			continue
+		}
+		if strings.Contains(q, " "+k+" ") {
+			return display[k]
+		}
+		f := strings.Fields(k)[0]
+		firsts[f] = append(firsts[f], k)
+	}
+	var found []string
+	for f, ks := range firsts {
+		if len(f) >= 3 && strings.Contains(q, " "+f+" ") {
+			if len(ks) > 1 {
+				return "" // two people share the name
+			}
+			found = append(found, ks[0])
+		}
+	}
+	if len(found) != 1 {
+		return ""
+	}
+	return display[found[0]]
+}

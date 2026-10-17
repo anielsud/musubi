@@ -51,6 +51,9 @@ const (
 	askPassages     = 6  // passages alongside threads
 	askPassagesOnly = 8  // passages when no thread is used
 	statusCites     = 3  // sources cited per status point
+	// askTimeout bounds an answer: a local model reads 10k tokens of
+	// context first, slowly when other requests share it.
+	askTimeout = 5 * time.Minute
 )
 
 // Ask finds what the question is about and, if a model is configured and
@@ -73,6 +76,9 @@ func Ask(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question s
 		if err := threadContext(e, sc, vec, question, &ctxt, ans, add); err != nil {
 			return nil, err
 		}
+	}
+	if err := personContext(e, sc, question, &ctxt, ans, add); err != nil {
+		return nil, err
 	}
 	np := askPassages
 	if len(ans.Threads) == 0 {
@@ -107,7 +113,7 @@ func Ask(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question s
 		{Role: "system", Content: system},
 		{Role: "user", Content: "Today: " + time.Now().Format("Mon 2 Jan 2006") + "\n\n" + ctxt.String() + "Question: " + question},
 	}
-	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.2, MaxTokens: 1200, Context: 16384}, onToken)
+	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.2, MaxTokens: 1200, Context: 16384, Timeout: askTimeout}, onToken)
 	if err != nil {
 		return ans, err
 	}
@@ -318,10 +324,72 @@ func PrepBrief(ctx context.Context, e *engine.Engine, v *knowledge.PrepView, onT
 		}
 	}
 	msgs := []provider.Message{{Role: "system", Content: prepSystem}, {Role: "user", Content: b.String() + "\nWrite the talking points."}}
-	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.3, MaxTokens: 1200, Context: 16384}, onToken)
+	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.3, MaxTokens: 1200, Context: 16384, Timeout: askTimeout}, onToken)
 	if err != nil {
 		return ans, err
 	}
 	ans.Text = strings.TrimSpace(text)
 	return ans, nil
+}
+
+// personWords mark a question about what is between the owner and someone:
+// "what's open with Dana", "what should I raise with Lee at our 1:1".
+var personWords = regexp.MustCompile(`(?i)\b(open|raise|prep|prepare|1:1|1-1|one on one|sync|owe|owes|discuss|bring up|between)\b`)
+
+// personContext adds, for a question about someone the owner meets, what
+// is open between them and the subjects they are part of (knowledge.Prep).
+func personContext(e *engine.Engine, sc sensitivity.Scope, question string, b *strings.Builder, ans *Answer, add func(store.Hit) int) error {
+	if !personWords.MatchString(question) {
+		return nil
+	}
+	items, err := e.Store.AllItems()
+	if err != nil {
+		return err
+	}
+	who := knowledge.PersonIn(question, items, e.Cfg.Owner.Name)
+	if who == "" {
+		return nil
+	}
+	v, err := knowledge.Prep(e.Store, sc, knowledge.PrepRequest{People: []string{who}}, items, e.Cfg.Owner.Name)
+	if err != nil || len(v.Subjects) == 0 {
+		return err
+	}
+	num := map[int64]int{}
+	cite := func(its []store.ThreadItem) func(int64) string {
+		return func(id int64) string {
+			if n, ok := num[id]; ok {
+				return fmt.Sprintf("[%d]", n)
+			}
+			for _, it := range its {
+				if it.ID == id {
+					num[id] = add(itemHit(it))
+					return fmt.Sprintf("[%d]", num[id])
+				}
+			}
+			return ""
+		}
+	}
+	fmt.Fprintf(b, "About %s (%d meetings with them in the record):\n", who, v.Met)
+	if len(v.Open) > 0 {
+		b.WriteString("Open between you:\n")
+		for _, o := range v.Open[:min(len(v.Open), 8)] {
+			c := cite(o.Items)
+			var refs string
+			for _, it := range o.Items[:min(len(o.Items), statusCites)] {
+				refs += c(it.ID)
+			}
+			fmt.Fprintf(b, "- %s (owner: %s; due: %s; subject: %s) %s\n", knowledge.StripIDs(o.Text), o.Who, o.Due, o.Name, refs)
+		}
+	}
+	b.WriteString("Their subjects:\n")
+	for _, s := range v.Subjects[:min(len(v.Subjects), 4)] {
+		c := cite(s.Items)
+		fmt.Fprintf(b, "Subject: %s (%s)\n", s.Name, s.Why)
+		if s.Status != nil {
+			fmt.Fprintf(b, "Status as of %s:\n%s", s.AsOf.Format("2 Jan 2006"), statusText(*s.Status, c))
+		}
+		ans.Threads = append(ans.Threads, ThreadRef{ID: s.ID, Name: s.Name, AsOf: s.AsOf})
+	}
+	b.WriteString("\n")
+	return nil
 }

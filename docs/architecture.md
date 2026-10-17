@@ -211,13 +211,35 @@ cold lane like any other source.
   Detecting the owner's own screen share is not built (Tomoe can see a
   meeting app's sharing state but doesn't send it); restricted and HR cards
   are collapsed to their title meanwhile.
-- **Ask** (`internal/ask`): scoped hybrid retrieval, then the local model
-  answers citing excerpts; citations open the source under the same scope.
+- **Ask** (`internal/ask`): the threads a question is about (thread
+  finder, below) give their written status and latest current items;
+  scoped hybrid passage search adds up to six passages (eight when no
+  thread fits). The `[ask] model` (else `[llm]`) answers, leading with
+  where things stand and citing items and passages; the answer names the
+  subjects it drew on, which open their topic pages. `ask.threads = false`
+  answers from passages alone, as before. A hosted model reads only the
+  cloud scope unless `knowledge.allow_hosted`.
+- **Prep** (`knowledge.Prep`, `internal/gui/prep.go`): pick an upcoming
+  calendar event or "the next one" of a recent meeting (or name people).
+  From its attendees: their subjects (threads where they hold items,
+  weighted by recency and by meetings with them), each with its status
+  and what is new since the last meeting; what is open between you (the
+  statuses' open points owned by them or you); and what is worth sharing
+  (current items on their subjects said since, in meetings none of them
+  attended). Sharing suggestions never include an item labelled with a
+  category or restricted, nor anything from a thread where 15% or more of
+  the items are (the labeller misses about a quarter of a sensitive
+  subject's items). "Draft" writes talking points with the Ask model.
+  `musubi prep <item> [--brief]` is the same from the command line.
 - **Explore**:
   - **Topics**: the topic map in four views, picked with small buttons
     under it: Graph, Meaning, Timeline and Clusters (see "Topic map").
     Clicking a topic opens its page; a filter box and the cluster chips
-    narrow what is lit.
+    narrow what is lit. Beside them, "Recently moved" lists topics by
+    their latest item, each with the first sentence of its status. A
+    thread's page leads with its status ("Where it stands", with what
+    changed and what is open, each cited), then its current items, with
+    what was replaced folded away.
   - **Search**: passage search, entity lookup, and a radial graph of an
     entity's connections with its timeline.
   - **Compare**: this dataset's topics against another's.
@@ -575,6 +597,33 @@ Model settings: Qwen's non-thinking sampling (temperature 0.7, top-p 0.8,
 top-k 20) and token caps of 6k (assign) and 3k (reconcile). At temperature
 0 the local 27B looped to 16k tokens on long JSON replies. On the M5 Pro
 four ELT meetings take 34 minutes (8 parallel slots).
+
+### Thread statuses (`knowledge.status`)
+
+After threading, each thread whose items changed gets a written status
+(`knowledge.WriteStatus`, version `ts1`): `now` (where it stands as of its
+latest item, leading with the decision, number, blocker or date), up to
+four changes in the month before, what is open (owner, due date), and
+who drives it, each citing the statements it rests on. It is written from
+the thread's latest 60 current items and its latest 30 retired ones said
+within 60 days of its newest, and rewritten only when that input changes
+(`thread_status.input_hash`). A status carries the most sensitive label of
+what it was written from. When some of a thread's items are hidden from a
+shared screen, a second status ("open") is written from the rest, and a
+scope gets the fullest one it may see. The model is
+`knowledge.status.model` (else the threads model; hosted only with
+`knowledge.allow_hosted`). On GLM-5.3-Flash: 275 ELT-year threads in 2
+minutes for $0.18; September's 519 in 3½ minutes.
+
+`knowledge.on_update` (default on) runs the knowledge stages after the
+app's Update, so new meetings are threaded and their threads' statuses
+rewritten without the command line.
+
+The thread finder (`knowledge.ThreadFinder`, cached until the knowledge
+changes) scores each thread whose name the scope may see by the better of
+its centroid and its three best-matching statements, plus a little for
+each question word in its name, and returns up to three within 0.08 of
+the best.
 
 ### Topic map (`Views.Map`, computed when read)
 

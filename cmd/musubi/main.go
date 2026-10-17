@@ -586,6 +586,7 @@ func prepCmd() *cobra.Command {
 func askCmd() *cobra.Command {
 	var scope string
 	var k int
+	var asJSON, passagesOnly bool
 	c := &cobra.Command{
 		Use:   "ask <question>",
 		Short: "Answer a question from the knowledge base, citing sources",
@@ -600,9 +601,20 @@ func askCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			a, err := ask.Ask(cmd.Context(), e, sc, strings.Join(args, " "), k, nil, func(t string) { fmt.Print(t) })
+			if passagesOnly {
+				e.Cfg.Ask.Threads = false
+			}
+			onToken := func(t string) { fmt.Print(t) }
+			if asJSON {
+				onToken = nil
+			}
+			t0 := time.Now()
+			a, err := ask.Ask(cmd.Context(), e, sc, strings.Join(args, " "), k, nil, onToken)
 			if err != nil {
 				return err
+			}
+			if asJSON {
+				return json.NewEncoder(os.Stdout).Encode(map[string]any{"text": a.Text, "sources": a.Sources, "threads": a.Threads, "seconds": time.Since(t0).Seconds()})
 			}
 			if len(a.Threads) > 0 {
 				fmt.Println("\n\nsubjects:")
@@ -619,6 +631,8 @@ func askCmd() *cobra.Command {
 	}
 	c.Flags().StringVar(&scope, "scope", "owner", "who the answer is for")
 	c.Flags().IntVarP(&k, "k", "k", 8, "passages to read")
+	c.Flags().BoolVar(&asJSON, "json", false, "print the answer, sources and threads as JSON")
+	c.Flags().BoolVar(&passagesOnly, "passages-only", false, "answer from passages alone (ask.threads = false)")
 	return c
 }
 

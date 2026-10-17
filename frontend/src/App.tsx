@@ -3,12 +3,13 @@ import { api, on } from './api';
 import type { AppStatus, DatasetView, Hit, LiveStatus } from './types';
 import { LiveView } from './components/LiveView';
 import { AskView } from './components/AskView';
+import { PrepView } from './components/PrepView';
 import { ExploreView } from './components/ExploreView';
 import { StatusView } from './components/StatusView';
 import { SourceDrawer, type SourceRef } from './components/SourceDrawer';
 import { DiagPanel } from './components/DiagPanel';
 
-type View = 'live' | 'ask' | 'explore' | 'status';
+type View = 'live' | 'ask' | 'prep' | 'explore' | 'status';
 
 export function App() {
   const [view, setView] = useState<View>('live');
@@ -53,6 +54,8 @@ export function App() {
   const scope = sharing ? 'shared-screen' : 'owner';
   const openHit = (h: Hit, sc: string) => setSource({ itemId: h.itemId, chunkId: h.chunkId, scope: sc });
   const openEntity = (id: string) => { setFocus(id); setView('explore'); };
+  const [topicReq, setTopicReq] = useState<{ id: number; n: number } | null>(null);
+  const openTopic = (id: number) => { setFocus(null); setTopicReq({ id, n: Date.now() }); setView('explore'); };
 
   return (
     <div className={'app' + (diag ? ' with-diag' : '')}>
@@ -80,7 +83,7 @@ export function App() {
       <DatasetPicker onError={setToast} />
 
       <nav className="tabs" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
-        {(['live', 'ask', 'explore', 'status'] as View[]).map((v) => (
+        {(['live', 'ask', 'prep', 'explore', 'status'] as View[]).map((v) => (
           <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
             {v === 'live' && live?.mode === 'live' && <span className="pulse" />}
             {v}
@@ -89,10 +92,11 @@ export function App() {
       </nav>
 
       <main>
-        <div hidden={view !== 'live'}><LiveView status={live} onOpen={openHit} onEntity={openEntity} /></div>
-        <div hidden={view !== 'ask'}><AskView onOpen={openHit} scope={scope} /></div>
+        <div hidden={view !== 'live'}><LiveView status={live} onOpen={openHit} onEntity={openEntity} onTopic={openTopic} /></div>
+        <div hidden={view !== 'ask'}><AskView onOpen={openHit} scope={scope} onTopic={openTopic} /></div>
+        <div hidden={view !== 'prep'}><PrepView onOpen={openHit} scope={scope} onTopic={openTopic} /></div>
         <div hidden={view !== 'explore'}>
-          <ExploreView scope={scope} focus={focus} setFocus={setFocus} onOpen={openHit}
+          <ExploreView scope={scope} focus={focus} setFocus={setFocus} onOpen={openHit} topicReq={topicReq}
             onOpenItem={(id, sc) => setSource({ itemId: id, scope: sc })} />
         </div>
         <div hidden={view !== 'status'}><StatusView status={status} /></div>

@@ -12,9 +12,11 @@ interface Props {
   setFocus: (id: string | null) => void;
   onOpen: (h: Hit, scope: string) => void;
   onOpenItem: (itemId: string, scope: string) => void;
+  // topicReq opens a topic's page (from Ask, Live or prep).
+  topicReq?: { id: number; n: number } | null;
 }
 
-export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem }: Props) {
+export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicReq }: Props) {
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<Hit[] | null>(null);
   const [ents, setEnts] = useState<EntityRef[]>([]);
@@ -25,6 +27,10 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem }: Prop
   const [mode, setMode] = useState<'topics' | 'search' | 'compare'>('topics');
   const [lastQ, setLastQ] = useState('');
   const openSource = (itemId: string, chunkId: number) => onOpen({ itemId, chunkId } as unknown as Hit, scope);
+
+  useEffect(() => {
+    if (topicReq) setMode('topics');
+  }, [topicReq]);
 
   useEffect(() => {
     if (!focus) {
@@ -64,7 +70,7 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem }: Prop
         <button className={mode === 'search' ? 'on' : ''} onClick={() => setMode('search')}>Search</button>
         <button className={mode === 'compare' ? 'on' : ''} onClick={() => { setMode('compare'); setFocus(null); }} title="Line this dataset's topics up with another's">Compare</button>
       </div>
-      {mode === 'topics' && <TopicsPane scope={scope} onSource={openSource} />}
+      {mode === 'topics' && <TopicsPane scope={scope} onSource={openSource} want={topicReq} />}
       {mode === 'compare' && <CompareView scope={scope} />}
       {mode === 'search' && <>
       <form className="lookup" onSubmit={(e) => { e.preventDefault(); run(q); }}>

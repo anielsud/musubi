@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDate } from '../api';
-import type { ClaimView, KnowledgeCounts, Statement, TopicMapData, TopicView } from '../types';
+import type { ClaimView, KnowledgeCounts, Statement, StatusPoint, ThreadDetail, ThreadItem, TopicMapData, TopicView } from '../types';
 import { Empty, LabelBadge, Spinner } from './common';
 import { TopicViews, clusterColor, useWide } from './TopicViews';
 
 // Status presentation: what's live first, then what changed.
-export const statusOrder = ['contested', 'established', 'likely', 'open', 'speculative', 'uncertain', 'answered', 'superseded', 'disproven', 'stale'];
+export const statusOrder = ['contested', 'established', 'likely', 'open', 'speculative', 'uncertain', 'answered', 'done', 'superseded', 'disproven', 'stale'];
 const statusNote: Record<string, string> = {
   established: 'independently or in writing confirmed',
   likely: 'stated, not yet confirmed independently',
@@ -14,11 +14,12 @@ const statusNote: Record<string, string> = {
   uncertain: 'weak evidence',
   open: 'an open question',
   answered: 'a question that was answered',
+  done: 'a commitment or plan that was carried out',
   superseded: 'replaced by something later',
   disproven: 'contradicted, or marked false',
   stale: 'nothing has reinforced it lately',
 };
-const history = new Set(['superseded', 'disproven', 'stale', 'answered']);
+const history = new Set(['superseded', 'disproven', 'stale', 'answered', 'done']);
 const relKinds: [string, string][] = [
   ['shared', 'Shares statements'],
   ['same', 'Same customer or project'],
@@ -38,13 +39,17 @@ interface NavProps {
 
 // TopicsPane: the topic views and the list, or a topic's page. Wide, the
 // views stay on the left and the list or page opens beside them.
-export function TopicsPane({ scope, onSource }: NavProps) {
+export function TopicsPane({ scope, onSource, want }: NavProps & { want?: { id: number; n: number } | null }) {
   const wide = useWide();
   const [counts, setCounts] = useState<KnowledgeCounts | null>(null);
   const [map, setMap] = useState<TopicMapData | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [filter, setFilter] = useState('');
   const [err, setErr] = useState('');
+
+  useEffect(() => {
+    if (want) setOpen(want.id);
+  }, [want]);
 
   useEffect(() => {
     api.knowledgeCounts().then(setCounts).catch(() => {});
@@ -76,16 +81,19 @@ export function TopicsPane({ scope, onSource }: NavProps) {
   );
   const list = (
     <>
-      <div className="section-head"><span>Most recent</span><span>{counts ? `${counts.claims} claims · ${counts.statements} statements` : ''}</span></div>
+      <div className="section-head"><span>Recently moved</span><span>{counts ? `${counts.claims} claims · ${counts.statements} statements` : ''}</span></div>
       <div className="topic-list">
         {byRecent.slice(0, wide ? 200 : 60).map((t) => (
-          <button key={t.id} className="topic-row" onClick={() => setOpen(t.id)}>
-            <span className="cl-dot" style={{ background: clusterColor(t.cluster) }} />
-            <span className={'topic-label' + (t.labelHidden ? ' hidden-label' : '')}>{t.label}</span>
-            <span className="topic-meta">
-              {t.statuses.contested ? <span className="status st-contested">{t.statuses.contested} contested</span> : null}
-              {t.claims} claims · {fmtDate(t.last)}
+          <button key={t.id} className={'topic-row' + (t.now ? ' with-now' : '')} onClick={() => setOpen(t.id)}>
+            <span className="trow-line">
+              <span className="cl-dot" style={{ background: clusterColor(t.cluster) }} />
+              <span className={'topic-label' + (t.labelHidden ? ' hidden-label' : '')}>{t.label}</span>
+              <span className="topic-meta">
+                {t.statuses.contested ? <span className="status st-contested">{t.statuses.contested} contested</span> : null}
+                {t.claims} claims · {fmtDate(t.last)}
+              </span>
             </span>
+            {t.now && <span className="topic-now">{t.now}</span>}
           </button>
         ))}
       </div>
@@ -130,14 +138,20 @@ function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope:
         <div className="people"><span className="dim">who: </span>{t.people!.slice(0, 8).map((p) => `${p.name} (${p.claims})`).join(' · ')}</div>
       )}
 
-      <div className="section-head"><span>What's believed now</span></div>
-      {live.length === 0 && <Empty>Nothing current; see history.</Empty>}
-      {live.map((c) => <ClaimCard key={c.id} c={c} scope={scope} open={claimOpen === c.id} onToggle={() => setClaimOpen(claimOpen === c.id ? null : c.id)} onSource={onSource} onChanged={reload} />)}
+      {t.thread ? (
+        <ThreadSection d={t.thread} onSource={onSource} />
+      ) : (
+        <>
+          <div className="section-head"><span>What's believed now</span></div>
+          {live.length === 0 && <Empty>Nothing current; see history.</Empty>}
+          {live.map((c) => <ClaimCard key={c.id} c={c} scope={scope} open={claimOpen === c.id} onToggle={() => setClaimOpen(claimOpen === c.id ? null : c.id)} onSource={onSource} onChanged={reload} />)}
+        </>
+      )}
 
-      {past.length > 0 && (
+      {!t.thread && past.length > 0 && (
         <>
           <button className="section-head link-head" onClick={() => setShowHistory(!showHistory)}>
-            <span>{showHistory ? '▾' : '▸'} History: superseded, disproven, answered, stale ({past.length})</span>
+            <span>{showHistory ? '▾' : '▸'} History: superseded, disproven, answered, done, stale ({past.length})</span>
           </button>
           {showHistory && past.map((c) => <ClaimCard key={c.id} c={c} scope={scope} open={claimOpen === c.id} onToggle={() => setClaimOpen(claimOpen === c.id ? null : c.id)} onSource={onSource} onChanged={reload} />)}
         </>
@@ -172,6 +186,119 @@ function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope:
         </>
       )}
     </div>
+  );
+}
+
+// ThreadSection: a thread's written status, then its current items, with
+// what was replaced folded away.
+function ThreadSection({ d, onSource }: { d: ThreadDetail; onSource: (itemId: string, chunkId: number) => void }) {
+  const [showRetired, setShowRetired] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+  const all = [...(d.current ?? []), ...(d.retired ?? [])];
+  const byId = new Map(all.map((it) => [it.id, it]));
+  const cur = d.current ?? [];
+  const retired = d.retired ?? [];
+  const st = d.status;
+  return (
+    <>
+      {st ? (
+        <section className="thread-status">
+          <div className="section-head">
+            <span>Where it stands</span>
+            <span className="dim">as of {fmtDate(d.asOf)}{d.partial ? ' · from what this view may show' : ''}</span>
+          </div>
+          <p className="status-now">
+            <Cited text={st.now} byId={byId} onSource={onSource} />
+            <Refs ids={st.now_ids} byId={byId} onSource={onSource} />
+          </p>
+          {(st.changed?.length ?? 0) > 0 && (
+            <>
+              <div className="status-head">Changed recently</div>
+              <ul className="status-list">{st.changed!.map((p, i) => <PointRow key={i} p={p} byId={byId} onSource={onSource} lead={p.date} />)}</ul>
+            </>
+          )}
+          {(st.open?.length ?? 0) > 0 && (
+            <>
+              <div className="status-head">Open</div>
+              <ul className="status-list">{st.open!.map((p, i) => <PointRow key={i} p={p} byId={byId} onSource={onSource} tail={[p.who, p.due && 'due ' + p.due].filter(Boolean).join(' · ')} />)}</ul>
+            </>
+          )}
+        </section>
+      ) : (
+        <div className="dim small">No written status yet: run <code>musubi knowledge</code> to write one.</div>
+      )}
+      <div className="section-head"><span>Current ({cur.length})</span></div>
+      {cur.length === 0 && <Empty>Nothing current; see what was replaced.</Empty>}
+      {(showAll ? cur : cur.slice(0, 12)).map((it) => <ItemRow key={it.id} it={it} onSource={onSource} />)}
+      {cur.length > 12 && !showAll && <button className="link" onClick={() => setShowAll(true)}>show all {cur.length}</button>}
+      {retired.length > 0 && (
+        <>
+          <button className="section-head link-head" onClick={() => setShowRetired(!showRetired)}>
+            <span>{showRetired ? '▾' : '▸'} Replaced, done or answered ({retired.length})</span>
+          </button>
+          {showRetired && retired.map((it) => <ItemRow key={it.id} it={it} onSource={onSource} />)}
+        </>
+      )}
+    </>
+  );
+}
+
+// Cited turns the status writer's inline ids, "(5435)" or "[12, 14]", into
+// chips that open the source.
+export function Cited({ text, byId, onSource }: { text: string; byId: Map<number, ThreadItem>; onSource: (itemId: string, chunkId: number) => void }) {
+  const parts: React.ReactNode[] = [];
+  const re = /\s*[(\[]\s*(\d+(?:\s*,\s*\d+)*)\s*[)\]]/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text))) {
+    const ids = m[1].split(',').map((x) => parseInt(x.trim(), 10));
+    if (!ids.some((id) => byId.has(id))) continue;
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    parts.push(<Refs key={m.index} ids={ids} byId={byId} onSource={onSource} />);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
+export function Refs({ ids, byId, onSource }: { ids: number[] | null | undefined; byId: Map<number, ThreadItem>; onSource: (itemId: string, chunkId: number) => void }) {
+  const its = (ids ?? []).map((id) => byId.get(id)).filter((x): x is ThreadItem => !!x);
+  if (!its.length) return null;
+  return (
+    <>
+      {' '}
+      {its.slice(0, 4).map((it) => (
+        <button key={it.id} className="cite" onClick={() => onSource(it.itemId, it.chunkId)} title={`${it.itemTitle} · ${fmtDate(it.saidAt)}\n${it.text}`}>
+          {fmtDate(it.saidAt)}
+        </button>
+      ))}
+    </>
+  );
+}
+
+function PointRow({ p, byId, onSource, lead, tail }: { p: StatusPoint; byId: Map<number, ThreadItem>; onSource: (itemId: string, chunkId: number) => void; lead?: string; tail?: string }) {
+  return (
+    <li>
+      {lead && <span className="dim">{lead} · </span>}
+      <Cited text={p.text} byId={byId} onSource={onSource} />
+      {tail && <span className="dim"> — {tail}</span>}
+      <Refs ids={p.ids} byId={byId} onSource={onSource} />
+    </li>
+  );
+}
+
+function ItemRow({ it, onSource }: { it: ThreadItem; onSource: (itemId: string, chunkId: number) => void }) {
+  const who = (it.who?.length ? it.who.join(', ') : it.holder) || '';
+  return (
+    <button className={'stmt' + (it.current ? '' : ' retired')} onClick={() => onSource(it.itemId, it.chunkId)} title="Open the source passage">
+      <div className="stmt-head">
+        <b>{who || 'unknown'}</b>
+        <span className="dim">{it.kind}{it.status ? '/' + it.status : ''} · {fmtDate(it.saidAt)}</span>
+        <LabelBadge label={it.label} compact />
+      </div>
+      <div className="stmt-text">{it.text}</div>
+      <div className="stmt-src">{it.itemTitle}</div>
+    </button>
   );
 }
 

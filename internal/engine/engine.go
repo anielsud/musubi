@@ -4,6 +4,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/anielsud/musubi/internal/config"
+	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/pipeline"
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/raw"
@@ -27,6 +29,12 @@ type Engine struct {
 	Store    *store.Store
 	Embedder provider.Embedder // nil: keyword search only
 	Chat     *provider.Chat    // nil: no LLM
+	// AskLLM answers questions: [ask] model, else Chat. nil: no answers.
+	AskLLM provider.LLM
+
+	finderMu  sync.Mutex
+	finder    *knowledge.ThreadFinder // rebuilt when finderSig changes
+	finderSig string
 
 	updating sync.Mutex
 }
@@ -50,7 +58,17 @@ func Open(cfgPath string) (*Engine, error) {
 		st.Close()
 		return nil, err
 	}
-	return &Engine{Cfg: cfg, Store: st, Embedder: emb, Chat: chat}, nil
+	e := &Engine{Cfg: cfg, Store: st, Embedder: emb, Chat: chat}
+	if chat != nil {
+		e.AskLLM = chat
+	}
+	if cfg.Ask.Model.Provider != "" {
+		if e.AskLLM, err = provider.NewLLM(cfg.Ask.Model); err != nil {
+			st.Close()
+			return nil, err
+		}
+	}
+	return e, nil
 }
 
 func (e *Engine) Close() error { return e.Store.Close() }
@@ -161,4 +179,65 @@ func (e *Engine) EnsureOllama(ctx context.Context) bool {
 		}
 	}
 	return false
+}
+
+// ThreadFinder returns the index for finding the threads a question is
+// about, rebuilt when the knowledge changes. nil without an embedder.
+func (e *Engine) ThreadFinder() (*knowledge.ThreadFinder, error) {
+	if e.Embedder == nil {
+		return nil, nil
+	}
+	sig, err := e.Store.KnowledgeSignature()
+	if err != nil {
+		return nil, err
+	}
+	e.finderMu.Lock()
+	defer e.finderMu.Unlock()
+	if e.finder != nil && e.finderSig == sig {
+		return e.finder, nil
+	}
+	f, err := knowledge.NewThreadFinder(e.Store, e.Embedder.Model())
+	if err != nil {
+		return nil, err
+	}
+	e.finder, e.finderSig = f, sig
+	return f, nil
+}
+
+// Embed embeds one query, nil when there is no embedder or it fails
+// (keyword search still works).
+func (e *Engine) Embed(ctx context.Context, text string) []float32 {
+	if e.Embedder == nil {
+		return nil
+	}
+	v, err := e.Embedder.Embed(ctx, []string{text}, true)
+	if err != nil || len(v) == 0 {
+		return nil
+	}
+	return v[0]
+}
+
+// Knowledge runs the knowledge stages (extract, link, thread, statuses)
+// over what is new, as `musubi knowledge` does with no flags.
+func (e *Engine) Knowledge(ctx context.Context, log io.Writer, o pipeline.KnowledgeOptions) (pipeline.KnowledgeStats, error) {
+	var ks pipeline.KnowledgeStats
+	if e.Chat == nil || e.Embedder == nil {
+		return ks, fmt.Errorf("the knowledge layer needs [llm] and [embed] configured")
+	}
+	r, err := e.Runner(nil, log)
+	if err != nil {
+		return ks, err
+	}
+	o.LLM, o.Embedder = e.Chat, e.Embedder
+	if o.Workers == 0 {
+		o.Workers = 2
+	}
+	if pm := e.Cfg.Knowledge.Points.Model; e.Cfg.Knowledge.Extract == "points" && pm.Provider != "" && o.Extractor == nil {
+		if o.Extractor, err = provider.NewLLM(pm); err != nil {
+			return ks, err
+		}
+	}
+	e.updating.Lock()
+	defer e.updating.Unlock()
+	return r.Knowledge(ctx, o)
 }

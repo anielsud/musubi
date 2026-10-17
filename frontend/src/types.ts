@@ -245,6 +245,7 @@ export interface TopicSummary {
   claims: number;
   statuses: Record<string, number>;
   last: string;
+  now?: string;
   x: number;
   y: number;
 }
@@ -255,6 +256,44 @@ export interface TopicView extends TopicSummary {
   entities: { id: string; name: string; type: string; claims: number }[] | null;
   related: { id: number; label: string; sim: number; shared: number; kind: string; via?: string[]; unconnected: boolean }[] | null;
   events: { at: string; topicId: number; event: string; other?: number; detail: string }[] | null;
+  thread?: ThreadDetail;
+}
+
+export interface StatusPoint {
+  text: string;
+  ids: number[] | null;
+  date?: string;
+  who?: string;
+  due?: string;
+}
+
+export interface ThreadStatus {
+  now: string;
+  now_ids: number[] | null;
+  changed: StatusPoint[] | null;
+  open: StatusPoint[] | null;
+  people: string[] | null;
+}
+
+export interface ThreadItem extends Statement {
+  status?: string;
+  who?: string[] | null;
+  topic: number;
+  current: boolean;
+}
+
+export interface ThreadDetail {
+  status?: ThreadStatus;
+  asOf: string;
+  partial: boolean;
+  current: ThreadItem[] | null;
+  retired: ThreadItem[] | null;
+}
+
+export interface ThreadRef {
+  id: number;
+  name: string;
+  asOf: string;
 }
 
 export interface KnowledgeCounts {
@@ -320,4 +359,37 @@ export interface Comparison {
   counts: Record<string, number>;
   sizes: Record<string, number>;
   shared: number;
+}
+
+export interface PrepTarget {
+  itemId: string;
+  title: string;
+  at: string;
+  upcoming: boolean;
+  people: number;
+}
+
+export interface PrepRequest {
+  template?: string;
+  people?: string[];
+}
+
+export interface PrepSubject {
+  id: number;
+  name: string;
+  why: string;
+  status?: ThreadStatus;
+  asOf: string;
+  newSince: ThreadItem[] | null;
+  items: ThreadItem[] | null;
+}
+
+export interface PrepView {
+  title: string;
+  people: string[] | null;
+  since: string;
+  met: number;
+  subjects: PrepSubject[] | null;
+  open: { text: string; who?: string; due?: string; thread: number; name: string; items: ThreadItem[] | null }[] | null;
+  share: { thread: number; name: string; item: ThreadItem }[] | null;
 }

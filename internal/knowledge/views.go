@@ -1,7 +1,9 @@
 package knowledge
 
 import (
+	"encoding/json"
 	"math"
+	"regexp"
 	"sort"
 	"time"
 
@@ -127,8 +129,11 @@ type TopicSummary struct {
 	Claims   int            `json:"claims"`
 	Statuses map[string]int `json:"statuses"`
 	Last     time.Time      `json:"last"`
-	X        float64        `json:"x"`
-	Y        float64        `json:"y"`
+	// Now is the first sentence of a thread's written status, when this
+	// scope may see it.
+	Now string  `json:"now,omitempty"`
+	X   float64 `json:"x"`
+	Y   float64 `json:"y"`
 }
 
 type RelatedTopic struct {
@@ -159,6 +164,18 @@ type TopicView struct {
 	Entities  []store.EntityCount `json:"entities"`
 	Related   []RelatedTopic      `json:"related"`
 	Events    []store.TopicEvent  `json:"events"`
+	// Thread is set for a thread (grouping = "threads"): its written status
+	// and its items, current first, as the scope sees them.
+	Thread *ThreadDetail `json:"thread,omitempty"`
+}
+
+// ThreadDetail is a thread's status and items on its page.
+type ThreadDetail struct {
+	Status  *Status            `json:"status,omitempty"`
+	AsOf    time.Time          `json:"asOf"`
+	Partial bool               `json:"partial"` // the status leaves out what this scope may not see
+	Current []store.ThreadItem `json:"current"`
+	Retired []store.ThreadItem `json:"retired"`
 }
 
 // labelVisible: a label is shown only if the scope could see everything it
@@ -245,6 +262,16 @@ func (v Views) loadTopics() (*topicData, error) {
 		}
 		out = append(out, ts)
 		cents = append(cents, t.Centroid)
+	}
+	if sts, err := v.Store.ThreadStatuses(v.Scope); err == nil {
+		for i := range out {
+			if st, ok := sts[out[i].ID]; ok && !out[i].Hidden {
+				var s Status
+				if json.Unmarshal([]byte(st.Body), &s) == nil {
+					out[i].Now = firstSentence(StripIDs(s.Now))
+				}
+			}
+		}
 	}
 	xy := pca2(cents)
 	for i := range out {
@@ -352,7 +379,55 @@ func (v Views) Topic(id int64) (*TopicView, error) {
 	if tv.Events, err = v.Store.TopicEvents(id); err != nil {
 		return nil, err
 	}
-	return tv, nil
+	return tv, v.threadDetail(tv)
+}
+
+// threadDetail fills in a thread's status and items; a topic that isn't a
+// thread has no items in thread_items and is left as it is.
+func (v Views) threadDetail(tv *TopicView) error {
+	items, err := v.Store.VisibleThreadItems(v.Scope, []int64{tv.ID})
+	if err != nil || len(items[tv.ID]) == 0 {
+		return err
+	}
+	d := &ThreadDetail{}
+	its := items[tv.ID]
+	for i := len(its) - 1; i >= 0; i-- { // newest first
+		if its[i].Current {
+			d.Current = append(d.Current, its[i])
+		} else {
+			d.Retired = append(d.Retired, its[i])
+		}
+	}
+	d.AsOf = its[len(its)-1].SaidAt
+	sts, err := v.Store.ThreadStatuses(v.Scope)
+	if err != nil {
+		return err
+	}
+	if st, ok := sts[tv.ID]; ok {
+		var s Status
+		if json.Unmarshal([]byte(st.Body), &s) == nil {
+			d.Status, d.AsOf, d.Partial = &s, st.AsOf, st.Variant == "open"
+		}
+	}
+	// People from the items, when claims gave none.
+	if len(tv.People) == 0 {
+		count := map[string]int{}
+		for _, it := range its {
+			names := it.Who
+			if len(names) == 0 && it.Holder != "" {
+				names = []string{it.Holder}
+			}
+			for _, n := range names {
+				count[n]++
+			}
+		}
+		for n, c := range count {
+			tv.People = append(tv.People, PersonCount{Name: n, Claims: c})
+		}
+		sort.Slice(tv.People, func(i, j int) bool { return tv.People[i].Claims > tv.People[j].Claims })
+	}
+	tv.Thread = d
+	return nil
 }
 
 // statusRank orders a topic page: what's live first, then what changed.
@@ -435,6 +510,22 @@ func dot(a, b []float64) float64 {
 	s := 0.0
 	for i := range a {
 		s += a[i] * b[i]
+	}
+	return s
+}
+
+// inlineIDs are statement ids a status writer put in its prose: "(5435)",
+// "[5266, 5271]".
+var inlineIDs = regexp.MustCompile(`\s*[(\[]\s*\d{1,9}(?:\s*,\s*\d{1,9})*\s*[)\]]`)
+
+// StripIDs removes a status's inline statement ids.
+func StripIDs(s string) string { return inlineIDs.ReplaceAllString(s, "") }
+
+func firstSentence(s string) string {
+	for i := 0; i+1 < len(s); i++ {
+		if (s[i] == '.' || s[i] == ';') && s[i+1] == ' ' && i > 40 {
+			return s[:i+1]
+		}
 	}
 	return s
 }

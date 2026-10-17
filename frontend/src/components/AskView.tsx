@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { api, on } from '../api';
-import type { Hit } from '../types';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { api, fmtDate, on } from '../api';
+import type { Hit, ThreadRef } from '../types';
 import { CitedText, HitRow, Spinner } from './common';
 
 interface Turn {
@@ -8,19 +8,20 @@ interface Turn {
   q: string;
   text: string;
   sources: Hit[];
+  threads: ThreadRef[];
   done: boolean;
   error?: string;
   scope: string;
 }
 
 const examples = [
-  'What did we decide about patch management for banking customers?',
+  'Where do we stand on pipeline for Q4?',
+  'What changed on hiring this month?',
   'What are the open questions with Microsoft?',
-  'Who have I met with most this week, and about what?',
   'What did I agree to follow up on this week?',
 ];
 
-export function AskView({ onOpen, scope }: { onOpen: (h: Hit, scope: string) => void; scope: string }) {
+export function AskView({ onOpen, scope, onTopic }: { onOpen: (h: Hit, scope: string) => void; scope: string; onTopic: (id: number) => void }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [q, setQ] = useState('');
   const end = useRef<HTMLDivElement>(null);
@@ -31,10 +32,10 @@ export function AskView({ onOpen, scope }: { onOpen: (h: Hit, scope: string) => 
       on<{ id: string; text: string }>('ask:token', ({ id, text }) =>
         setTurns((ts) => ts.map((t) => (t.id === id ? { ...t, text: t.text + text } : t))),
       ),
-      on<{ id: string; text?: string; sources?: Hit[]; error?: string }>('ask:done', (r) =>
+      on<{ id: string; text?: string; sources?: Hit[]; threads?: ThreadRef[]; error?: string }>('ask:done', (r) =>
         setTurns((ts) =>
           ts.map((t) =>
-            t.id === r.id ? { ...t, done: true, text: r.text || t.text, sources: r.sources ?? [], error: r.error } : t,
+            t.id === r.id ? { ...t, done: true, text: r.text || t.text, sources: r.sources ?? [], threads: r.threads ?? [], error: r.error } : t,
           ),
         ),
       ),
@@ -48,7 +49,7 @@ export function AskView({ onOpen, scope }: { onOpen: (h: Hit, scope: string) => 
     const text = question.trim();
     if (!text || busy) return;
     const id = String(Date.now());
-    setTurns((ts) => [...ts, { id, q: text, text: '', sources: [], done: false, scope }]);
+    setTurns((ts) => [...ts, { id, q: text, text: '', sources: [], threads: [], done: false, scope }]);
     setQ('');
     api.ask(id, text, scope).catch((e) =>
       setTurns((ts) => ts.map((t) => (t.id === id ? { ...t, done: true, error: String(e) } : t))),
@@ -61,7 +62,7 @@ export function AskView({ onOpen, scope }: { onOpen: (h: Hit, scope: string) => 
         {turns.length === 0 && (
           <div className="ask-empty">
             <div className="idle-art" aria-hidden>問</div>
-            <p>Ask about your meetings, people and customers. Answers come from your own records, with sources, from a model running on this Mac.</p>
+            <p>Ask about your meetings, people and customers. Answers start from where each subject stands now, then the record itself, with sources.</p>
             <div className="examples">
               {examples.map((e) => <button key={e} className="chip" onClick={() => send(e)}>{e}</button>)}
             </div>
@@ -71,16 +72,21 @@ export function AskView({ onOpen, scope }: { onOpen: (h: Hit, scope: string) => 
           <div key={t.id} className="turn">
             <div className="q">{t.q}{t.scope !== 'owner' && <span className="scope-pill">{t.scope}</span>}</div>
             <div className="a">
-              {t.text ? <CitedText text={t.text} hits={t.sources} onCite={(h) => onOpen(h, t.scope)} /> : !t.done && <Spinner />}
+              {t.text ? <Answer text={t.text} hits={t.sources} onCite={(h) => onOpen(h, t.scope)} /> : !t.done && <Spinner />}
               {!t.done && t.text && <span className="caret" />}
               {t.error && <div className="error small">{t.error}</div>}
             </div>
-            {t.done && t.sources.length > 0 && (
-              <details className="sources">
-                <summary>{t.sources.length} sources</summary>
-                {t.sources.map((h, i) => <HitRow key={h.chunkId} hit={h} n={i + 1} onOpen={(x) => onOpen(x, t.scope)} />)}
-              </details>
+            {t.done && t.threads.length > 0 && (
+              <div className="subject-chips">
+                <span className="dim small">From:</span>
+                {t.threads.map((th) => (
+                  <button key={th.id} className="chip" onClick={() => onTopic(th.id)} title="Open the topic's page">
+                    {th.name} <span className="dim">· {fmtDate(th.asOf)}</span>
+                  </button>
+                ))}
+              </div>
             )}
+            {t.done && t.sources.length > 0 && <Sources t={t} onOpen={(x) => onOpen(x, t.scope)} />}
           </div>
         ))}
         <div ref={end} />
@@ -107,3 +113,69 @@ export function AskView({ onOpen, scope }: { onOpen: (h: Hit, scope: string) => 
     </div>
   );
 }
+
+// cited lists the source numbers an answer cites, in order.
+function cited(text: string): number[] {
+  const out: number[] = [];
+  for (const m of text.matchAll(/\[(\d+)\]/g)) {
+    const n = parseInt(m[1], 10);
+    if (!out.includes(n)) out.push(n);
+  }
+  return out;
+}
+
+// Sources: what the answer cites, then the rest folded away.
+function Sources({ t, onOpen }: { t: Turn; onOpen: (h: Hit) => void }) {
+  const used = cited(t.text).filter((n) => n >= 1 && n <= t.sources.length);
+  const rest = t.sources.map((_, i) => i + 1).filter((n) => !used.includes(n));
+  return (
+    <details className="sources">
+      <summary>{used.length ? `${used.length} cited` : `${t.sources.length} sources`}{used.length && rest.length ? ` · ${rest.length} more read` : ''}</summary>
+      {(used.length ? used : rest).map((n) => <HitRow key={n} hit={t.sources[n - 1]} n={n} onOpen={onOpen} />)}
+      {used.length > 0 && rest.length > 0 && (
+        <details className="sources more">
+          <summary>{rest.length} more read</summary>
+          {rest.map((n) => <HitRow key={n} hit={t.sources[n - 1]} n={n} onOpen={onOpen} />)}
+        </details>
+      )}
+    </details>
+  );
+}
+
+// Answer renders the little markdown answers use (paragraphs, bullet
+// lists, bold), with citations as chips.
+export function Answer({ text, hits, onCite }: { text: string; hits: Hit[]; onCite: (h: Hit) => void }) {
+  const inline = (s: string, key: number): ReactNode => {
+    const parts = s.split(/(\*\*[^*]+\*\*)/g);
+    return (
+      <Fragment key={key}>
+        {parts.map((p, i) =>
+          p.startsWith('**') && p.endsWith('**') ? <b key={i}><CitedText text={p.slice(2, -2)} hits={hits} onCite={onCite} /></b> : <CitedText key={i} text={p} hits={hits} onCite={onCite} />,
+        )}
+      </Fragment>
+    );
+  };
+  const blocks: ReactNode[] = [];
+  let list: { depth: number; text: string }[] = [];
+  const flush = () => {
+    if (!list.length) return;
+    blocks.push(
+      <ul key={blocks.length}>
+        {list.map((l, i) => <li key={i} style={l.depth ? { marginLeft: 14 * l.depth } : undefined}>{inline(l.text, i)}</li>)}
+      </ul>,
+    );
+    list = [];
+  };
+  for (const line of text.split('\n')) {
+    const m = line.match(/^(\s*)[*-]\s+(.*)$/);
+    if (m) {
+      list.push({ depth: Math.floor(m[1].length / 2), text: m[2] });
+      continue;
+    }
+    flush();
+    if (line.trim()) blocks.push(<p key={blocks.length}>{inline(line.replace(/^#+\s*/, ''), 0)}</p>);
+  }
+  flush();
+  return <div className="answer-md">{blocks}</div>;
+}
+

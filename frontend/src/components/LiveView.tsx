@@ -9,9 +9,10 @@ interface Props {
   status: LiveStatus | null;
   onOpen: (h: Hit, scope: string) => void;
   onEntity: (id: string) => void;
+  onTopic: (id: number) => void;
 }
 
-export function LiveView({ status, onOpen, onEntity }: Props) {
+export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
   const [segs, setSegs] = useState<Segment[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [briefs, setBriefs] = useState<Brief[]>([]);
@@ -128,7 +129,7 @@ export function LiveView({ status, onOpen, onEntity }: Props) {
       <div className="live-right">
       {topics.length > 0 && (
         <section className="topics">
-          {topics.map((t) => <TopicCardView key={t.topicId} card={t} />)}
+          {topics.map((t) => <TopicCardView key={t.topicId} card={t} onTopic={onTopic} />)}
         </section>
       )}
 
@@ -290,7 +291,7 @@ const sectionLabel: Record<string, string> = {
 // yours, what is open, the rules, what must not be repeated, and who to
 // ask. Cards about people's jobs, pay or health, or restricted ones, show
 // their title only until opened.
-function TopicCardView({ card }: { card: TopicCard }) {
+function TopicCardView({ card, onTopic }: { card: TopicCard; onTopic: (id: number) => void }) {
   const [reveal, setReveal] = useState(false);
   const hidden = card.collapsed && !reveal;
   const lag = card.spokenAgo >= 0 ? `${card.spokenAgo.toFixed(1)}s after it was said` : '';
@@ -300,6 +301,7 @@ function TopicCardView({ card }: { card: TopicCard }) {
       <header>
         <span className="topic-title">{card.title}</span>
         {sensitive && <span className={'lvl lvl-' + card.label.level}>{card.label.level}{card.label.categories && card.label.categories !== '-' ? ' · ' + card.label.categories : ''}</span>}
+        {!hidden && card.topicId > 0 && <button className="link" onClick={() => onTopic(card.topicId)} title="Open the topic's page">page →</button>}
       </header>
       <div className="brief-why">
         {[card.why, `last discussed ${fmtDate(card.last)}`, `${card.meetings} meeting${card.meetings === 1 ? '' : 's'}`, lag].filter(Boolean).join(' · ')}

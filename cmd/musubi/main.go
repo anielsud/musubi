@@ -47,7 +47,7 @@ func root() *cobra.Command {
 	r := &cobra.Command{Use: "musubi", Short: "Local-first personal knowledge base", SilenceUsage: true}
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
-	r.AddCommand(importItemsCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), liveCmd(),
+	r.AddCommand(importItemsCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), liveCmd(),
 		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd())
 	return r
 }
@@ -519,6 +519,70 @@ the cases. Exits non-zero on any leak.`,
 	return c
 }
 
+func prepCmd() *cobra.Command {
+	var people []string
+	var scope string
+	var brief bool
+	c := &cobra.Command{
+		Use:   "prep [<item id of a past meeting or upcoming event>]",
+		Short: "What to bring to a meeting: their subjects, what moved, what is open, what to share",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			sc, err := e.Scope(scope)
+			if err != nil {
+				return err
+			}
+			items, err := e.Store.AllItems()
+			if err != nil {
+				return err
+			}
+			req := knowledge.PrepRequest{People: people}
+			if len(args) == 1 {
+				req.Template = args[0]
+			}
+			v, err := knowledge.Prep(e.Store, sc, req, items, e.Cfg.Owner.Name)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%s — with %s; since %s; %d meetings with them\n", v.Title, strings.Join(v.People, ", "), v.Since.Format("2006-01-02"), v.Met)
+			for _, s := range v.Subjects {
+				fmt.Printf("\n# %s  (%s)\n", s.Name, s.Why)
+				if s.Status != nil {
+					fmt.Printf("  now: %s\n", knowledge.StripIDs(s.Status.Now))
+				}
+				for _, it := range s.NewSince {
+					fmt.Printf("  new %s: %s\n", it.SaidAt.Format("01-02"), it.Text)
+				}
+			}
+			fmt.Println("\nOpen between you:")
+			for _, o := range v.Open {
+				fmt.Printf("  - %s [%s; %s] (%s)\n", knowledge.StripIDs(o.Text), o.Who, o.Due, o.Name)
+			}
+			fmt.Println("\nWorth sharing:")
+			for _, s := range v.Share {
+				fmt.Printf("  - %s %s: %s (from %s)\n", s.Item.SaidAt.Format("01-02"), s.Name, s.Item.Text, s.Item.ItemTitle)
+			}
+			if brief {
+				fmt.Println("\nTalking points:")
+				if _, err := ask.PrepBrief(cmd.Context(), e, v, func(t string) { fmt.Print(t) }); err != nil {
+					return err
+				}
+				fmt.Println()
+			}
+			return nil
+		},
+	}
+	c.Flags().StringSliceVar(&people, "people", nil, "the people you are meeting, without a meeting to start from")
+	c.Flags().StringVar(&scope, "scope", "owner", "who the result is for")
+	c.Flags().BoolVar(&brief, "brief", false, "also write talking points with the ask model")
+	return c
+}
+
 func askCmd() *cobra.Command {
 	var scope string
 	var k int
@@ -539,6 +603,12 @@ func askCmd() *cobra.Command {
 			a, err := ask.Ask(cmd.Context(), e, sc, strings.Join(args, " "), k, nil, func(t string) { fmt.Print(t) })
 			if err != nil {
 				return err
+			}
+			if len(a.Threads) > 0 {
+				fmt.Println("\n\nsubjects:")
+				for _, t := range a.Threads {
+					fmt.Printf("  T%d %s (as of %s)\n", t.ID, t.Name, t.AsOf.Format("2006-01-02"))
+				}
 			}
 			fmt.Println("\n\nsources:")
 			for i, h := range a.Sources {
@@ -717,30 +787,18 @@ func knowledgeCmd() *cobra.Command {
 				return err
 			}
 			defer e.Close()
-			if e.Chat == nil || e.Embedder == nil {
-				return fmt.Errorf("needs [llm] and [embed] configured")
-			}
-			r, err := e.Runner(nil, os.Stderr)
-			if err != nil {
-				return err
-			}
 			for _, s := range redo {
 				if s != "extract" && s != "links" && s != "threads" {
 					return fmt.Errorf("--redo takes extract, links or threads (got %q)", s)
 				}
 			}
-			o := pipeline.KnowledgeOptions{LLM: e.Chat, Embedder: e.Embedder, Items: items, Limit: limit, Workers: workers,
+			o := pipeline.KnowledgeOptions{Items: items, Limit: limit, Workers: workers,
 				Redo: redo, RedoNewest: newest, Plan: plan, NoThreads: noThreads}
-			if pm := e.Cfg.Knowledge.Points.Model; e.Cfg.Knowledge.Extract == "points" && pm.Provider != "" {
-				if o.Extractor, err = provider.NewLLM(pm); err != nil {
-					return err
-				}
-			}
 			if verbose {
 				o.LinkTrace = func(f string, a ...any) { fmt.Fprintf(os.Stderr, "  link: "+f+"\n", a...) }
 			}
 			start := time.Now()
-			ks, err := r.Knowledge(cmd.Context(), o)
+			ks, err := e.Knowledge(cmd.Context(), os.Stderr, o)
 			defer printOutdated(ks.Outdated, e.Cfg.Knowledge.Updates)
 			if plan {
 				p := ks.Planned

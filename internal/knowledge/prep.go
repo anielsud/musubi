@@ -1,0 +1,402 @@
+package knowledge
+
+import (
+	"encoding/json"
+	"math"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+
+	"github.com/anielsud/musubi/internal/item"
+	"github.com/anielsud/musubi/internal/sensitivity"
+	"github.com/anielsud/musubi/internal/store"
+)
+
+// Prep gathers what to bring to a meeting with some people: the subjects
+// they are part of and where each stands, what moved since you last met,
+// what is open between you, and what was said elsewhere that they likely
+// haven't heard. It reads in the owner's scope; what it suggests sharing
+// leaves out anything about people's jobs, pay, health, legal matters or
+// private life, and anything restricted.
+type PrepRequest struct {
+	// Template is a past meeting to prepare the next one of: its attendees,
+	// and the time it happened as "since".
+	Template string `json:"template,omitempty"`
+	// People and Since are used when there is no template.
+	People []string  `json:"people,omitempty"`
+	Since  time.Time `json:"since,omitempty"`
+	Title  string    `json:"title,omitempty"`
+}
+
+type PrepView struct {
+	Title    string        `json:"title"`
+	People   []string      `json:"people"`
+	Since    time.Time     `json:"since"`
+	Met      int           `json:"met"` // meetings with any of them in the record
+	Subjects []PrepSubject `json:"subjects"`
+	Open     []PrepOpen    `json:"open"`
+	Share    []PrepShare   `json:"share"`
+}
+
+type PrepSubject struct {
+	ID       int64              `json:"id"`
+	Name     string             `json:"name"`
+	Why      string             `json:"why"`
+	Status   *Status            `json:"status,omitempty"`
+	AsOf     time.Time          `json:"asOf"`
+	NewSince []store.ThreadItem `json:"newSince"`
+	Items    []store.ThreadItem `json:"items"` // every visible item, for citations
+}
+
+type PrepOpen struct {
+	Text   string             `json:"text"`
+	Who    string             `json:"who,omitempty"`
+	Due    string             `json:"due,omitempty"`
+	Thread int64              `json:"thread"`
+	Name   string             `json:"name"`
+	Items  []store.ThreadItem `json:"items"`
+}
+
+type PrepShare struct {
+	Thread int64            `json:"thread"`
+	Name   string           `json:"name"`
+	Item   store.ThreadItem `json:"item"`
+}
+
+const (
+	prepSubjects = 8
+	prepShare    = 10
+	prepSharePer = 2
+	// prepSensitiveShare: a thread with this share of sensitive items is
+	// never suggested for sharing.
+	prepSensitiveShare = 0.15
+	prepHalfLife       = 30 * 24 * time.Hour
+)
+
+// PrepNameKey normalises a person's name: "Ruiz, Dana" and "dana ruiz" are
+// the same person.
+func PrepNameKey(n string) string {
+	n = strings.TrimSpace(n)
+	if i := strings.Index(n, ","); i > 0 {
+		n = strings.TrimSpace(n[i+1:]) + " " + strings.TrimSpace(n[:i])
+	}
+	var b strings.Builder
+	space := false
+	for _, r := range strings.ToLower(n) {
+		switch {
+		case unicode.IsLetter(r):
+			if space && b.Len() > 0 {
+				b.WriteByte(' ')
+			}
+			b.WriteRune(r)
+			space = false
+		default:
+			space = true
+		}
+	}
+	return b.String()
+}
+
+// people matches the names a meeting or a statement gives: a full name, an
+// email's local part, or a first name no one else in the group has.
+type people struct {
+	full  map[string]string // key → display name
+	first map[string]string
+}
+
+func newPeople(names []string) people {
+	p := people{full: map[string]string{}, first: map[string]string{}}
+	firsts := map[string]int{}
+	for _, n := range names {
+		k := PrepNameKey(n)
+		if k == "" {
+			continue
+		}
+		p.full[k] = n
+		firsts[strings.Fields(k)[0]]++
+	}
+	for k, n := range p.full {
+		if f := strings.Fields(k)[0]; firsts[f] == 1 && strings.Contains(k, " ") {
+			p.first[f] = n
+		}
+	}
+	return p
+}
+
+func (p people) match(name string) (string, bool) {
+	k := PrepNameKey(name)
+	if k == "" {
+		return "", false
+	}
+	if n, ok := p.full[k]; ok {
+		return n, true
+	}
+	if n, ok := p.first[k]; ok {
+		return n, true
+	}
+	if f := strings.Fields(k); len(f) > 1 {
+		if n, ok := p.first[f[0]]; ok && !strings.Contains(PrepNameKey(n), " ") {
+			return n, true
+		}
+	}
+	return "", false
+}
+
+func participantName(pt item.Participant) string {
+	if pt.Name != "" {
+		return pt.Name
+	}
+	if i := strings.Index(pt.Email, "@"); i > 0 {
+		return strings.ReplaceAll(pt.Email[:i], ".", " ")
+	}
+	return pt.Email
+}
+
+// shareable: never suggest sharing what is about people's jobs, pay,
+// health, legal matters or private lives, or anything restricted.
+func shareable(l sensitivity.Label) bool {
+	return l.Categories == 0 && l.Level < sensitivity.Restricted
+}
+
+// Prep builds the view. items are every item (for attendees); owner is the
+// owner's name, left out of the group.
+func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.Item, owner string) (*PrepView, error) {
+	v := &PrepView{Title: req.Title, Since: req.Since}
+	var names []string
+	byID := map[string]*item.Item{}
+	for i := range items {
+		byID[items[i].ID] = &items[i]
+	}
+	ownerKey := PrepNameKey(owner)
+	if t := byID[req.Template]; t != nil {
+		v.Title, v.Since = t.Title, t.OccurredAt
+		for _, pt := range t.Participants {
+			if !pt.Owner && PrepNameKey(participantName(pt)) != ownerKey {
+				names = append(names, participantName(pt))
+			}
+		}
+	} else {
+		names = req.People
+	}
+	if len(names) == 0 {
+		return v, nil
+	}
+	group := newPeople(names)
+	for _, n := range group.full {
+		v.People = append(v.People, n)
+	}
+	sort.Strings(v.People)
+	// Which meetings any of them attended.
+	attended := map[string]bool{}
+	for _, it := range items {
+		if it.Kind == item.KindEvent {
+			continue
+		}
+		for _, pt := range it.Participants {
+			if _, ok := group.match(participantName(pt)); ok {
+				attended[it.ID] = true
+				v.Met++
+				break
+			}
+		}
+	}
+	idx, err := st.ThreadIndex()
+	if err != nil {
+		return nil, err
+	}
+	name := map[int64]string{}
+	var all []int64
+	for _, r := range idx {
+		if r.LabelLevel <= sc.MaxLevel {
+			name[r.ID] = r.Name
+			all = append(all, r.ID)
+		}
+	}
+	tis, err := st.VisibleThreadItems(sc, all)
+	if err != nil {
+		return nil, err
+	}
+	statuses, err := st.ThreadStatuses(sc)
+	if err != nil {
+		return nil, err
+	}
+	var latest time.Time
+	for _, its := range tis {
+		for _, it := range its {
+			if it.SaidAt.After(latest) {
+				latest = it.SaidAt
+			}
+		}
+	}
+	if v.Since.IsZero() {
+		v.Since = latest.Add(-14 * 24 * time.Hour)
+	}
+	// A thread is theirs by what they said in it and by the meetings with
+	// them it was discussed in, the recent counting more.
+	type scored struct {
+		id            int64
+		score         float64
+		said, inMeets int
+		holders       map[string]int
+	}
+	var ss []scored
+	for tid, its := range tis {
+		s := scored{id: tid, holders: map[string]int{}}
+		meets := map[string]bool{}
+		for _, it := range its {
+			w := math.Pow(0.5, latest.Sub(it.SaidAt).Hours()/prepHalfLife.Hours())
+			whos := it.Who
+			if len(whos) == 0 && it.Holder != "" {
+				whos = []string{it.Holder}
+			}
+			for _, wn := range whos {
+				if n, ok := group.match(wn); ok {
+					s.score += 2 * w
+					s.said++
+					s.holders[n]++
+					break
+				}
+			}
+			if attended[it.ItemID] {
+				s.score += w
+				meets[it.ItemID] = true
+			}
+		}
+		s.inMeets = len(meets)
+		if s.score > 0 && s.said > 0 {
+			ss = append(ss, s)
+		}
+	}
+	sort.Slice(ss, func(i, j int) bool { return ss[i].score > ss[j].score })
+	mine := map[int64]bool{}
+	for _, s := range ss[:min(len(ss), prepSubjects)] {
+		its := tis[s.id]
+		sub := PrepSubject{ID: s.id, Name: name[s.id], Items: its, AsOf: its[len(its)-1].SaidAt}
+		sub.Why = whyLine(s.holders, s.inMeets)
+		if stt, ok := statuses[s.id]; ok {
+			var x Status
+			if json.Unmarshal([]byte(stt.Body), &x) == nil {
+				sub.Status, sub.AsOf = &x, stt.AsOf
+				for _, o := range x.Open {
+					_, theirs := group.match(o.Who)
+					if theirs || strings.Contains(PrepNameKey(o.Who), ownerKey) || mentions(group, o.Who) {
+						v.Open = append(v.Open, PrepOpen{Text: o.Text, Who: o.Who, Due: o.Due, Thread: s.id, Name: sub.Name, Items: pick(its, o.IDs)})
+					}
+				}
+			}
+		}
+		for i := len(its) - 1; i >= 0 && len(sub.NewSince) < 5; i-- {
+			if its[i].SaidAt.After(v.Since) {
+				sub.NewSince = append(sub.NewSince, its[i])
+			}
+		}
+		v.Subjects = append(v.Subjects, sub)
+		mine[s.id] = true
+	}
+	// Worth sharing: the latest word on their subjects, said since, in
+	// meetings none of them attended. A thread whose items are often about
+	// people's jobs, pay, health, legal matters or private lives is left
+	// out whole: the labeller misses some of a subject's items (about a
+	// quarter), and a reduction plan's schedule is as sensitive as its
+	// names. On September, such subjects ran 38–49% labelled, ordinary
+	// work 4–6% (research log 2026-10-17).
+	for _, s := range ss {
+		bad := 0
+		for _, it := range tis[s.id] {
+			if !shareable(it.Label) {
+				bad++
+			}
+		}
+		if float64(bad) >= prepSensitiveShare*float64(len(tis[s.id])) {
+			continue
+		}
+		for _, it := range tis[s.id] {
+			if it.Current && it.SaidAt.After(v.Since) && !attended[it.ItemID] && shareable(it.Label) {
+				v.Share = append(v.Share, PrepShare{Thread: s.id, Name: name[s.id], Item: it})
+			}
+		}
+	}
+	// Their subjects first, then decisions and commitments, then the
+	// latest; a few per subject, so one busy thread doesn't fill the list.
+	weight := func(s PrepShare) int {
+		switch s.Item.Kind {
+		case "decision":
+			return 0
+		case "commitment":
+			return 1
+		}
+		return 2
+	}
+	sort.SliceStable(v.Share, func(i, j int) bool {
+		a, b := v.Share[i], v.Share[j]
+		if mine[a.Thread] != mine[b.Thread] {
+			return mine[a.Thread]
+		}
+		if weight(a) != weight(b) {
+			return weight(a) < weight(b)
+		}
+		return a.Item.SaidAt.After(b.Item.SaidAt)
+	})
+	per := map[int64]int{}
+	var kept []PrepShare
+	for _, sh := range v.Share {
+		if per[sh.Thread] < prepSharePer && len(kept) < prepShare {
+			per[sh.Thread]++
+			kept = append(kept, sh)
+		}
+	}
+	v.Share = kept
+	return v, nil
+}
+
+// mentions: an owner field like "ELT / Dana Ruiz" names one of the group.
+func mentions(g people, s string) bool {
+	for _, part := range strings.FieldsFunc(s, func(r rune) bool { return r == '/' || r == ',' || r == ';' || r == '&' }) {
+		if _, ok := g.match(strings.TrimSpace(part)); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func pick(its []store.ThreadItem, ids []int64) []store.ThreadItem {
+	var out []store.ThreadItem
+	for _, id := range ids {
+		for _, it := range its {
+			if it.ID == id {
+				out = append(out, it)
+			}
+		}
+	}
+	return out
+}
+
+func whyLine(holders map[string]int, meets int) string {
+	type hc struct {
+		n string
+		c int
+	}
+	var hs []hc
+	for n, c := range holders {
+		hs = append(hs, hc{n, c})
+	}
+	sort.Slice(hs, func(i, j int) bool { return hs[i].c > hs[j].c })
+	var parts []string
+	for _, h := range hs[:min(len(hs), 3)] {
+		parts = append(parts, h.n)
+	}
+	out := strings.Join(parts, ", ")
+	if meets > 0 {
+		out += " · discussed in " + plural(meets, "meeting") + " with them"
+	}
+	return out
+}
+
+func plural(n int, w string) string {
+	if n == 1 {
+		return "1 " + w
+	}
+	return strconv.Itoa(n) + " " + w + "s"
+}

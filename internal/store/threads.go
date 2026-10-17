@@ -57,7 +57,7 @@ func (s *Store) Threads() ([]ThreadRow, error) {
 // relations come only from threading.
 func (s *Store) ClearThreads() error {
 	return s.tx(func(tx *sql.Tx) error {
-		for _, q := range []string{`DELETE FROM thread_items`, `DELETE FROM thread_runs`, `UPDATE claims SET topic_id = NULL`,
+		for _, q := range []string{`DELETE FROM thread_items`, `DELETE FROM thread_runs`, `DELETE FROM thread_status`, `UPDATE claims SET topic_id = NULL`,
 			`DELETE FROM topic_relations`, `DELETE FROM topic_entities`, `DELETE FROM topic_events`, `DELETE FROM topics`, `DELETE FROM claim_relations`} {
 			if _, err := tx.Exec(q); err != nil {
 				return err
@@ -269,6 +269,9 @@ func (s *Store) SetThreadLinks(l ThreadLinks) error {
 // into another before its statements were stored).
 func (s *Store) DeleteThread(id int64) error {
 	return s.tx(func(tx *sql.Tx) error {
+		if _, err := tx.Exec(`DELETE FROM thread_status WHERE topic_id = ?`, id); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`DELETE FROM thread_items WHERE topic_id = ?`, id); err != nil {
 			return err
 		}

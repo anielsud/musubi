@@ -22,6 +22,18 @@ type Config struct {
 	Live        Live        `toml:"live"`
 	Sensitivity Sensitivity `toml:"sensitivity"`
 	Knowledge   Knowledge   `toml:"knowledge"`
+	Ask         Ask         `toml:"ask"`
+}
+
+// Ask configures answering questions.
+type Ask struct {
+	// Model answers; provider "" uses [llm]. A hosted model reads only
+	// what the cloud scope allows, unless knowledge.allow_hosted.
+	Model LLM `toml:"model"`
+	// Threads answers from the threads a question is about (their status
+	// and current items) as well as from passages. false answers from
+	// passages alone, the earlier behaviour.
+	Threads bool `toml:"threads"`
 }
 
 // Knowledge configures statement extraction.
@@ -87,10 +99,30 @@ type Knowledge struct {
 	// matters, private life) with a local model, and raises its label so
 	// scopes hide it where they should (knowledge.StatementSensitivity).
 	Label Label `toml:"label"`
+	// OnUpdate runs the knowledge stages after the app's Update (new items
+	// are extracted, linked, threaded and their threads' statuses
+	// rewritten). false leaves them to `musubi knowledge`, as before.
+	OnUpdate bool `toml:"on_update"`
+	// Status writes each thread's status (where it stands, what changed,
+	// what is open) after threading, for the topic page, Ask and meeting
+	// prep (knowledge.WriteStatus).
+	Status Status `toml:"status"`
 	// AllowHosted lets points, threads and labels use a hosted model (the
 	// owner's policy since 2026-10-16 allows the approved endpoints to read
 	// meeting text). false keeps them local.
 	AllowHosted bool `toml:"allow_hosted"`
+}
+
+// Status configures thread statuses.
+type Status struct {
+	// Enabled: false writes none (the topic page then shows the thread's
+	// scope line, as before).
+	Enabled bool `toml:"enabled"`
+	// Model writes them; provider "" uses the threads model. It reads
+	// meeting text, so it must be local unless knowledge.allow_hosted.
+	Model LLM `toml:"model"`
+	// Parallel is how many statuses are written at once.
+	Parallel int `toml:"parallel"`
 }
 
 // Label configures statement sensitivity labelling.
@@ -233,7 +265,8 @@ func DefaultConfig() Config {
 		TomoeSessions: filepath.Join(home, ".local", "share", "tomoe", "sessions"),
 		Embed:         Embed{Provider: "ollama", Model: "nomic-embed-text", URL: "http://127.0.0.1:11434"},
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}},
+		Ask:           Ask{Threads: true},
+		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

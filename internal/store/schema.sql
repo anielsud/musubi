@@ -321,3 +321,20 @@ CREATE TABLE IF NOT EXISTS thread_runs (
 	item_id TEXT PRIMARY KEY,
 	stamp   TEXT NOT NULL
 );
+
+-- A thread's written status (knowledge.status): where it stands, what
+-- changed, what is open. Variant "full" is written from every item;
+-- "open" only from items a shared screen may show, and is written only
+-- when the two differ. level and categories are the most sensitive of the
+-- items it was written from (a read checks them like any label).
+CREATE TABLE IF NOT EXISTS thread_status (
+	topic_id   INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+	variant    TEXT NOT NULL,
+	version    TEXT NOT NULL,
+	input_hash TEXT NOT NULL,
+	body       TEXT NOT NULL,  -- JSON (knowledge.Status)
+	level      INTEGER NOT NULL,
+	categories INTEGER NOT NULL,
+	as_of      INTEGER NOT NULL,  -- the latest item it was written from
+	PRIMARY KEY (topic_id, variant)
+);

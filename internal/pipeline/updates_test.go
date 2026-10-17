@@ -2,9 +2,11 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/sensitivity"
 )
@@ -172,4 +174,100 @@ func TestStatementLabels(t *testing.T) {
 	// Off restores the earlier behaviour.
 	r.Cfg.Knowledge.Label.Enabled = false
 	_ = st
+}
+
+// statusLLM writes a status that says whether it was shown the sensitive
+// item, citing every id it was given.
+type statusLLM struct {
+	emptyLLM
+	calls *int
+}
+
+func (s statusLLM) Complete(_ context.Context, msgs []provider.Message, _ provider.ChatOptions, _ func(string)) (string, error) {
+	*s.calls++
+	user := msgs[len(msgs)-1].Content
+	now := "Launch next week."
+	if strings.Contains(user, "leaving") {
+		now = "Launch next week; someone is leaving."
+	}
+	var ids []string
+	for _, l := range strings.Split(user, "\n") {
+		if strings.HasPrefix(l, "[") {
+			ids = append(ids, l[1:strings.Index(l, "]")])
+		}
+	}
+	return `{"now":"` + now + `","now_ids":[` + strings.Join(ids, ",") + `,99999],"changed":[],"open":[],"people":[]}`, nil
+}
+
+func TestThreadStatuses(t *testing.T) {
+	r, st := build(t)
+	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate, r.Cfg.Knowledge.MinWorth = "statements", 0, 0
+	knowledgeRun(t, r, KnowledgeOptions{LLM: labelLLM{emptyLLM{"m1"}}})
+	sts, _ := st.AllStatements()
+	tid, _ := st.NewThread("Pricing page", "the pricing page launch", 0)
+	var ids []int64
+	for _, s := range sts {
+		ids = append(ids, s.ID)
+	}
+	st.AddToThread(tid, ids, 0)
+	calls := 0
+	o := KnowledgeOptions{StatusLLM: statusLLM{emptyLLM{"m1"}, &calls}}
+	var ks KnowledgeStats
+	if err := r.writeStatuses(context.Background(), o, &ks); err != nil {
+		t.Fatal(err)
+	}
+	// One from every item, one from what a shared screen may show.
+	if ks.Statuses != 2 || calls != 2 {
+		t.Fatalf("wrote %d statuses in %d calls", ks.Statuses, calls)
+	}
+	read := func(sc sensitivity.Scope) knowledge.Status {
+		got, err := st.ThreadStatuses(sc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s knowledge.Status
+		json.Unmarshal([]byte(got[tid].Body), &s)
+		return s
+	}
+	if s := read(sensitivity.Owner()); !strings.Contains(s.Now, "leaving") || len(s.NowIDs) != len(ids) {
+		t.Errorf("owner status = %+v (ids it wasn't shown must be dropped)", s)
+	}
+	if s := read(sensitivity.SharedScreen()); s.Now == "" || strings.Contains(s.Now, "leaving") {
+		t.Errorf("shared-screen status = %+v", s)
+	}
+	// Unchanged items: nothing written again.
+	ks = KnowledgeStats{}
+	r.writeStatuses(context.Background(), o, &ks)
+	if ks.Statuses != 0 {
+		t.Errorf("rewrote %d unchanged statuses", ks.Statuses)
+	}
+	// Retiring an item every scope sees changes both inputs; retiring the
+	// sensitive one changes only the full status.
+	var shared, private []int64
+	for _, x := range sts {
+		if strings.Contains(x.Text, "leaving") {
+			private = append(private, x.ID)
+		} else {
+			shared = append(shared, x.ID)
+		}
+	}
+	st.SetThreadCurrent(tid, private)
+	r.writeStatuses(context.Background(), o, &ks)
+	if ks.Statuses != 2 {
+		t.Errorf("after a retirement wrote %d statuses", ks.Statuses)
+	}
+	st.SetThreadCurrent(tid, ids)
+	r.writeStatuses(context.Background(), o, &ks)
+	ks = KnowledgeStats{}
+	st.SetThreadCurrent(tid, shared)
+	if r.writeStatuses(context.Background(), o, &ks); ks.Statuses != 1 {
+		t.Errorf("after retiring the sensitive item wrote %d statuses, want 1", ks.Statuses)
+	}
+	// Off writes none.
+	r.Cfg.Knowledge.Status.Enabled = false
+	ks = KnowledgeStats{}
+	st.SetThreadCurrent(tid, ids)
+	if r.writeStatuses(context.Background(), o, &ks); ks.Statuses != 0 {
+		t.Errorf("disabled, wrote %d", ks.Statuses)
+	}
 }

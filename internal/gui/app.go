@@ -5,6 +5,8 @@ package gui
 import (
 	"context"
 	"fmt"
+	"github.com/anielsud/musubi/internal/pipeline"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -169,7 +171,17 @@ func (a *App) Update() {
 		msg := fmt.Sprintf("%d new or changed", st.Changed)
 		if err != nil {
 			msg = err.Error()
-		} else {
+		} else if a.eng.Cfg.Knowledge.OnUpdate {
+			// New items join their threads, and the threads' statuses are
+			// rewritten, before the views reload.
+			a.emit("update:done", msg+"; updating topics…")
+			if ks, kerr := a.eng.Knowledge(a.ctx, io.Discard, pipeline.KnowledgeOptions{}); kerr != nil {
+				msg += "; topics: " + kerr.Error()
+			} else if ks.Threads.Items > 0 || ks.Statuses > 0 {
+				msg += fmt.Sprintf("; %d threaded, %d statuses rewritten", ks.Threads.Items, ks.Statuses)
+			}
+		}
+		if err == nil {
 			a.live.Reload()
 		}
 		a.emit("update:done", msg)
@@ -216,6 +228,7 @@ func (a *App) Ask(id, question, scope string) error {
 		if ans != nil {
 			res["text"] = ans.Text
 			res["sources"] = ans.Sources
+			res["threads"] = ans.Threads
 		}
 		a.emit("ask:done", res)
 	}()

@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -53,6 +54,9 @@ type KnowledgeOptions struct {
 	// NoThreads stops after linking: threads are made elsewhere (the
 	// benchmark's hosted prototypes, applied with apply_threads.py).
 	NoThreads bool
+	// StatusLLM writes thread statuses; nil builds it from
+	// knowledge.status.model, else uses the threads model.
+	StatusLLM provider.LLM
 }
 
 func (o KnowledgeOptions) redo(stage string) bool {
@@ -90,6 +94,7 @@ type KnowledgeStats struct {
 	Topics                      int
 	Pending                     int // items still to extract (when limited)
 	Labelled, Checked           int // statements labelled sensitive; checked by the labeller
+	Statuses, StatusFailed      int // thread statuses written; failed (tried again next run)
 	Threads                     knowledge.ThreadStats
 	Outdated                    Outdated
 	Planned                     Planned
@@ -508,11 +513,14 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	}
 
 	// 4. Threads or topics.
-	if threads && o.NoThreads {
-		return ks, nil
+	if threads && !o.NoThreads {
+		if err := r.thread(ctx, o, linkStamp, rebuildLinks, &ks); err != nil {
+			return ks, err
+		}
 	}
 	if threads {
-		return ks, r.thread(ctx, o, linkStamp, rebuildLinks, &ks)
+		// Threads made elsewhere (NoThreads) get statuses too.
+		return ks, r.writeStatuses(ctx, o, &ks)
 	}
 	sig, err := r.Store.ClaimSignature()
 	if err != nil {
@@ -927,5 +935,125 @@ func (r *Runner) labelStatements(ctx context.Context, o KnowledgeOptions, ks *Kn
 		}
 	}
 	r.logf("label: %d statements checked, %d labelled sensitive, %d failed, in %s", ks.Checked, ks.Labelled, failed, time.Since(t0).Round(time.Second))
+	return ctx.Err()
+}
+
+func (r *Runner) statusLLM(o KnowledgeOptions) (provider.LLM, error) {
+	m := r.Cfg.Knowledge.Status.Model
+	if o.StatusLLM != nil {
+		return o.StatusLLM, nil
+	}
+	if m.Provider == "" {
+		return r.threadLLM(o)
+	}
+	llm, err := provider.NewLLM(m)
+	if err != nil {
+		return nil, err
+	}
+	if !llm.Local() && !r.Cfg.Knowledge.AllowHosted {
+		return nil, fmt.Errorf("thread statuses read meeting text, so they need a local model, or knowledge.allow_hosted (got %s)", llm.ModelName())
+	}
+	return llm, nil
+}
+
+// writeStatuses writes the status of every thread whose items changed
+// since its status was written (or whose status is from an earlier
+// version): a "full" status from every item, and an "open" one from the
+// items a shared screen may show, when those differ.
+func (r *Runner) writeStatuses(ctx context.Context, o KnowledgeOptions, ks *KnowledgeStats) error {
+	sc := r.Cfg.Knowledge.Status
+	if !sc.Enabled {
+		return nil
+	}
+	threads, err := r.Store.Threads()
+	if err != nil || len(threads) == 0 {
+		return err
+	}
+	llm, err := r.statusLLM(o)
+	if err != nil {
+		return err
+	}
+	stamps, err := r.Store.ThreadStatusStamps()
+	if err != nil {
+		return err
+	}
+	type job struct {
+		th      store.ThreadRow
+		variant string
+		in      knowledge.StatusInput
+	}
+	shared := sensitivity.SharedScreen()
+	open := func(s store.ThreadStatement) bool {
+		return sensitivity.Visible(sensitivity.Label{Level: s.Level, Categories: s.Categories}, nil, shared)
+	}
+	var jobs []job
+	for _, th := range threads {
+		sts, err := r.Store.ThreadStatements(th.ID)
+		if err != nil {
+			return err
+		}
+		have := stamps[th.ID]
+		full := knowledge.StatusInputFor(th.Name, th.Scope, sts, nil)
+		if len(full.Items) == 0 {
+			continue
+		}
+		if have["full"] != knowledge.StatusVersion+"/"+full.Hash {
+			jobs = append(jobs, job{th, "full", full})
+		}
+		op := knowledge.StatusInputFor(th.Name, th.Scope, sts, open)
+		switch {
+		case len(op.Items) == 0 || op.Hash == full.Hash:
+			if have["open"] != "" {
+				r.Store.SetThreadStatus(store.ThreadStatusRow{Topic: th.ID, Variant: "open"})
+			}
+		case have["open"] != knowledge.StatusVersion+"/"+op.Hash:
+			jobs = append(jobs, job{th, "open", op})
+		}
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+	t0 := time.Now()
+	r.logf("status: writing %d thread statuses", len(jobs))
+	type result struct {
+		j   job
+		st  knowledge.Status
+		err error
+	}
+	results := make(chan result)
+	sem := make(chan struct{}, max(sc.Parallel, 1))
+	var wg sync.WaitGroup
+	for _, j := range jobs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				results <- result{j: j, err: ctx.Err()}
+				return
+			}
+			st, err := knowledge.WriteStatus(ctx, llm, j.th.Name, j.th.Scope, j.in)
+			results <- result{j, st, err}
+		}()
+	}
+	go func() { wg.Wait(); close(results) }()
+	for res := range results {
+		if res.err != nil {
+			ks.StatusFailed++
+			r.logf("status T%d (%s): %v", res.j.th.ID, res.j.variant, res.err)
+			continue
+		}
+		body, _ := json.Marshal(res.st)
+		if err := r.Store.SetThreadStatus(store.ThreadStatusRow{Topic: res.j.th.ID, Variant: res.j.variant, Version: knowledge.StatusVersion,
+			InputHash: res.j.in.Hash, Body: string(body), Level: res.j.in.Label.Level, Categories: res.j.in.Label.Categories, AsOf: res.j.in.AsOf}); err != nil {
+			return err
+		}
+		ks.Statuses++
+		if ks.Statuses%50 == 0 {
+			r.logf("status: %d of %d written", ks.Statuses, len(jobs))
+		}
+	}
+	r.logf("status: %d written, %d failed, in %s", ks.Statuses, ks.StatusFailed, time.Since(t0).Round(time.Second))
 	return ctx.Err()
 }

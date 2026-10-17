@@ -1997,3 +1997,20 @@ time is fine; eight at once timed out at the earlier 2-minute limit, now
 statement made an empty word, and indexing it panicked on a background
 goroutine. The app couldn't start, as it reopens the last dataset. The
 live index now turns a panic into an error.
+
+**The combined dataset ("all-t4").**
+- Contents: the ELT year (24 meetings, January to 7 October) and all of
+  September (145), 165 meetings in all with the shared September ELT
+  meetings counted once; 16,895 statements.
+- Labels: sl2, on the local 27B, in 2 h 11 min.
+- Threading: rethreaded in time order by the Go t4 threader on
+  GLM-5.3-Flash, in 4 h 12 min for $4.41. The result is 546 threads and
+  573 statuses.
+- On the benchmark meetings it holds: grouping 0.90/0.52, live items
+  wrongly retired 1.5%, updates retired 31%. The separate sets scored
+  0.91/0.50 (ELT) and 0.72/0.49 (September).
+
+Threading follows time, so adding meetings older than those already
+threaded needs `--redo threads`; `musubi knowledge` now says so. A
+backfill should be extracted in full and threaded once, or brought in
+oldest first.

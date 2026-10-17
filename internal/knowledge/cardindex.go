@@ -520,24 +520,34 @@ func wordUse(rows []store.CardRow) usage {
 		ws := strings.FieldsFunc(r.Text, func(c rune) bool { return !unicode.IsLetter(c) && c != '\'' })
 		for i, w := range ws {
 			w = strings.TrimSuffix(w, "'s")
+			if w == "" {
+				continue // a bare "'s" or "'"
+			}
 			l := strings.ToLower(w)
 			u.total[l]++
 			if w == l {
 				u.lower[l]++
 			}
-			if i+1 < len(ws) && unicode.IsUpper([]rune(w)[0]) && (speechVerbs[ws[i+1]] || ws[i+1] == "and" && i+2 < len(ws) && unicode.IsUpper([]rune(ws[i+2])[0])) {
+			if i+1 < len(ws) && capitalised(w) && (speechVerbs[ws[i+1]] || ws[i+1] == "and" && i+2 < len(ws) && capitalised(ws[i+2])) {
 				u.speaker[l]++
 			}
 			if strings.HasSuffix(ws[i], "'s") && i+1 < len(ws) && ws[i+1] == "team" {
 				u.speaker[l]++
 			}
 			// "New York", "San Francisco": the second word of a longer name.
-			if i > 0 && unicode.IsUpper([]rune(w)[0]) && unicode.IsUpper([]rune(ws[i-1])[0]) {
+			if i > 0 && capitalised(w) && capitalised(ws[i-1]) {
 				u.tail[l]++
 			}
 		}
 	}
 	return u
+}
+
+func capitalised(w string) bool {
+	for _, c := range w {
+		return unicode.IsUpper(c)
+	}
+	return false
 }
 
 // common: written in lower case at least a fifth of the time.

@@ -102,8 +102,16 @@ func New(eng *engine.Engine, emit Emit, onSaved func()) *Live {
 		ctx: context.Background(), wake: make(chan struct{}, 1), sumQ: make(chan sumJob, 16)}
 }
 
-// Reload rebuilds the suggester from the store (after an update).
-func (l *Live) Reload() error {
+// Reload rebuilds the suggester from the store (after an update). It runs
+// on a background goroutine, so a panic in building an index becomes an
+// error rather than ending the app (a bad word in one dataset once made the
+// app unable to start).
+func (l *Live) Reload() (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("live index: %v", r)
+		}
+	}()
 	s, err := NewSuggester(l.eng.Store)
 	if err != nil {
 		return err

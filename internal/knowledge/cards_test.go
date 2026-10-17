@@ -218,3 +218,12 @@ func TestCard(t *testing.T) {
 		}
 	}
 }
+
+// A bare "'s" (a transcript's stray possessive) once became an empty word
+// and panicked, which stopped the app from opening the dataset.
+func TestWordUseStrayPossessive(t *testing.T) {
+	u := wordUse([]store.CardRow{{Text: "the team's 's plan ' and Jo said Ana 's"}})
+	if u.total["plan"] != 1 || u.speaker["jo"] != 1 {
+		t.Fatalf("usage = %+v", u)
+	}
+}

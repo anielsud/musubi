@@ -1811,3 +1811,22 @@ Left for the next round, all grouping:
 
 The next lever is a split pass for threads over a size or span bound; the
 merge pass only looks at threads born in the item.
+
+**R7 on September** (145 meetings of every kind; recent threads by 21
+days):
+- 655 threads became 466; items current 87% → 82% (the 60-day lapse can't
+  act within one month);
+- on the September audit's findings: missed updates fixed 9/104 → 59/104,
+  stale 1/130 → 71/130, wrong retirements fixed 6/54 → 36/54;
+- grouping on the two benchmark meetings fully threaded: 0.95/0.53 →
+  0.93/0.58.
+
+The run hit its spend cap on the evening of 29 September: about 13 of the
+last meetings, including the 30 September benchmark meeting, went
+unthreaded, so its benchmark carry-over isn't comparable.
+
+Spend for the fixes:
+- $9.63 on the hosted ledger (R1–R7, the September run, the cache
+  checks);
+- plus an estimated $0.25 for a stopped Go t4 check on GLM: the Go
+  provider doesn't write bt.py's ledger.

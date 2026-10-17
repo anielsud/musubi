@@ -3,7 +3,8 @@
 benchmark's shape (docs/linking-benchmark.md):
 
   {"name", "claim": {stmt: claim}, "topic": {stmt: topic},
-   "relations": [{"later": stmt, "earlier": stmt, "rel": ...}]}
+   "relations": [{"later": stmt, "earlier": stmt, "rel": ...}],
+   "threads": {code: {"name", "scope", "items", "current"}}}
 
 Usage: system_from_db.py <musubi.db> <name> [bench statements.jsonl] > system.json
 
@@ -43,4 +44,15 @@ for frm, to, rel, sid in db.execute("SELECT from_claim, to_claim, rel, statement
     for e in members.get(to, []):
         if e != sid:
             rels.append({"later": sid, "earlier": e, "rel": rel})
-json.dump({"name": name, "claim": claim, "topic": topic, "relations": rels}, sys.stdout)
+# Threads with their current items, for memory_eval.py.
+threads = {}
+for tid, label, summary, sid, cur in db.execute("""SELECT t.id, t.label, t.summary, ti.statement_id, ti.current
+                                                   FROM thread_items ti JOIN topics t ON t.id = ti.topic_id"""):
+    sid = m(sid)
+    if sid is None:
+        continue
+    t = threads.setdefault(f"T{tid}", {"name": label, "scope": summary, "items": [], "current": []})
+    t["items"].append(sid)
+    if cur:
+        t["current"].append(sid)
+json.dump({"name": name, "claim": claim, "topic": topic, "relations": rels, "threads": threads}, sys.stdout)

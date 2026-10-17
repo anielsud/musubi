@@ -127,6 +127,21 @@ CONS_SCHEMA = {"type": "object", "properties": {"outdated": {"type": "array", "i
     "id": {"type": "integer"}, "by": {"type": "integer"},
     "why": {"type": "string", "enum": ["superseded", "completed", "answered", "past"]}}}}}}
 
+# SPLIT=1: after each meeting, a touched thread holding at least SPLIT_MIN
+# items, and half again more than when it was last checked, is divided into
+# its specific subjects (one call): year-long catch-all threads were the
+# main grouping problem left by t4 (research log 2026-10-17).
+SPLIT = os.environ.get("SPLIT") == "1"
+SPLIT_MIN = int(os.environ.get("SPLIT_MIN", "60"))
+SPLIT_SHOW = int(os.environ.get("SPLIT_SHOW", "160"))
+SPLIT_SYS = """You keep a leadership team's notes organised in threads, one per specific subject (an initiative, programme, deal, account, metric, decision, problem, launch, event, hire or departure). This thread has grown, and may now hold several specific subjects, or a broad theme. You get its items, oldest first.
+
+If it holds one specific subject, return no groups. Otherwise keep the subject most of it is about as the thread itself (its name and scope, possibly reworded), and list each other specific subject it holds as a group: a short, specific name, a one-line scope, and the ids of its items. Leave in the thread itself items that belong to no specific subject. Do not split one subject by angle (figures, decisions, follow-ups on the same programme stay together)."""
+SPLIT_SCHEMA = {"type": "object", "properties": {
+    "main": {"type": "object", "properties": {"name": {"type": "string"}, "scope": {"type": "string"}}},
+    "groups": {"type": "array", "items": {"type": "object", "properties": {
+        "name": {"type": "string"}, "scope": {"type": "string"}, "ids": {"type": "array", "items": {"type": "integer"}}}}}}}
+
 MERGE_SYS = """You keep a leadership team's notes organised in threads, one per specific subject. Some threads were just started in today's meeting; each is shown with older threads that look similar. Say which new threads are the same specific subject as an older one (the same initiative, deal, programme, metric, issue, event or hire), so they can be merged. Different subjects that share a word, a person, a customer or a meeting are not the same. When unsure, do not merge."""
 MERGE_SCHEMA = {"type": "object", "properties": {"merges": {"type": "array", "items": {"type": "object", "properties": {
     "new": {"type": "string"}, "into": {"type": "string"}}}}}}
@@ -266,6 +281,51 @@ def main():
             return None
         c = V[[vrow[i] for i in ids]].mean(axis=0)
         return c / (np.linalg.norm(c) or 1)
+
+    def split_threads(m, mi, touched):
+        """SPLIT: divide grown threads into their specific subjects."""
+        todo = [c for c in touched if c in threads and len(threads[c]["items"]) >= SPLIT_MIN
+                and len(threads[c]["items"]) >= 1.5 * threads[c].get("checked", 0)]
+        def one(code):
+            t = threads[code]
+            items = t["items"]
+            if len(items) > SPLIT_SHOW:  # the latest, and an even sample of the rest
+                step = (len(items) - SPLIT_SHOW // 2) / (SPLIT_SHOW // 2)
+                items = [items[int(k * step)] for k in range(SPLIT_SHOW // 2)] + items[-SPLIT_SHOW // 2:]
+            msg = f"Thread: {t['name']} — {t['scope']}\n\nItems (oldest first):\n" + "\n".join(line(by[i]) for i in items) + \
+                  "\n\nDoes this thread hold several specific subjects? Group them."
+            try:
+                return code, items, bt.chat(MODEL, [{"role": "system", "content": SPLIT_SYS}, {"role": "user", "content": msg}], SPLIT_SCHEMA,
+                                            f"{RUN}-split-{m}-{code}", max_tokens=REC_MAX, session=f"{RUN}-{os.environ.get('CACHE_SALT', '')}-split-{m}")
+            except (RuntimeError, json.JSONDecodeError) as e:
+                print(f"  split {code}: {e}", flush=True)
+                return code, items, {}
+        with cf.ThreadPoolExecutor(PAR) as ex:
+            results = list(ex.map(one, todo))
+        for code, shown_items, r in results:
+            calls["split check"] += 1
+            t = threads[code]
+            t["checked"] = len(t["items"])
+            if r.get("main", {}).get("name"):
+                t["name"], t["scope"] = r["main"]["name"].strip(), r["main"].get("scope", t["scope"])
+            allowed = set(shown_items)
+            taken = set()
+            for g in r.get("groups", []):
+                ids = [i for i in g.get("ids", []) if i in allowed and i not in taken]
+                if len(ids) < 3 or not g.get("name", "").strip():
+                    continue  # a group of one or two items isn't a subject of its own
+                seq[0] += 1
+                nc = f"T{seq[0]}"
+                threads[nc] = {"name": g["name"].strip(), "scope": g.get("scope", ""), "items": ids,
+                               "current": [i for i in t["current"] if i in set(ids)], "sum": None, "last": mi, "first": mi, "checked": len(ids)}
+                for i in ids:
+                    member[i] = [nc if c == code else c for c in member[i]]
+                taken |= set(ids)
+                calls["split off"] += 1
+                trace({"step": "split", "meeting": m, "from": code, "into": nc, "items": len(ids)})
+            if taken:
+                t["items"] = [i for i in t["items"] if i not in taken]
+                t["current"] = [i for i in t["current"] if i not in taken]
 
     def merge_new_threads(m, mi, born, touched):
         """MERGE: ask, in one call, which threads born in this meeting are
@@ -607,6 +667,8 @@ def main():
                     threads[code]["current"] = [i for i in threads[code]["current"] if i not in gone]
                     calls["consolidated"] += len(gone)
                     trace({"step": "consolidate", "meeting": m, "code": code, "shown": len(cur), "outdated": len(gone)})
+        if SPLIT:
+            split_threads(m, mi, touched)
         if LAPSE_DAYS:
             today = day_of(m)
             for t in threads.values():

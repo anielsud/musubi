@@ -1823,10 +1823,100 @@ days):
 
 The run hit its spend cap on the evening of 29 September: about 13 of the
 last meetings, including the 30 September benchmark meeting, went
-unthreaded, so its benchmark carry-over isn't comparable.
+unthreaded, so its benchmark carry-over isn't comparable. The full run
+(below) replaces it.
 
 Spend for the fixes:
 - $9.63 on the hosted ledger (R1–R7, the September run, the cache
   checks);
 - plus an estimated $0.25 for a stopped Go t4 check on GLM: the Go
   provider doesn't write bt.py's ledger.
+
+## 2026-10-17 (later): September in full, t4 in Go, a split pass
+
+**R7 on all of September.** The run started again from the start, at the
+same settings, through the call cache. The replay drifted part way: a
+call's key is its whole prompt, and a parallel retry that lands
+differently changes every later prompt. So much of the run was paid for
+again.
+
+| September (144 meetings) | t3 | R7, full |
+|---|---|---|
+| Threads | 655 | 484 |
+| Items current | 87% | 82% |
+| Missed updates fixed | 9/104 | 62/104 |
+| Stale fixed | 1/130 | 71/130 |
+| Wrong retirements fixed | 6/54 | 32/54 |
+| Live items wrongly retired | 0.0% | 1.0% |
+| Retiring updates retired | 18.8% | 21.4% |
+| Grouping (all benchmark meetings) | 0.74/0.50 | 0.72/0.49 |
+
+The cost was $1.99 of new spend on the ledger (the run counts $4.59 with
+cache hits), in 101 minutes. The sept-all-t4 dataset now holds this
+run, with its sl2 labels kept.
+
+**The Go t4 threader on ELT-year** (`knowledge --redo threads`, hosted
+GLM-5.3-Flash, metered through the shared ledger):
+
+| ELT-year | Python R7 | Go t4 |
+|---|---|---|
+| Threads | 275 | 188 |
+| Items current | 73% | 73% |
+| Missed updates fixed | 51/71 | 43/71 |
+| Stale fixed | 69/108 | 63/108 |
+| Wrong retirements fixed | 35/45 | 34/45 |
+| Live items wrongly retired | 1.0% | 1.0% |
+| Grouping | 0.91/0.50 | 0.90/0.56 |
+
+The cost was $1.40, in 69 minutes. Go makes fewer, larger threads, with
+better grouping recall. It retires 8 fewer of the audited missed updates.
+`system_from_db.py` now writes threads, so `memory_eval.py` scores an
+instance database directly.
+
+**Threading speed.** About 1.1 minutes per hour of meeting content in
+Python and 1.6 in Go (ELT-year: about 42 hours of content). Meetings run
+one after another, since each depends on the state the last one left.
+Within a meeting, calls are parallel (8). Each hosted call takes 10–30
+seconds, mostly reasoning, and calls cut off at 8,000 tokens are retried.
+
+**Split pass (R8 = R7 + `SPLIT=1`, threads2.py only).** After each
+meeting, a touched thread of 60 or more items is checked, if it has grown
+by half since its last check: one call divides it into its specific
+subjects. Groups of fewer than three items are left in place. A thread of
+more than 160 items is shown as a sample: an even spread plus its latest
+80.
+
+| ELT-year | R7 | R8 split |
+|---|---|---|
+| Threads | 275 | 353 |
+| Largest threads | 354, 177, 140 | 143, 128, 104 |
+| Items in threads of 60+ | 43% | 20% |
+| Missed updates fixed | 51/71 | 47/71 |
+| Stale fixed | 69/108 | 70/108 |
+| Wrong retirements fixed | 35/45 | 37/45 |
+| Live items wrongly retired | 1.0% | 1.5% |
+| Grouping | 0.91/0.50 | 0.93/0.47 |
+
+The cost was about $1.19 of new spend (the run counts $3.53 with cache
+hits): calls after a split miss the cache.
+
+Opus audited the six splits that made the most new threads (49 threads,
+audit-r8/):
+- 5 splits were better than one thread, 1 was worse (one subject cut by
+  angle);
+- 42 threads are one subject, 5 are themes, 2 mix several;
+- 6 pairs were over-split;
+- 99 items are in the wrong thread. Most were left in the parent but
+  belong in a split-off thread. Many of these were never shown to the
+  model, because of the 160-item sample.
+
+Split is kept as an option, off by default. Next: show the whole thread
+in chunks rather than a sample; a group must name a subject other than
+the parent's (against cutting by angle). Then port it to Go.
+
+Spend in this round:
+- $4.58 on the ledger ($37.51 → $42.09; the cap is $47.50);
+- of which $1.40 for the Go check and $3.18 for September and the split
+  together: they share a tag prefix, and their split is estimated from
+  the ledger growth while September ran alone.
+

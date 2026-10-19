@@ -551,3 +551,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .brief-status { margin: 4px 0; padding: 6px 8px; border-radius: 7px; background: var(--bg-2); }
 .brief-status .brief-sum { margin-top: 3px; }
 .card-now { font-size: 12.5px; margin: 4px 0; color: var(--text); }
+.corrections .alias { padding: 7px 9px; border-radius: 8px; background: var(--bg-2); margin: 6px 0; }
+.corrections .alias.risky { border-left: 3px solid var(--lvl-confidential); }
+.alias-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
+.alias-actions { margin-left: auto; display: flex; gap: 4px; }
+.alias-sample { font-size: 12px; color: var(--text-dim); margin-top: 3px; }

@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { AppStatus, ClaimView, Comparison, DatasetView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, TopicMapData, TopicSummary, TopicView } from './types';
+import type { AliasView, AppStatus, ClaimView, Comparison, DatasetView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, TopicMapData, TopicSummary, TopicView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -44,6 +44,8 @@ export const api = {
   topicMap: (scope: string): Promise<TopicMapData> => app().TopicMap(scope),
   compareWith: (key: string, scope: string, reverse: boolean): Promise<Comparison> => app().CompareWith(key, scope, reverse),
   setWide: (on: boolean): Promise<void> => app().SetWide(on),
+  aliases: (status: string, limit = 100): Promise<AliasView[] | null> => app().Aliases(status, limit),
+  decideAlias: (id: number, confirm: boolean): Promise<void> => app().DecideAlias(id, confirm),
   prepTargets: (): Promise<PrepTarget[] | null> => app().PrepTargets(),
   prep: (req: PrepRequest, scope: string): Promise<PrepView> => app().Prep(req, scope),
   prepBrief: (id: string, req: PrepRequest, scope: string): Promise<void> => app().PrepBrief(id, req, scope),

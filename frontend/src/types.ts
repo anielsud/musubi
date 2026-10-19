@@ -397,3 +397,17 @@ export interface PrepView {
   open: { text: string; who?: string; due?: string; thread: number; name: string; items: ThreadItem[] | null }[] | null;
   share: { thread: number; name: string; item: ThreadItem }[] | null;
 }
+
+export interface AliasView {
+  id: number;
+  keep: string;
+  variant: string;
+  kind: string;
+  status: string;
+  score: number;
+  statements: number;
+  items: number;
+  threads: number;
+  newLinks: number;
+  sample: string[] | null;
+}

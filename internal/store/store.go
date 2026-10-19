@@ -56,6 +56,16 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	// Provenance on thread edges (docs/incremental-design.md).
+	if err := addColumns(db, "thread_items", "version TEXT NOT NULL DEFAULT ''", "added_in TEXT NOT NULL DEFAULT ''", "added_at INTEGER NOT NULL DEFAULT 0",
+		"retired_in TEXT NOT NULL DEFAULT ''", "retired_at INTEGER NOT NULL DEFAULT 0", "retired_why TEXT NOT NULL DEFAULT ''"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	if err := addColumns(db, "claim_relations", "version TEXT NOT NULL DEFAULT ''", "made_in TEXT NOT NULL DEFAULT ''", "made_at INTEGER NOT NULL DEFAULT 0"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	if err := addColumns(db, "statements", "worth REAL", "worth_version TEXT NOT NULL DEFAULT ''", "search_text TEXT NOT NULL DEFAULT ''",
 		"status TEXT NOT NULL DEFAULT ''", "who TEXT NOT NULL DEFAULT ''", "evidence TEXT NOT NULL DEFAULT ''",
 		"level INTEGER NOT NULL DEFAULT 0", "categories INTEGER NOT NULL DEFAULT 0", "label_version TEXT NOT NULL DEFAULT ''"); err != nil {

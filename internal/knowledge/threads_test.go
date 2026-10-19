@@ -94,7 +94,7 @@ func TestThreader(t *testing.T) {
 		t.Fatal(err)
 	}
 	llm := &scriptedThreads{}
-	th := &Threader{Store: f.st, LLM: llm, Chunk: 70, Parallel: 2}
+	th := &Threader{Store: f.st, LLM: llm, Chunk: 70, Parallel: 2, Version: "v-test"}
 	items := []ThreadItem{
 		{ID: "m:2", Start: time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)},
 		{ID: "m:1", Start: time.Date(2026, 9, 16, 15, 0, 0, 0, time.UTC)},
@@ -113,6 +113,22 @@ func TestThreader(t *testing.T) {
 			t.Errorf("collapsed assign reply not retried: %d calls", st.Calls)
 		}
 	}
+	// Every membership says when and during which item it was made, and
+	// every retirement why.
+	rows, _ := f.st.ThreadItemRows()
+	retired := 0
+	for _, r := range rows {
+		if r.AddedIn == "" || r.AddedAt.Unix() == 0 || r.Version != "v-test" {
+			t.Errorf("membership without provenance: %+v", r)
+		}
+		if !r.Current {
+			retired++
+			if r.RetiredIn == "" || r.RetiredWhy == "" {
+				t.Errorf("retirement without provenance: %+v", r)
+			}
+		}
+	}
+	_ = retired
 	if err := f.st.PlaceClaimsInThreads(); err != nil {
 		t.Fatal(err)
 	}
@@ -290,6 +306,20 @@ func TestThreaderConsolidatesAndLapses(t *testing.T) {
 		if s.ItemID == "m:1" && (s.Kind == "question" || s.Kind == "commitment") && cur[s.ID] {
 			t.Errorf("%s from three months earlier still current: %q", s.Kind, s.Text)
 		}
+	}
+	// Each retirement says during which item and why.
+	ir, _ := f.st.ThreadItemRows()
+	why := map[string]int{}
+	for _, r := range ir {
+		if !r.Current {
+			why[r.RetiredWhy]++
+			if r.RetiredIn != "m:2" || r.RetiredAt.Unix() == 0 {
+				t.Errorf("retirement without provenance: %+v", r)
+			}
+		}
+	}
+	if why["lapse"] == 0 || why["consolidate"] == 0 {
+		t.Errorf("retirements by reason: %v", why)
 	}
 }
 

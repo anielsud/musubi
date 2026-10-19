@@ -76,12 +76,34 @@ func (s *Store) NewThread(name, scope string, level sensitivity.Level) (int64, e
 	return res.LastInsertId()
 }
 
+// Provenance says what made a thread change and when: the threading
+// rules' version, the item being threaded, why an item stopped being
+// current (reconcile, consolidate, cross, lapse), and the processing time.
+// It is the base for invalidating locally and for "what was known when"
+// (docs/incremental-design.md).
+type Provenance struct {
+	Version, During, Why string
+	At                   time.Time
+}
+
+func prov(p []Provenance) Provenance {
+	if len(p) > 0 {
+		if p[0].At.IsZero() {
+			p[0].At = time.Now()
+		}
+		return p[0]
+	}
+	return Provenance{At: time.Now()}
+}
+
 // AddToThread puts statements in a thread (current until reconciled) and
 // raises the thread's label level to theirs: its name was written from them.
-func (s *Store) AddToThread(topic int64, sids []int64, level sensitivity.Level) error {
+func (s *Store) AddToThread(topic int64, sids []int64, level sensitivity.Level, p ...Provenance) error {
+	pv := prov(p)
 	return s.tx(func(tx *sql.Tx) error {
 		for _, id := range sids {
-			if _, err := tx.Exec(`INSERT OR IGNORE INTO thread_items(topic_id, statement_id, current) VALUES (?,?,1)`, topic, id); err != nil {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO thread_items(topic_id, statement_id, current, version, added_in, added_at) VALUES (?,?,1,?,?,?)`,
+				topic, id, pv.Version, pv.During, pv.At.Unix()); err != nil {
 				return err
 			}
 		}
@@ -93,14 +115,43 @@ func (s *Store) AddToThread(topic int64, sids []int64, level sensitivity.Level) 
 
 // SetThreadCurrent marks which of a thread's statements state its current
 // position.
-func (s *Store) SetThreadCurrent(topic int64, current []int64) error {
+// An item leaving the current set records when, during which item and
+// why; one coming back clears that.
+func (s *Store) SetThreadCurrent(topic int64, current []int64, p ...Provenance) error {
+	pv := prov(p)
+	keep := make(map[int64]bool, len(current))
+	for _, id := range current {
+		keep[id] = true
+	}
 	return s.tx(func(tx *sql.Tx) error {
-		if _, err := tx.Exec(`UPDATE thread_items SET current = 0 WHERE topic_id = ?`, topic); err != nil {
+		rows, err := tx.Query(`SELECT statement_id, current FROM thread_items WHERE topic_id = ?`, topic)
+		if err != nil {
 			return err
 		}
-		for _, id := range current {
-			if _, err := tx.Exec(`UPDATE thread_items SET current = 1 WHERE topic_id = ? AND statement_id = ?`, topic, id); err != nil {
-				return err
+		type row struct {
+			id  int64
+			cur bool
+		}
+		var all []row
+		for rows.Next() {
+			var r row
+			var c int
+			rows.Scan(&r.id, &c)
+			r.cur = c == 1
+			all = append(all, r)
+		}
+		rows.Close()
+		for _, r := range all {
+			switch {
+			case r.cur && !keep[r.id]:
+				if _, err := tx.Exec(`UPDATE thread_items SET current = 0, retired_in = ?, retired_at = ?, retired_why = ? WHERE topic_id = ? AND statement_id = ?`,
+					pv.During, pv.At.Unix(), pv.Why, topic, r.id); err != nil {
+					return err
+				}
+			case !r.cur && keep[r.id]:
+				if _, err := tx.Exec(`UPDATE thread_items SET current = 1, retired_in = '', retired_at = 0, retired_why = '' WHERE topic_id = ? AND statement_id = ?`, topic, r.id); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -109,10 +160,11 @@ func (s *Store) SetThreadCurrent(topic int64, current []int64) error {
 
 // RelateStatements records that a later statement bears on an earlier one,
 // as a relation between their claims.
-func (s *Store) RelateStatements(later, earlier int64, rel string) error {
-	_, err := s.db.Exec(`INSERT OR IGNORE INTO claim_relations(from_claim, to_claim, rel, statement_id)
-		SELECT a.claim_id, b.claim_id, ?, ? FROM statement_claims a, statement_claims b
-		WHERE a.statement_id = ? AND b.statement_id = ? AND a.claim_id != b.claim_id`, rel, later, later, earlier)
+func (s *Store) RelateStatements(later, earlier int64, rel string, p ...Provenance) error {
+	pv := prov(p)
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO claim_relations(from_claim, to_claim, rel, statement_id, version, made_in, made_at)
+		SELECT a.claim_id, b.claim_id, ?, ?, ?, ?, ? FROM statement_claims a, statement_claims b
+		WHERE a.statement_id = ? AND b.statement_id = ? AND a.claim_id != b.claim_id`, rel, later, pv.Version, pv.During, pv.At.Unix(), later, earlier)
 	return err
 }
 
@@ -288,4 +340,36 @@ func (s *Store) LatestThreaded() (time.Time, error) {
 		return time.Time{}, err
 	}
 	return time.Unix(at.Int64, 0), err
+}
+
+// ThreadItemRow is a thread membership with its provenance.
+type ThreadItemRow struct {
+	Topic, Statement      int64
+	Current               bool
+	Version, AddedIn      string
+	AddedAt               time.Time
+	RetiredIn, RetiredWhy string
+	RetiredAt             time.Time
+}
+
+// ThreadItemRows lists every membership with its provenance. Unscoped: for
+// audits and the incremental engine, never shown.
+func (s *Store) ThreadItemRows() ([]ThreadItemRow, error) {
+	rows, err := s.db.Query(`SELECT topic_id, statement_id, current, version, added_in, added_at, retired_in, retired_at, retired_why FROM thread_items`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ThreadItemRow
+	for rows.Next() {
+		var r ThreadItemRow
+		var cur int
+		var add, ret int64
+		if err := rows.Scan(&r.Topic, &r.Statement, &cur, &r.Version, &r.AddedIn, &add, &r.RetiredIn, &ret, &r.RetiredWhy); err != nil {
+			return nil, err
+		}
+		r.Current, r.AddedAt, r.RetiredAt = cur == 1, time.Unix(add, 0), time.Unix(ret, 0)
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

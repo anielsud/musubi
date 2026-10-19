@@ -846,7 +846,7 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 			return err
 		}
 	}
-	th := &knowledge.Threader{Store: r.Store, LLM: llm, Vecs: vecs, Chunk: kc.Threads.Chunk, Parallel: kc.Threads.Parallel,
+	th := &knowledge.Threader{Store: r.Store, LLM: llm, Vecs: vecs, Version: stamp, Chunk: kc.Threads.Chunk, Parallel: kc.Threads.Parallel,
 		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, WarmFirst: kc.WarmCache, AuditFixes: kc.Threads.AuditFixes, Logf: r.logf}
 	for i, it := range todo {
 		if ctx.Err() != nil {

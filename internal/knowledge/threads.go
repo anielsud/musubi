@@ -131,6 +131,8 @@ const (
 type Threader struct {
 	Store *store.Store
 	LLM   provider.LLM
+	// Version stamps what it writes (the threading rules' stamp).
+	Version string
 	// Vecs are statement vectors (for candidate threads); nil shows the
 	// most recently active threads only.
 	Vecs map[int64][]float32
@@ -162,6 +164,11 @@ type ThreadStats struct {
 	Items, Statements, NewThreads, Touched, Calls, Relations int
 	// Unplaced: statements no thread took after the retries.
 	Unplaced int
+}
+
+// prov is the provenance of a change made while threading it.
+func (t *Threader) prov(it ThreadItem, why string) store.Provenance {
+	return store.Provenance{Version: t.Version, During: it.ID, Why: why}
 }
 
 func (t *Threader) logf(f string, a ...any) {
@@ -428,7 +435,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 		for _, id := range th.members {
 			lvl = max(lvl, byID[id].Level)
 		}
-		if err := t.Store.AddToThread(tid, th.members, lvl); err != nil {
+		if err := t.Store.AddToThread(tid, th.members, lvl, t.prov(it, "")); err != nil {
 			return stats, err
 		}
 	}
@@ -537,7 +544,7 @@ func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64
 			if rel = threadRuleV4(rel, early.Kind, early.Status, sameA && sameB, late.Text); rel != "supersedes" && rel != "completes" && rel != "answers" {
 				continue
 			}
-			if err := t.Store.RelateStatements(o.By, o.ID, rel); err != nil {
+			if err := t.Store.RelateStatements(o.By, o.ID, rel, t.prov(it, "")); err != nil {
 				return err
 			}
 			stats.Relations++
@@ -553,7 +560,7 @@ func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64
 				now = append(now, id)
 			}
 		}
-		if err := t.Store.SetThreadCurrent(r.tid, now); err != nil {
+		if err := t.Store.SetThreadCurrent(r.tid, now, t.prov(it, "consolidate")); err != nil {
 			return err
 		}
 		th.previous = now
@@ -575,7 +582,7 @@ func (t *Threader) lapse(it ThreadItem, threads map[int64]*threadState, known ma
 			now = append(now, id)
 		}
 		if len(now) != len(th.previous) {
-			if err := t.Store.SetThreadCurrent(tid, now); err != nil {
+			if err := t.Store.SetThreadCurrent(tid, now, t.prov(it, "lapse")); err != nil {
 				return err
 			}
 			th.previous = now
@@ -789,7 +796,7 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 					// retirements of t4's first run. Recorded, so "current"
 					// can be derived from relations (incremental-design.md).
 					retired[e.Earlier] = true
-					if err := t.Store.RelateStatements(e.Later, e.Earlier, "repeats"); err != nil {
+					if err := t.Store.RelateStatements(e.Later, e.Earlier, "repeats", t.prov(it, "")); err != nil {
 						return err
 					}
 					stats.Relations++
@@ -814,7 +821,7 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 			if rel == "" {
 				continue
 			}
-			if err := t.Store.RelateStatements(e.Later, e.Earlier, rel); err != nil {
+			if err := t.Store.RelateStatements(e.Later, e.Earlier, rel, t.prov(it, "")); err != nil {
 				return err
 			}
 			stats.Relations++
@@ -831,7 +838,7 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 				now = append(now, id)
 			}
 		}
-		if err := t.Store.SetThreadCurrent(r.tid, now); err != nil {
+		if err := t.Store.SetThreadCurrent(r.tid, now, t.prov(it, "reconcile")); err != nil {
 			return err
 		}
 		th.previous, th.members = now, nil
@@ -853,7 +860,7 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 			}
 		}
 		if len(now) != len(cur) {
-			if err := t.Store.SetThreadCurrent(tid, now); err != nil {
+			if err := t.Store.SetThreadCurrent(tid, now, t.prov(it, "cross")); err != nil {
 				return err
 			}
 			th.previous = now

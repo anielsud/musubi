@@ -251,6 +251,9 @@ CREATE TABLE IF NOT EXISTS claim_relations (
 	to_claim     INTEGER NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
 	rel          TEXT NOT NULL,  -- contradicts, refines, supersedes, answers, completes, pending, repeats
 	statement_id INTEGER NOT NULL REFERENCES statements(id) ON DELETE CASCADE,
+	version      TEXT NOT NULL DEFAULT '',  -- threads: the rules version, the item being threaded, processing time
+	made_in      TEXT NOT NULL DEFAULT '',
+	made_at      INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (from_claim, to_claim, rel)
 );
 
@@ -314,6 +317,15 @@ CREATE TABLE IF NOT EXISTS thread_items (
 	topic_id     INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
 	statement_id INTEGER NOT NULL REFERENCES statements(id) ON DELETE CASCADE,
 	current      INTEGER NOT NULL DEFAULT 1,
+	-- Provenance: the threading version, the item being threaded and the
+	-- processing time when added; when, during what and why it stopped
+	-- being current (reconcile, consolidate, cross, lapse).
+	version      TEXT NOT NULL DEFAULT '',
+	added_in     TEXT NOT NULL DEFAULT '',
+	added_at     INTEGER NOT NULL DEFAULT 0,
+	retired_in   TEXT NOT NULL DEFAULT '',
+	retired_at   INTEGER NOT NULL DEFAULT 0,
+	retired_why  TEXT NOT NULL DEFAULT '',
 	PRIMARY KEY (topic_id, statement_id)
 );
 CREATE INDEX IF NOT EXISTS thread_items_statement ON thread_items(statement_id);

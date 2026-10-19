@@ -102,3 +102,21 @@ func (a *App) AliasUsages(id int64, limit int) ([]store.AliasUsage, error) {
 	}
 	return nil, fmt.Errorf("no alias %d", id)
 }
+
+// ConfirmAliasIn confirms an alias for the given uses only; with every use
+// it is confirmed everywhere.
+func (a *App) ConfirmAliasIn(id int64, statements []int64, all bool) error {
+	if a.eng == nil {
+		return fmt.Errorf("not ready: %s", a.err)
+	}
+	var err error
+	if all {
+		err = a.eng.Store.DecideAlias(id, true, "owner")
+	} else {
+		err = a.eng.Store.ConfirmAliasIn(id, statements, "owner")
+	}
+	if err == nil && a.live != nil {
+		a.live.Reload()
+	}
+	return err
+}

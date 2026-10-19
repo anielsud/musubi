@@ -567,7 +567,10 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .corrections .alias.sel { border-color: var(--accent); }
 .corr-uses-head { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; background: var(--bg); padding: 2px 0 6px; }
 .corr-uses-head h3 { margin: 0; font-size: 15px; }
-.corr-use { display: block; width: 100%; text-align: left; padding: 6px 8px; border-radius: 7px; background: var(--bg-2); margin: 5px 0; }
+.corr-use { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border-radius: 7px; background: var(--bg-2); margin: 5px 0; border: 1px solid transparent; }
+.corr-use.on { border-color: rgba(94, 234, 212, 0.35); }
+.corr-use input { margin-top: 3px; }
+.corr-use-body { flex: 1; text-align: left; }
 .corr-use:hover { background: var(--surface-2); }
 .corr-use-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 11.5px; }
 .corr-thread { color: var(--accent-2); }

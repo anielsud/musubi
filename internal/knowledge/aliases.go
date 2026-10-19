@@ -3,9 +3,11 @@ package knowledge
 import (
 	"encoding/json"
 	"math"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 
 	"github.com/anielsud/musubi/internal/item"
@@ -110,7 +112,30 @@ func AliasCandidates(items []item.Item, sts []store.Statement, owner string) []A
 		}
 	}
 	ownerKey := strings.Fields(PrepNameKey(owner))
-	ordinary := func(w string) bool { l := strings.ToLower(w); return lower[l]*5 >= lower[l]+count[w] }
+	words := englishWords()
+	ordinary := func(w string) bool {
+		l := strings.ToLower(w)
+		if lower[l]*5 >= lower[l]+count[w] {
+			return true
+		}
+		return words[l] || words[strings.TrimSuffix(l, "s")] || words[strings.TrimSuffix(l, "es")]
+	}
+	// A person in their own right: an attendee's name part, a speaker, or
+	// part of a full name a statement belongs to. Such a name is never
+	// proposed as another's variant (two colleagues a letter apart).
+	person := map[string]bool{}
+	for t := range fullOf {
+		person[t] = true
+	}
+	for _, s := range sts {
+		for _, n := range append(append([]string{}, s.Who...), s.Holder) {
+			if f := strings.Fields(PrepNameKey(n)); len(f) > 1 {
+				for _, t := range f {
+					person[t] = true
+				}
+			}
+		}
+	}
 	byKey := map[string][]string{}
 	for w, n := range count {
 		if n >= 2 && !ordinary(w) {
@@ -150,6 +175,18 @@ func AliasCandidates(items []item.Item, sts []store.Statement, owner string) []A
 				keep, variant := a, b
 				if count[b] > count[a] || (count[b] == count[a] && onInvite[b]) {
 					keep, variant = b, a
+				}
+				// A variant is a minority spelling of something known, and
+				// not someone (or a word) of its own.
+				if count[variant]*3 > count[keep] || person[PrepNameKey(variant)] || ordinary(variant) {
+					continue
+				}
+				// Names that differ only in their ending, or where one is the
+				// other plus an ending, are usually two names (Paul and Paula,
+				// Mario and Marie) or two word forms; a mishearing changes the
+				// middle (Olaf for Olof).
+				if endingOnly(PrepNameKey(keep), PrepNameKey(variant)) {
+					continue
 				}
 				score := math.Sqrt(float64(count[variant])) / float64(1+d)
 				if onInvite[keep] {
@@ -254,4 +291,47 @@ func editDistance(a, b string) int {
 		prev = cur
 	}
 	return prev[len(rb)]
+}
+
+var (
+	wordsOnce sync.Once
+	wordsSet  map[string]bool
+)
+
+// englishWords is the system word list's lower-case words (macOS and most
+// Linux have one; public domain), for telling a word ("miles") from a
+// name. Empty when there is none.
+func englishWords() map[string]bool {
+	wordsOnce.Do(func() {
+		wordsSet = map[string]bool{}
+		b, err := os.ReadFile("/usr/share/dict/words")
+		if err != nil {
+			return
+		}
+		for _, w := range strings.Split(string(b), "\n") {
+			if w != "" && w == strings.ToLower(w) {
+				wordsSet[w] = true
+			}
+		}
+	})
+	return wordsSet
+}
+
+// endingOnly: one is the other plus up to three letters (Paul and Paula,
+// Anders and Anderson), or they differ only in a final vowel, a for e or o
+// (Mario and Marie, Nicola and Nicole). A final consonant or i for y is
+// more often a misspelling (Ruis for Ruiz, Kelly for Kelli).
+func endingOnly(a, b string) bool {
+	if len(a) > len(b) {
+		a, b = b, a
+	}
+	if strings.HasPrefix(b, a) && len(b)-len(a) <= 3 {
+		return true
+	}
+	ra, rb := []rune(a), []rune(b)
+	if len(ra) != len(rb) || len(ra) < 2 || string(ra[:len(ra)-1]) != string(rb[:len(rb)-1]) {
+		return false
+	}
+	gendered := func(r rune) bool { return r == 'a' || r == 'e' || r == 'o' }
+	return gendered(ra[len(ra)-1]) && gendered(rb[len(rb)-1])
 }

@@ -91,3 +91,20 @@ func TestCorrectionsSurviveReextraction(t *testing.T) {
 		t.Errorf("undo didn't restore the extracted text: %q", got[id2].Text)
 	}
 }
+
+func TestAliasConfirmedForSomeUses(t *testing.T) {
+	s, _ := Open(filepath.Join(t.TempDir(), "t.db"))
+	defer s.Close()
+	s.ProposeAlias(LearnedAlias{Keep: "Myles", Variant: "Miles", Kind: "spelling"})
+	as, _ := s.LearnedAliases("proposed")
+	if err := s.ConfirmAliasIn(as[0].ID, []int64{7, 9}, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := s.ConfirmedSpellings(); len(g) != 0 {
+		t.Errorf("confirmed for two uses, applied everywhere: %v", g)
+	}
+	sc, _ := s.ScopedSpellings()
+	if sc[7]["miles"] != "Myles" || sc[9]["miles"] != "Myles" || sc[8] != nil {
+		t.Errorf("scoped %v", sc)
+	}
+}

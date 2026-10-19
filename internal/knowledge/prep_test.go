@@ -129,6 +129,12 @@ func TestAliasCandidates(t *testing.T) {
 		st("1", "Ruiz said the Dhaka office is ready."), st("1", "Ruiz again: Dhaka hiring."), st("2", "Ruis will check the Daka numbers."),
 		st("2", "Ruis and Daka again."), st("1", "Kristian presented."), st("2", "Christian agreed."), st("2", "Kristian and Christian."),
 		st("3", "Owner Sam and Sams team."), st("3", "Dhaka is the second site."),
+		st("1", "Ruiz and Dhaka."), st("1", "Ruiz in Dhaka."), st("1", "Ruiz, Dhaka."), st("2", "Ruiz: Dhaka."),
+		// A colleague with a near name, credited with statements: a person.
+		{ItemID: "2", Text: "Emil said the plan holds.", Who: []string{"Emil Novak"}}, st("1", "Emily agreed."), st("1", "Emily again."), st("1", "Emily, three."),
+		st("1", "Emily, four."), st("1", "Emily, five."), st("1", "Emily, six."),
+		// A word that is also near a name.
+		st("1", "Myles approved."), st("1", "Myles again."), st("1", "Myles, three."), st("1", "Myles, four."), st("1", "Myles, five."), st("1", "Myles, six."), st("2", "It is 40 Miles away."),
 	}
 	got := map[string]string{}
 	for _, c := range AliasCandidates(items, sts, "Sam Owner") {
@@ -142,5 +148,20 @@ func TestAliasCandidates(t *testing.T) {
 	}
 	if _, ok := got["Christian"]; ok {
 		t.Errorf("two people proposed as one: %v", got)
+	}
+	// Emil is credited with a statement under a full name: a person.
+	if _, ok := got["Emil"]; ok {
+		t.Errorf("a colleague proposed as another's variant: %v", got)
+	}
+	for _, pair := range [][2]string{{"Paul", "Paula"}, {"Mario", "Marie"}, {"Anders", "Anderson"}} {
+		if !endingOnly(PrepNameKey(pair[0]), PrepNameKey(pair[1])) {
+			t.Errorf("%v: two names, not a mishearing", pair)
+		}
+	}
+	if endingOnly("olof", "olaf") || endingOnly("timko", "timco") || endingOnly("ruiz", "ruis") || endingOnly("kelli", "kelly") {
+		t.Error("a mishearing in the middle taken for two names")
+	}
+	if _, ok := got["Miles"]; ok && len(englishWords()) > 0 {
+		t.Errorf("a word proposed as a name: %v", got)
 	}
 }

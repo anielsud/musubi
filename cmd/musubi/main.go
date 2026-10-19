@@ -558,6 +558,26 @@ func aliasesCmd() *cobra.Command {
 		},
 	})
 	c.AddCommand(&cobra.Command{
+		Use:   "refresh",
+		Short: "Drop undecided proposals and propose again from the corpus (decisions are kept)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			e, err := open()
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			if err := e.Store.DropProposedAliases(); err != nil {
+				return err
+			}
+			n, err := knowledge.ProposeAliases(e.Store, e.Cfg.Owner.Name)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%d aliases proposed\n", n)
+			return nil
+		},
+	})
+	c.AddCommand(&cobra.Command{
 		Use:   "list [proposed|confirmed|rejected]",
 		Short: "List aliases with what each would touch",
 		Args:  cobra.MaximumNArgs(1),

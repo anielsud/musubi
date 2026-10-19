@@ -186,6 +186,25 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 		return nil, err
 	}
 	spell := Spellings(sp)
+	scoped, err := st.ScopedSpellings()
+	if err != nil {
+		return nil, err
+	}
+	// The spellings for one statement: the global ones and those confirmed
+	// for it alone.
+	spellFor := func(id int64) Spellings {
+		if len(scoped[id]) == 0 {
+			return spell
+		}
+		m := Spellings{}
+		for k, v := range spell {
+			m[k] = v
+		}
+		for k, v := range scoped[id] {
+			m[k] = v
+		}
+		return m
+	}
 	var names []string
 	byID := map[string]*item.Item{}
 	for i := range items {
@@ -282,14 +301,14 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 				whos = []string{it.Holder}
 			}
 			for _, wn := range whos {
-				if n, ok := group.match(spell.Canonical(wn)); ok {
+				if n, ok := group.match(spellFor(it.ID).Canonical(wn)); ok {
 					s.score += 2 * w
 					s.said++
 					s.holders[n]++
 					break
 				}
 			}
-			if group.mentioned(spell.Canonical(it.Text)) {
+			if group.mentioned(spellFor(it.ID).Canonical(it.Text)) {
 				s.score += 1.5 * w
 				s.about++
 			}

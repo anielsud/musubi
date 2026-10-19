@@ -15,6 +15,9 @@ export function CorrectionsView({ onSource }: { onSource: (itemId: string, chunk
   const [list, setList] = useState<AliasView[] | null>(null);
   const [sel, setSel] = useState<AliasView | null>(null);
   const [uses, setUses] = useState<AliasUsage[] | null>(null);
+  // The uses the alias is right for: those in threads that already name
+  // the kept form start checked.
+  const [checked, setChecked] = useState<Set<number>>(new Set());
   const [err, setErr] = useState('');
 
   useEffect(() => {
@@ -27,9 +30,24 @@ export function CorrectionsView({ onSource }: { onSource: (itemId: string, chunk
   }, [status]);
   useEffect(() => {
     setUses(null);
-    if (sel) api.aliasUsages(sel.id).then((u) => setUses(u ?? []), (e) => setErr(String(e)));
+    if (sel) api.aliasUsages(sel.id).then((u) => {
+      setUses(u ?? []);
+      setChecked(new Set((u ?? []).filter((x) => x.hasKept).map((x) => x.statement)));
+    }, (e) => setErr(String(e)));
   }, [sel]);
 
+  const drop = (a: AliasView) =>
+    setList((l) => {
+      const rest = (l ?? []).filter((x) => x.id !== a.id);
+      const i = (l ?? []).findIndex((x) => x.id === a.id);
+      setSel(rest[Math.min(i, rest.length - 1)] ?? null);
+      return rest;
+    });
+  const confirmChecked = (a: AliasView) => {
+    const all = (uses ?? []).length > 0 && (uses ?? []).every((u) => checked.has(u.statement));
+    api.confirmAliasIn(a.id, [...checked], all).then(() => drop(a), (e) => setErr(String(e)));
+  };
+  const toggle = (id: number) => setChecked((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const decide = (a: AliasView, confirm: boolean) =>
     api.decideAlias(a.id, confirm).then(() => {
       setList((l) => {
@@ -59,15 +77,20 @@ export function CorrectionsView({ onSource }: { onSource: (itemId: string, chunk
         <h3><b>{sel.variant}</b> <span className="dim">→</span> <b>{sel.keep}</b></h3>
         {status === 'proposed' && (
           <span className="alias-actions">
-            <button className="chip" onClick={() => decide(sel, true)}>✓ same thing</button>
-            <button className="chip" onClick={() => decide(sel, false)}>✗ different</button>
+            <button className="chip" disabled={checked.size === 0} onClick={() => confirmChecked(sel)}
+              title="Apply the alias to the checked uses only (all checked: everywhere, new meetings too)">
+              ✓ same in {checked.size === (uses ?? []).length && checked.size > 0 ? 'all' : checked.size} {checked.size === 1 ? 'use' : 'uses'}
+            </button>
+            <button className="chip" onClick={() => decide(sel, false)}>✗ different everywhere</button>
           </span>
         )}
       </div>
-      <div className="dim small">Every statement using “{sel.variant}”, newest first. Threads marked “new link” don't mention “{sel.keep}” yet: confirming ties them to it.</div>
+      <div className="dim small">Every statement using “{sel.variant}”, newest first. Check the uses that mean {sel.keep}; those in threads already naming {sel.keep} start checked. “New link”: that thread doesn't mention {sel.keep} yet.</div>
       {!uses && <Spinner />}
       {(uses ?? []).map((u) => (
-        <button key={u.statement} className="corr-use" onClick={() => onSource(u.itemId, u.chunkId)} title="Open the source passage">
+        <div key={u.statement} className={'corr-use' + (checked.has(u.statement) ? ' on' : '')}>
+          {status === 'proposed' && <input type="checkbox" checked={checked.has(u.statement)} onChange={() => toggle(u.statement)} title={`This use means ${sel.keep}`} />}
+          <button className="corr-use-body" onClick={() => onSource(u.itemId, u.chunkId)} title="Open the source passage">
           <div className="corr-use-head">
             <span className="dim">{fmtDate(u.at)} · {u.itemTitle}</span>
             {u.thread && <span className="corr-thread">{u.thread}</span>}
@@ -75,7 +98,8 @@ export function CorrectionsView({ onSource }: { onSource: (itemId: string, chunk
             {!u.current && u.thread && <span className="dim small">retired</span>}
           </div>
           <div className="corr-use-text"><Marked text={u.text} word={sel.variant} /></div>
-        </button>
+          </button>
+        </div>
       ))}
     </div>
   );

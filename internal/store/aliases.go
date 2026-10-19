@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"regexp"
 	"strings"
 	"time"
@@ -210,4 +211,47 @@ func (s *Store) UsagesOf(a LearnedAlias, limit int) ([]AliasUsage, error) {
 		out[i].HasKept = kept[t]
 	}
 	return out, nil
+}
+
+// ConfirmAliasIn confirms an alias for some of its uses only (the
+// statements given): "Miles" is Myles where it's about the CFO, a distance
+// elsewhere. With every use, it is confirmed everywhere.
+func (s *Store) ConfirmAliasIn(id int64, statements []int64, by string) error {
+	b, _ := json.Marshal(map[string][]int64{"statements": statements})
+	_, err := s.db.Exec(`UPDATE learned_aliases SET status = 'confirmed', scope = ?, by = ?, at = ? WHERE id = ?`, string(b), by, time.Now().Unix(), id)
+	return err
+}
+
+// ScopedSpellings maps statements to the aliases confirmed for them only
+// (statement → variant lower-cased → kept form).
+func (s *Store) ScopedSpellings() (map[int64]map[string]string, error) {
+	rows, err := s.db.Query(`SELECT keep, variant, scope FROM learned_aliases WHERE status = 'confirmed' AND scope != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]map[string]string{}
+	for rows.Next() {
+		var k, v, sc string
+		rows.Scan(&k, &v, &sc)
+		var scope struct {
+			Statements []int64 `json:"statements"`
+		}
+		if json.Unmarshal([]byte(sc), &scope) != nil {
+			continue
+		}
+		for _, id := range scope.Statements {
+			if out[id] == nil {
+				out[id] = map[string]string{}
+			}
+			out[id][strings.ToLower(v)] = k
+		}
+	}
+	return out, rows.Err()
+}
+
+// DropProposedAliases removes undecided proposals (decided ones stay).
+func (s *Store) DropProposedAliases() error {
+	_, err := s.db.Exec(`DELETE FROM learned_aliases WHERE status = 'proposed'`)
+	return err
 }

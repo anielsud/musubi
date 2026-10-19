@@ -322,6 +322,15 @@ func TestThreaderConsolidatesAndLapses(t *testing.T) {
 	if why["lapse"] == 0 || why["consolidate"] == 0 {
 		t.Errorf("retirements by reason: %v", why)
 	}
+	// Derived from the relations and the lapse rule, "current" is what was
+	// stored (docs/incremental-design.md).
+	c, err := CheckDerived(f.st, time.Date(2026, 12, 30, 15, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Agree != c.Memberships {
+		t.Errorf("derived current disagrees: %+v", c)
+	}
 }
 
 func TestThreaderMergesFragments(t *testing.T) {
@@ -393,5 +402,25 @@ func TestConsolidationWindow(t *testing.T) {
 	got := th.consolidationWindow([]int64{1, 2, 3, 4, 10}, map[int64]store.ItemStatement{10: {ID: 10}})
 	if fmt.Sprint(got) != "[1 3 10]" {
 		t.Errorf("window %v, want [1 3 10]", got)
+	}
+}
+
+func TestDerivationCurrent(t *testing.T) {
+	day := func(d int) time.Time { return time.Date(2026, 9, d, 15, 0, 0, 0, time.UTC) }
+	d := Derivation{
+		AsOf:     day(30),
+		SaidAt:   map[int64]time.Time{1: day(1), 2: day(10), 3: day(20), 4: day(25), 5: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)},
+		Kind:     map[int64]string{1: "fact", 2: "fact", 3: "decision", 4: "fact", 5: "commitment"},
+		Retiring: map[int64][]int64{1: {2}, 3: {1}, 4: {9}},
+	}
+	for id, want := range map[int64]bool{1: false, 2: true, 3: true, 4: true, 5: false} {
+		if got := d.Current(id); got != want {
+			t.Errorf("Current(%d) = %v, want %v", id, got, want)
+		}
+	}
+	// As of the 5th, 2 hadn't been said: 1 was current.
+	d.AsOf = day(5)
+	if !d.Current(1) || d.Current(2) {
+		t.Error("as-of view wrong")
 	}
 }

@@ -373,3 +373,40 @@ func (s *Store) ThreadItemRows() ([]ThreadItemRow, error) {
 	}
 	return out, rows.Err()
 }
+
+// RetiringRelations maps each statement to the statements that retire it
+// (replaces, completes, answers or repeats it), from the claim relations.
+// Unscoped: for deriving "current".
+func (s *Store) RetiringRelations() (map[int64][]int64, error) {
+	rows, err := s.db.Query(`SELECT b.statement_id, r.statement_id FROM claim_relations r
+		JOIN statement_claims b ON b.claim_id = r.to_claim
+		WHERE r.rel IN ('supersedes', 'completes', 'answers', 'repeats') AND b.statement_id != r.statement_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64][]int64{}
+	for rows.Next() {
+		var earlier, later int64
+		rows.Scan(&earlier, &later)
+		out[earlier] = append(out[earlier], later)
+	}
+	return out, rows.Err()
+}
+
+// StatementTimes returns each statement's time and kind.
+func (s *Store) StatementTimes() (map[int64]time.Time, map[int64]string, error) {
+	rows, err := s.db.Query(`SELECT id, said_at, kind FROM statements`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	at, kind := map[int64]time.Time{}, map[int64]string{}
+	for rows.Next() {
+		var id, t int64
+		var k string
+		rows.Scan(&id, &t, &k)
+		at[id], kind[id] = time.Unix(t, 0), k
+	}
+	return at, kind, rows.Err()
+}

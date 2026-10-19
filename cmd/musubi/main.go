@@ -47,7 +47,7 @@ func root() *cobra.Command {
 	r := &cobra.Command{Use: "musubi", Short: "Local-first personal knowledge base", SilenceUsage: true}
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
-	r.AddCommand(importItemsCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), liveCmd(),
+	r.AddCommand(importItemsCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), liveCmd(),
 		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd())
 	return r
 }
@@ -517,6 +517,28 @@ the cases. Exits non-zero on any leak.`,
 	c.Flags().BoolVar(&trace, "trace", false, "with --knowledge: print each linking decision")
 	c.Flags().BoolVar(&record, "record", false, "with --knowledge: call the real models for anything not in the cache, and save it")
 	return c
+}
+
+func threadsCheckCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "threads-check",
+		Short: "Derive each thread's current items from the relations and compare with what is stored",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			c, err := knowledge.CheckDerived(e.Store, time.Time{})
+			if err != nil {
+				return err
+			}
+			fmt.Printf("%d memberships; derived and stored agree on %d (%.1f%%)\n", c.Memberships, c.Agree, 100*float64(c.Agree)/float64(max(c.Memberships, 1)))
+			fmt.Printf("stored current, derived retired: %d\n", c.StoredCurrentDerivedRetired)
+			fmt.Printf("stored retired, derived current: %v\n", c.StoredRetiredDerivedCurrent)
+			return nil
+		},
+	}
 }
 
 func prepCmd() *cobra.Command {

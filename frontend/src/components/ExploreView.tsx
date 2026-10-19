@@ -74,7 +74,7 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
       </div>
       {mode === 'topics' && <TopicsPane scope={scope} onSource={openSource} want={topicReq} />}
       {mode === 'compare' && <CompareView scope={scope} />}
-      {mode === 'corrections' && scope === 'owner' && <CorrectionsView />}
+      {mode === 'corrections' && scope === 'owner' && <CorrectionsView onSource={openSource} />}
       {mode === 'search' && <>
       <form className="lookup" onSubmit={(e) => { e.preventDefault(); run(q); }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search passages, people, customers…" />

@@ -149,3 +149,65 @@ func (s *Store) ConfirmedSpellings() (map[string]string, error) {
 	}
 	return out, rows.Err()
 }
+
+// AliasUsage is one place an alias's variant is used.
+type AliasUsage struct {
+	Statement int64     `json:"statement"`
+	ItemID    string    `json:"itemId"`
+	ChunkID   int64     `json:"chunkId"`
+	ItemTitle string    `json:"itemTitle"`
+	At        time.Time `json:"at"`
+	Text      string    `json:"text"`
+	Thread    string    `json:"thread"`
+	ThreadID  int64     `json:"threadId"`
+	Current   bool      `json:"current"`
+	HasKept   bool      `json:"hasKept"` // the thread mentions the kept form too
+}
+
+// UsagesOf lists the statements using an alias's variant, newest first.
+// Unscoped: the owner's review.
+func (s *Store) UsagesOf(a LearnedAlias, limit int) ([]AliasUsage, error) {
+	vre := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(a.Variant) + `\b`)
+	kre := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(a.Keep) + `\b`)
+	rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, i.title, st.said_at, st.text, coalesce(t.label, ''), coalesce(t.id, 0), coalesce(ti.current, 0)
+		FROM statements st JOIN items i ON i.id = st.item_id
+		LEFT JOIN thread_items ti ON ti.statement_id = st.id LEFT JOIN topics t ON t.id = ti.topic_id
+		WHERE st.text LIKE ? ORDER BY st.said_at DESC`, "%"+a.Variant+"%")
+	if err != nil {
+		return nil, err
+	}
+	var out []AliasUsage
+	seen := map[int64]bool{}
+	for rows.Next() {
+		var u AliasUsage
+		var at int64
+		var cur int
+		rows.Scan(&u.Statement, &u.ItemID, &u.ChunkID, &u.ItemTitle, &at, &u.Text, &u.Thread, &u.ThreadID, &cur)
+		if !vre.MatchString(u.Text) || seen[u.Statement] {
+			continue
+		}
+		seen[u.Statement] = true
+		u.At, u.Current = time.Unix(at, 0), cur == 1
+		out = append(out, u)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	rows.Close()
+	kept := map[int64]bool{}
+	for i := range out {
+		t := out[i].ThreadID
+		if t == 0 {
+			continue
+		}
+		if _, ok := kept[t]; !ok {
+			has, err := s.threadMentions(t, kre)
+			if err != nil {
+				return nil, err
+			}
+			kept[t] = has
+		}
+		out[i].HasKept = kept[t]
+	}
+	return out, nil
+}

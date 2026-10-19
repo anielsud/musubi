@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/anielsud/musubi/internal/pipeline"
+	"github.com/anielsud/musubi/internal/store"
 )
 
 // AliasView is an alias with what it would touch, for review.
@@ -82,4 +83,22 @@ func (a *App) CorrectStatement(id int64, text, who string) error {
 	}
 	_, err = r.CorrectStatement(a.ctx, pipeline.KnowledgeOptions{LLM: a.eng.Chat, Embedder: a.eng.Embedder}, id, strings.TrimSpace(text), names)
 	return err
+}
+
+// AliasUsages lists where an alias's variant is used, for the review
+// sidebar.
+func (a *App) AliasUsages(id int64, limit int) ([]store.AliasUsage, error) {
+	if a.eng == nil {
+		return nil, fmt.Errorf("not ready: %s", a.err)
+	}
+	as, err := a.eng.Store.LearnedAliases("")
+	if err != nil {
+		return nil, err
+	}
+	for _, x := range as {
+		if x.ID == id {
+			return a.eng.Store.UsagesOf(x, limit)
+		}
+	}
+	return nil, fmt.Errorf("no alias %d", id)
 }

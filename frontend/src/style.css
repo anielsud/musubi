@@ -551,7 +551,6 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .brief-status { margin: 4px 0; padding: 6px 8px; border-radius: 7px; background: var(--bg-2); }
 .brief-status .brief-sum { margin-top: 3px; }
 .card-now { font-size: 12.5px; margin: 4px 0; color: var(--text); }
-.corrections .alias { padding: 7px 9px; border-radius: 8px; background: var(--bg-2); margin: 6px 0; }
 .corrections .alias.risky { border-left: 3px solid var(--lvl-confidential); }
 .alias-head { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; }
 .alias-actions { margin-left: auto; display: flex; gap: 4px; }
@@ -562,3 +561,16 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .stmt.editing { display: grid; gap: 4px; }
 .stmt.editing textarea, .stmt.editing input { width: 100%; font-size: 12.5px; }
 .edit-actions { display: flex; gap: 8px; align-items: center; }
+.corr-split { display: grid; grid-template-columns: minmax(260px, 1fr) 2fr; gap: 12px; margin-top: 8px; height: calc(100vh - 230px); }
+.corr-list, .corr-uses { overflow-y: auto; }
+.corrections .alias { padding: 7px 9px; border-radius: 8px; background: var(--bg-2); margin: 0 0 6px; cursor: pointer; border: 1px solid transparent; }
+.corrections .alias.sel { border-color: var(--accent); }
+.corr-uses-head { display: flex; align-items: center; gap: 10px; position: sticky; top: 0; background: var(--bg); padding: 2px 0 6px; }
+.corr-uses-head h3 { margin: 0; font-size: 15px; }
+.corr-use { display: block; width: 100%; text-align: left; padding: 6px 8px; border-radius: 7px; background: var(--bg-2); margin: 5px 0; }
+.corr-use:hover { background: var(--surface-2); }
+.corr-use-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; font-size: 11.5px; }
+.corr-thread { color: var(--accent-2); }
+.corr-use-text { font-size: 12.5px; margin-top: 2px; }
+.corr-use-text mark { background: rgba(245, 201, 122, 0.3); color: var(--text); border-radius: 3px; padding: 0 2px; }
+@media (max-width: 900px) { .corr-split { grid-template-columns: 1fr; height: auto; } }

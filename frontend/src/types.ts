@@ -411,3 +411,16 @@ export interface AliasView {
   newLinks: number;
   sample: string[] | null;
 }
+
+export interface AliasUsage {
+  statement: number;
+  itemId: string;
+  chunkId: number;
+  itemTitle: string;
+  at: string;
+  text: string;
+  thread: string;
+  threadId: number;
+  current: boolean;
+  hasKept: boolean;
+}

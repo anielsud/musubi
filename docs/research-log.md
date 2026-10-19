@@ -2129,3 +2129,32 @@ and is left out. On All:
 The rest are mostly 1:1s. Those are already confidential, and prep never
 suggests sensitive subjects. Statuses now take their items' raised labels
 without a rewrite.
+
+**Hosted threading speed and the token cap.** On four ELT meetings:
+
+| Variant | Time |
+|---|---|
+| A: 8 parallel, no backup requests, warm-up on | failed on meeting 2 |
+| B: 16 parallel, backup at 25 s, no warm-up | 21 min |
+| C: 8 parallel, backup at 25 s, no warm-up | 20 min |
+
+A failed because a slow but steady reply was cut at the 3-minute limit
+three times. Two meetings took 6–10 minutes in B and C, waiting on a few
+long calls. The parallel and backup settings hardly mattered.
+
+The long calls were reasoning cut off at the 8k-token cap and retried at
+16k. Across 5,771 successful threading calls on GLM-5.3-Flash:
+- reasoning was 532 tokens at the median, 3.2k at p90, 7.2k at p99,
+  12.7k at p99.9 and 14.9k at most;
+- of 42 calls cut at 8k and given 16k, 33 succeeded (10–15k tokens of
+  reasoning); 9 hit 16k again.
+
+The cap doesn't change how long the model reasons; it only cuts it off.
+It costs nothing unless used, and a cut call is billed in full. So the
+cap now starts at 16k (it was 8k), doubles if cut, and the time limit
+grows with it.
+
+Backup requests are off. A call that reasons for minutes gains nothing
+from a second start 25 seconds later, and the losers' tokens are billed:
+backups took thrown-away spend from 9–11% to 18–24%. Thrown-away spend
+across all Go runs so far: $0.83 of $7.85.

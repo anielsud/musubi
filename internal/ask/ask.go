@@ -62,10 +62,10 @@ Rules:
 
 const (
 	askThreads      = 3 // threads at most
-	askThreadItems  = 8 // latest current items per thread
-	askPassages     = 4 // passages alongside threads
+	askThreadItems  = 12 // latest current items per thread
+	askPassages     = 6  // passages alongside threads
 	askPassagesOnly = 8 // passages when no thread is used
-	statusCites     = 2 // sources cited per status point
+	statusCites     = 3  // sources cited per status point
 	// askTimeout bounds an answer: a local model reads 10k tokens of
 	// context first, slowly when other requests share it.
 	askTimeout = 5 * time.Minute
@@ -80,6 +80,7 @@ func Ask(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question s
 // AskWith is Ask with hooks for showing progress.
 func AskWith(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question string, k int, exclude []string, h Hooks) (*Answer, error) {
 	onToken := h.Token
+	lim := limitsFor(e)
 	llm := e.AskLLM
 	// A hosted model reads only what the cloud scope allows, unless the
 	// owner allows hosted models to read meeting text.
@@ -101,7 +102,7 @@ func AskWith(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, questi
 	if err := personContext(e, sc, question, &ctxt, ans, add); err != nil {
 		return nil, err
 	}
-	np := askPassages
+	np := lim.passages
 	if len(ans.Threads) == 0 {
 		np = max(k, askPassagesOnly)
 	}
@@ -194,7 +195,7 @@ func threadContext(e *engine.Engine, sc sensitivity.Scope, vec []float32, questi
 			if json.Unmarshal([]byte(st.Body), &s) == nil {
 				ref.AsOf, ref.Now = st.AsOf, knowledge.FirstSentence(knowledge.StripIDs(s.Now))
 				ref.Status = shown(s)
-				fmt.Fprintf(b, "Status as of %s:\n%s\n", st.AsOf.Format("2 Jan 2006"), statusText(s, cite))
+				fmt.Fprintf(b, "Status as of %s:\n%s\n", st.AsOf.Format("2 Jan 2006"), statusText(s, cite, limitsFor(e)))
 			}
 		}
 		var cur []store.ThreadItem
@@ -203,7 +204,7 @@ func threadContext(e *engine.Engine, sc sensitivity.Scope, vec []float32, questi
 				cur = append(cur, it)
 			}
 		}
-		cur = cur[max(0, len(cur)-askThreadItems):]
+		cur = cur[max(0, len(cur)-limitsFor(e).items):]
 		if len(cur) > 0 {
 			b.WriteString("Latest current items:\n")
 			for _, it := range cur {
@@ -222,12 +223,30 @@ var inlineIDs = regexp.MustCompile(`\s*[(\[]\s*\d{1,9}(?:\s*,\s*\d{1,9})*\s*[)\]
 
 var digits = regexp.MustCompile(`\d+`)
 
+// limits size what Ask reads. ask.small_context reads less: about a third
+// faster on the local 27B, with the same facts covered but slightly worse
+// answers on the 28-question set (research log 2026-10-19), so it is off
+// by default.
+type limits struct{ items, passages, cites, changed, open int }
+
+var (
+	fullContext  = limits{items: askThreadItems, passages: askPassages, cites: statusCites, changed: 4, open: 6}
+	smallContext = limits{items: 8, passages: 4, cites: 2, changed: 3, open: 4}
+)
+
+func limitsFor(e *engine.Engine) limits {
+	if e.Cfg.Ask.SmallContext {
+		return smallContext
+	}
+	return fullContext
+}
+
 // statusText renders a status for the prompt with its citations as source
 // numbers; ids the scope can't see are dropped with their citation.
-func statusText(s knowledge.Status, cite func(int64) string) string {
+func statusText(s knowledge.Status, cite func(int64) string, lim limits) string {
 	refs := func(ids []int64) string {
 		var out string
-		for _, id := range ids[:min(len(ids), statusCites)] {
+		for _, id := range ids[:min(len(ids), lim.cites)] {
 			out += cite(id)
 		}
 		return out
@@ -235,7 +254,7 @@ func statusText(s knowledge.Status, cite func(int64) string) string {
 	prose := func(t string) string {
 		return inlineIDs.ReplaceAllStringFunc(t, func(m string) string {
 			var out string
-			for _, p := range digits.FindAllString(m, statusCites) {
+			for _, p := range digits.FindAllString(m, lim.cites) {
 				if id, err := strconv.ParseInt(p, 10, 64); err == nil {
 					out += cite(id)
 				}
@@ -248,10 +267,10 @@ func statusText(s knowledge.Status, cite func(int64) string) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Now: %s %s\n", prose(s.Now), refs(s.NowIDs))
-	for _, c := range s.Changed[:min(len(s.Changed), 3)] {
+	for _, c := range s.Changed[:min(len(s.Changed), lim.changed)] {
 		fmt.Fprintf(&b, "Changed (%s): %s %s\n", c.Date, prose(c.Text), refs(c.IDs))
 	}
-	for _, o := range s.Open[:min(len(s.Open), 4)] {
+	for _, o := range s.Open[:min(len(s.Open), lim.open)] {
 		extra := ""
 		if o.Who != "" {
 			extra += "; owner: " + o.Who
@@ -331,7 +350,7 @@ func PrepBrief(ctx context.Context, e *engine.Engine, v *knowledge.PrepView, onT
 		c := cite(s.Items)
 		fmt.Fprintf(&b, "Subject: %s (%s)\n", s.Name, s.Why)
 		if s.Status != nil {
-			fmt.Fprintf(&b, "Status as of %s:\n%s", s.AsOf.Format("2 Jan 2006"), statusText(*s.Status, c))
+			fmt.Fprintf(&b, "Status as of %s:\n%s", s.AsOf.Format("2 Jan 2006"), statusText(*s.Status, c, limitsFor(e)))
 		}
 		if len(s.NewSince) > 0 {
 			b.WriteString("New since you last met:\n")
@@ -412,7 +431,7 @@ func personContext(e *engine.Engine, sc sensitivity.Scope, question string, b *s
 		c := cite(s.Items)
 		fmt.Fprintf(b, "Subject: %s (%s)\n", s.Name, s.Why)
 		if s.Status != nil {
-			fmt.Fprintf(b, "Status as of %s:\n%s", s.AsOf.Format("2 Jan 2006"), statusText(*s.Status, c))
+			fmt.Fprintf(b, "Status as of %s:\n%s", s.AsOf.Format("2 Jan 2006"), statusText(*s.Status, c, limitsFor(e)))
 		}
 		ref := ThreadRef{ID: s.ID, Name: s.Name, AsOf: s.AsOf}
 		if s.Status != nil {

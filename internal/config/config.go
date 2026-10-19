@@ -34,6 +34,9 @@ type Ask struct {
 	// and current items) as well as from passages. false answers from
 	// passages alone, the earlier behaviour.
 	Threads bool `toml:"threads"`
+	// SmallContext reads fewer items, passages and citations: answers start
+	// sooner, slightly worse on the question set (off by default).
+	SmallContext bool `toml:"small_context"`
 }
 
 // Knowledge configures statement extraction.

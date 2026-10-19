@@ -23,7 +23,7 @@ func TestStatusText(t *testing.T) {
 		}
 		return "[" + string(rune('0'+num[id])) + "]"
 	}
-	got := statusText(knowledge.Status{Now: "Target is 40 (12), names due 1 Oct [14, 99]; legal (77).", NowIDs: []int64{12}}, cite)
+	got := statusText(knowledge.Status{Now: "Target is 40 (12), names due 1 Oct [14, 99]; legal (77).", NowIDs: []int64{12}}, cite, fullContext)
 	want := "Now: Target is 40 [1], names due 1 Oct [2]; legal. [1]\n"
 	if got != want {
 		t.Errorf("got %q\nwant %q", got, want)

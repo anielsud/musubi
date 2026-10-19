@@ -2086,3 +2086,46 @@ dropped. Go now:
 - logs each unresolved reference, and how many statements no thread took.
 
 The next hosted run will confirm or rule this out.
+
+**Ask: status first, and a smaller context.**
+- The top subject's written status now shows as soon as it's found (well
+  under a second), and the answer streams below it.
+- A smaller context, on September with the local 27B, two questions at a
+  time: 8 items per thread instead of 12, 4 passages instead of 6, 2
+  citations per status point instead of 3, and 3 changes and 4 open points
+  instead of 4 and 6.
+
+| | Full | Small |
+|---|---|---|
+| Median answer time | 83 s | 56 s |
+| Must facts | 66/105 | 67/105 |
+| Wrong | 6 | 8 |
+| Useful | 2.29 | 2.21 |
+| Wins | 13 | 7 (8 ties) |
+
+The facts are the same, but the small context loses a little more often
+than noise does (noise: 10–8). It stays off by default
+(`ask.small_context`).
+
+**Interviews by title (sensitivity rules r6).** Of the 338 items the
+September audit called sensitive, the labeller marked 73%. Of the 90 it
+missed:
+
+| Meeting | Missed |
+|---|---|
+| Candidate interviews | 49 |
+| 1:1s | 36 |
+| Other | 5 |
+
+An interview's statements ("his company chose LaunchDarkly") read as
+business facts one at a time. A title rule now marks a meeting HR when
+its title names an interview, candidate, hiring panel or reference check
+(not a customer or market interview). A board "debrief" was a false hit
+and is left out. On All:
+- 6 meetings are marked, all interviews;
+- 297 of 338 audited items are labelled (88%), all 97 interview items
+  among them.
+
+The rest are mostly 1:1s. Those are already confidential, and prep never
+suggests sensitive subjects. Statuses now take their items' raised labels
+without a rewrite.

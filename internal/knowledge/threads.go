@@ -775,13 +775,31 @@ func (t *Threader) registry(part []store.ItemStatement, start time.Time, threads
 	for i := 0; i < len(near) && i < nc; i++ {
 		add(near[i].id)
 	}
+	// Active around the item's date: for the newest item, active in the
+	// window before it (latest first); for an inserted older one, active
+	// across or near its date, not today's threads (Insert).
+	gap := func(th *threadState) time.Duration {
+		switch {
+		case start.After(th.last):
+			return start.Sub(th.last)
+		case !th.first.IsZero() && th.first.After(start):
+			return th.first.Sub(start)
+		}
+		return 0 // spans the date
+	}
 	var recent []int64
 	for id, th := range threads {
-		if !th.last.IsZero() && start.Sub(th.last) <= recentWindow {
+		if !th.last.IsZero() && gap(th) <= recentWindow {
 			recent = append(recent, id)
 		}
 	}
-	sort.Slice(recent, func(i, j int) bool { return threads[recent[i]].last.After(threads[recent[j]].last) })
+	sort.Slice(recent, func(i, j int) bool {
+		gi, gj := gap(threads[recent[i]]), gap(threads[recent[j]])
+		if gi != gj {
+			return gi < gj
+		}
+		return threads[recent[i]].last.After(threads[recent[j]].last)
+	})
 	for i := 0; i < len(recent) && i < threadRecent; i++ {
 		add(recent[i])
 	}

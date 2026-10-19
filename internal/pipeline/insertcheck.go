@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/anielsud/musubi/internal/knowledge"
 )
@@ -19,6 +20,13 @@ type InsertResult struct {
 	Placed, PlacedBefore     int
 	ThreadItems, AgreeBefore int // memberships in the affected threads; current flags as the replay had them
 	RelationsBefore, After   int
+	// Fair placement: statements whose thread from the replay survived the
+	// removal (a thread made of this item alone empties and can't be
+	// chosen again), and those back in it.
+	Survived, SurvivedSame int
+	// New threads the insert made, and those that look like an existing
+	// thread (centroid similarity ≥ 0.85): likely duplicates.
+	NewThreads, NearExisting int
 }
 
 func (r *Runner) InsertCheck(ctx context.Context, o KnowledgeOptions, itemID string) (InsertResult, error) {
@@ -58,6 +66,19 @@ func (r *Runner) InsertCheck(ctx context.Context, o KnowledgeOptions, itemID str
 	for _, x := range rows {
 		if affected[x.Topic] {
 			was[key{x.Topic, x.Statement}] = x.Current
+		}
+	}
+	// Threads that hold more than this item survive its removal.
+	others := map[int64]bool{}
+	for _, x := range rows {
+		if affected[x.Topic] && !mine[x.Statement] {
+			others[x.Topic] = true
+		}
+	}
+	topicsBefore := map[int64]bool{}
+	if ts, err := r.Store.Threads(); err == nil {
+		for _, t := range ts {
+			topicsBefore[t.ID] = true
 		}
 	}
 	n, err := r.Store.RemoveFromThreads(sts)
@@ -103,6 +124,70 @@ func (r *Runner) InsertCheck(ctx context.Context, o KnowledgeOptions, itemID str
 		}
 	}
 	res.Placed, res.SameThread = len(placed), len(same)
+	for sid, ts := range before {
+		for t := range ts {
+			if others[t] {
+				res.Survived++
+				if same[sid] {
+					res.SurvivedSame++
+				}
+				break
+			}
+		}
+	}
+	// New threads, and whether each sits near a thread that existed.
+	cents := map[int64][]float32{}
+	newT := map[int64]bool{}
+	for _, x := range rows {
+		if !topicsBefore[x.Topic] {
+			newT[x.Topic] = true
+		}
+	}
+	res.NewThreads = len(newT)
+	if vecs != nil {
+		sums := map[int64][]float64{}
+		for _, x := range rows {
+			v := vecs[x.Statement]
+			if v == nil {
+				continue
+			}
+			sm := sums[x.Topic]
+			if sm == nil {
+				sm = make([]float64, len(v))
+				sums[x.Topic] = sm
+			}
+			for i, f := range v {
+				sm[i] += float64(f)
+			}
+		}
+		for t, sm := range sums {
+			var n float64
+			for _, f := range sm {
+				n += f * f
+			}
+			n = math.Sqrt(n)
+			c := make([]float32, len(sm))
+			for i, f := range sm {
+				c[i] = float32(f / n)
+			}
+			cents[t] = c
+		}
+		for t := range newT {
+			for o := range topicsBefore {
+				if o == t || cents[o] == nil || cents[t] == nil {
+					continue
+				}
+				var d float64
+				for i := range cents[t] {
+					d += float64(cents[t][i]) * float64(cents[o][i])
+				}
+				if d >= 0.85 {
+					res.NearExisting++
+					break
+				}
+			}
+		}
+	}
 	return res, nil
 }
 

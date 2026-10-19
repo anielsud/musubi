@@ -664,10 +664,10 @@ func insertCheckCmd() *cobra.Command {
 					return err
 				}
 				pct := func(a, b int) float64 { return 100 * float64(a) / float64(max(b, 1)) }
-				fmt.Printf("%s: %d statements; placed %d (replay %d), %d in a thread they were in (%.0f%%); "+
-					"current agrees with the replay on %d of %d memberships (%.1f%%); relations %d before, %d after\n",
-					id, res.Statements, res.Placed, res.PlacedBefore, res.SameThread, pct(res.SameThread, res.PlacedBefore),
-					res.AgreeBefore, res.ThreadItems, pct(res.AgreeBefore, res.ThreadItems), res.RelationsBefore, res.After)
+				fmt.Printf("%s: %d statements; placed %d (replay %d); of %d whose thread survived the removal, %d back in it (%.0f%%); "+
+					"%d new threads, %d near an existing one; current agrees with the replay on %d of %d memberships (%.1f%%)\n",
+					id, res.Statements, res.Placed, res.PlacedBefore, res.Survived, res.SurvivedSame, pct(res.SurvivedSame, res.Survived),
+					res.NewThreads, res.NearExisting, res.AgreeBefore, res.ThreadItems, pct(res.AgreeBefore, res.ThreadItems))
 			}
 			return nil
 		},

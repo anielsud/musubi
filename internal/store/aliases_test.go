@@ -97,7 +97,7 @@ func TestAliasConfirmedForSomeUses(t *testing.T) {
 	defer s.Close()
 	s.ProposeAlias(LearnedAlias{Keep: "Myles", Variant: "Miles", Kind: "spelling"})
 	as, _ := s.LearnedAliases("proposed")
-	if err := s.ConfirmAliasIn(as[0].ID, []int64{7, 9}, "owner"); err != nil {
+	if err := s.ConfirmAliasIn(as[0].ID, []int64{7, 9}, []int64{7, 8, 9}, "owner"); err != nil {
 		t.Fatal(err)
 	}
 	if g, _ := s.ConfirmedSpellings(); len(g) != 0 {
@@ -106,5 +106,16 @@ func TestAliasConfirmedForSomeUses(t *testing.T) {
 	sc, _ := s.ScopedSpellings()
 	if sc[7]["miles"] != "Myles" || sc[9]["miles"] != "Myles" || sc[8] != nil {
 		t.Errorf("scoped %v", sc)
+	}
+	// Reviewed: 7, 8, 9; a later use (10) isn't, so it comes back.
+	as, _ = s.LearnedAliases("confirmed")
+	if r := as[0].Reviewed(); !r[8] || r[10] {
+		t.Errorf("reviewed %v", r)
+	}
+	// Reviewing 10 later, confirmed: it joins.
+	s.ConfirmAliasIn(as[0].ID, []int64{10}, []int64{10}, "owner")
+	sc, _ = s.ScopedSpellings()
+	if sc[7] == nil || sc[10]["miles"] != "Myles" {
+		t.Errorf("after a second review %v", sc)
 	}
 }

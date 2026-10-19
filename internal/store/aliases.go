@@ -213,13 +213,61 @@ func (s *Store) UsagesOf(a LearnedAlias, limit int) ([]AliasUsage, error) {
 	return out, nil
 }
 
+// aliasScope is a partly confirmed alias's reach: the uses it was
+// confirmed for, and every use the owner has reviewed (confirmed or not).
+type aliasScope struct {
+	Statements []int64 `json:"statements"`
+	Reviewed   []int64 `json:"reviewed,omitempty"`
+}
+
+func parseScope(s string) aliasScope {
+	var sc aliasScope
+	json.Unmarshal([]byte(s), &sc)
+	return sc
+}
+
+func union(a, b []int64) []int64 {
+	seen := map[int64]bool{}
+	var out []int64
+	for _, x := range append(append([]int64{}, a...), b...) {
+		if !seen[x] {
+			seen[x] = true
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
 // ConfirmAliasIn confirms an alias for some of its uses only (the
 // statements given): "Miles" is Myles where it's about the CFO, a distance
-// elsewhere. With every use, it is confirmed everywhere.
-func (s *Store) ConfirmAliasIn(id int64, statements []int64, by string) error {
-	b, _ := json.Marshal(map[string][]int64{"statements": statements})
+// elsewhere. reviewed are all the uses the owner looked at; uses made
+// later come back for review (UnreviewedUses). Called again, it adds to
+// what was confirmed and reviewed before.
+func (s *Store) ConfirmAliasIn(id int64, statements, reviewed []int64, by string) error {
+	var old string
+	s.db.QueryRow(`SELECT scope FROM learned_aliases WHERE id = ?`, id).Scan(&old)
+	sc := parseScope(old)
+	sc.Statements = union(sc.Statements, statements)
+	sc.Reviewed = union(union(sc.Reviewed, reviewed), statements)
+	b, _ := json.Marshal(sc)
 	_, err := s.db.Exec(`UPDATE learned_aliases SET status = 'confirmed', scope = ?, by = ?, at = ? WHERE id = ?`, string(b), by, time.Now().Unix(), id)
 	return err
+}
+
+// Reviewed returns the uses of a partly confirmed alias the owner has
+// looked at; nil for one decided everywhere.
+func (a LearnedAlias) Reviewed() map[int64]bool {
+	if a.Scope == "" {
+		return nil
+	}
+	out := map[int64]bool{}
+	for _, id := range parseScope(a.Scope).Reviewed {
+		out[id] = true
+	}
+	for _, id := range parseScope(a.Scope).Statements {
+		out[id] = true
+	}
+	return out
 }
 
 // ScopedSpellings maps statements to the aliases confirmed for them only
@@ -234,13 +282,7 @@ func (s *Store) ScopedSpellings() (map[int64]map[string]string, error) {
 	for rows.Next() {
 		var k, v, sc string
 		rows.Scan(&k, &v, &sc)
-		var scope struct {
-			Statements []int64 `json:"statements"`
-		}
-		if json.Unmarshal([]byte(sc), &scope) != nil {
-			continue
-		}
-		for _, id := range scope.Statements {
+		for _, id := range parseScope(sc).Statements {
 			if out[id] == nil {
 				out[id] = map[string]string{}
 			}

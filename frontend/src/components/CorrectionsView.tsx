@@ -45,8 +45,10 @@ export function CorrectionsView({ onSource }: { onSource: (itemId: string, chunk
     });
   const confirmChecked = (a: AliasView) => {
     const all = (uses ?? []).length > 0 && (uses ?? []).every((u) => checked.has(u.statement));
-    api.confirmAliasIn(a.id, [...checked], all).then(() => drop(a), (e) => setErr(String(e)));
+    api.confirmAliasIn(a.id, [...checked], (uses ?? []).map((u) => u.statement), all).then(() => drop(a), (e) => setErr(String(e)));
   };
+  const allChecked = (uses ?? []).length > 0 && (uses ?? []).every((u) => checked.has(u.statement));
+  const setAll = (on: boolean) => setChecked(on ? new Set((uses ?? []).map((u) => u.statement)) : new Set());
   const toggle = (id: number) => setChecked((c) => { const n = new Set(c); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const decide = (a: AliasView, confirm: boolean) =>
     api.decideAlias(a.id, confirm).then(() => {
@@ -64,7 +66,8 @@ export function CorrectionsView({ onSource }: { onSource: (itemId: string, chunk
         <article key={a.id} className={'alias' + (a.newLinks > 3 ? ' risky' : '') + (sel?.id === a.id ? ' sel' : '')} onClick={() => setSel(a)}>
           <div className="alias-head">
             <b>{a.variant}</b> <span className="dim">→</span> <b>{a.keep}</b>
-            {a.newLinks > 0 && <span className={'status ' + (a.newLinks > 3 ? 'st-contested' : 'st-open')} title="threads where the kept form isn't mentioned yet">{a.newLinks} new links</span>}
+            {a.newUses ? <span className="status st-likely" title="confirmed for some uses; used since in places not yet reviewed">{a.newUses} new uses</span>
+              : a.newLinks > 0 && <span className={'status ' + (a.newLinks > 3 ? 'st-contested' : 'st-open')} title="threads where the kept form isn't mentioned yet">{a.newLinks} new links</span>}
           </div>
           <div className="dim small">{a.statements} statements in {a.items} meetings · {a.threads} threads</div>
         </article>
@@ -81,16 +84,23 @@ export function CorrectionsView({ onSource }: { onSource: (itemId: string, chunk
               title="Apply the alias to the checked uses only (all checked: everywhere, new meetings too)">
               ✓ same in {checked.size === (uses ?? []).length && checked.size > 0 ? 'all' : checked.size} {checked.size === 1 ? 'use' : 'uses'}
             </button>
-            <button className="chip" onClick={() => decide(sel, false)}>✗ different everywhere</button>
+            {!sel.newUses && <button className="chip" onClick={() => decide(sel, false)}>✗ different everywhere</button>}
           </span>
         )}
       </div>
+      {status === 'proposed' && (uses ?? []).length > 0 && (
+        <div className="corr-select">
+          <button className="link" onClick={() => setAll(!allChecked)}>{allChecked ? 'select none' : 'select all'}</button>
+          <span className="dim small">{checked.size} of {(uses ?? []).length} checked{sel.newUses ? ' · new uses since your last review' : ''}</span>
+        </div>
+      )}
       <div className="dim small">Every statement using “{sel.variant}”, newest first. Check the uses that mean {sel.keep}; those in threads already naming {sel.keep} start checked. “New link”: that thread doesn't mention {sel.keep} yet.</div>
       {!uses && <Spinner />}
       {(uses ?? []).map((u) => (
-        <div key={u.statement} className={'corr-use' + (checked.has(u.statement) ? ' on' : '')}>
-          {status === 'proposed' && <input type="checkbox" checked={checked.has(u.statement)} onChange={() => toggle(u.statement)} title={`This use means ${sel.keep}`} />}
-          <button className="corr-use-body" onClick={() => onSource(u.itemId, u.chunkId)} title="Open the source passage">
+        <div key={u.statement} className={'corr-use' + (checked.has(u.statement) ? ' on' : '') + (status === 'proposed' ? ' pickable' : '')}
+          onClick={() => status === 'proposed' && toggle(u.statement)} title={status === 'proposed' ? `Click: this use means ${sel.keep}` : undefined}>
+          {status === 'proposed' && <input type="checkbox" checked={checked.has(u.statement)} readOnly />}
+          <div className="corr-use-body">
           <div className="corr-use-head">
             <span className="dim">{fmtDate(u.at)} · {u.itemTitle}</span>
             {u.thread && <span className="corr-thread">{u.thread}</span>}
@@ -98,7 +108,8 @@ export function CorrectionsView({ onSource }: { onSource: (itemId: string, chunk
             {!u.current && u.thread && <span className="dim small">retired</span>}
           </div>
           <div className="corr-use-text"><Marked text={u.text} word={sel.variant} /></div>
-          </button>
+          </div>
+          <button className="link corr-src" onClick={(e) => { e.stopPropagation(); onSource(u.itemId, u.chunkId); }} title="Open the source passage">source</button>
         </div>
       ))}
     </div>

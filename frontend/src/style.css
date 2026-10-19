@@ -577,3 +577,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .corr-use-text { font-size: 12.5px; margin-top: 2px; }
 .corr-use-text mark { background: rgba(245, 201, 122, 0.3); color: var(--text); border-radius: 3px; padding: 0 2px; }
 @media (max-width: 900px) { .corr-split { grid-template-columns: 1fr; height: auto; } }
+.corr-use.pickable { cursor: pointer; }
+.corr-select { display: flex; gap: 10px; align-items: baseline; margin: 4px 0; }
+.corr-src { font-size: 11px; flex: none; }
+.corr-use input { pointer-events: none; }

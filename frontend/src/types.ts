@@ -410,6 +410,7 @@ export interface AliasView {
   threads: number;
   newLinks: number;
   sample: string[] | null;
+  newUses?: number;
 }
 
 export interface AliasUsage {

@@ -46,7 +46,7 @@ export const api = {
   setWide: (on: boolean): Promise<void> => app().SetWide(on),
   aliases: (status: string, limit = 100): Promise<AliasView[] | null> => app().Aliases(status, limit),
   aliasUsages: (id: number, limit = 200): Promise<AliasUsage[] | null> => app().AliasUsages(id, limit),
-  confirmAliasIn: (id: number, statements: number[], all: boolean): Promise<void> => app().ConfirmAliasIn(id, statements, all),
+  confirmAliasIn: (id: number, statements: number[], reviewed: number[], all: boolean): Promise<void> => app().ConfirmAliasIn(id, statements, reviewed, all),
   decideAlias: (id: number, confirm: boolean): Promise<void> => app().DecideAlias(id, confirm),
   correctStatement: (id: number, text: string, who: string): Promise<void> => app().CorrectStatement(id, text, who),
   prepTargets: (): Promise<PrepTarget[] | null> => app().PrepTargets(),

@@ -22,6 +22,9 @@ type AliasView struct {
 	Threads    int      `json:"threads"`
 	NewLinks   int      `json:"newLinks"`
 	Sample     []string `json:"sample"`
+	// NewUses: confirmed for some uses only, and used since in places not
+	// yet reviewed (they are listed for review).
+	NewUses int `json:"newUses,omitempty"`
 }
 
 // Aliases lists aliases with a status ("proposed", "confirmed", "rejected")
@@ -34,6 +37,32 @@ func (a *App) Aliases(status string, limit int) ([]AliasView, error) {
 	if err != nil {
 		return nil, err
 	}
+	// To review: the proposed ones, and those confirmed for some uses that
+	// have been used since where nobody has looked.
+	var newUses map[int64]int
+	if status == "proposed" {
+		partial, err := a.eng.Store.LearnedAliases("confirmed")
+		if err != nil {
+			return nil, err
+		}
+		newUses = map[int64]int{}
+		for _, x := range partial {
+			if r := x.Reviewed(); r != nil {
+				us, err := a.eng.Store.UsagesOf(x, 0)
+				if err != nil {
+					return nil, err
+				}
+				for _, u := range us {
+					if !r[u.Statement] {
+						newUses[x.ID]++
+					}
+				}
+				if newUses[x.ID] > 0 {
+					as = append([]store.LearnedAlias{x}, as...)
+				}
+			}
+		}
+	}
 	if limit > 0 && len(as) > limit {
 		as = as[:limit]
 	}
@@ -44,7 +73,7 @@ func (a *App) Aliases(status string, limit int) ([]AliasView, error) {
 			return nil, err
 		}
 		out = append(out, AliasView{ID: x.ID, Keep: x.Keep, Variant: x.Variant, Kind: x.Kind, Status: x.Status, Score: x.Score,
-			Statements: im.Statements, Items: im.Items, Threads: len(im.Threads), NewLinks: len(im.NewLinks), Sample: im.Sample})
+			Statements: im.Statements, Items: im.Items, Threads: len(im.Threads), NewLinks: len(im.NewLinks), Sample: im.Sample, NewUses: newUses[x.ID]})
 	}
 	return out, nil
 }
@@ -96,24 +125,51 @@ func (a *App) AliasUsages(id int64, limit int) ([]store.AliasUsage, error) {
 		return nil, err
 	}
 	for _, x := range as {
-		if x.ID == id {
-			return a.eng.Store.UsagesOf(x, limit)
+		if x.ID != id {
+			continue
 		}
+		us, err := a.eng.Store.UsagesOf(x, 0)
+		if err != nil {
+			return nil, err
+		}
+		// Confirmed for some uses: only those not yet reviewed.
+		if r := x.Reviewed(); r != nil {
+			var fresh []store.AliasUsage
+			for _, u := range us {
+				if !r[u.Statement] {
+					fresh = append(fresh, u)
+				}
+			}
+			us = fresh
+		}
+		if limit > 0 && len(us) > limit {
+			us = us[:limit]
+		}
+		return us, nil
 	}
 	return nil, fmt.Errorf("no alias %d", id)
 }
 
-// ConfirmAliasIn confirms an alias for the given uses only; with every use
-// it is confirmed everywhere.
-func (a *App) ConfirmAliasIn(id int64, statements []int64, all bool) error {
+// ConfirmAliasIn confirms an alias for the checked uses of those reviewed;
+// with every use checked (and none reviewed and left out before) it is
+// confirmed everywhere, future meetings included.
+func (a *App) ConfirmAliasIn(id int64, statements, reviewed []int64, all bool) error {
 	if a.eng == nil {
 		return fmt.Errorf("not ready: %s", a.err)
 	}
+	partial := false
+	if as, err := a.eng.Store.LearnedAliases("confirmed"); err == nil {
+		for _, x := range as {
+			if x.ID == id && x.Reviewed() != nil {
+				partial = true
+			}
+		}
+	}
 	var err error
-	if all {
+	if all && !partial {
 		err = a.eng.Store.DecideAlias(id, true, "owner")
 	} else {
-		err = a.eng.Store.ConfirmAliasIn(id, statements, "owner")
+		err = a.eng.Store.ConfirmAliasIn(id, statements, reviewed, "owner")
 	}
 	if err == nil && a.live != nil {
 		a.live.Reload()

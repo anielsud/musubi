@@ -306,15 +306,14 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 			// under a code or name that names no thread were dropped
 			// before, without asking again (8–10% of a year's items, a
 			// few meetings losing half; research log 2026-10-19).
-			codes := map[string]bool{}
+			codes := map[string]int64{} // new codes and names, resolved later
 			for _, n := range res.NewThreads {
-				codes[strings.TrimSpace(n.Code)] = true
-				codes[strings.ToLower(strings.TrimSpace(n.Name))] = true
+				codes[strings.TrimSpace(n.Code)] = -1
+				codes[strings.ToLower(strings.TrimSpace(n.Name))] = -1
 			}
 			got := map[int64]bool{}
 			for _, g := range res.Groups {
-				ref := strings.TrimSpace(g.Thread)
-				if _, ok := resolveThread(ref, nil, threads, byName); !ok && !codes[ref] && !codes[strings.ToLower(ref)] {
+				if _, ok := resolveThread(strings.TrimSpace(g.Thread), codes, threads, byName); !ok {
 					continue
 				}
 				for _, id := range g.IDs {
@@ -1254,6 +1253,13 @@ func (t *Threader) mergeBorn(ctx context.Context, it ThreadItem, threads map[int
 func resolveThread(ref string, local map[string]int64, threads map[int64]*threadState, byName map[string]int64) (int64, bool) {
 	if tid, ok := local[ref]; ok {
 		return tid, true
+	}
+	// "n15: name" or "T12 — name": the code before the name; "n8 + n7":
+	// the first code.
+	if i := strings.IndexAny(ref, ":—+,/"); i > 0 {
+		if tid, ok := resolveThread(strings.TrimSpace(ref[:i]), local, threads, byName); ok {
+			return tid, true
+		}
 	}
 	if tid, ok := local[strings.ToLower(ref)]; ok {
 		return tid, true

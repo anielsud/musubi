@@ -337,7 +337,7 @@ func TestResolveThread(t *testing.T) {
 	threads := map[int64]*threadState{12: {}, 40: {}}
 	byName := map[string]int64{"atlas pricing": 12}
 	local := map[string]int64{"n1": 40, "juniper programme": 40}
-	for ref, want := range map[string]int64{"n1": 40, "T12": 12, "[T12]": 12, "T12: Atlas pricing": 12, "Atlas pricing": 12, "Juniper programme": 40, "T99": 0, "n7": 0} {
+	for ref, want := range map[string]int64{"n1": 40, "T12": 12, "[T12]": 12, "T12: Atlas pricing": 12, "Atlas pricing": 12, "Juniper programme": 40, "T99": 0, "n7": 0, "n1: Juniper programme": 40, "n1 + n7": 40, "T12 — Atlas pricing": 12, "none": 0} {
 		got, ok := resolveThread(ref, local, threads, byName)
 		if got != want || ok != (want != 0) {
 			t.Errorf("resolveThread(%q) = %d, %v; want %d", ref, got, ok, want)

@@ -161,6 +161,11 @@ type Threads struct {
 	// AuditFixes is ThreadsVersion t4 (knowledge.Threader.AuditFixes); false
 	// keeps t3.
 	AuditFixes bool `toml:"audit_fixes"`
+	// ConsolidateWindow bounds consolidation to what a meeting could have
+	// made outdated: a touched thread's new items and the current items
+	// most like them, at most this many in all. 0 reviews up to 80 of its
+	// current items each time, as before (the slowest calls of a run).
+	ConsolidateWindow int `toml:"consolidate_window"`
 }
 
 // Points configures meeting-level point extraction.

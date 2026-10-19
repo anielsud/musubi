@@ -11,6 +11,7 @@ import (
 
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/sensitivity"
+	"github.com/anielsud/musubi/internal/store"
 )
 
 // scriptedThreads plays a threading model: items naming Juniper or Ontario
@@ -380,5 +381,17 @@ func TestLeftOut(t *testing.T) {
 		if leftOut(ref) != want {
 			t.Errorf("leftOut(%q) = %v", ref, !want)
 		}
+	}
+}
+
+// The window holds the meeting's new items and the current items most
+// like them, in the thread's order.
+func TestConsolidationWindow(t *testing.T) {
+	th := &Threader{ConsolidateWindow: 3, Vecs: map[int64][]float32{
+		1: {1, 0}, 2: {0, 1}, 3: {0.9, 0.1}, 4: {0.1, 0.9}, 10: {1, 0},
+	}}
+	got := th.consolidationWindow([]int64{1, 2, 3, 4, 10}, map[int64]store.ItemStatement{10: {ID: 10}})
+	if fmt.Sprint(got) != "[1 3 10]" {
+		t.Errorf("window %v, want [1 3 10]", got)
 	}
 }

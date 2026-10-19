@@ -148,6 +148,9 @@ type Threader struct {
 	// what replaces what; an item is never retired by an older one;
 	// "completes" also takes positions and proposals. false is t3.
 	AuditFixes bool
+	// ConsolidateWindow (config.Threads): 0 reviews up to consolidateMax
+	// current items; else the new items and their nearest current ones.
+	ConsolidateWindow int
 	// WarmFirst reconciles one thread alone before the rest, so their
 	// shared instructions are cached by the server.
 	WarmFirst bool
@@ -508,6 +511,9 @@ func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64
 			defer func() { <-sem }()
 			th := threads[tid]
 			cur := th.previous[max(0, len(th.previous)-consolidateMax):]
+			if t.ConsolidateWindow > 0 {
+				cur = t.consolidationWindow(th.previous, byID)
+			}
 			var lines []string
 			for _, id := range cur {
 				if s, ok := statementAt(id, known, byID); ok {
@@ -578,6 +584,70 @@ func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64
 		th.previous = now
 	}
 	return nil
+}
+
+// consolidationWindow picks what one meeting could have made outdated in a
+// thread: its new items (byID: the meeting's statements), and the current
+// items most like any of them, up to ConsolidateWindow in all, oldest
+// first. Older items were reviewed when they were new; reviewing all of
+// them again on every touch was most of a run's time (research log
+// 2026-10-19).
+func (t *Threader) consolidationWindow(current []int64, byID map[int64]store.ItemStatement) []int64 {
+	var fresh, old []int64
+	for _, id := range current {
+		if _, ok := byID[id]; ok {
+			fresh = append(fresh, id)
+		} else {
+			old = append(old, id)
+		}
+	}
+	n := t.ConsolidateWindow
+	if len(fresh) >= n {
+		return fresh[len(fresh)-n:]
+	}
+	type scored struct {
+		id  int64
+		sim float64
+	}
+	var ss []scored
+	for _, id := range old {
+		v := t.Vecs[id]
+		best := -1.0
+		for _, f := range fresh {
+			if s := cosine32(v, t.Vecs[f]); s > best {
+				best = s
+			}
+		}
+		ss = append(ss, scored{id, best})
+	}
+	sort.SliceStable(ss, func(i, j int) bool { return ss[i].sim > ss[j].sim })
+	keep := map[int64]bool{}
+	for _, s := range ss[:min(len(ss), n-len(fresh))] {
+		keep[s.id] = true
+	}
+	var out []int64
+	for _, id := range current { // in the thread's order: oldest first
+		if keep[id] || contains64(fresh, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func cosine32(a, b []float32) float64 {
+	if len(a) == 0 || len(a) != len(b) {
+		return 0
+	}
+	var dot, na, nb float64
+	for i := range a {
+		dot += float64(a[i]) * float64(b[i])
+		na += float64(a[i]) * float64(a[i])
+		nb += float64(b[i]) * float64(b[i])
+	}
+	if na == 0 || nb == 0 {
+		return 0
+	}
+	return dot / math.Sqrt(na*nb)
 }
 
 // lapse drops open commitments and questions said more than lapseAfter

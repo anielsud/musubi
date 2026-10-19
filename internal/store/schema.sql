@@ -249,7 +249,7 @@ CREATE INDEX IF NOT EXISTS statement_claims_claim ON statement_claims(claim_id);
 CREATE TABLE IF NOT EXISTS claim_relations (
 	from_claim   INTEGER NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
 	to_claim     INTEGER NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
-	rel          TEXT NOT NULL,  -- contradicts, refines, supersedes, answers
+	rel          TEXT NOT NULL,  -- contradicts, refines, supersedes, answers, completes, pending, repeats
 	statement_id INTEGER NOT NULL REFERENCES statements(id) ON DELETE CASCADE,
 	PRIMARY KEY (from_claim, to_claim, rel)
 );

@@ -155,6 +155,33 @@ real data. This is what makes the incremental path safe.
   scope.
 - **Speed:** the work is proportional to the change, not the history.
 
+## Step 1: do the stored relations explain "current"? (2026-10-19)
+
+On All (165 meetings, Go t4), "current" was derived per thread membership:
+- an item is current unless a later item replaces, completes or answers
+  it (in any thread);
+- open commitments and questions lapse 60 days before the thread's
+  latest item.
+
+| | Derived current | Derived retired |
+|---|---|---|
+| Stored current | 12,037 | 20 |
+| Stored retired | 1,424 | 2,209 |
+
+Agreement is 90.8% of 15,690 memberships. The relations that were
+recorded hold: only 20 current items have a later item retiring them.
+
+The gap is one-sided: 1,424 retirements (39%) that no recorded relation
+explains. The threader retires an earlier item when a later one says the
+same thing (t4's repeat rule) without recording why. In a sample of 400
+of these, 59% have a later item in the same thread at embedding
+similarity 0.85 or more, and 87% at 0.80. That fits repeats, but
+similarity can't prove it.
+
+Repeats are now recorded as a `repeats` relation, and lapse is a rule on
+dates. With both, "current" can be derived, and the next threading run
+can check that derived and stored agree.
+
 ## Order
 
 1. **Check whether stored relations already explain "current".** On the

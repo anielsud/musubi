@@ -786,8 +786,13 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 				if t.AuditFixes {
 					// The newer wording stays: it may add detail, and it dates
 					// the subject. Dropping it was most of the audited wrong
-					// retirements of t4's first run.
+					// retirements of t4's first run. Recorded, so "current"
+					// can be derived from relations (incremental-design.md).
 					retired[e.Earlier] = true
+					if err := t.Store.RelateStatements(e.Later, e.Earlier, "repeats"); err != nil {
+						return err
+					}
+					stats.Relations++
 				} else {
 					retired[e.Later] = true // the earlier wording stays
 				}

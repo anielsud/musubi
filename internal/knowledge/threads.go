@@ -247,13 +247,23 @@ func (st *threadState) add(v []float32) {
 	}
 }
 
-// Thread assigns one item's statements to threads and reconciles each
-// thread it touched.
-func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, error) {
-	var stats ThreadStats
+// placement is where one item's statements went: the threads as loaded,
+// with the item's statements added to those it touched (in order).
+type placement struct {
+	sts     []store.ItemStatement
+	byID    map[int64]store.ItemStatement
+	threads map[int64]*threadState
+	known   map[int64]store.Statement
+	order   []int64
+}
+
+// place assigns one item's statements to threads (new ones included) and
+// stores the memberships: the first half of threading an item, and of
+// inserting one (Insert). nil when the item has no statements.
+func (t *Threader) place(ctx context.Context, it ThreadItem, stats *ThreadStats) (*placement, error) {
 	sts, err := t.Store.LinkedItemStatements(it.ID)
 	if err != nil || len(sts) == 0 {
-		return stats, err
+		return nil, err
 	}
 	stats.Items, stats.Statements = 1, len(sts)
 	chunk := t.Chunk
@@ -266,11 +276,11 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 	}
 	rows, err := t.Store.Threads()
 	if err != nil {
-		return stats, err
+		return nil, err
 	}
 	all, err := t.Store.ThreadMembers()
 	if err != nil {
-		return stats, err
+		return nil, err
 	}
 	threads := map[int64]*threadState{}
 	byName := map[string]int64{}
@@ -294,7 +304,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 	}
 	known, err := t.Store.StatementsByID(current)
 	if err != nil {
-		return stats, err
+		return nil, err
 	}
 	var order []int64 // touched threads, in the order first touched
 	for k := 0; k < len(sts); k += chunk {
@@ -313,7 +323,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 			err = nil
 		}
 		if err != nil {
-			return stats, err
+			return nil, err
 		}
 		stats.Calls++
 		// Outputs sometimes collapse (no or few items placed): ask again for
@@ -360,7 +370,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 				err = nil
 			}
 			if err != nil {
-				return stats, err
+				return nil, err
 			}
 			stats.Calls++
 			res.NewThreads = append(res.NewThreads, more.NewThreads...)
@@ -379,7 +389,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 			}
 			tid, err := t.Store.NewThread(name, n.Scope, 0)
 			if err != nil {
-				return stats, err
+				return nil, err
 			}
 			byName[strings.ToLower(name)] = tid
 			threads[tid] = &threadState{row: store.ThreadRow{ID: tid, Name: name, Scope: n.Scope}, born: true}
@@ -431,7 +441,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 	for tid, th := range threads {
 		if th.born && len(th.members) == 0 {
 			if err := t.Store.DeleteThread(tid); err != nil {
-				return stats, err
+				return nil, err
 			}
 			delete(threads, tid)
 			stats.NewThreads--
@@ -439,8 +449,8 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 	}
 	if t.AuditFixes {
 		var err error
-		if order, err = t.mergeBorn(ctx, it, threads, order, byID, known, &stats); err != nil {
-			return stats, err
+		if order, err = t.mergeBorn(ctx, it, threads, order, byID, known, stats); err != nil {
+			return nil, err
 		}
 	}
 	for _, tid := range order {
@@ -450,9 +460,21 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 			lvl = max(lvl, byID[id].Level)
 		}
 		if err := t.Store.AddToThread(tid, th.members, lvl, t.prov(it, "")); err != nil {
-			return stats, err
+			return nil, err
 		}
 	}
+	return &placement{sts: sts, byID: byID, threads: threads, known: known, order: order}, nil
+}
+
+// Thread assigns one item's statements to threads and reconciles each
+// thread it touched, in time order (the item is the latest threaded).
+func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, error) {
+	var stats ThreadStats
+	p, err := t.place(ctx, it, &stats)
+	if err != nil || p == nil {
+		return stats, err
+	}
+	order, threads, known, byID := p.order, p.threads, p.known, p.byID
 	stats.Touched = len(order)
 	if err := t.reconcileAll(ctx, it, order, threads, known, byID, &stats); err != nil {
 		return stats, err

@@ -479,22 +479,28 @@ func (s *Store) DeleteEmptyThreads(threads map[int64]bool) error {
 	return nil
 }
 
-// CorrectStatement sets a statement's text and who it belongs to (nil
-// keeps who), recording what changed in statement_corrections, and takes
-// it out of the relations it was in: they were judged on the old text.
-// The caller re-embeds it, judges it again, and derives "current".
+// CorrectStatement records the owner's correction of a statement (its
+// text, and who it belongs to; empty text and nil who keep them) in
+// corrections, shows it on the statement, and takes the statement out of
+// the relations it was in: they were judged on the old text. The caller
+// re-embeds it, judges it again, and derives "current".
 func (s *Store) CorrectStatement(id int64, text string, who []string, by string) error {
 	return s.tx(func(tx *sql.Tx) error {
-		var oldText, oldWho string
-		if err := tx.QueryRow(`SELECT text, who FROM statements WHERE id = ?`, id).Scan(&oldText, &oldWho); err != nil {
+		var item, oldText, oldWho string
+		if err := tx.QueryRow(`SELECT item_id, text, who FROM statements WHERE id = ?`, id).Scan(&item, &oldText, &oldWho); err != nil {
 			return err
 		}
+		// The text as extracted: the first correction's old text, if the
+		// statement was corrected before.
+		extracted := oldText
+		tx.QueryRow(`SELECT old FROM corrections WHERE statement = ? AND field = 'text' AND undone = 0 ORDER BY id LIMIT 1`, id).Scan(&extracted)
 		now := time.Now().Unix()
 		if text != "" && text != oldText {
 			if _, err := tx.Exec(`UPDATE statements SET text = ?, search_text = '' WHERE id = ?`, text, id); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(`INSERT INTO statement_corrections(statement_id, field, old, new, by, at) VALUES (?,?,?,?,?,?)`, id, "text", oldText, text, by, now); err != nil {
+			if _, err := tx.Exec(`INSERT INTO corrections(item_id, statement, extracted, field, old, new, by, at) VALUES (?,?,?,?,?,?,?,?)`,
+				item, id, extracted, "text", oldText, text, by, now); err != nil {
 				return err
 			}
 		}
@@ -504,7 +510,8 @@ func (s *Store) CorrectStatement(id int64, text string, who []string, by string)
 				if _, err := tx.Exec(`UPDATE statements SET who = ?, holder = ? WHERE id = ?`, string(b), strings.Join(who, ", "), id); err != nil {
 					return err
 				}
-				if _, err := tx.Exec(`INSERT INTO statement_corrections(statement_id, field, old, new, by, at) VALUES (?,?,?,?,?,?)`, id, "who", oldWho, string(b), by, now); err != nil {
+				if _, err := tx.Exec(`INSERT INTO corrections(item_id, statement, extracted, field, old, new, by, at) VALUES (?,?,?,?,?,?,?,?)`,
+					item, id, extracted, "who", oldWho, string(b), by, now); err != nil {
 					return err
 				}
 			}
@@ -515,4 +522,81 @@ func (s *Store) CorrectStatement(id int64, text string, who []string, by string)
 		_, err := tx.Exec(`DELETE FROM claim_relations WHERE statement_id = ? OR to_claim IN (SELECT claim_id FROM statement_claims WHERE statement_id = ?)`, id, id)
 		return err
 	})
+}
+
+// UndoCorrection puts a statement back as it was before a correction (the
+// record stays, marked undone). The caller mends the graph as for a
+// correction.
+func (s *Store) UndoCorrection(id int64) (statement int64, err error) {
+	err = s.tx(func(tx *sql.Tx) error {
+		var field, old string
+		if err := tx.QueryRow(`SELECT statement, field, old FROM corrections WHERE id = ? AND undone = 0`, id).Scan(&statement, &field, &old); err != nil {
+			return err
+		}
+		switch field {
+		case "text":
+			if _, err := tx.Exec(`UPDATE statements SET text = ?, search_text = '' WHERE id = ?`, old, statement); err != nil {
+				return err
+			}
+		case "who":
+			var who []string
+			json.Unmarshal([]byte(old), &who)
+			if _, err := tx.Exec(`UPDATE statements SET who = ?, holder = ? WHERE id = ?`, old, strings.Join(who, ", "), statement); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(`UPDATE corrections SET undone = 1 WHERE id = ?`, id)
+		return err
+	})
+	return statement, err
+}
+
+// reapplyCorrections applies an item's corrections to its statements again
+// after they were replaced (re-extraction), finding each by the text it
+// was extracted with. A correction whose statement is no longer extracted
+// waits, kept.
+func reapplyCorrections(tx *sql.Tx, itemID string) error {
+	rows, err := tx.Query(`SELECT id, extracted, field, new FROM corrections WHERE item_id = ? AND undone = 0 ORDER BY id`, itemID)
+	if err != nil {
+		return err
+	}
+	type c struct {
+		id                    int64
+		extracted, field, new string
+	}
+	var cs []c
+	for rows.Next() {
+		var x c
+		rows.Scan(&x.id, &x.extracted, &x.field, &x.new)
+		cs = append(cs, x)
+	}
+	rows.Close()
+	// Find every statement by its extracted text before changing any: a
+	// statement's text correction would hide it from its who correction.
+	sids := make([]int64, len(cs))
+	for i, x := range cs {
+		tx.QueryRow(`SELECT id FROM statements WHERE item_id = ? AND text = ? LIMIT 1`, itemID, x.extracted).Scan(&sids[i])
+	}
+	for i, x := range cs {
+		sid := sids[i]
+		if sid == 0 {
+			continue
+		}
+		switch x.field {
+		case "text":
+			if _, err := tx.Exec(`UPDATE statements SET text = ?, search_text = '' WHERE id = ?`, x.new, sid); err != nil {
+				return err
+			}
+		case "who":
+			var who []string
+			json.Unmarshal([]byte(x.new), &who)
+			if _, err := tx.Exec(`UPDATE statements SET who = ?, holder = ? WHERE id = ?`, x.new, strings.Join(who, ", "), sid); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(`UPDATE corrections SET statement = ? WHERE id = ?`, sid, x.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }

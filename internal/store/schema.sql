@@ -350,19 +350,25 @@ CREATE TABLE IF NOT EXISTS statement_relations (
 );
 CREATE INDEX IF NOT EXISTS statement_relations_earlier ON statement_relations(earlier);
 
--- Corrections to statements (the owner's, or an applied alias): what
--- changed, from what, when, and by whom. The statement holds the
--- corrected value; this keeps the history and the provenance.
-CREATE TABLE IF NOT EXISTS statement_corrections (
-	id           INTEGER PRIMARY KEY,
-	statement_id INTEGER NOT NULL REFERENCES statements(id) ON DELETE CASCADE,
-	field        TEXT NOT NULL,  -- text, who
-	old          TEXT NOT NULL,
-	new          TEXT NOT NULL,
-	by           TEXT NOT NULL,  -- owner, alias:<id>
-	at           INTEGER NOT NULL
+-- Corrections to statements (the owner's): kept to the side, as the
+-- record of what the owner said is right. The statement row shows the
+-- corrected value (so every read sees it); the text as extracted is kept
+-- here, and a re-extracted item has its corrections applied again by
+-- matching it. Not tied to the statement row, which re-extraction
+-- replaces. Transcripts are never changed.
+CREATE TABLE IF NOT EXISTS corrections (
+	id         INTEGER PRIMARY KEY,
+	item_id    TEXT NOT NULL,
+	statement  INTEGER NOT NULL,   -- the statement it was made on (may no longer exist)
+	extracted  TEXT NOT NULL,      -- the statement's text as extracted: how it is found again
+	field      TEXT NOT NULL,      -- text, who
+	old        TEXT NOT NULL,
+	new        TEXT NOT NULL,
+	by         TEXT NOT NULL,
+	at         INTEGER NOT NULL,
+	undone     INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS statement_corrections_statement ON statement_corrections(statement_id);
+CREATE INDEX IF NOT EXISTS corrections_item ON corrections(item_id);
 
 -- Learned aliases (docs/incremental-design.md, "Entities and aliases"): another
 -- way a thing is written or heard. kind: spelling (one thing, everywhere),

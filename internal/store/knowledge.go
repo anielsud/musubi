@@ -130,6 +130,10 @@ func (s *Store) ReplaceStatementsFrom(itemID, version, hash, input string, sts [
 				return err
 			}
 		}
+		// The owner's corrections outlive re-extraction.
+		if err := reapplyCorrections(tx, itemID); err != nil {
+			return err
+		}
 		return stamp(tx, "extract", itemID, version, hash)
 	})
 }

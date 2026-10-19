@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Proposes alias candidates from an instance database, for review: names
-and terms that are probably one thing spelled or heard two ways ("DAKA" for
-Dhaka, "Zubair" for Zubaer). No model, nothing applied.
+and terms that are probably one thing spelled or heard two ways (a city name
+misheard, a surname misspelled). No model, nothing applied.
 
 Evidence comes only from what any customer has: calendar attendees, the
 transcript's speaker labels, who the extracted statements belong to, and

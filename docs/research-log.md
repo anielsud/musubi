@@ -2165,3 +2165,98 @@ Backup requests are off. A call that reasons for minutes gains nothing
 from a second start 25 seconds later, and the losers' tokens are billed:
 backups took thrown-away spend from 9–11% to 18–24%. Thrown-away spend
 across all Go runs so far: $0.83 of $7.85.
+
+## 2026-10-19 (later): Toward local updates: derived current, insert, forget, correct; aliases; Live
+
+**Derived "current"** (`knowledge.Derivation`, `musubi threads-check`).
+A statement in a thread is current as of a time unless:
+- a statement said then or later (and by that time) replaces, completes,
+  answers or repeats it; or
+- it is an open commitment or question more than 60 days older.
+
+| Data | Derived and stored agree | Gap |
+|---|---|---|
+| All, Go threader as first run | 91.3% | 1,345 retirements without a recorded reason (mostly repeats) |
+| ELT year, run with every reason recorded | 98.8% | 13 explained below; 49 by semantics |
+
+The 13: statements sharing a claim, whose claim-level relation had
+nowhere to go. Relations are now stored between statements too
+(`statement_relations`).
+
+The 49: an item retired in one thread but current in another. An
+outdated item is now retired in every thread it is in, as the derivation
+has it. Simulated offline on that run, this retires 49 more memberships,
+none of them audited items, and the audit scores don't move.
+
+Every membership and relation now records:
+- the rules version;
+- the item being threaded;
+- the processing time;
+- why an item stopped being current.
+
+**Local operations**, each tested offline against derived "current":
+
+| Operation | What it does | Test |
+|---|---|---|
+| Insert | places an item's statements against today's threads, whenever it happened; judges them against their nearest neighbours there, earlier and later; derives current | an older meeting inserted after a newer one: its question, answered later, isn't current |
+| Forget | the item and everything from it go; current is derived again where it was; empty threads go | the answer forgotten, the question is current again |
+| Correct | text or speaker changed and recorded; re-embedded; relations judged again; current derived | the corrected statement no longer answers, so the question is current again |
+
+`musubi insert-check` takes items out of a threaded copy and inserts them
+again, to compare with the replay. It will run on two meetings.
+
+**Consolidation window.** On the ELT year with window 24, compared with
+the first Go run:
+
+| | First Go run | Window 24 |
+|---|---|---|
+| Time | 69 min | 57 min |
+| Statements in no thread | 10% | 2% |
+| Stale items fixed | 63/108 | 53/108 |
+| Missed updates fixed | 43/71 | 36/71 |
+
+Stale pairs far from anything new were never seen again. A thread is now
+reviewed whole each time its current set grows by half (at 10, 15, 22,
+33… items). That run is checking it.
+
+**Aliases** (`docs/incremental-design.md`, "Entities and aliases").
+`tools/entity-bench/aliases.py` proposes candidates from spelling,
+frequency, the invite form, and two vetoes for two people. Of 174 pairs:
+- variants rank high;
+- 14 are vetoed as two people;
+- ordinary words are dropped.
+
+What failed:
+- **Context similarity** hardly separates anything within one company's
+  notes.
+- **Co-reference with attendees** rarely applies: most variants come up
+  in talk about absent people.
+
+So the owner decides, helped by the impact preview. In practice:
+- one first-name pair would have tied 17 threads together; its sample
+  showed a well-known public figure with a similar name;
+- another's sample showed one name was a customer's CMO, not the
+  colleague.
+
+Confirmed spellings apply only when reading: Ask, Prep and Live lines.
+Nothing is rewritten. The review screen is Explore → Corrections.
+
+**Speaker attribution** (`tools/entity-bench/speakers.py`). Six meetings
+have one voice: one label has 90% or more of the passages in a meeting
+of two or more. Five are recent 1:1s with no label for the owner at all,
+so the owner's words are credited to the other person. It's a speaker
+separation problem upstream (Tomoe) and can't be fixed from the text.
+Unknown labels (14) are guests presenting at ELT, which is expected.
+
+**Live.** A lookup that matches a thread at 0.80 or above shows its
+written status at once, with no model call; the 8B summary is skipped.
+Calibration on All:
+- specific lookups (a programme, a vendor pilot, the board deck) matched
+  their thread at 0.81–0.86;
+- vague ones matched a loosely related thread at 0.77–0.78;
+- the 28 questions' top matches ran 0.71–0.93, and questions with no
+  answer still matched a nearby thread at 0.76–0.85. A score alone can't
+  say a subject is absent.
+
+Topic cards lead with the status's first sentence. A replay shows only
+statuses written by then.

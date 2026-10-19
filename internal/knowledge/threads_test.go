@@ -424,3 +424,28 @@ func TestDerivationCurrent(t *testing.T) {
 		t.Error("as-of view wrong")
 	}
 }
+
+func TestFullReview(t *testing.T) {
+	ids := func(n int) []int64 {
+		var out []int64
+		for i := 1; i <= n; i++ {
+			out = append(out, int64(i))
+		}
+		return out
+	}
+	fresh := func(from, to int) map[int64]store.ItemStatement {
+		m := map[int64]store.ItemStatement{}
+		for i := from; i <= to; i++ {
+			m[int64(i)] = store.ItemStatement{ID: int64(i)}
+		}
+		return m
+	}
+	for _, c := range []struct {
+		n, newFrom int
+		want       bool
+	}{{9, 8, false}, {11, 9, true}, {14, 12, false}, {16, 14, true}, {40, 39, false}, {51, 49, true}} {
+		if got := fullReview(ids(c.n), fresh(c.newFrom, c.n)); got != c.want {
+			t.Errorf("%d current, new from %d: full review %v, want %v", c.n, c.newFrom, got, c.want)
+		}
+	}
+}

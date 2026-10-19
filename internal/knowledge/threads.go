@@ -511,7 +511,7 @@ func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64
 			defer func() { <-sem }()
 			th := threads[tid]
 			cur := th.previous[max(0, len(th.previous)-consolidateMax):]
-			if t.ConsolidateWindow > 0 {
+			if t.ConsolidateWindow > 0 && !fullReview(th.previous, byID) {
 				cur = t.consolidationWindow(th.previous, byID)
 			}
 			var lines []string
@@ -632,6 +632,28 @@ func (t *Threader) consolidationWindow(current []int64, byID map[int64]store.Ite
 		}
 	}
 	return out
+}
+
+// fullReview: a bounded window never sees stale pairs far from anything
+// new, which cost a fifth of the stale items fixed (research log
+// 2026-10-19). So a thread is reviewed whole each time its current set
+// grows past the next of 10, 15, 22, 33, 50, 75… items: a full review
+// every time it has grown by half, from the count alone.
+func fullReview(current []int64, byID map[int64]store.ItemStatement) bool {
+	before := 0
+	for _, id := range current {
+		if _, ok := byID[id]; !ok {
+			before++
+		}
+	}
+	step := func(n int) int {
+		k := 0
+		for x := 10.0; float64(n) >= x; x *= 1.5 {
+			k++
+		}
+		return k
+	}
+	return step(len(current)) > step(before)
 }
 
 func cosine32(a, b []float32) float64 {

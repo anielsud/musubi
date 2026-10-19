@@ -183,3 +183,56 @@ func TestForgetItemMendsThreads(t *testing.T) {
 		t.Errorf("derived and stored disagree: %+v", c)
 	}
 }
+
+// A statement corrected so it no longer answers a question: the question
+// is current again, and the correction is on record.
+func TestCorrectStatement(t *testing.T) {
+	f := newCardFixture(t)
+	f.st.ClearThreads()
+	llm := &insertLLM{}
+	th := &Threader{Store: f.st, LLM: llm, Chunk: 70, Parallel: 2, Version: "v-test"}
+	if _, err := th.Thread(context.Background(), ThreadItem{ID: "m:2", Start: time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := th.Insert(context.Background(), ThreadItem{ID: "m:1", Start: time.Date(2026, 9, 16, 15, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	sts, _ := f.st.AllStatements()
+	var answer, question int64
+	for _, s := range sts {
+		switch {
+		case strings.Contains(s.Text, "25 names received"):
+			answer = s.ID
+		case strings.Contains(s.Text, "How many of the 40"):
+			question = s.ID
+		}
+	}
+	current := func(id int64) bool {
+		rows, _ := f.st.Threads()
+		for _, r := range rows {
+			for _, c := range r.Current {
+				if c == id {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if current(question) {
+		t.Fatal("precondition: answered")
+	}
+	embed := func(string) ([]float32, string, error) { return []float32{1, 0, 0}, "test", nil }
+	if _, err := th.Correct(context.Background(), answer, "Juniper: the names list is delayed to next month.", []string{"Dana Ruiz"}, "owner", embed); err != nil {
+		t.Fatal(err)
+	}
+	if !current(question) {
+		t.Error("question still retired by a statement that no longer answers it")
+	}
+	got, _ := f.st.StatementsByID([]int64{answer})
+	if !strings.Contains(got[answer].Text, "delayed") || got[answer].Holder != "Dana Ruiz" {
+		t.Errorf("not corrected: %+v", got[answer])
+	}
+	if c, _ := CheckDerived(f.st, time.Time{}); c.Agree != c.Memberships {
+		t.Errorf("derived and stored disagree: %+v", c)
+	}
+}

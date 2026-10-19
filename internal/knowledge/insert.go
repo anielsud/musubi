@@ -235,6 +235,125 @@ func ForgetItem(st *store.Store, itemID string) (rawHash string, stillUsed bool,
 	return rawHash, stillUsed, RederiveThreads(st, threads, time.Time{}, store.Provenance{During: itemID, Why: "forget"})
 }
 
+// Correct changes a statement (its text, or who it belongs to; empty text
+// and nil who keep them), then mends the graph around it: re-embedded, its
+// relations judged again against its neighbours in each of its threads,
+// and "current" derived again there and wherever it retired something.
+// Its threads stay as they are: membership is by statement, not by words.
+func (t *Threader) Correct(ctx context.Context, id int64, text string, who []string, by string, embed func(string) ([]float32, string, error)) (ThreadStats, error) {
+	var stats ThreadStats
+	before, err := t.Store.RetiringRelations()
+	if err != nil {
+		return stats, err
+	}
+	if err := t.Store.CorrectStatement(id, text, who, by); err != nil {
+		return stats, err
+	}
+	sts, err := t.Store.StatementsByID([]int64{id})
+	if err != nil || len(sts) == 0 {
+		return stats, err
+	}
+	s := sts[id]
+	if embed != nil && text != "" {
+		v, model, err := embed(text)
+		if err != nil {
+			return stats, err
+		}
+		if err := t.Store.PutStatementVec(id, model, v); err != nil {
+			return stats, err
+		}
+		if t.Vecs != nil {
+			t.Vecs[id] = v
+		}
+	}
+	if err := t.Store.SetSearchText(id, SearchForm(s.Text)); err != nil {
+		return stats, err
+	}
+	members, err := t.Store.ThreadMembers()
+	if err != nil {
+		return stats, err
+	}
+	inThread := map[int64][]int64{}
+	changed := map[int64]bool{}
+	for _, m := range members {
+		inThread[m.Topic] = append(inThread[m.Topic], m.Statement)
+	}
+	var mine []int64
+	for tid, ids := range inThread {
+		if contains64(ids, id) {
+			mine = append(mine, tid)
+			changed[tid] = true
+		}
+	}
+	// What it used to retire may be current again.
+	for earlier, laters := range before {
+		if contains64(laters, id) {
+			for _, m := range members {
+				if m.Statement == earlier {
+					changed[m.Topic] = true
+				}
+			}
+		}
+	}
+	rows, err := t.Store.Threads()
+	if err != nil {
+		return stats, err
+	}
+	rowOf := map[int64]store.ThreadRow{}
+	for _, r := range rows {
+		rowOf[r.ID] = r
+	}
+	it := ThreadItem{ID: s.ItemID, Start: s.SaidAt}
+	byID := map[int64]store.ItemStatement{id: fromStatement(s)}
+	for _, tid := range mine {
+		old := t.neighbours([]int64{id}, inThread[tid], insertNeighbours)
+		if len(old) == 0 {
+			continue
+		}
+		all, err := t.Store.StatementsByID(old)
+		if err != nil {
+			return stats, err
+		}
+		out, err := t.relate(ctx, it, rowOf[tid], []int64{id}, old, all, byID)
+		if err != nil {
+			if errorsIsCutOff(err) {
+				continue
+			}
+			return stats, err
+		}
+		stats.Calls++
+		for _, e := range out.Relations {
+			if e.Later != id && e.Earlier != id {
+				continue
+			}
+			later, okL := statementAt(e.Later, all, byID)
+			earlier, okE := statementAt(e.Earlier, all, byID)
+			if !okL || !okE || e.Later == e.Earlier || later.SaidAt.Before(earlier.SaidAt) {
+				continue
+			}
+			rel := e.Relation
+			if rel == "same" {
+				rel = "repeats"
+			} else {
+				rel = threadRuleV4(rel, earlier.Kind, earlier.Status, false, later.Text)
+			}
+			if rel == "" {
+				continue
+			}
+			if err := t.Store.RelateStatements(e.Later, e.Earlier, rel, store.Provenance{Version: t.Version, During: "correct", Why: by}); err != nil {
+				return stats, err
+			}
+			stats.Relations++
+			for _, m := range members {
+				if m.Statement == e.Earlier {
+					changed[m.Topic] = true
+				}
+			}
+		}
+	}
+	return stats, RederiveThreads(t.Store, changed, time.Time{}, store.Provenance{Version: t.Version, During: "correct", Why: by})
+}
+
 const relateSystem = `You keep one thread of a leadership team's notes, so that someone asking about the subject sees only where things stand. You get items already in the thread, each with its meeting date, kind/status, who said it, and whether it is CURRENT or RETIRED, and NEW items from one more meeting. That meeting may be older or newer than the items already there.
 
 List each pair where a later item (by date) bears on an earlier one, where at least one of the two is NEW:

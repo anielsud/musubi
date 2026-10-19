@@ -478,3 +478,41 @@ func (s *Store) DeleteEmptyThreads(threads map[int64]bool) error {
 	}
 	return nil
 }
+
+// CorrectStatement sets a statement's text and who it belongs to (nil
+// keeps who), recording what changed in statement_corrections, and takes
+// it out of the relations it was in: they were judged on the old text.
+// The caller re-embeds it, judges it again, and derives "current".
+func (s *Store) CorrectStatement(id int64, text string, who []string, by string) error {
+	return s.tx(func(tx *sql.Tx) error {
+		var oldText, oldWho string
+		if err := tx.QueryRow(`SELECT text, who FROM statements WHERE id = ?`, id).Scan(&oldText, &oldWho); err != nil {
+			return err
+		}
+		now := time.Now().Unix()
+		if text != "" && text != oldText {
+			if _, err := tx.Exec(`UPDATE statements SET text = ?, search_text = '' WHERE id = ?`, text, id); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`INSERT INTO statement_corrections(statement_id, field, old, new, by, at) VALUES (?,?,?,?,?,?)`, id, "text", oldText, text, by, now); err != nil {
+				return err
+			}
+		}
+		if who != nil {
+			b, _ := json.Marshal(who)
+			if string(b) != oldWho {
+				if _, err := tx.Exec(`UPDATE statements SET who = ?, holder = ? WHERE id = ?`, string(b), strings.Join(who, ", "), id); err != nil {
+					return err
+				}
+				if _, err := tx.Exec(`INSERT INTO statement_corrections(statement_id, field, old, new, by, at) VALUES (?,?,?,?,?,?)`, id, "who", oldWho, string(b), by, now); err != nil {
+					return err
+				}
+			}
+		}
+		if _, err := tx.Exec(`DELETE FROM statement_relations WHERE later = ? OR earlier = ?`, id, id); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`DELETE FROM claim_relations WHERE statement_id = ? OR to_claim IN (SELECT claim_id FROM statement_claims WHERE statement_id = ?)`, id, id)
+		return err
+	})
+}

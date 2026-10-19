@@ -350,6 +350,20 @@ CREATE TABLE IF NOT EXISTS statement_relations (
 );
 CREATE INDEX IF NOT EXISTS statement_relations_earlier ON statement_relations(earlier);
 
+-- Corrections to statements (the owner's, or an applied alias): what
+-- changed, from what, when, and by whom. The statement holds the
+-- corrected value; this keeps the history and the provenance.
+CREATE TABLE IF NOT EXISTS statement_corrections (
+	id           INTEGER PRIMARY KEY,
+	statement_id INTEGER NOT NULL REFERENCES statements(id) ON DELETE CASCADE,
+	field        TEXT NOT NULL,  -- text, who
+	old          TEXT NOT NULL,
+	new          TEXT NOT NULL,
+	by           TEXT NOT NULL,  -- owner, alias:<id>
+	at           INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS statement_corrections_statement ON statement_corrections(statement_id);
+
 -- A thread's written status (knowledge.status): where it stands, what
 -- changed, what is open. Variant "full" is written from every item;
 -- "open" only from items a shared screen may show, and is written only

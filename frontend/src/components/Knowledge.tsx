@@ -139,7 +139,7 @@ function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope:
       )}
 
       {t.thread ? (
-        <ThreadSection d={t.thread} onSource={onSource} />
+        <ThreadSection d={t.thread} onSource={onSource} owner={scope === 'owner'} onChanged={reload} />
       ) : (
         <>
           <div className="section-head"><span>What's believed now</span></div>
@@ -191,7 +191,7 @@ function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope:
 
 // ThreadSection: a thread's written status, then its current items, with
 // what was replaced folded away.
-function ThreadSection({ d, onSource }: { d: ThreadDetail; onSource: (itemId: string, chunkId: number) => void }) {
+function ThreadSection({ d, onSource, owner, onChanged }: { d: ThreadDetail; onSource: (itemId: string, chunkId: number) => void; owner: boolean; onChanged: () => void }) {
   const [showRetired, setShowRetired] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const all = [...(d.current ?? []), ...(d.retired ?? [])];
@@ -229,14 +229,14 @@ function ThreadSection({ d, onSource }: { d: ThreadDetail; onSource: (itemId: st
       )}
       <div className="section-head"><span>Current ({cur.length})</span></div>
       {cur.length === 0 && <Empty>Nothing current; see what was replaced.</Empty>}
-      {(showAll ? cur : cur.slice(0, 12)).map((it) => <ItemRow key={it.id} it={it} onSource={onSource} />)}
+      {(showAll ? cur : cur.slice(0, 12)).map((it) => <ItemRow key={it.id} it={it} onSource={onSource} owner={owner} onChanged={onChanged} />)}
       {cur.length > 12 && !showAll && <button className="link" onClick={() => setShowAll(true)}>show all {cur.length}</button>}
       {retired.length > 0 && (
         <>
           <button className="section-head link-head" onClick={() => setShowRetired(!showRetired)}>
             <span>{showRetired ? '▾' : '▸'} Replaced, done or answered ({retired.length})</span>
           </button>
-          {showRetired && retired.map((it) => <ItemRow key={it.id} it={it} onSource={onSource} />)}
+          {showRetired && retired.map((it) => <ItemRow key={it.id} it={it} onSource={onSource} owner={owner} onChanged={onChanged} />)}
         </>
       )}
     </>
@@ -287,9 +287,40 @@ function PointRow({ p, byId, onSource, lead, tail }: { p: StatusPoint; byId: Map
   );
 }
 
-function ItemRow({ it, onSource }: { it: ThreadItem; onSource: (itemId: string, chunkId: number) => void }) {
+// ItemRow is a thread's item; the owner can correct its text or who said
+// it (the graph is mended around it: Threader.Correct).
+function ItemRow({ it, onSource, owner, onChanged }: { it: ThreadItem; onSource: (itemId: string, chunkId: number) => void; owner?: boolean; onChanged?: () => void }) {
   const who = (it.who?.length ? it.who.join(', ') : it.holder) || '';
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(it.text);
+  const [names, setNames] = useState(who);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  if (editing) {
+    const save = () => {
+      setBusy(true);
+      setErr('');
+      api.correctStatement(it.id, text === it.text ? '' : text, names === who ? '' : names).then(
+        () => { setEditing(false); setBusy(false); onChanged?.(); },
+        (e) => { setErr(String(e)); setBusy(false); },
+      );
+    };
+    return (
+      <div className="stmt editing">
+        <input value={names} onChange={(e) => setNames(e.target.value)} placeholder="who said it (names, comma-separated)" />
+        <textarea value={text} rows={3} onChange={(e) => setText(e.target.value)} />
+        <div className="edit-actions">
+          {busy ? <Spinner /> : <button className="chip" onClick={save} disabled={text === it.text && names === who}>save</button>}
+          <button className="link" onClick={() => setEditing(false)}>cancel</button>
+          <span className="dim small">The original is kept; the change is recorded.</span>
+        </div>
+        {err && <div className="error small">{err}</div>}
+      </div>
+    );
+  }
   return (
+    <div className="stmt-wrap">
+    {owner && <button className="link stmt-edit" onClick={() => setEditing(true)} title="Correct the text or who said it">correct</button>}
     <button className={'stmt' + (it.current ? '' : ' retired')} onClick={() => onSource(it.itemId, it.chunkId)} title="Open the source passage">
       <div className="stmt-head">
         <b>{who || 'unknown'}</b>
@@ -299,6 +330,7 @@ function ItemRow({ it, onSource }: { it: ThreadItem; onSource: (itemId: string, 
       <div className="stmt-text">{it.text}</div>
       <div className="stmt-src">{it.itemTitle}</div>
     </button>
+    </div>
   );
 }
 

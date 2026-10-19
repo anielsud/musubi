@@ -105,3 +105,40 @@ func (r *Runner) InsertCheck(ctx context.Context, o KnowledgeOptions, itemID str
 	res.Placed, res.SameThread = len(placed), len(same)
 	return res, nil
 }
+
+// CorrectStatement applies the owner's correction to a statement (its
+// text, or who it belongs to) and mends the graph around it
+// (knowledge.Threader.Correct), then rewrites the statuses that changed.
+func (r *Runner) CorrectStatement(ctx context.Context, o KnowledgeOptions, id int64, text string, who []string) (knowledge.ThreadStats, error) {
+	kc := r.Cfg.Knowledge
+	llm, err := r.threadLLM(o)
+	if err != nil {
+		return knowledge.ThreadStats{}, err
+	}
+	var vecs map[int64][]float32
+	if o.Embedder != nil {
+		if vecs, err = r.Store.StatementVecs(o.Embedder.Model()); err != nil {
+			return knowledge.ThreadStats{}, err
+		}
+	}
+	th := &knowledge.Threader{Store: r.Store, LLM: llm, Vecs: vecs, Version: "correct", Parallel: kc.Threads.Parallel, AuditFixes: kc.Threads.AuditFixes, Logf: r.logf}
+	embed := func(s string) ([]float32, string, error) {
+		if o.Embedder == nil {
+			return nil, "", fmt.Errorf("no embedder")
+		}
+		v, err := o.Embedder.Embed(ctx, []string{s}, false)
+		if err != nil || len(v) == 0 {
+			return nil, "", err
+		}
+		return v[0], o.Embedder.Model(), nil
+	}
+	if o.Embedder == nil {
+		embed = nil
+	}
+	st, err := th.Correct(ctx, id, text, who, "owner", embed)
+	if err != nil {
+		return st, err
+	}
+	var ks KnowledgeStats
+	return st, r.writeStatuses(ctx, o, &ks)
+}

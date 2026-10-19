@@ -2,6 +2,10 @@ package gui
 
 import (
 	"fmt"
+	"io"
+	"strings"
+
+	"github.com/anielsud/musubi/internal/pipeline"
 )
 
 // AliasView is an alias with what it would touch, for review.
@@ -57,4 +61,25 @@ func (a *App) DecideAlias(id int64, confirm bool) error {
 		a.live.Reload()
 	}
 	return nil
+}
+
+// CorrectStatement applies the owner's correction to a statement's text
+// or speakers (who: comma-separated; empty keeps it), and mends the graph
+// around it. The owner's view only.
+func (a *App) CorrectStatement(id int64, text, who string) error {
+	if a.eng == nil {
+		return fmt.Errorf("not ready: %s", a.err)
+	}
+	var names []string
+	for _, n := range strings.Split(who, ",") {
+		if n = strings.TrimSpace(n); n != "" {
+			names = append(names, n)
+		}
+	}
+	r, err := a.eng.Runner(nil, io.Discard)
+	if err != nil {
+		return err
+	}
+	_, err = r.CorrectStatement(a.ctx, pipeline.KnowledgeOptions{LLM: a.eng.Chat, Embedder: a.eng.Embedder}, id, strings.TrimSpace(text), names)
+	return err
 }

@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -302,6 +303,12 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 		}
 		res, err := t.assign(ctx, it, fmt.Sprintf("Candidate threads:\n%s\nNew items from the %s meeting:\n%s\n\nPut every new item in a group (by id).",
 			reg, it.Start.Format("2006-01-02"), strings.Join(lines, "\n")))
+		if errors.Is(err, provider.ErrCutOff) {
+			// One reply that won't finish costs its items a place (the
+			// retries below ask for them again), not the run.
+			t.logf("threads %s: assign: %v", it.ID, err)
+			err = nil
+		}
 		if err != nil {
 			return stats, err
 		}
@@ -345,6 +352,10 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 			}
 			more, err := t.assign(ctx, it, fmt.Sprintf("Candidate threads:\n%s%s\n\nItems from the %s meeting still to place:\n%s\n\nPut every one of these items in a group (by id); new threads continue the n… numbering.",
 				reg, strings.Join(named, "\n"), it.Start.Format("2006-01-02"), strings.Join(missing, "\n")))
+			if errors.Is(err, provider.ErrCutOff) {
+				t.logf("threads %s: assign retry: %v", it.ID, err)
+				err = nil
+			}
 			if err != nil {
 				return stats, err
 			}
@@ -764,6 +775,12 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 	elsewhere := map[int64][]int64{} // thread → items retired from it by another thread's update
 	for r := range results {
 		stats.Calls++
+		if errors.Is(r.err, provider.ErrCutOff) {
+			// The thread isn't reconciled this time; its new items stay
+			// current until the next.
+			t.logf("threads %s: reconcile T%d: %v", it.ID, r.tid, r.err)
+			r.err = nil
+		}
 		if r.err != nil && firstErr == nil {
 			firstErr = r.err
 		}
@@ -1301,4 +1318,3 @@ func leftOut(ref string) bool {
 	r := strings.ToLower(strings.TrimSpace(ref))
 	return r == "none" || strings.HasPrefix(r, "none ") || strings.HasPrefix(r, "none—") || strings.HasPrefix(r, "none:") || strings.HasPrefix(r, "none-")
 }
-

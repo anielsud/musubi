@@ -2151,8 +2151,15 @@ The long calls were reasoning cut off at the 8k-token cap and retried at
 
 The cap doesn't change how long the model reasons; it only cuts it off.
 It costs nothing unless used, and a cut call is billed in full. So the
-cap now starts at 16k (it was 8k), doubles if cut, and the time limit
-grows with it.
+cap now starts at 16k (it was 8k), and the time limit grows with it.
+
+A call cut at 16k is past everything that has converged, so it isn't
+doubled; there's no evidence more room helps. It is asked once more at
+16k with low reasoning effort, the setting that actually shortens
+reasoning. If that is cut too, the call is given up:
+- an assign leaves its items to the retries;
+- a reconcile leaves that thread's new items current;
+- the run goes on; before, one such call aborted it.
 
 Backup requests are off. A call that reasons for minutes gains nothing
 from a second start 25 seconds later, and the losers' tokens are billed:

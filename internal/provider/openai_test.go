@@ -119,11 +119,12 @@ func TestOpenAIHosted(t *testing.T) {
 		t.Fatal("hosted endpoint taken for local")
 	}
 	out, err := llm.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}},
-		ChatOptions{Schema: json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}}}`), MaxTokens: 100, Effort: "low"}, nil)
+		ChatOptions{Schema: json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}}}`), MaxTokens: 100}, nil)
 	if err != nil || out != `{"ok":true}` {
 		t.Fatalf("reply %q %v", out, err)
 	}
-	if calls != 2 || lastMax != 2*hostedMinTokens || auth != "Bearer sekret" || effort != "low" || !strict {
+	// Cut off at the cap: asked again at the same cap, with low effort.
+	if calls != 2 || lastMax != hostedMinTokens || auth != "Bearer sekret" || effort != "low" || !strict {
 		t.Errorf("calls %d, max %v, auth %q, effort %q, strict %v", calls, lastMax, auth, effort, strict)
 	}
 	// Both calls metered: 2 × (1M in × $0.15 + 2M out × $0.50).

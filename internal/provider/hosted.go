@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -63,25 +64,38 @@ func (o *OpenAI) resolveKey() (string, error) {
 func (o *OpenAI) completeHosted(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error) {
 	maxTokens := max(opt.MaxTokens, hostedMinTokens)
 	var lastErr error
+	cut := false
 	for try := 0; try < hostedTries; try++ {
-		out, finish, err := o.hedged(ctx, msgs, opt, maxTokens, onToken)
+		o2 := opt
+		if cut {
+			// The cap doesn't change how long the model reasons; it only
+			// cuts it off, and no reply has finished past ~15k. A reply
+			// cut at the cap is past everything that converged (research
+			// log 2026-10-19), so it is asked once more with low reasoning
+			// effort, which shortens the reasoning, and then given up.
+			o2.Effort = "low"
+		}
+		out, finish, err := o.hedged(ctx, msgs, o2, maxTokens, onToken)
 		switch {
 		case ctx.Err() != nil:
 			return "", ctx.Err()
 		case err != nil:
 			lastErr = err
+		case finish == "length" && cut:
+			return "", fmt.Errorf("openai: %w at %d tokens, also with low reasoning effort", ErrCutOff, maxTokens)
 		case finish == "length":
-			// The cap doesn't change how long the model reasons; it only
-			// cuts it off. Most replies cut at 8k converged with 16k (33
-			// of 42), so the start is 16k and a cut doubles it.
 			lastErr = fmt.Errorf("openai: reply cut off at %d tokens", maxTokens)
-			maxTokens *= 2
+			cut = true
 		default:
 			return out, nil
 		}
 	}
 	return "", fmt.Errorf("openai: %d tries: %w", hostedTries, lastErr)
 }
+
+// ErrCutOff: the reply ran to its cap twice. Callers that can do without
+// one reply (one thread's update) skip it rather than fail.
+var ErrCutOff = errors.New("reply cut off")
 
 // Spend metering for hosted calls: with MUSUBI_SPEND_LEDGER set, every call
 // appends a row (tag, model, tokens, dollars) to that JSONL file, the

@@ -29,7 +29,7 @@ export function CorrectionsView() {
       </div>
       {err && <div className="error small">{err}</div>}
       {!list && <Spinner />}
-      {list && list.length === 0 && <Empty>{status === 'proposed' ? 'No proposals yet: they're refreshed after each update.' : 'None yet.'}</Empty>}
+      {list && list.length === 0 && <Empty>{status === 'proposed' ? 'No proposals yet: they are refreshed after each update.' : 'None yet.'}</Empty>}
       {(list ?? []).map((a) => (
         <article key={a.id} className={'alias' + (a.newLinks > 3 ? ' risky' : '')}>
           <div className="alias-head">

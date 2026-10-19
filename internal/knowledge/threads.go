@@ -1273,4 +1273,3 @@ func resolveThread(ref string, local map[string]int64, threads map[int64]*thread
 	}
 	return 0, false
 }
-

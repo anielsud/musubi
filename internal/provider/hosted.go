@@ -23,8 +23,11 @@ import (
 // asked again with twice the room; strict schemas need every object closed.
 const (
 	hostedChunkWait = 120 * time.Second
-	hostedWall      = 180 * time.Second
-	hostedTries     = 3
+	// hostedWall bounds a reply that keeps streaming; a stalled one is
+	// cut by hostedChunkWait. At 3 minutes, slow but steady replies were
+	// cut and restarted from scratch (research log 2026-10-19).
+	hostedWall  = 6 * time.Minute
+	hostedTries = 3
 	// hostedMinTokens: hosted reasoning models spend thousands of tokens
 	// thinking; caps sized for a local model that doesn't would cut them
 	// off.
@@ -57,16 +60,31 @@ func (o *OpenAI) resolveKey() (string, error) {
 func (o *OpenAI) completeHosted(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error) {
 	maxTokens := max(opt.MaxTokens, hostedMinTokens)
 	var lastErr error
+	race := false
 	for try := 0; try < hostedTries; try++ {
-		out, finish, err := o.hedged(ctx, msgs, opt, maxTokens, onToken)
+		var out, finish string
+		var err error
+		if race {
+			out, finish, err = o.race(ctx, msgs, opt, maxTokens)
+		} else {
+			out, finish, err = o.hedged(ctx, msgs, opt, maxTokens, onToken)
+		}
 		switch {
 		case ctx.Err() != nil:
 			return "", ctx.Err()
 		case err != nil:
 			lastErr = err
+		case finish == "length" && strings.TrimSpace(out) == "":
+			// Reasoning ran to the cap without an answer: a loop, which
+			// more room only prolongs (8k then 16k tokens of reasoning, at
+			// ~55 tokens a second, held whole meetings up; research log
+			// 2026-10-19). Two fresh samples at the same cap, first wins.
+			lastErr = fmt.Errorf("openai: reasoning ran to %d tokens without an answer", maxTokens)
+			race = true
 		case finish == "length":
 			lastErr = fmt.Errorf("openai: reply cut off at %d tokens", maxTokens)
 			maxTokens *= 2
+			race = false
 		default:
 			return out, nil
 		}
@@ -328,6 +346,37 @@ func cmpOr(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// race sends the same request twice at once and takes the first answer
+// that isn't cut off at the cap.
+func (o *OpenAI) race(ctx context.Context, msgs []Message, opt ChatOptions, maxTokens int) (string, string, error) {
+	type res struct {
+		out, finish string
+		err         error
+	}
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make(chan res, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			out, finish, err := o.stream(cctx, msgs, opt, maxTokens, nil)
+			results <- res{out, finish, err}
+		}()
+	}
+	var last res
+	for i := 0; i < 2; i++ {
+		select {
+		case r := <-results:
+			if r.err == nil && r.finish != "length" {
+				return r.out, r.finish, nil
+			}
+			last = r
+		case <-ctx.Done():
+			return "", "", ctx.Err()
+		}
+	}
+	return last.out, last.finish, last.err
 }
 
 // hedged sends a request and, if it hasn't finished after hedgeAfter, the

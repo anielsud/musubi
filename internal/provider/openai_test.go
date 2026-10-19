@@ -182,3 +182,44 @@ func TestOpenAIHedged(t *testing.T) {
 		t.Errorf("ledger:\n%s", b)
 	}
 }
+
+// A reply that reasons to the cap without answering is asked again twice
+// at once at the same cap (a loop is a sample, not a lack of room).
+func TestOpenAIRunaway(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	var caps []float64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		mu.Lock()
+		calls++
+		n := calls
+		caps = append(caps, body["max_tokens"].(float64))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		if n == 1 {
+			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"hmm\"},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n")
+			return
+		}
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	url := strings.Replace(srv.URL, "127.0.0.1", "localtest.me", 1)
+	if _, err := net.LookupHost("localtest.me"); err != nil {
+		t.Skip("needs localtest.me to resolve to 127.0.0.1")
+	}
+	llm, _ := NewLLM(config.LLM{Provider: "openai", URL: url, Model: "m"})
+	out, err := llm.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}}, ChatOptions{MaxTokens: 100}, nil)
+	time.Sleep(100 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if err != nil || out != "ok" || calls < 2 {
+		t.Fatalf("got %q, %v after %d calls", out, err, calls)
+	}
+	for _, c := range caps {
+		if c != caps[0] {
+			t.Errorf("caps %v: a runaway shouldn't double the cap", caps)
+		}
+	}
+}

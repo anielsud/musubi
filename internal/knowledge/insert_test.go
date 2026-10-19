@@ -87,3 +87,52 @@ func TestInsertOlderMeeting(t *testing.T) {
 		t.Errorf("derived and stored disagree: %+v", c)
 	}
 }
+
+// Taking a meeting out of the graph removes its memberships and the
+// relations it took part in; inserting it again places it.
+func TestRemoveAndInsert(t *testing.T) {
+	f := newCardFixture(t)
+	f.st.ClearThreads()
+	llm := &insertLLM{}
+	th := &Threader{Store: f.st, LLM: llm, Chunk: 70, Parallel: 2, Version: "v-test"}
+	for _, it := range []ThreadItem{{ID: "m:1", Start: time.Date(2026, 9, 16, 15, 0, 0, 0, time.UTC)}, {ID: "m:2", Start: time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)}} {
+		if _, err := th.Thread(context.Background(), it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sts, _ := f.st.LinkedItemStatements("m:1")
+	affected := map[int64]bool{}
+	rows, _ := f.st.ThreadItemRows()
+	for _, r := range rows {
+		affected[r.Topic] = true
+	}
+	if _, err := f.st.RemoveFromThreads(sts); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = f.st.ThreadItemRows()
+	for _, r := range rows {
+		for _, s := range sts {
+			if r.Statement == s.ID {
+				t.Fatalf("statement %d still in a thread", s.ID)
+			}
+		}
+	}
+	if err := th.Rederive(ThreadItem{ID: "m:1"}, affected); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := th.Insert(context.Background(), ThreadItem{ID: "m:1", Start: time.Date(2026, 9, 16, 15, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = f.st.ThreadItemRows()
+	back := 0
+	for _, r := range rows {
+		for _, s := range sts {
+			if r.Statement == s.ID {
+				back++
+			}
+		}
+	}
+	if back == 0 {
+		t.Error("nothing placed again")
+	}
+}

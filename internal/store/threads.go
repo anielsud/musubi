@@ -419,3 +419,29 @@ func (s *Store) StatementTimes() (map[int64]time.Time, map[int64]string, error) 
 	}
 	return at, kind, rows.Err()
 }
+
+// RemoveFromThreads takes statements out of the thread graph: their
+// memberships, and every relation they are part of (as the later or the
+// earlier). It returns how many statement relations went. Threads left
+// without statements are kept (an insert may fill them again).
+func (s *Store) RemoveFromThreads(sts []ItemStatement) (int, error) {
+	n := 0
+	err := s.tx(func(tx *sql.Tx) error {
+		for _, x := range sts {
+			if _, err := tx.Exec(`DELETE FROM thread_items WHERE statement_id = ?`, x.ID); err != nil {
+				return err
+			}
+			res, err := tx.Exec(`DELETE FROM statement_relations WHERE later = ? OR earlier = ?`, x.ID, x.ID)
+			if err != nil {
+				return err
+			}
+			k, _ := res.RowsAffected()
+			n += int(k)
+			if _, err := tx.Exec(`DELETE FROM claim_relations WHERE statement_id = ? OR to_claim IN (SELECT claim_id FROM statement_claims WHERE statement_id = ?)`, x.ID, x.ID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return n, err
+}

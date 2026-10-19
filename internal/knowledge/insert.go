@@ -128,7 +128,7 @@ func (t *Threader) Insert(ctx context.Context, it ThreadItem) (ThreadStats, erro
 			}
 		}
 	}
-	return stats, t.rederive(it, changed)
+	return stats, t.Rederive(it, changed)
 }
 
 // insertNeighbours is how many of a thread's statements each new item is
@@ -168,9 +168,9 @@ func (t *Threader) neighbours(fresh, inThread []int64, k int) []int64 {
 	return out
 }
 
-// rederive sets the stored "current" of the given threads to what the
+// Rederive sets the stored "current" of the given threads to what the
 // relations and the lapse rule say, as of the latest item threaded.
-func (t *Threader) rederive(it ThreadItem, threads map[int64]bool) error {
+func (t *Threader) Rederive(it ThreadItem, threads map[int64]bool) error {
 	d, err := LoadDerivation(t.Store)
 	if err != nil {
 		return err

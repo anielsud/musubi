@@ -47,7 +47,7 @@ func root() *cobra.Command {
 	r := &cobra.Command{Use: "musubi", Short: "Local-first personal knowledge base", SilenceUsage: true}
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
-	r.AddCommand(importItemsCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), liveCmd(),
+	r.AddCommand(importItemsCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), liveCmd(),
 		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd())
 	return r
 }
@@ -517,6 +517,37 @@ the cases. Exits non-zero on any leak.`,
 	c.Flags().BoolVar(&trace, "trace", false, "with --knowledge: print each linking decision")
 	c.Flags().BoolVar(&record, "record", false, "with --knowledge: call the real models for anything not in the cache, and save it")
 	return c
+}
+
+func insertCheckCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "insert-check <item id>...",
+		Short: "Take items out of the thread graph and insert them again, comparing with the replay (changes the database: use a copy)",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			r, err := e.Runner(nil, os.Stderr)
+			if err != nil {
+				return err
+			}
+			for _, id := range args {
+				res, err := r.InsertCheck(cmd.Context(), pipeline.KnowledgeOptions{LLM: e.Chat, Embedder: e.Embedder}, id)
+				if err != nil {
+					return err
+				}
+				pct := func(a, b int) float64 { return 100 * float64(a) / float64(max(b, 1)) }
+				fmt.Printf("%s: %d statements; placed %d (replay %d), %d in a thread they were in (%.0f%%); "+
+					"current agrees with the replay on %d of %d memberships (%.1f%%); relations %d before, %d after\n",
+					id, res.Statements, res.Placed, res.PlacedBefore, res.SameThread, pct(res.SameThread, res.PlacedBefore),
+					res.AgreeBefore, res.ThreadItems, pct(res.AgreeBefore, res.ThreadItems), res.RelationsBefore, res.After)
+			}
+			return nil
+		},
+	}
 }
 
 func threadsCheckCmd() *cobra.Command {

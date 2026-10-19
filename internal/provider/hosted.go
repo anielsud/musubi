@@ -58,7 +58,7 @@ func (o *OpenAI) completeHosted(ctx context.Context, msgs []Message, opt ChatOpt
 	maxTokens := max(opt.MaxTokens, hostedMinTokens)
 	var lastErr error
 	for try := 0; try < hostedTries; try++ {
-		out, finish, err := o.stream(ctx, msgs, opt, maxTokens, onToken)
+		out, finish, err := o.hedged(ctx, msgs, opt, maxTokens, onToken)
 		switch {
 		case ctx.Err() != nil:
 			return "", ctx.Err()
@@ -227,6 +227,15 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 	}()
 	var text strings.Builder
 	finish := ""
+	// A stream cut off (a backup request won, or the caller gave up) is
+	// billed for what it generated: estimate it from the chunks seen (about
+	// one token each, reasoning included) and the request's size.
+	chunks, recorded := 0, false
+	defer func() {
+		if !recorded && chunks > 0 {
+			o.record(usage{Prompt: len(b) / 4, Completion: chunks}, "cut", time.Since(started))
+		}
+	}()
 	for {
 		select {
 		case l, ok := <-lines:
@@ -235,6 +244,7 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 					return "", "", fmt.Errorf("openai: stream: %w", err)
 				}
 				o.record(used, finish, time.Since(started))
+				recorded = true
 				return text.String(), finish, nil
 			}
 			l = strings.TrimSpace(l)
@@ -242,8 +252,10 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 				continue
 			}
 			data := strings.TrimSpace(strings.TrimPrefix(l, "data:"))
+			chunks++
 			if data == "[DONE]" {
 				o.record(used, finish, time.Since(started))
+				recorded = true
 				return text.String(), finish, nil
 			}
 			var ev struct {
@@ -313,4 +325,58 @@ func cmpOr(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// hedged sends a request and, if it hasn't finished after hedgeAfter, the
+// same request again, taking whichever finishes first: a few calls run
+// many times the median (research log 2026-10-19), and a meeting's round
+// of calls waits for its slowest. Off (hedgeAfter 0) or when streaming to
+// a caller, it is one request.
+func (o *OpenAI) hedged(ctx context.Context, msgs []Message, opt ChatOptions, maxTokens int, onToken func(string)) (string, string, error) {
+	if o.hedgeAfter <= 0 || onToken != nil {
+		return o.stream(ctx, msgs, opt, maxTokens, onToken)
+	}
+	type res struct {
+		out, finish string
+		err         error
+	}
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel() // stops the loser
+	results := make(chan res, 2)
+	send := func() {
+		go func() {
+			out, finish, err := o.stream(cctx, msgs, opt, maxTokens, nil)
+			results <- res{out, finish, err}
+		}()
+	}
+	send()
+	timer := time.NewTimer(o.hedgeAfter)
+	defer timer.Stop()
+	inFlight, hedgedOnce := 1, false
+	var failed *res
+	for {
+		select {
+		case <-timer.C:
+			if !hedgedOnce {
+				hedgedOnce = true
+				inFlight++
+				send()
+			}
+		case r := <-results:
+			inFlight--
+			if r.err == nil && r.finish != "length" {
+				return r.out, r.finish, nil
+			}
+			if failed == nil {
+				failed = &r
+			}
+			// Failed (or cut off at the cap): the caller retries; wait only
+			// if a backup is still running.
+			if inFlight == 0 {
+				return failed.out, failed.finish, failed.err
+			}
+		case <-ctx.Done():
+			return "", "", ctx.Err()
+		}
+	}
 }

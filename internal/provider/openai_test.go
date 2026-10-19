@@ -12,6 +12,9 @@ import (
 	"testing"
 
 	"github.com/anielsud/musubi/internal/config"
+	"os"
+	"sync"
+	"time"
 )
 
 func TestOpenAI(t *testing.T) {
@@ -130,5 +133,52 @@ func TestOpenAIHosted(t *testing.T) {
 	t.Setenv("MUSUBI_SPEND_CAP", "2")
 	if _, err := llm.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}}, ChatOptions{}, nil); err == nil || !strings.Contains(err.Error(), "spend cap") {
 		t.Errorf("past the cap: %v", err)
+	}
+}
+
+// A call slower than hedge_after is sent again; the first reply wins and
+// the slow one is cut off (and still metered, from what it streamed).
+func TestOpenAIHedged(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		fl := w.(http.Flusher)
+		if n == 1 { // stalls after a chunk
+			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"slow\"}}]}\n\n")
+			fl.Flush()
+			select {
+			case <-r.Context().Done():
+			case <-time.After(5 * time.Second):
+			}
+			return
+		}
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"fast\"},\"finish_reason\":\"stop\"}]}\n\n")
+		fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	url := strings.Replace(srv.URL, "127.0.0.1", "localtest.me", 1)
+	if _, err := net.LookupHost("localtest.me"); err != nil {
+		t.Skip("needs localtest.me to resolve to 127.0.0.1")
+	}
+	ledger := filepath.Join(t.TempDir(), "spend.jsonl")
+	t.Setenv("MUSUBI_SPEND_LEDGER", ledger)
+	llm, _ := NewLLM(config.LLM{Provider: "openai", URL: url, Model: "m", HedgeAfter: 0.2, PriceIn: 1, PriceOut: 1})
+	t0 := time.Now()
+	out, err := llm.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}}, ChatOptions{}, nil)
+	if err != nil || out != "fast" {
+		t.Fatalf("got %q, %v", out, err)
+	}
+	if d := time.Since(t0); d > 3*time.Second {
+		t.Errorf("waited for the slow call: %s", d)
+	}
+	time.Sleep(200 * time.Millisecond) // the loser's deferred record
+	b, _ := os.ReadFile(ledger)
+	if rows := strings.Count(string(b), "\n"); rows != 2 || !strings.Contains(string(b), `"finish":"cut"`) {
+		t.Errorf("ledger:\n%s", b)
 	}
 }

@@ -197,6 +197,10 @@ type LLM struct {
 	// for the spend ledger (MUSUBI_SPEND_LEDGER); 0 records tokens only.
 	PriceIn  float64 `toml:"price_in"`
 	PriceOut float64 `toml:"price_out"`
+	// HedgeAfter (seconds, hosted only): a call not finished by then is
+	// sent again and the first reply used, cutting the slow tail for
+	// about a tenth more spend. 0 never does.
+	HedgeAfter float64 `toml:"hedge_after"`
 }
 
 // Live configures the side panel during a meeting.

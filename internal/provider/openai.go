@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/anielsud/musubi/internal/config"
 )
@@ -28,13 +29,14 @@ type OpenAI struct {
 	apiKey, effort    string
 	key               string // resolved on first use
 	priceIn, priceOut float64
+	hedgeAfter        time.Duration // hosted: send a backup request after this (0: never)
 }
 
 func NewOpenAI(c config.LLM) *OpenAI {
 	// No client timeout: calls carry their own (withRetry), and a thinking
 	// pass legitimately runs for minutes.
 	return &OpenAI{URL: strings.TrimRight(c.URL, "/"), Model: c.Model, client: &http.Client{}, apiKey: c.APIKey, effort: c.ReasoningEffort,
-		priceIn: c.PriceIn, priceOut: c.PriceOut}
+		priceIn: c.PriceIn, priceOut: c.PriceOut, hedgeAfter: time.Duration(c.HedgeAfter * float64(time.Second))}
 }
 
 func (o *OpenAI) ModelName() string { return o.Model }

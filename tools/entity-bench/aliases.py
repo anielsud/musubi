@@ -42,7 +42,7 @@ def sound(w):
     if not w:
         return ""
     w = re.sub(r"ph", "f", w)
-    w = re.sub(r"(?<=.)h", "", w)  # Dhaka → Daka, Bhinder → Binder
+    w = re.sub(r"(?<=.)h", "", w)  # Dhaka → Daka, Thomas → Tomas
     codes = {**dict.fromkeys("bfpv", "1"), **dict.fromkeys("cgjkqsxz", "2"), **dict.fromkeys("dt", "3"), "l": "4",
              **dict.fromkeys("mn", "5"), "r": "6"}
     first = codes.get(w[0], w[0])

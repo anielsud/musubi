@@ -170,8 +170,8 @@ It pairs close spellings (edit distance, a sound key) and weighs:
 
 Of 174 pairs (the list is private, in testdata/private/aliases):
 - **Variants near the top:** misheard or misspelled surnames and first
-  names, the transcript form against the invite form (a "Timco" for a
-  "Timko"), at most two letters apart.
+  names, the transcript form against the invite form (a "Ruis" for a
+  "Ruiz"), at most two letters apart.
 - **14 vetoed as two people:** names a letter apart that belong to
   different attendees (a "Kristian" and a "Christian").
 - **Ordinary words** ("Partners", "Visual", "Core") are dropped when written

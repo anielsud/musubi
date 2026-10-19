@@ -581,3 +581,6 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .corr-select { display: flex; gap: 10px; align-items: baseline; margin: 4px 0; }
 .corr-src { font-size: 11px; flex: none; }
 .corr-use input { pointer-events: none; }
+.keep-input { font: inherit; font-weight: 700; width: 12em; padding: 1px 6px; }
+.corr-new { display: flex; gap: 6px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+.corr-new input { width: 12em; }

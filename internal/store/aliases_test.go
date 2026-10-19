@@ -119,3 +119,20 @@ func TestAliasConfirmedForSomeUses(t *testing.T) {
 		t.Errorf("after a second review %v", sc)
 	}
 }
+
+func TestAddAlias(t *testing.T) {
+	s, _ := Open(filepath.Join(t.TempDir(), "t.db"))
+	defer s.Close()
+	id, err := s.AddAlias("Steele", "Sheetal", "owner")
+	if err != nil || id == 0 {
+		t.Fatal(id, err)
+	}
+	if again, _ := s.AddAlias("Steele", "Sheetal", "owner"); again != id {
+		t.Errorf("added twice: %d, %d", id, again)
+	}
+	s.ConfirmAliasIn(id, []int64{3}, []int64{3, 4}, "owner")
+	sc, _ := s.ScopedSpellings()
+	if sc[3]["steele"] != "Sheetal" || sc[4] != nil {
+		t.Errorf("scoped %v", sc)
+	}
+}

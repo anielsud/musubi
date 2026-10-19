@@ -47,6 +47,8 @@ export const api = {
   aliases: (status: string, limit = 100): Promise<AliasView[] | null> => app().Aliases(status, limit),
   aliasUsages: (id: number, limit = 200): Promise<AliasUsage[] | null> => app().AliasUsages(id, limit),
   confirmAliasIn: (id: number, statements: number[], reviewed: number[], all: boolean): Promise<void> => app().ConfirmAliasIn(id, statements, reviewed, all),
+  addAlias: (variant: string, keep: string): Promise<number> => app().AddAlias(variant, keep),
+  confirmAliasAs: (id: number, keep: string, statements: number[], reviewed: number[], all: boolean): Promise<void> => app().ConfirmAliasAs(id, keep, statements, reviewed, all),
   decideAlias: (id: number, confirm: boolean): Promise<void> => app().DecideAlias(id, confirm),
   correctStatement: (id: number, text: string, who: string): Promise<void> => app().CorrectStatement(id, text, who),
   prepTargets: (): Promise<PrepTarget[] | null> => app().PrepTargets(),

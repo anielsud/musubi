@@ -19,15 +19,33 @@ export function CorrectionsView({ onSource }: { onSource: (itemId: string, chunk
   // the kept form start checked.
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [err, setErr] = useState('');
+  // The right form: the kept spelling, or one the owner types when
+  // neither is right.
+  const [keep, setKeep] = useState('');
+  const [newWrong, setNewWrong] = useState('');
+  const [newRight, setNewRight] = useState('');
 
   useEffect(() => {
     if (!wide) api.setWide(true);
   }, []);
-  useEffect(() => {
+  const load = (select?: number) => {
     setList(null);
-    setSel(null);
-    api.aliases(status).then((x) => { setList(x ?? []); setSel((x ?? [])[0] ?? null); }, (e) => setErr(String(e)));
-  }, [status]);
+    api.aliases(status).then((x) => {
+      setList(x ?? []);
+      setSel((x ?? []).find((a) => a.id === select) ?? (x ?? [])[0] ?? null);
+    }, (e) => setErr(String(e)));
+  };
+  useEffect(() => { setSel(null); load(); }, [status]);
+  useEffect(() => { setKeep(sel?.keep ?? ''); }, [sel]);
+  const addNew = () => {
+    setErr('');
+    api.addAlias(newWrong, newRight).then((id) => {
+      setNewWrong('');
+      setNewRight('');
+      if (status !== 'proposed') setStatus('proposed');
+      load(id);
+    }, (e) => setErr(String(e)));
+  };
   useEffect(() => {
     setUses(null);
     if (sel) api.aliasUsages(sel.id).then((u) => {
@@ -45,7 +63,7 @@ export function CorrectionsView({ onSource }: { onSource: (itemId: string, chunk
     });
   const confirmChecked = (a: AliasView) => {
     const all = (uses ?? []).length > 0 && (uses ?? []).every((u) => checked.has(u.statement));
-    api.confirmAliasIn(a.id, [...checked], (uses ?? []).map((u) => u.statement), all).then(() => drop(a), (e) => setErr(String(e)));
+    api.confirmAliasAs(a.id, keep, [...checked], (uses ?? []).map((u) => u.statement), all).then(() => drop(a), (e) => setErr(String(e)));
   };
   const allChecked = (uses ?? []).length > 0 && (uses ?? []).every((u) => checked.has(u.statement));
   const setAll = (on: boolean) => setChecked(on ? new Set((uses ?? []).map((u) => u.statement)) : new Set());
@@ -77,11 +95,15 @@ export function CorrectionsView({ onSource }: { onSource: (itemId: string, chunk
   const usagePane = sel && (
     <div className="corr-uses">
       <div className="corr-uses-head">
-        <h3><b>{sel.variant}</b> <span className="dim">→</span> <b>{sel.keep}</b></h3>
+        <h3><b>{sel.variant}</b> <span className="dim">→</span>{' '}
+          {status === 'proposed'
+            ? <input className="keep-input" value={keep} onChange={(e) => setKeep(e.target.value)} title="The right form: edit it when neither spelling is right" />
+            : <b>{sel.keep}</b>}
+        </h3>
         {status === 'proposed' && (
           <span className="alias-actions">
             <button className="chip" disabled={checked.size === 0} onClick={() => confirmChecked(sel)}
-              title="Apply the alias to the checked uses only (all checked: everywhere, new meetings too)">
+              title={`Read the checked uses as ${keep || sel.keep} (all checked: everywhere, new meetings too)`}>
               ✓ same in {checked.size === (uses ?? []).length && checked.size > 0 ? 'all' : checked.size} {checked.size === 1 ? 'use' : 'uses'}
             </button>
             {!sel.newUses && <button className="chip" onClick={() => decide(sel, false)}>✗ different everywhere</button>}
@@ -123,6 +145,13 @@ export function CorrectionsView({ onSource }: { onSource: (itemId: string, chunk
         ))}
         <span className="tview-count">Names and terms written or heard two ways. Confirming applies when reading; nothing is rewritten.</span>
       </div>
+      <form className="corr-new" onSubmit={(e) => { e.preventDefault(); addNew(); }}>
+        <span className="dim small">New correction:</span>
+        <input value={newWrong} onChange={(e) => setNewWrong(e.target.value)} placeholder="written as" />
+        <span className="dim">→</span>
+        <input value={newRight} onChange={(e) => setNewRight(e.target.value)} placeholder="should be" />
+        <button className="chip" type="submit" disabled={!newWrong.trim() || !newRight.trim()}>find uses</button>
+      </form>
       {err && <div className="error small">{err}</div>}
       {!list && <Spinner />}
       {list && list.length === 0 && <Empty>{status === 'proposed' ? 'No proposals yet: they are refreshed after each update.' : 'None yet.'}</Empty>}

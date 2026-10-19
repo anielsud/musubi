@@ -176,3 +176,50 @@ func (a *App) ConfirmAliasIn(id int64, statements, reviewed []int64, all bool) e
 	}
 	return err
 }
+
+// AddAlias starts a correction the owner names: every use of variant is
+// listed for review, to be confirmed as keep where it means that.
+func (a *App) AddAlias(variant, keep string) (int64, error) {
+	if a.eng == nil {
+		return 0, fmt.Errorf("not ready: %s", a.err)
+	}
+	variant, keep = strings.TrimSpace(variant), strings.TrimSpace(keep)
+	if variant == "" || keep == "" || strings.EqualFold(variant, keep) {
+		return 0, fmt.Errorf("name the wrong form and the right one")
+	}
+	return a.eng.Store.AddAlias(variant, keep, "owner")
+}
+
+// ConfirmAliasAs confirms an alias with a right form the owner typed (when
+// neither proposed spelling is right): variant → keep for the checked uses
+// (all checked: everywhere), and the original proposal is retired.
+func (a *App) ConfirmAliasAs(id int64, keep string, statements, reviewed []int64, all bool) error {
+	if a.eng == nil {
+		return fmt.Errorf("not ready: %s", a.err)
+	}
+	as, err := a.eng.Store.LearnedAliases("")
+	if err != nil {
+		return err
+	}
+	for _, x := range as {
+		if x.ID != id {
+			continue
+		}
+		keep = strings.TrimSpace(keep)
+		if keep == "" || keep == x.Keep {
+			return a.ConfirmAliasIn(id, statements, reviewed, all)
+		}
+		nid, err := a.eng.Store.AddAlias(x.Variant, keep, "owner")
+		if err != nil {
+			return err
+		}
+		if err := a.ConfirmAliasIn(nid, statements, reviewed, all); err != nil {
+			return err
+		}
+		if x.Status == "proposed" {
+			return a.eng.Store.DecideAlias(id, false, "owner")
+		}
+		return nil
+	}
+	return fmt.Errorf("no alias %d", id)
+}

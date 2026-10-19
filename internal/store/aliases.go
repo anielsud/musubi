@@ -297,3 +297,15 @@ func (s *Store) DropProposedAliases() error {
 	_, err := s.db.Exec(`DELETE FROM learned_aliases WHERE status = 'proposed'`)
 	return err
 }
+
+// AddAlias records an alias the owner names (variant → keep), proposed so
+// it can be reviewed use by use; an existing one is returned.
+func (s *Store) AddAlias(variant, keep, by string) (int64, error) {
+	if _, err := s.db.Exec(`INSERT INTO learned_aliases(keep, variant, kind, status, by, at) VALUES (?,?,'spelling','proposed',?,?)
+		ON CONFLICT(keep, variant, kind) DO NOTHING`, keep, variant, by, time.Now().Unix()); err != nil {
+		return 0, err
+	}
+	var id int64
+	err := s.db.QueryRow(`SELECT id FROM learned_aliases WHERE keep = ? AND variant = ? AND kind = 'spelling'`, keep, variant).Scan(&id)
+	return id, err
+}

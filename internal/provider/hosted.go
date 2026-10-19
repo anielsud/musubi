@@ -285,6 +285,9 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 		case <-time.After(hostedChunkWait):
 			return "", "", fmt.Errorf("openai: no reply chunk for %s", hostedChunkWait)
 		case <-cctx.Done():
+			if ctx.Err() != nil {
+				return "", "", ctx.Err() // the caller stopped it
+			}
 			return "", "", fmt.Errorf("openai: reply still streaming after %s", wall)
 		}
 	}

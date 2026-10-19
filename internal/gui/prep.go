@@ -118,7 +118,10 @@ func (a *App) PrepBrief(id string, req knowledge.PrepRequest, scope string) erro
 			a.emit("prep:token", map[string]string{"id": id, "text": t})
 		})
 		res := map[string]any{"id": id}
-		if err != nil {
+		switch {
+		case ctx.Err() != nil:
+			res["stopped"] = true
+		case err != nil:
 			res["error"] = err.Error()
 		}
 		if ans != nil {

@@ -10,6 +10,7 @@ interface Turn {
   sources: Hit[];
   threads: ThreadRef[];
   done: boolean;
+  stopped?: boolean;
   error?: string;
   scope: string;
 }
@@ -35,10 +36,10 @@ export function AskView({ onOpen, scope, onTopic }: { onOpen: (h: Hit, scope: st
       on<{ id: string; text: string }>('ask:token', ({ id, text }) =>
         setTurns((ts) => ts.map((t) => (t.id === id ? { ...t, text: t.text + text } : t))),
       ),
-      on<{ id: string; text?: string; sources?: Hit[]; threads?: ThreadRef[]; error?: string }>('ask:done', (r) =>
+      on<{ id: string; text?: string; sources?: Hit[]; threads?: ThreadRef[]; error?: string; stopped?: boolean }>('ask:done', (r) =>
         setTurns((ts) =>
           ts.map((t) =>
-            t.id === r.id ? { ...t, done: true, text: r.text || t.text, sources: r.sources ?? [], threads: r.threads ?? [], error: r.error } : t,
+            t.id === r.id ? { ...t, done: true, text: r.text || t.text, sources: r.sources?.length ? r.sources : t.sources, threads: r.threads?.length ? r.threads : t.threads, error: r.error, stopped: r.stopped } : t,
           ),
         ),
       ),
@@ -96,6 +97,7 @@ export function AskView({ onOpen, scope, onTopic }: { onOpen: (h: Hit, scope: st
             <div className="a">
               {t.text ? <Answer text={t.text} hits={t.sources} onCite={(h) => onOpen(h, t.scope)} /> : !t.done && <Spinner />}
               {!t.done && t.text && <span className="caret" />}
+              {t.stopped && <div className="dim small">stopped</div>}
               {t.error && <div className="error small">{t.error}</div>}
             </div>
             {t.done && t.threads.length > 0 && (

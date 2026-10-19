@@ -227,7 +227,10 @@ func (a *App) Ask(id, question, scope string) error {
 			},
 		})
 		res := map[string]any{"id": id}
-		if err != nil {
+		switch {
+		case ctx.Err() != nil:
+			res["stopped"] = true // what was written so far stays
+		case err != nil:
 			res["error"] = err.Error()
 		}
 		if ans != nil {

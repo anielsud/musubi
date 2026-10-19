@@ -25,8 +25,8 @@ export function PrepView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h
   useEffect(() => {
     const offs = [
       on<{ id: string; text: string }>('prep:token', ({ id, text }) => setBrief((b) => (b && b.id === id ? { ...b, text: b.text + text } : b))),
-      on<{ id: string; text?: string; sources?: Hit[]; threads?: ThreadRef[]; error?: string }>('prep:done', (r) =>
-        setBrief((b) => (b && b.id === r.id ? { ...b, done: true, text: r.text || b.text, sources: r.sources ?? [], threads: r.threads ?? [], error: r.error } : b)),
+      on<{ id: string; text?: string; sources?: Hit[]; threads?: ThreadRef[]; error?: string; stopped?: boolean }>('prep:done', (r) =>
+        setBrief((b) => (b && b.id === r.id ? { ...b, done: true, text: r.text || b.text, sources: r.sources ?? [], threads: r.threads ?? [], error: r.error ?? (r.stopped ? 'stopped' : undefined) } : b)),
       ),
     ];
     return () => offs.forEach((f) => f());
@@ -76,7 +76,7 @@ export function PrepView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h
           <section className="thread-status">
             <div className="section-head">
               <span>Talking points</span>
-              {!brief || brief.done ? <button className="link" onClick={draft}>{brief ? 'redraft' : 'draft'}</button> : <Spinner />}
+              {!brief || brief.done ? <button className="link" onClick={draft}>{brief ? 'redraft' : 'draft'}</button> : <span><Spinner /> <button className="link" onClick={() => api.stopAsk()}>stop</button></span>}
             </div>
             {!brief && <div className="dim small">A model drafts what to raise, from everything below.</div>}
             {brief?.text && <Answer text={brief.text} hits={brief.sources} onCite={(h) => onOpen(h, scope)} />}

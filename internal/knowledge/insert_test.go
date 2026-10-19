@@ -136,3 +136,50 @@ func TestRemoveAndInsert(t *testing.T) {
 		t.Error("nothing placed again")
 	}
 }
+
+// Forgetting the meeting that answered a question makes the question
+// current again, with nothing replayed.
+func TestForgetItemMendsThreads(t *testing.T) {
+	f := newCardFixture(t)
+	f.st.ClearThreads()
+	llm := &insertLLM{}
+	th := &Threader{Store: f.st, LLM: llm, Chunk: 70, Parallel: 2, Version: "v-test"}
+	if _, err := th.Thread(context.Background(), ThreadItem{ID: "m:2", Start: time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := th.Insert(context.Background(), ThreadItem{ID: "m:1", Start: time.Date(2026, 9, 16, 15, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatal(err)
+	}
+	question := func() bool {
+		rows, _ := f.st.Threads()
+		sts, _ := f.st.AllStatements()
+		for _, s := range sts {
+			if strings.Contains(s.Text, "How many of the 40") {
+				for _, r := range rows {
+					for _, id := range r.Current {
+						if id == s.ID {
+							return true
+						}
+					}
+				}
+			}
+		}
+		return false
+	}
+	if question() {
+		t.Fatal("precondition: the question is answered")
+	}
+	if _, _, err := ForgetItem(f.st, "m:2"); err != nil {
+		t.Fatal(err)
+	}
+	if !question() {
+		t.Error("the question is still retired after its answer was forgotten")
+	}
+	c, err := CheckDerived(f.st, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Agree != c.Memberships {
+		t.Errorf("derived and stored disagree: %+v", c)
+	}
+}

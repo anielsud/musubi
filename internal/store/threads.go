@@ -445,3 +445,36 @@ func (s *Store) RemoveFromThreads(sts []ItemStatement) (int, error) {
 	})
 	return n, err
 }
+
+// ThreadsOfItem lists the threads holding an item's statements.
+func (s *Store) ThreadsOfItem(itemID string) (map[int64]bool, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT ti.topic_id FROM thread_items ti JOIN statements st ON st.id = ti.statement_id WHERE st.item_id = ?`, itemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]bool{}
+	for rows.Next() {
+		var t int64
+		rows.Scan(&t)
+		out[t] = true
+	}
+	return out, rows.Err()
+}
+
+// DeleteEmptyThreads removes those of the given threads that hold no
+// statements.
+func (s *Store) DeleteEmptyThreads(threads map[int64]bool) error {
+	for t := range threads {
+		var n int
+		if err := s.db.QueryRow(`SELECT count(*) FROM thread_items WHERE topic_id = ?`, t).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if err := s.DeleteThread(t); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}

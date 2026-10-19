@@ -348,7 +348,7 @@ func forgetCmd() *cobra.Command {
 				return err
 			}
 			defer st.Close()
-			h, used, err := st.Forget(args[0])
+			h, used, err := knowledge.ForgetItem(st, args[0])
 			if err != nil {
 				return err
 			}

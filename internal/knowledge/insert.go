@@ -171,18 +171,26 @@ func (t *Threader) neighbours(fresh, inThread []int64, k int) []int64 {
 // Rederive sets the stored "current" of the given threads to what the
 // relations and the lapse rule say, as of the latest item threaded.
 func (t *Threader) Rederive(it ThreadItem, threads map[int64]bool) error {
-	d, err := LoadDerivation(t.Store)
+	return RederiveThreads(t.Store, threads, it.Start, t.prov(it, "derive"))
+}
+
+// RederiveThreads sets the given threads' stored "current" to the derived
+// one, as of the latest of: the latest item threaded, asOf, and any
+// statement in a thread (as CheckDerived has it).
+func RederiveThreads(st *store.Store, threads map[int64]bool, asOf time.Time, p store.Provenance) error {
+	if len(threads) == 0 {
+		return nil
+	}
+	d, err := LoadDerivation(st)
 	if err != nil {
 		return err
 	}
-	members, err := t.Store.ThreadMembers()
+	members, err := st.ThreadMembers()
 	if err != nil {
 		return err
 	}
-	// As of the latest of: the latest item threaded, this item, and any
-	// statement in a thread (as CheckDerived has it).
-	if it.Start.After(d.AsOf) {
-		d.AsOf = it.Start
+	if asOf.After(d.AsOf) {
+		d.AsOf = asOf
 	}
 	for _, m := range members {
 		if m.SaidAt.After(d.AsOf) {
@@ -202,11 +210,29 @@ func (t *Threader) Rederive(it ThreadItem, threads map[int64]bool) error {
 				cur = append(cur, id)
 			}
 		}
-		if err := t.Store.SetThreadCurrent(tid, cur, t.prov(it, "derive")); err != nil {
+		if err := st.SetThreadCurrent(tid, cur, p); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// ForgetItem deletes an item and everything derived from it (store.Forget),
+// then mends the graph where it was: the threads it was in have "current"
+// derived again (what only it retired is current again), and threads left
+// with no statements go. Nothing is replayed.
+func ForgetItem(st *store.Store, itemID string) (rawHash string, stillUsed bool, err error) {
+	threads, err := st.ThreadsOfItem(itemID)
+	if err != nil {
+		return "", false, err
+	}
+	if rawHash, stillUsed, err = st.Forget(itemID); err != nil {
+		return rawHash, stillUsed, err
+	}
+	if err := st.DeleteEmptyThreads(threads); err != nil {
+		return rawHash, stillUsed, err
+	}
+	return rawHash, stillUsed, RederiveThreads(st, threads, time.Time{}, store.Provenance{During: itemID, Why: "forget"})
 }
 
 const relateSystem = `You keep one thread of a leadership team's notes, so that someone asking about the subject sees only where things stand. You get items already in the thread, each with its meeting date, kind/status, who said it, and whether it is CURRENT or RETIRED, and NEW items from one more meeting. That meeting may be older or newer than the items already there.

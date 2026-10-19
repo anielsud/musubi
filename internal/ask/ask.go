@@ -61,10 +61,10 @@ Rules:
 - Be brief: a short paragraph or a short list.`
 
 const (
-	askThreads      = 3 // threads at most
+	askThreads      = 3  // threads at most
 	askThreadItems  = 12 // latest current items per thread
 	askPassages     = 6  // passages alongside threads
-	askPassagesOnly = 8 // passages when no thread is used
+	askPassagesOnly = 8  // passages when no thread is used
 	statusCites     = 3  // sources cited per status point
 	// askTimeout bounds an answer: a local model reads 10k tokens of
 	// context first, slowly when other requests share it.

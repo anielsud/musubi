@@ -244,4 +244,3 @@ func (s *Store) RelabelThreadStatus(topic int64, variant string, l sensitivity.L
 		int(l.Level), int(l.Categories), topic, variant, int(l.Level), int(l.Categories))
 	return err
 }
-

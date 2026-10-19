@@ -30,8 +30,11 @@ const (
 	hostedTries = 3
 	// hostedMinTokens: hosted reasoning models spend thousands of tokens
 	// thinking; caps sized for a local model that doesn't would cut them
-	// off.
-	hostedMinTokens = 8000
+	// off. Of 5,771 threading calls on GLM-5.3-Flash, reasoning reached
+	// 7.2k at p99 and 12.7k at p99.9; 8k cut 2% of calls, which then cost
+	// a second, longer call (research log 2026-10-19). A cap costs nothing
+	// unless it is used.
+	hostedMinTokens = 16000
 )
 
 // resolveKey reads the key named by api_key once.
@@ -60,31 +63,19 @@ func (o *OpenAI) resolveKey() (string, error) {
 func (o *OpenAI) completeHosted(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error) {
 	maxTokens := max(opt.MaxTokens, hostedMinTokens)
 	var lastErr error
-	race := false
 	for try := 0; try < hostedTries; try++ {
-		var out, finish string
-		var err error
-		if race {
-			out, finish, err = o.race(ctx, msgs, opt, maxTokens)
-		} else {
-			out, finish, err = o.hedged(ctx, msgs, opt, maxTokens, onToken)
-		}
+		out, finish, err := o.hedged(ctx, msgs, opt, maxTokens, onToken)
 		switch {
 		case ctx.Err() != nil:
 			return "", ctx.Err()
 		case err != nil:
 			lastErr = err
-		case finish == "length" && strings.TrimSpace(out) == "":
-			// Reasoning ran to the cap without an answer: a loop, which
-			// more room only prolongs (8k then 16k tokens of reasoning, at
-			// ~55 tokens a second, held whole meetings up; research log
-			// 2026-10-19). Two fresh samples at the same cap, first wins.
-			lastErr = fmt.Errorf("openai: reasoning ran to %d tokens without an answer", maxTokens)
-			race = true
 		case finish == "length":
+			// The cap doesn't change how long the model reasons; it only
+			// cuts it off. Most replies cut at 8k converged with 16k (33
+			// of 42), so the start is 16k and a cut doubles it.
 			lastErr = fmt.Errorf("openai: reply cut off at %d tokens", maxTokens)
 			maxTokens *= 2
-			race = false
 		default:
 			return out, nil
 		}
@@ -180,7 +171,8 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 	if maxTokens <= 0 {
 		delete(body, "max_tokens")
 	}
-	wall := hostedWall
+	// A long reply needs time: about 55 tokens a second hosted.
+	wall := max(hostedWall, time.Duration(maxTokens/40)*time.Second)
 	if o.Local() {
 		// llama-server: the same settings as a call that isn't streamed.
 		body["chat_template_kwargs"] = map[string]any{"enable_thinking": opt.Think}
@@ -346,37 +338,6 @@ func cmpOr(a, b string) string {
 		return a
 	}
 	return b
-}
-
-// race sends the same request twice at once and takes the first answer
-// that isn't cut off at the cap.
-func (o *OpenAI) race(ctx context.Context, msgs []Message, opt ChatOptions, maxTokens int) (string, string, error) {
-	type res struct {
-		out, finish string
-		err         error
-	}
-	cctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	results := make(chan res, 2)
-	for i := 0; i < 2; i++ {
-		go func() {
-			out, finish, err := o.stream(cctx, msgs, opt, maxTokens, nil)
-			results <- res{out, finish, err}
-		}()
-	}
-	var last res
-	for i := 0; i < 2; i++ {
-		select {
-		case r := <-results:
-			if r.err == nil && r.finish != "length" {
-				return r.out, r.finish, nil
-			}
-			last = r
-		case <-ctx.Done():
-			return "", "", ctx.Err()
-		}
-	}
-	return last.out, last.finish, last.err
 }
 
 // hedged sends a request and, if it hasn't finished after hedgeAfter, the

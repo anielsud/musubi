@@ -125,6 +125,23 @@ func newPeople(names []string) people {
 	return p
 }
 
+// mentioned: text names one of them, by full name or by a first name
+// only one of them has.
+func (p people) mentioned(text string) bool {
+	t := " " + PrepNameKey(text) + " "
+	for k := range p.full {
+		if strings.Contains(t, " "+k+" ") {
+			return true
+		}
+	}
+	for f := range p.first {
+		if len(f) >= 3 && strings.Contains(t, " "+f+" ") {
+			return true
+		}
+	}
+	return false
+}
+
 func (p people) match(name string) (string, bool) {
 	k := PrepNameKey(name)
 	if k == "" {
@@ -188,8 +205,14 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 		v.People = append(v.People, n)
 	}
 	sort.Strings(v.People)
-	// Which meetings any of them attended.
+	// Which meetings any of them attended, and how small each meeting
+	// was: what is said in a 1:1 is theirs more than what is said in a
+	// large staff meeting they sat in.
 	attended := map[string]bool{}
+	small := map[string]float64{}
+	for _, it := range items {
+		small[it.ID] = meetingWeight(len(it.Participants))
+	}
 	for _, it := range items {
 		if it.Kind == item.KindEvent {
 			continue
@@ -233,20 +256,22 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 	if v.Since.IsZero() {
 		v.Since = latest.Add(-14 * 24 * time.Hour)
 	}
-	// A thread is theirs by what they said in it and by the meetings with
-	// them it was discussed in, the recent counting more.
+	// A thread is theirs by what they said in it, what was said about them
+	// (a role change is mostly others' words about the person), and the
+	// meetings with them it was discussed in; small meetings and recent
+	// items count more, and a thread named after them most.
 	type scored struct {
-		id            int64
-		score         float64
-		said, inMeets int
-		holders       map[string]int
+		id                   int64
+		score                float64
+		said, about, inMeets int
+		holders              map[string]int
 	}
 	var ss []scored
 	for tid, its := range tis {
 		s := scored{id: tid, holders: map[string]int{}}
 		meets := map[string]bool{}
 		for _, it := range its {
-			w := math.Pow(0.5, latest.Sub(it.SaidAt).Hours()/prepHalfLife.Hours())
+			w := math.Pow(0.5, latest.Sub(it.SaidAt).Hours()/prepHalfLife.Hours()) * small[it.ItemID]
 			whos := it.Who
 			if len(whos) == 0 && it.Holder != "" {
 				whos = []string{it.Holder}
@@ -259,13 +284,21 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 					break
 				}
 			}
+			if group.mentioned(it.Text) {
+				s.score += 1.5 * w
+				s.about++
+			}
 			if attended[it.ItemID] {
 				s.score += w
 				meets[it.ItemID] = true
 			}
 		}
 		s.inMeets = len(meets)
-		if s.score > 0 && s.said > 0 {
+		if group.mentioned(name[tid]) {
+			s.score *= 2
+			s.about++
+		}
+		if s.score > 0 && s.said+s.about > 0 {
 			ss = append(ss, s)
 		}
 	}
@@ -445,4 +478,14 @@ func PersonIn(question string, items []item.Item, owner string) string {
 		return ""
 	}
 	return display[found[0]]
+}
+
+// meetingWeight: a 1:1 counts three times a six-person meeting, a large
+// staff meeting under half (research log 2026-10-19: a year of ELT
+// subjects crowded the 1:1 ones out of "what's open with X").
+func meetingWeight(people int) float64 {
+	if people < 2 {
+		people = 2
+	}
+	return math.Min(3, 6/float64(people))
 }

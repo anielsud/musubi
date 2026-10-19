@@ -858,8 +858,9 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 			return fmt.Errorf("threads %s: %w", it.ID, err)
 		}
 		if st.Statements > 0 {
-			r.logf("threads %s: %d statements, %d new threads, %d touched, %d relations, %d calls in %s",
-				it.ID, st.Statements, st.NewThreads, st.Touched, st.Relations, st.Calls, time.Since(t0).Round(time.Second))
+			r.logf("threads %s: %d statements, %d new threads, %d touched, %d relations, %d calls in %s%s",
+				it.ID, st.Statements, st.NewThreads, st.Touched, st.Relations, st.Calls, time.Since(t0).Round(time.Second),
+				map[bool]string{true: fmt.Sprintf("; %d left in no thread", st.Unplaced)}[st.Unplaced > 0])
 		}
 		ks.Threads.Items += st.Items
 		ks.Threads.Statements += st.Statements

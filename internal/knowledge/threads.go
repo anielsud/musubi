@@ -160,6 +160,8 @@ type ThreadItem struct {
 
 type ThreadStats struct {
 	Items, Statements, NewThreads, Touched, Calls, Relations int
+	// Unplaced: statements no thread took after the retries.
+	Unplaced int
 }
 
 func (t *Threader) logf(f string, a ...any) {
@@ -300,8 +302,21 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 		// Outputs sometimes collapse (no or few items placed): ask again for
 		// the items left out, with the threads named so far.
 		for retry := 0; retry < 3; retry++ {
+			// Placed only in a group whose thread resolves: items grouped
+			// under a code or name that names no thread were dropped
+			// before, without asking again (8–10% of a year's items, a
+			// few meetings losing half; research log 2026-10-19).
+			codes := map[string]bool{}
+			for _, n := range res.NewThreads {
+				codes[strings.TrimSpace(n.Code)] = true
+				codes[strings.ToLower(strings.TrimSpace(n.Name))] = true
+			}
 			got := map[int64]bool{}
 			for _, g := range res.Groups {
+				ref := strings.TrimSpace(g.Thread)
+				if _, ok := resolveThread(ref, nil, threads, byName); !ok && !codes[ref] && !codes[strings.ToLower(ref)] {
+					continue
+				}
 				for _, id := range g.IDs {
 					got[id] = true
 				}
@@ -328,7 +343,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 			res.NewThreads = append(res.NewThreads, more.NewThreads...)
 			res.Groups = append(res.Groups, more.Groups...)
 		}
-		local := map[string]int64{} // n1 → thread
+		local := map[string]int64{} // n1 → thread, and new names → thread
 		for _, n := range res.NewThreads {
 			code, name := strings.TrimSpace(n.Code), strings.TrimSpace(n.Name)
 			if code == "" || name == "" {
@@ -336,6 +351,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 			}
 			if tid, ok := byName[strings.ToLower(name)]; ok {
 				local[code] = tid
+				local[strings.ToLower(name)] = tid
 				continue
 			}
 			tid, err := t.Store.NewThread(name, n.Scope, 0)
@@ -345,6 +361,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 			byName[strings.ToLower(name)] = tid
 			threads[tid] = &threadState{row: store.ThreadRow{ID: tid, Name: name, Scope: n.Scope}, born: true}
 			local[code] = tid
+			local[strings.ToLower(name)] = tid
 			stats.NewThreads++
 		}
 		inPart := map[int64]bool{}
@@ -353,15 +370,11 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 		}
 		placed := map[int64]int{}
 		for _, g := range res.Groups {
-			ref := strings.TrimSpace(g.Thread)
-			tid, ok := local[ref]
+			tid, ok := resolveThread(strings.TrimSpace(g.Thread), local, threads, byName)
 			if !ok {
-				var id int64
-				if _, err := fmt.Sscanf(ref, "T%d", &id); err == nil && threads[id] != nil {
-					tid, ok = id, true
+				if len(g.IDs) > 0 {
+					t.logf("threads %s: %d items grouped under %q, which names no thread", it.ID, len(g.IDs), g.Thread)
 				}
-			}
-			if !ok {
 				continue // none, or a code nobody defined
 			}
 			th := threads[tid]
@@ -377,6 +390,17 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 				th.add(t.Vecs[id])
 				th.last = byID[id].SaidAt
 			}
+		}
+	}
+	placedAll := map[int64]bool{}
+	for _, th := range threads {
+		for _, id := range th.members {
+			placedAll[id] = true
+		}
+	}
+	for _, s := range sts {
+		if !placedAll[s.ID] {
+			stats.Unplaced++
 		}
 	}
 	// A thread named in an assign reply (often a retry's) that got no
@@ -1223,3 +1247,30 @@ func (t *Threader) mergeBorn(ctx context.Context, it ThreadItem, threads map[int
 	}
 	return next, nil
 }
+
+// resolveThread finds the thread an assign reply's group names: a new
+// thread's code ("n2") or name, an existing thread's code ("T123", also
+// written "T123: name" or "[T123]"), or an existing thread's name.
+func resolveThread(ref string, local map[string]int64, threads map[int64]*threadState, byName map[string]int64) (int64, bool) {
+	if tid, ok := local[ref]; ok {
+		return tid, true
+	}
+	if tid, ok := local[strings.ToLower(ref)]; ok {
+		return tid, true
+	}
+	r := strings.TrimLeft(ref, "[(")
+	var id int64
+	if _, err := fmt.Sscanf(r, "T%d", &id); err == nil && threads[id] != nil {
+		return id, true
+	}
+	if i := strings.Index(ref, ":"); i > 0 {
+		if tid, ok := byName[strings.ToLower(strings.TrimSpace(ref[i+1:]))]; ok {
+			return tid, true
+		}
+	}
+	if tid, ok := byName[strings.ToLower(ref)]; ok {
+		return tid, true
+	}
+	return 0, false
+}
+

@@ -159,25 +159,33 @@ def main():
                     x.split()[-1] == y.split()[-1] for x in fa for y in fb if len(x.split()) > 1 and len(y.split()) > 1)
                 common, rare = (a, b) if count[a] >= count[b] else (b, a)
                 cs = ctxsim(a, b)
+                # Co-reference: of the meetings where the rarer form is
+                # said, how many had the kept form among their attendees.
+                nc, nr = norm(common), norm(rare)
+                rare_meets = where[rare]
+                coref = sum(1 for it in rare_meets if nc in tokens_in[it] and nr not in tokens_in[it]) / max(1, len(rare_meets))
                 score = (count[rare] ** 0.5) * (1.5 if "attendee" in kind[common] or "attendee-part" in kind[common] else 1) / (1 + d)
                 # Used in different contexts: two different things.
                 if cs is not None:
                     score *= max(0.0, (cs - 0.6) / 0.3)
+                # Said where the kept form was present: strong support.
+                score *= 1 + 2 * coref
                 if together or distinct:
                     score = 0
                 pairs.append({"keep": common, "variant": rare, "distance": d, "keep_count": count[common], "variant_count": count[rare],
                               "keep_seen_as": sorted(kind[common]), "variant_seen_as": sorted(kind[rare]),
                               "meetings_both": len(where[a] & where[b]), "attend_together": together,
-                              "two_people": distinct, "context": None if cs is None else round(cs, 2), "score": round(score, 2)})
+                              "two_people": distinct, "context": None if cs is None else round(cs, 2), "coref": round(coref, 2), "score": round(score, 2)})
     pairs.sort(key=lambda p: -p["score"])
     lines = ["# Alias candidates (for review; nothing applied)", "",
              "Each row: probably the same thing spelled or heard two ways. Keep = the likelier right form (commoner, or on an invite).",
              "Blocked = two people: both names attended one meeting, or each is part of a different full name on invites.", "",
-             "Context = how alike the statements using each spelling are (0.9+: same contexts).", "",
-             "| Score | Keep | Variant | Seen (keep / variant) | Context | Meetings with both | Blocked |", "|---|---|---|---|---|---|---|"]
+             "Context = how alike the statements using each spelling are (0.9+: same contexts).",
+             "Present = share of the variant's meetings where the kept form was an attendee (and the variant wasn't).", "",
+             "| Score | Keep | Variant | Seen (keep / variant) | Context | Present | Blocked |", "|---|---|---|---|---|---|---|"]
     for p in pairs[:200]:
         lines.append(f"| {p['score']} | {p['keep']} | {p['variant']} | {p['keep_count']} / {p['variant_count']} | "
-                     f"{p['context']} | {p['meetings_both']} | {'together' if p['attend_together'] else ('two people on invites' if p['two_people'] else '')} |")
+                     f"{p['context']} | {p['coref']} | {'together' if p['attend_together'] else ('two people on invites' if p['two_people'] else '')} |")
     open(out_md, "w").write("\n".join(lines) + "\n")
     if out_json:
         json.dump(pairs, open(out_json, "w"), indent=1)

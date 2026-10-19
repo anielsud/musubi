@@ -523,7 +523,17 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	}
 	if threads {
 		// Threads made elsewhere (NoThreads) get statuses too.
-		return ks, r.writeStatuses(ctx, o, &ks)
+		if err := r.writeStatuses(ctx, o, &ks); err != nil {
+			return ks, err
+		}
+		if kc.ProposeAliases {
+			n, err := knowledge.ProposeAliases(r.Store, r.Cfg.Owner.Name)
+			if err != nil {
+				return ks, err
+			}
+			r.logf("aliases: %d candidates proposed", n)
+		}
+		return ks, nil
 	}
 	sig, err := r.Store.ClaimSignature()
 	if err != nil {

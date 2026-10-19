@@ -7,6 +7,7 @@ import (
 
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/sensitivity"
+	"github.com/anielsud/musubi/internal/store"
 )
 
 func TestPrepNames(t *testing.T) {
@@ -108,5 +109,38 @@ func TestSpellings(t *testing.T) {
 	}
 	if got := sp.Canonical("Ruisdael"); got != "Ruisdael" {
 		t.Errorf("part of a word changed: %q", got)
+	}
+}
+
+// Close spellings of one name are proposed; two people with near names
+// (both on invites under different full names) are not; the owner's name
+// is never folded into another.
+func TestAliasCandidates(t *testing.T) {
+	mk := func(id string, names ...string) item.Item {
+		it := item.Item{ID: id, Kind: item.KindMeeting}
+		for _, n := range names {
+			it.Participants = append(it.Participants, item.Participant{Name: n})
+		}
+		return it
+	}
+	items := []item.Item{mk("1", "Dana Ruiz", "Kristian Holm"), mk("2", "Christian Berg"), mk("3", "Sam Owner")}
+	st := func(item, text string) store.Statement { return store.Statement{ItemID: item, Text: text} }
+	sts := []store.Statement{
+		st("1", "Ruiz said the Dhaka office is ready."), st("1", "Ruiz again: Dhaka hiring."), st("2", "Ruis will check the Daka numbers."),
+		st("2", "Ruis and Daka again."), st("1", "Kristian presented."), st("2", "Christian agreed."), st("2", "Kristian and Christian."),
+		st("3", "Owner Sam and Sams team."), st("3", "Dhaka is the second site."),
+	}
+	got := map[string]string{}
+	for _, c := range AliasCandidates(items, sts, "Sam Owner") {
+		got[c.Variant] = c.Keep
+	}
+	if got["Ruis"] != "Ruiz" || got["Daka"] != "Dhaka" {
+		t.Errorf("variants not proposed: %v", got)
+	}
+	if _, ok := got["Kristian"]; ok {
+		t.Errorf("two people proposed as one: %v", got)
+	}
+	if _, ok := got["Christian"]; ok {
+		t.Errorf("two people proposed as one: %v", got)
 	}
 }

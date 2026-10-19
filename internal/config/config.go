@@ -102,6 +102,10 @@ type Knowledge struct {
 	// matters, private life) with a local model, and raises its label so
 	// scopes hide it where they should (knowledge.StatementSensitivity).
 	Label Label `toml:"label"`
+	// ProposeAliases refreshes the alias candidates after the knowledge
+	// stages (knowledge.ProposeAliases): proposals only, for the owner to
+	// confirm in Explore → Corrections. false proposes none.
+	ProposeAliases bool `toml:"propose_aliases"`
 	// OnUpdate runs the knowledge stages after the app's Update (new items
 	// are extracted, linked, threaded and their threads' statuses
 	// rewritten). false leaves them to `musubi knowledge`, as before.
@@ -278,7 +282,7 @@ func DefaultConfig() Config {
 		Embed:         Embed{Provider: "ollama", Model: "nomic-embed-text", URL: "http://127.0.0.1:11434"},
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true},
+		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, ProposeAliases: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

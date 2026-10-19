@@ -170,6 +170,12 @@ type Threads struct {
 	// most like them, at most this many in all. 0 reviews up to 80 of its
 	// current items each time, as before (the slowest calls of a run).
 	ConsolidateWindow int `toml:"consolidate_window"`
+	// InsertOlder threads new items older than ones already threaded by
+	// inserting them (knowledge.Threader.Insert: judged against their
+	// neighbours earlier and later, current derived), not after them in
+	// time order. For backfills and late sources. false threads them
+	// after, as before, and says --redo threads would put them in order.
+	InsertOlder bool `toml:"insert_older"`
 }
 
 // Points configures meeting-level point extraction.

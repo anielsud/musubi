@@ -837,8 +837,13 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 	knowledge.ThreadOrder(todo)
 	// Threading follows time: an item is matched against threads as they
 	// stood when it happened. Items older than ones already threaded (a
-	// backfill) are threaded after them all the same, so say so.
-	if !p.rebuild && len(todo) > 0 {
+	// backfill) are inserted (threads.insert_older), or else threaded
+	// after them all the same, and that is said.
+	var latestDone time.Time
+	if !p.rebuild && len(todo) > 0 && kc.Threads.InsertOlder {
+		latestDone, _ = r.Store.LatestThreaded()
+	}
+	if !p.rebuild && len(todo) > 0 && !kc.Threads.InsertOlder {
 		if latest, err := r.Store.LatestThreaded(); err == nil && todo[0].Start.Before(latest) {
 			older := 0
 			for _, it := range todo {
@@ -863,7 +868,11 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 			return ctx.Err()
 		}
 		t0 := time.Now()
-		st, err := th.Thread(ctx, it)
+		thread := th.Thread
+		if !latestDone.IsZero() && it.Start.Before(latestDone) {
+			thread = th.Insert
+		}
+		st, err := thread(ctx, it)
 		if err != nil {
 			return fmt.Errorf("threads %s: %w", it.ID, err)
 		}

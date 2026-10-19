@@ -48,6 +48,9 @@ type ChatOptions struct {
 	// replica, where the shared start is served from cache at a discount.
 	// Routing only: not part of a recorded reply's key.
 	Session string `json:"-"`
+	// Kind names the call (assign, reconcile, consolidate, merge, status)
+	// in the spend ledger, to see which calls cost the time.
+	Kind string `json:"-"`
 	// Effort asks a hosted reasoning model for this reasoning effort ("low"),
 	// over the configured one. Not part of a recorded reply's key.
 	Effort string `json:"-"`

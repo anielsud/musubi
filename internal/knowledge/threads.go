@@ -517,6 +517,7 @@ func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64
 			msg := fmt.Sprintf("Thread: %s — %s\nToday: %s\n\nCurrent items (oldest first):\n%s\n\nList the items that are no longer the current word.",
 				th.row.Name, th.row.Scope, it.Start.Format("2006-01-02"), strings.Join(lines, "\n"))
 			opt := threadOptions(consolidateSchema, reconcileMaxTokens)
+			opt.Kind = "consolidate"
 			opt.Session = "threads " + it.ID
 			raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: consolidateSystem}, {Role: "user", Content: msg}}, opt, nil)
 			results[i] = result{tid: tid, cur: cur, err: err}
@@ -999,6 +1000,7 @@ type assignOut struct {
 func (t *Threader) assign(ctx context.Context, it ThreadItem, msg string) (assignOut, error) {
 	var out assignOut
 	opt := threadOptions(assignSchema, assignMaxTokens)
+	opt.Kind = "assign"
 	opt.Session = "threads " + it.ID
 	opt.Effort = "low" // hosted: assigning needs little reasoning (measured, research log 2026-10-16)
 	system := assignSystem
@@ -1054,6 +1056,7 @@ func (t *Threader) reconcile(ctx context.Context, it ThreadItem, th store.Thread
 	msg := fmt.Sprintf("Thread: %s — %s\n\nCurrent items:\n%s%s\n\nNew items from the %s meeting:\n%s",
 		th.Name, th.Scope, strings.Join(old, "\n"), related, it.Start.Format("2006-01-02"), strings.Join(neu, "\n"))
 	opt := threadOptions(reconcileSchema, reconcileMaxTokens)
+	opt.Kind = "reconcile"
 	opt.Session = "threads " + it.ID
 	for try := 0; try < 2; try++ {
 		system := reconcileSystem
@@ -1216,6 +1219,7 @@ func (t *Threader) mergeBorn(ctx context.Context, it ThreadItem, threads map[int
 		parts = append(parts, "New thread "+show(c.born, mine)+"\nSimilar older threads:\n"+strings.Join(older, "\n"))
 	}
 	opt := threadOptions(mergeSchema, reconcileMaxTokens)
+	opt.Kind = "merge"
 	opt.Session = "threads " + it.ID
 	raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: mergeSystem},
 		{Role: "user", Content: strings.Join(parts, "\n\n") + "\n\nList the new threads that are the same subject as one of their older threads."}}, opt, nil)

@@ -135,7 +135,7 @@ func WriteStatus(ctx context.Context, llm provider.LLM, name, scope string, in S
 	msg := fmt.Sprintf("Subject: %s — %s\nLatest item: %s\n\nItems (oldest first):\n%s\n\nWrite the status.",
 		name, scope, in.AsOf.Format("2006-01-02"), strings.Join(lines, "\n"))
 	opt := provider.ChatOptions{Schema: statusSchema, Temperature: 0.3, TopP: 0.8, TopK: 20, MaxTokens: statusMaxTokens, Timeout: threadCallTimeout}
-	opt.Session = "status"
+	opt.Session, opt.Kind = "status", "status"
 	raw, err := llm.Complete(ctx, []provider.Message{{Role: "system", Content: statusSystem}, {Role: "user", Content: msg}}, opt, nil)
 	if err != nil {
 		return Status{}, err

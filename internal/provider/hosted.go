@@ -150,7 +150,7 @@ type usage struct {
 	} `json:"prompt_tokens_details"`
 }
 
-func (o *OpenAI) record(u usage, finish string, took time.Duration) {
+func (o *OpenAI) record(u usage, finish string, took time.Duration, kind string) {
 	path := os.Getenv("MUSUBI_SPEND_LEDGER")
 	if path == "" {
 		return
@@ -158,7 +158,7 @@ func (o *OpenAI) record(u usage, finish string, took time.Duration) {
 	usd := (float64(u.Prompt)*o.priceIn + float64(u.Completion)*o.priceOut) / 1e6
 	row, _ := json.Marshal(map[string]any{"tag": cmpOr(os.Getenv("MUSUBI_SPEND_TAG"), "musubi") + "-go", "model": o.Model,
 		"in": u.Prompt, "cached": u.PromptDetails.Cached, "out": u.Completion, "reasoning": u.Details.Reasoning,
-		"usd": usd, "s": took.Round(100 * time.Millisecond).Seconds(), "finish": finish})
+		"usd": usd, "s": took.Round(100 * time.Millisecond).Seconds(), "finish": finish, "kind": kind})
 	ledgerMu.Lock()
 	defer ledgerMu.Unlock()
 	if f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
@@ -257,7 +257,7 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 	chunks, recorded := 0, false
 	defer func() {
 		if !recorded && chunks > 0 {
-			o.record(usage{Prompt: len(b) / 4, Completion: chunks}, "cut", time.Since(started))
+			o.record(usage{Prompt: len(b) / 4, Completion: chunks}, "cut", time.Since(started), opt.Kind)
 		}
 	}()
 	for {
@@ -267,7 +267,7 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 				if err := <-errc; err != nil {
 					return "", "", fmt.Errorf("openai: stream: %w", err)
 				}
-				o.record(used, finish, time.Since(started))
+				o.record(used, finish, time.Since(started), opt.Kind)
 				recorded = true
 				return text.String(), finish, nil
 			}
@@ -278,7 +278,7 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 			data := strings.TrimSpace(strings.TrimPrefix(l, "data:"))
 			chunks++
 			if data == "[DONE]" {
-				o.record(used, finish, time.Since(started))
+				o.record(used, finish, time.Since(started), opt.Kind)
 				recorded = true
 				return text.String(), finish, nil
 			}

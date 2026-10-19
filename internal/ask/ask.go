@@ -87,6 +87,11 @@ func AskWith(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, questi
 	if llm != nil && !llm.Local() && !e.Cfg.Knowledge.AllowHosted {
 		sc = narrower(sc, sensitivity.Cloud())
 	}
+	// Confirmed spellings: a question with a misheard or variant name also
+	// finds the kept form.
+	if sp, err := e.Store.ConfirmedSpellings(); err == nil {
+		question = knowledge.Spellings(sp).Expand(question)
+	}
 	vec := e.Embed(ctx, question)
 	var ctxt strings.Builder
 	ans := &Answer{}

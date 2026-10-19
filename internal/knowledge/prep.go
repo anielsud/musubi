@@ -181,6 +181,11 @@ func shareable(l sensitivity.Label) bool {
 // owner's name, left out of the group.
 func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.Item, owner string) (*PrepView, error) {
 	v := &PrepView{Title: req.Title, Since: req.Since}
+	sp, err := st.ConfirmedSpellings()
+	if err != nil {
+		return nil, err
+	}
+	spell := Spellings(sp)
 	var names []string
 	byID := map[string]*item.Item{}
 	for i := range items {
@@ -277,14 +282,14 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 				whos = []string{it.Holder}
 			}
 			for _, wn := range whos {
-				if n, ok := group.match(wn); ok {
+				if n, ok := group.match(spell.Canonical(wn)); ok {
 					s.score += 2 * w
 					s.said++
 					s.holders[n]++
 					break
 				}
 			}
-			if group.mentioned(it.Text) {
+			if group.mentioned(spell.Canonical(it.Text)) {
 				s.score += 1.5 * w
 				s.about++
 			}

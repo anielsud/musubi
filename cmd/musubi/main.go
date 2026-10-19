@@ -47,7 +47,7 @@ func root() *cobra.Command {
 	r := &cobra.Command{Use: "musubi", Short: "Local-first personal knowledge base", SilenceUsage: true}
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
-	r.AddCommand(importItemsCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), liveCmd(),
+	r.AddCommand(importItemsCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), aliasesCmd(), liveCmd(),
 		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd())
 	return r
 }
@@ -517,6 +517,110 @@ the cases. Exits non-zero on any leak.`,
 	c.Flags().BoolVar(&trace, "trace", false, "with --knowledge: print each linking decision")
 	c.Flags().BoolVar(&record, "record", false, "with --knowledge: call the real models for anything not in the cache, and save it")
 	return c
+}
+
+func aliasesCmd() *cobra.Command {
+	c := &cobra.Command{Use: "aliases", Short: "Learned aliases: load candidates, review them with their impact, confirm or reject"}
+	open := func() (*engine.Engine, error) { return engine.Open(cfgPath) }
+	c.AddCommand(&cobra.Command{
+		Use:   "propose <candidates.json>",
+		Short: "Load candidates (tools/entity-bench/aliases.py --json) as proposed aliases; vetoed ones are skipped",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			e, err := open()
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			var cands []map[string]any
+			b, err := os.ReadFile(args[0])
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(b, &cands); err != nil {
+				return err
+			}
+			n := 0
+			for _, c := range cands {
+				score, _ := c["score"].(float64)
+				if score <= 0 {
+					continue
+				}
+				ev, _ := json.Marshal(c)
+				if err := e.Store.ProposeAlias(store.LearnedAlias{Keep: fmt.Sprint(c["keep"]), Variant: fmt.Sprint(c["variant"]), Kind: "spelling",
+					Evidence: string(ev), Score: score, By: "corpus"}); err != nil {
+					return err
+				}
+				n++
+			}
+			fmt.Printf("%d aliases proposed\n", n)
+			return nil
+		},
+	})
+	c.AddCommand(&cobra.Command{
+		Use:   "list [proposed|confirmed|rejected]",
+		Short: "List aliases with what each would touch",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			e, err := open()
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			status := "proposed"
+			if len(args) == 1 {
+				status = args[0]
+			}
+			as, err := e.Store.LearnedAliases(status)
+			if err != nil {
+				return err
+			}
+			for _, a := range as {
+				im, err := e.Store.ImpactOf(a)
+				if err != nil {
+					return err
+				}
+				fmt.Printf("%4d  %-14s → %-14s  %s, score %.1f: %d statements in %d items, %d threads (%d newly linked)\n",
+					a.ID, a.Variant, a.Keep, a.Kind, a.Score, im.Statements, im.Items, len(im.Threads), len(im.NewLinks))
+				for _, x := range im.Sample[:min(len(im.Sample), 2)] {
+					fmt.Printf("        e.g. %s\n", clipText(x, 110))
+				}
+			}
+			return nil
+		},
+	})
+	for _, verb := range []string{"confirm", "reject"} {
+		c.AddCommand(&cobra.Command{
+			Use:   verb + " <id>...",
+			Short: map[string]string{"confirm": "Confirm aliases (they apply when reading; nothing is rewritten)", "reject": "Reject aliases"}[verb],
+			Args:  cobra.MinimumNArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				e, err := open()
+				if err != nil {
+					return err
+				}
+				defer e.Close()
+				for _, a := range args {
+					var id int64
+					if _, err := fmt.Sscan(a, &id); err != nil {
+						return err
+					}
+					if err := e.Store.DecideAlias(id, verb == "confirm", "owner"); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+		})
+	}
+	return c
+}
+
+func clipText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 func insertCheckCmd() *cobra.Command {

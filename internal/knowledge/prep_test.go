@@ -97,3 +97,16 @@ func TestPersonIn(t *testing.T) {
 		}
 	}
 }
+
+func TestSpellings(t *testing.T) {
+	sp := Spellings{"ruis": "Ruiz", "daka": "Dhaka"}
+	if got := sp.Canonical("Dana Ruis visited the Daka office."); got != "Dana Ruiz visited the Dhaka office." {
+		t.Errorf("canonical %q", got)
+	}
+	if got := sp.Expand("open with ruis?"); got != "open with ruis? open with Ruiz?" {
+		t.Errorf("expand %q", got)
+	}
+	if got := sp.Canonical("Ruisdael"); got != "Ruisdael" {
+		t.Errorf("part of a word changed: %q", got)
+	}
+}

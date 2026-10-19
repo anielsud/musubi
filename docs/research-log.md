@@ -2052,3 +2052,37 @@ Next:
 
 Ask's answer cap rose from 1,200 to 2,000 tokens: a long person answer
 was cut off.
+
+**Prep ranking.** Two changes:
+- meetings are weighted by size, min(3, 6/people), so a 1:1 counts three
+  times a six-person meeting and an ELT meeting under half;
+- items that mention the person count, and a thread named after them
+  counts double.
+
+On All, the person questions went from 4 to 6 of 18 must facts, winning
+3 of 4 (September had 8).
+
+**Go threader against R7 on the ELT year** (same statements):
+
+| | Go t4 | Python R7 |
+|---|---|---|
+| Threads | 188 | 275 |
+| Items in threads of 60+ | 60% | 43% |
+| Threads (10+ items) merging 3+ of the other's subjects | 22% | 13% |
+| Statements in no thread | 10.3% | 2.9% |
+
+The same gap shows elsewhere:
+- All (Go) leaves 8.5% of statements in no thread; September (Python)
+  leaves 4.8%.
+- The loss is uneven. Most meetings lose about 1%; a few lose 40–50%
+  (one ELT meeting 80 of 161), decisions and commitments among them.
+- Neither run logged an error. The retry rule is the same as Python's.
+
+A likely cause: groups whose thread reference Go can't resolve (a name,
+or "T12: name") were counted as placed, so no retry asked for them, then
+dropped. Go now:
+- resolves names and those forms;
+- asks again for items in unresolved groups;
+- logs each unresolved reference, and how many statements no thread took.
+
+The next hosted run will confirm or rule this out.

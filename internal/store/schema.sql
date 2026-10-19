@@ -334,6 +334,22 @@ CREATE TABLE IF NOT EXISTS thread_runs (
 	stamp   TEXT NOT NULL
 );
 
+-- Relations between statements, as threading judged them (later
+-- replaces, completes, answers, repeats … earlier), with provenance.
+-- claim_relations holds the same between claims for the views; two
+-- statements of one claim have no claim relation, so "current" is derived
+-- from these (docs/incremental-design.md).
+CREATE TABLE IF NOT EXISTS statement_relations (
+	later    INTEGER NOT NULL REFERENCES statements(id) ON DELETE CASCADE,
+	earlier  INTEGER NOT NULL REFERENCES statements(id) ON DELETE CASCADE,
+	rel      TEXT NOT NULL,
+	version  TEXT NOT NULL DEFAULT '',
+	made_in  TEXT NOT NULL DEFAULT '',
+	made_at  INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (later, earlier, rel)
+);
+CREATE INDEX IF NOT EXISTS statement_relations_earlier ON statement_relations(earlier);
+
 -- A thread's written status (knowledge.status): where it stands, what
 -- changed, what is open. Variant "full" is written from every item;
 -- "open" only from items a shared screen may show, and is written only

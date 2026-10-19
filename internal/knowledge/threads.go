@@ -582,6 +582,24 @@ func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64
 			return err
 		}
 		th.previous = now
+		// Outdated in every thread it is in.
+		for tid, o := range threads {
+			if tid == r.tid {
+				continue
+			}
+			var keep []int64
+			for _, id := range o.previous {
+				if !gone[id] {
+					keep = append(keep, id)
+				}
+			}
+			if len(keep) != len(o.previous) {
+				if err := t.Store.SetThreadCurrent(tid, keep, t.prov(it, "consolidate")); err != nil {
+					return err
+				}
+				o.previous = keep
+			}
+		}
 	}
 	return nil
 }
@@ -910,6 +928,11 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 						return err
 					}
 					stats.Relations++
+					for tid, th := range threads {
+						if tid != r.tid && contains64(th.previous, e.Earlier) {
+							elsewhere[tid] = append(elsewhere[tid], e.Earlier)
+						}
+					}
 				} else {
 					retired[e.Later] = true // the earlier wording stays
 				}
@@ -939,6 +962,13 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 				retired[e.Earlier] = true
 				if o, ok := r.crossOf[e.Earlier]; ok {
 					elsewhere[o] = append(elsewhere[o], e.Earlier)
+				}
+				// Outdated is outdated in every thread it is in (as derived
+				// "current" has it).
+				for tid, th := range threads {
+					if tid != r.tid && contains64(th.previous, e.Earlier) {
+						elsewhere[tid] = append(elsewhere[tid], e.Earlier)
+					}
 				}
 			}
 		}

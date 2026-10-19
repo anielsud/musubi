@@ -57,7 +57,7 @@ func (s *Store) Threads() ([]ThreadRow, error) {
 // relations come only from threading.
 func (s *Store) ClearThreads() error {
 	return s.tx(func(tx *sql.Tx) error {
-		for _, q := range []string{`DELETE FROM thread_items`, `DELETE FROM thread_runs`, `DELETE FROM thread_status`, `UPDATE claims SET topic_id = NULL`,
+		for _, q := range []string{`DELETE FROM thread_items`, `DELETE FROM thread_runs`, `DELETE FROM thread_status`, `DELETE FROM statement_relations`, `UPDATE claims SET topic_id = NULL`,
 			`DELETE FROM topic_relations`, `DELETE FROM topic_entities`, `DELETE FROM topic_events`, `DELETE FROM topics`, `DELETE FROM claim_relations`} {
 			if _, err := tx.Exec(q); err != nil {
 				return err
@@ -162,6 +162,10 @@ func (s *Store) SetThreadCurrent(topic int64, current []int64, p ...Provenance) 
 // as a relation between their claims.
 func (s *Store) RelateStatements(later, earlier int64, rel string, p ...Provenance) error {
 	pv := prov(p)
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO statement_relations(later, earlier, rel, version, made_in, made_at) VALUES (?,?,?,?,?,?)`,
+		later, earlier, rel, pv.Version, pv.During, pv.At.Unix()); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(`INSERT OR IGNORE INTO claim_relations(from_claim, to_claim, rel, statement_id, version, made_in, made_at)
 		SELECT a.claim_id, b.claim_id, ?, ?, ?, ?, ? FROM statement_claims a, statement_claims b
 		WHERE a.statement_id = ? AND b.statement_id = ? AND a.claim_id != b.claim_id`, rel, later, pv.Version, pv.During, pv.At.Unix(), later, earlier)
@@ -378,7 +382,12 @@ func (s *Store) ThreadItemRows() ([]ThreadItemRow, error) {
 // (replaces, completes, answers or repeats it), from the claim relations.
 // Unscoped: for deriving "current".
 func (s *Store) RetiringRelations() (map[int64][]int64, error) {
-	rows, err := s.db.Query(`SELECT b.statement_id, r.statement_id FROM claim_relations r
+	// Statement relations where threading wrote them; claim relations for
+	// what was threaded before they existed.
+	rows, err := s.db.Query(`SELECT earlier, later FROM statement_relations
+		WHERE rel IN ('supersedes', 'completes', 'answers', 'repeats')
+		UNION
+		SELECT b.statement_id, r.statement_id FROM claim_relations r
 		JOIN statement_claims b ON b.claim_id = r.to_claim
 		WHERE r.rel IN ('supersedes', 'completes', 'answers', 'repeats') AND b.statement_id != r.statement_id`)
 	if err != nil {

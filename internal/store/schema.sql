@@ -364,6 +364,25 @@ CREATE TABLE IF NOT EXISTS statement_corrections (
 );
 CREATE INDEX IF NOT EXISTS statement_corrections_statement ON statement_corrections(statement_id);
 
+-- Learned aliases (docs/incremental-design.md, "Entities and aliases"): another
+-- way a thing is written or heard. kind: spelling (one thing, everywhere),
+-- short (a short form, resolved only in scope), identity (two names, one
+-- person: needs evidence and the owner). Proposed by the corpus, decided
+-- by the owner; nothing rewrites the source.
+CREATE TABLE IF NOT EXISTS learned_aliases (
+	id        INTEGER PRIMARY KEY,
+	keep      TEXT NOT NULL,   -- the right form
+	variant   TEXT NOT NULL,   -- the other form
+	kind      TEXT NOT NULL,   -- spelling, short, identity
+	scope     TEXT NOT NULL DEFAULT '',  -- JSON: items, attendees, period ('' = everywhere)
+	status    TEXT NOT NULL,   -- proposed, confirmed, rejected
+	evidence  TEXT NOT NULL DEFAULT '',  -- JSON, as proposed
+	score     REAL NOT NULL DEFAULT 0,
+	by        TEXT NOT NULL DEFAULT '',
+	at        INTEGER NOT NULL,
+	UNIQUE (keep, variant, kind)
+);
+
 -- A thread's written status (knowledge.status): where it stands, what
 -- changed, what is open. Variant "full" is written from every item;
 -- "open" only from items a shared screen may show, and is written only

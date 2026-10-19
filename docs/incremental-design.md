@@ -124,6 +124,75 @@ The owner confirms them. A confirmed alias:
 - doesn't change thread structure, because membership is by statement
   id.
 
+## Entities and aliases: design (2026-10-19)
+
+A rename applied everywhere is how subjects would merge wrongly: "Ben"
+becomes one Ben everywhere, and two people's subjects collapse. Four
+rules guard against it.
+
+**Never rewrite the source.** Statement and passage text stays as it was.
+Resolving a mention is an edge: this mention in this statement → this
+entity, with a confidence and its provenance. Display, search and prep
+read through it. Undoing a wrong alias deletes edges.
+
+**Three kinds of alias, each with its own reach:**
+
+| Kind | Example | Reach |
+|---|---|---|
+| Spelling variant of one thing | a misheard place name | everywhere, once confirmed |
+| Short form, first name | "Ben", "Chris" | in context only: that meeting's attendees and speakers, the period, the team |
+| Identity claim | two names, one person | needs evidence (the same email, the same attendee slot, the same voice) and the owner's confirmation |
+
+**Entity changes never move threads.** Membership is by statement, not by
+name, so an alias cannot merge subjects by itself. If a resolution makes
+two threads look like one subject, that is proposed as a merge, which has
+its own checks, and the owner's when unsure.
+
+**Every alias shows its impact before it applies:** the statements,
+entities and threads it would touch. It flags anything that would link
+threads, or people, who were apart.
+
+**Evidence, universal only:** calendar attendees, speaker labels, who the
+statements are about and by, and the text. Not a directory.
+
+**Feedback to the source.** A confirmed alias also goes to the recogniser
+as a vocabulary hint (Tomoe, or the platform's custom vocabulary), so
+later meetings arrive right.
+
+### First candidate run (tools/entity-bench/aliases.py, on All)
+
+It pairs close spellings (edit distance, a sound key) and weighs:
+- how often each is seen;
+- whether one is an attendee's name on an invite;
+- two vetoes:
+  - both names attended one meeting;
+  - each is part of a different full name on invites.
+
+Of 174 pairs (the list is private, in testdata/private/aliases):
+- **Variants near the top:** misheard or misspelled surnames and first
+  names, the transcript form against the invite form (a "Timco" for a
+  "Timko"), at most two letters apart.
+- **14 vetoed as two people:** names a letter apart that belong to
+  different attendees (a "Kristian" and a "Christian").
+- **Ordinary words** ("Partners", "Visual", "Core") are dropped when written
+  in lower case at least a fifth of the time.
+- **Still to tell apart:** two people a letter apart who never met in one
+  meeting, two product codes a letter apart, and word forms (a country
+  and its adjective).
+
+Context similarity (the mean embedding of the statements using each
+spelling) hardly separates them: within one company's notes nearly
+everything is 0.8–0.97. It needs comparing against how alike two
+unrelated names usually are.
+
+The stronger evidence, for later, is co-reference:
+- a speaker label in a meeting where an attendee of the near-spelling
+  was present;
+- a first name used next to an attendee's full name.
+
+Spelling alone proposes; context and co-reference decide; the owner
+confirms.
+
 ## Work queue
 
 A background queue replaces batch runs:

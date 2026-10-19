@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -11,6 +12,9 @@ import (
 // TopicCard is a topic's card on the panel, and why it is there.
 type TopicCard struct {
 	*knowledge.Card
+	// Now is the first sentence of the thread's written status, when the
+	// scope may see it (and, in a replay, it was written by then).
+	Now string    `json:"now,omitempty"`
 	Why string    `json:"why"`
 	At  time.Time `json:"at"`
 	// SpokenAgo is how long before the card was ready its trigger was said
@@ -103,12 +107,20 @@ func (l *Live) emitTopics(cycle int) {
 	out := []TopicCard{}
 	if cs != nil {
 		if sc, err := l.eng.Scope(scopeName); err == nil {
+			sts, _ := l.eng.Store.ThreadStatuses(sc)
 			for _, t := range shown {
 				c, err := cs.Card(sc, t.id, now)
 				if err != nil || c == nil {
 					continue
 				}
-				out = append(out, TopicCard{Card: c, Why: t.why, At: t.at, SpokenAgo: t.spokenAgo})
+				tc := TopicCard{Card: c, Why: t.why, At: t.at, SpokenAgo: t.spokenAgo}
+				if st, ok := sts[c.TopicID]; ok && !c.Collapsed && !st.AsOf.After(now) {
+					var s knowledge.Status
+					if json.Unmarshal([]byte(st.Body), &s) == nil {
+						tc.Now = knowledge.FirstSentence(knowledge.StripIDs(s.Now))
+					}
+				}
+				out = append(out, tc)
 			}
 		}
 	}

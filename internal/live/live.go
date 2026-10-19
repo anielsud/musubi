@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/anielsud/musubi/internal/knowledge"
 	"os"
 	"path/filepath"
 	"sort"
@@ -45,7 +46,27 @@ type Brief struct {
 	SpokenAgo float64 `json:"spokenAgo"`
 	// Summarizing: passages are shown and a summary is on its way.
 	Summarizing bool `json:"summarizing"`
+	// Status is the written status of the thread the lookup is about,
+	// shown at once: no model is asked, and no summary follows.
+	Status *BriefStatus `json:"status,omitempty"`
 }
+
+// BriefStatus is a thread's status as a brief shows it.
+type BriefStatus struct {
+	Topic   int64     `json:"topic"`
+	Name    string    `json:"name"`
+	AsOf    time.Time `json:"asOf"`
+	Now     string    `json:"now"`
+	Changed []string  `json:"changed,omitempty"`
+	Open    []string  `json:"open,omitempty"`
+}
+
+// liveStatusMin is how well a lookup must match a thread for its status
+// to be the brief. On All, specific lookups (a programme, a vendor pilot,
+// the board deck) matched their thread at 0.81–0.86, vague ones ("next
+// steps", "that customer issue") a loosely related one at 0.77–0.78
+// (research log 2026-10-19).
+const liveStatusMin = 0.80
 
 // Card summarises an entity named in the conversation.
 type Card struct {
@@ -70,6 +91,7 @@ type Live struct {
 	scope     string
 	sug       *Suggester
 	topicIx   *engine.Cards
+	spell     knowledge.Spellings // confirmed spelling aliases, applied to lines
 	topics    []shownTopic
 	briefed   map[string]time.Time
 	onSaved   func()
@@ -122,9 +144,14 @@ func (l *Live) Reload() (err error) {
 			return err
 		}
 	}
+	sp, err := l.eng.Store.ConfirmedSpellings()
+	if err != nil {
+		return err
+	}
 	l.mu.Lock()
 	l.sug = s
 	l.topicIx = cs
+	l.spell = knowledge.Spellings(sp)
 	l.mu.Unlock()
 	return nil
 }
@@ -363,6 +390,8 @@ func (l *Live) nextCycle() int {
 func (l *Live) fastLane(seg Segment) {
 	t0 := time.Now()
 	l.mu.Lock()
+	// A misheard name, once its alias is confirmed, reads as itself.
+	seg.Text = l.spell.Canonical(seg.Text)
 	sug, m, scopeName, ctx, topics := l.sug, l.meeting, l.scope, l.ctx, l.topicIx != nil
 	var recentLines []Segment
 	if m != nil && topics {
@@ -625,7 +654,15 @@ func (l *Live) brief(ctx context.Context, cycle int, s Suggestion, exclude []str
 	}
 	go l.lookupTopic(ctx, cycle, s)
 	t0 := time.Now()
-	hits, err := l.eng.Search(ctx, sc, s.Query, 4, exclude)
+	l.mu.Lock()
+	query := l.spell.Expand(s.Query)
+	l.mu.Unlock()
+	if bs := l.threadStatus(ctx, sc, query); bs != nil {
+		b.Status = bs
+		l.trace(cycle, "status", fmt.Sprintf("“%s”: %s's status", s.Query, bs.Name), time.Since(t0).Milliseconds(), nil)
+		l.emit("live:brief", b)
+	}
+	hits, err := l.eng.Search(ctx, sc, query, 4, exclude)
 	if err != nil {
 		b.State, b.Summary = "error", err.Error()
 		l.trace(cycle, "error", "search failed: "+s.Query, time.Since(t0).Milliseconds(), err.Error())
@@ -650,7 +687,9 @@ func (l *Live) brief(ctx context.Context, cycle int, s Suggestion, exclude []str
 		return
 	}
 	b.State = "done"
-	summarise := l.eng.Chat != nil && l.eng.Chat.Local()
+	// A written status says more than two sentences from four passages,
+	// and saves the local model's time during the meeting.
+	summarise := l.eng.Chat != nil && l.eng.Chat.Local() && b.Status == nil
 	b.Summarizing = summarise
 	l.finishBrief(cycle, b, said, "passages shown", "passages")
 	if summarise {
@@ -980,4 +1019,52 @@ func (l *Live) StopReplay() {
 	}
 	l.mu.Unlock()
 	l.pushStatus()
+}
+
+// threadStatus is the status of the thread a lookup is about, when it
+// matches one well (liveStatusMin) and the scope may see its status. A
+// replay sees only what was known when the meeting happened, so a status
+// written as of a later item isn't shown.
+func (l *Live) threadStatus(ctx context.Context, sc sensitivity.Scope, query string) *BriefStatus {
+	f, err := l.eng.ThreadFinder()
+	if err != nil || f == nil {
+		return nil
+	}
+	v := l.eng.Embed(ctx, query)
+	if v == nil {
+		return nil
+	}
+	m := f.Find(sc, v, query, 1)
+	if len(m) == 0 || m[0].Score < liveStatusMin {
+		return nil
+	}
+	sts, err := l.eng.Store.ThreadStatuses(sc)
+	if err != nil {
+		return nil
+	}
+	st, ok := sts[m[0].ID]
+	if !ok {
+		return nil
+	}
+	l.mu.Lock()
+	replayAt := time.Time{}
+	if l.mode == "replay" && l.meeting != nil {
+		replayAt = l.meeting.Session.CreatedAt
+	}
+	l.mu.Unlock()
+	if !replayAt.IsZero() && st.AsOf.After(replayAt) {
+		return nil
+	}
+	var s knowledge.Status
+	if json.Unmarshal([]byte(st.Body), &s) != nil {
+		return nil
+	}
+	bs := &BriefStatus{Topic: m[0].ID, Name: m[0].Name, AsOf: st.AsOf, Now: knowledge.StripIDs(s.Now)}
+	for _, c := range s.Changed[:min(len(s.Changed), 2)] {
+		bs.Changed = append(bs.Changed, knowledge.StripIDs(c.Text))
+	}
+	for _, o := range s.Open[:min(len(s.Open), 3)] {
+		bs.Open = append(bs.Open, knowledge.StripIDs(o.Text))
+	}
+	return bs
 }

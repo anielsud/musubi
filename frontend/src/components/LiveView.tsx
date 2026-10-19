@@ -135,7 +135,7 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
 
       <section className="briefs">
         {briefs.map((b) => (
-          <BriefCard key={b.query + b.at} brief={b} onOpen={(h) => onOpen(h, scope)} />
+          <BriefCard key={b.query + b.at} brief={b} onOpen={(h) => onOpen(h, scope)} onTopic={onTopic} />
         ))}
         {active && briefs.length === 0 && topics.length === 0 && (
           <Empty>Briefings appear here as the conversation names people, customers and topics you have history on.</Empty>
@@ -252,11 +252,12 @@ function ReplayPicker({ onAudio }: { onAudio: (ref: string) => void }) {
   );
 }
 
-function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: (h: Hit) => void }) {
+function BriefCard({ brief, onOpen, onTopic }: { brief: Brief; onOpen: (h: Hit) => void; onTopic: (id: number) => void }) {
   const [open, setOpen] = useState(false);
   const hits = brief.hits ?? [];
-  // Until (or without) a model summary, the passages are the brief.
-  const showHits = open !== (brief.state === 'done' && !brief.summary);
+  // Until (or without) a summary or a status, the passages are the brief.
+  const showHits = open !== (brief.state === 'done' && !brief.summary && !brief.status);
+  const st = brief.status;
   const lag = brief.spokenAgo >= 0 ? `${brief.spokenAgo.toFixed(1)}s after it was said` : '';
   return (
     <article className={'brief state-' + brief.state}>
@@ -268,6 +269,14 @@ function BriefCard({ brief, onOpen }: { brief: Brief; onOpen: (h: Hit) => void }
       {(brief.why && brief.why !== 'model') || lag ? (
         <div className="brief-why">{[brief.why !== 'model' ? brief.why : '', lag].filter(Boolean).join(' · ')}</div>
       ) : null}
+      {st && (
+        <div className="brief-status">
+          <button className="link" onClick={() => onTopic(st.topic)} title="Open the topic's page">{st.name}</button>
+          <span className="dim small"> · as of {fmtDate(st.asOf)}</span>
+          <p className="brief-sum">{st.now}</p>
+          {(st.open?.length ?? 0) > 0 && <ul className="status-list">{st.open!.map((o, i) => <li key={i}>{o}</li>)}</ul>}
+        </div>
+      )}
       {brief.summarizing && <div className="brief-why">summarising…</div>}
       {brief.summary && (
         <p className="brief-sum"><CitedText text={brief.summary} hits={hits} onCite={onOpen} /></p>
@@ -306,6 +315,7 @@ function TopicCardView({ card, onTopic }: { card: TopicCard; onTopic: (id: numbe
       <div className="brief-why">
         {[card.why, `last discussed ${fmtDate(card.last)}`, `${card.meetings} meeting${card.meetings === 1 ? '' : 's'}`, lag].filter(Boolean).join(' · ')}
       </div>
+      {!hidden && card.now && <p className="card-now">{card.now}</p>}
       {hidden ? (
         <button className="link reveal" onClick={() => setReveal(true)}>Show — not for a shared screen</button>
       ) : (

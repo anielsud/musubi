@@ -63,6 +63,7 @@ export interface Brief {
   at: string;
   spokenAgo: number;
   summarizing: boolean;
+  status?: { topic: number; name: string; asOf: string; now: string; changed?: string[] | null; open?: string[] | null };
 }
 
 export interface Card {
@@ -93,6 +94,7 @@ export interface TopicLine {
 
 export interface TopicCard {
   topicId: number;
+  now?: string;
   title: string;
   terms?: string[] | null;
   last: string;

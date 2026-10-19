@@ -132,7 +132,7 @@ func AskWith(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, questi
 		{Role: "system", Content: system},
 		{Role: "user", Content: "Today: " + time.Now().Format("Mon 2 Jan 2006") + "\n\n" + ctxt.String() + "Question: " + question},
 	}
-	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.2, MaxTokens: 1200, Context: 16384, Timeout: askTimeout}, onToken)
+	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.2, MaxTokens: 2000, Context: 16384, Timeout: askTimeout}, onToken)
 	if err != nil {
 		return ans, err
 	}
@@ -343,7 +343,7 @@ func PrepBrief(ctx context.Context, e *engine.Engine, v *knowledge.PrepView, onT
 		}
 	}
 	msgs := []provider.Message{{Role: "system", Content: prepSystem}, {Role: "user", Content: b.String() + "\nWrite the talking points."}}
-	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.3, MaxTokens: 1200, Context: 16384, Timeout: askTimeout}, onToken)
+	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.3, MaxTokens: 2000, Context: 16384, Timeout: askTimeout}, onToken)
 	if err != nil {
 		return ans, err
 	}

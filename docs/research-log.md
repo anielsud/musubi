@@ -2014,3 +2014,41 @@ Threading follows time, so adding meetings older than those already
 threaded needs `--redo threads`; `musubi knowledge` now says so. A
 backfill should be extracted in full and threaded once, or brought in
 oldest first.
+
+## 2026-10-19: Ask on the combined dataset, and how noisy the question set is
+
+The 28 September questions were answered on all-t4 (the Go threader
+over the ELT year and September) and graded blind against the
+September-only answers (Python R7 threads), with credit for correct
+October news. A second September run was graded against the first, to
+measure noise.
+
+| | Sept r1 | Sept r2 | All |
+|---|---|---|---|
+| Must facts | 65–67/105 | 64/105 | 58/105 |
+| Wrong | 6–8 | 6 | 10 |
+| Current | 25/28 | 26/28 | 24/28 |
+| Useful | 2.1–2.2 | 2.11 | 2.04 |
+| Wins | r1 10, r2 8, tie 10 | | Sept 18, All 8, tie 2 |
+
+Noise:
+- the same system against itself splits wins about evenly and moves by
+  1–2 must facts;
+- grading the same answers twice moved them by 2.
+
+So All's gap is real. It is in change questions (16 → 12 of 21) and
+person questions (8 → 4 of 18); status and lookup are even.
+
+From the lost questions, the causes are:
+- **Broader Go threads:** the SRE reorganisation joined the thread about
+  its leader's departure, so "where does the SRE reorg stand" got the
+  departure.
+- **A longer history competing in the person ranking:** a year of ELT
+  subjects outranks the 1:1 ones.
+
+Next:
+- close the Go threader's gap to R7 on the same data;
+- weight recency and two-person meetings in prep's ranking.
+
+Ask's answer cap rose from 1,200 to 2,000 tokens: a long person answer
+was cut off.

@@ -74,17 +74,25 @@ export function AskView({ onOpen, scope, onTopic }: { onOpen: (h: Hit, scope: st
         {turns.map((t) => (
           <div key={t.id} className="turn">
             <div className="q">{t.q}{t.scope !== 'owner' && <span className="scope-pill">{t.scope}</span>}</div>
-            {!t.done && t.threads.length > 0 && (
+            {t.threads.length > 0 && (t.done ? (
+              t.threads[0].status && (
+                <details className="found-done">
+                  <summary>Where {t.threads[0].name} stands, as written</summary>
+                  <StatusCard th={t.threads[0]} onTopic={onTopic} />
+                </details>
+              )
+            ) : (
               <div className="found">
-                <div className="dim small">Where these stand, while the answer is written:</div>
-                {t.threads.map((th) => (
+                {t.threads[0].status && <StatusCard th={t.threads[0]} onTopic={onTopic} />}
+                {t.threads.slice(t.threads[0].status ? 1 : 0).map((th) => (
                   <button key={th.id} className="found-row" onClick={() => onTopic(th.id)} title="Open the topic's page">
                     <b>{th.name}</b> <span className="dim">· {fmtDate(th.asOf)}</span>
                     {th.now && <div className="found-now">{th.now}</div>}
                   </button>
                 ))}
+                <div className="dim small">Writing the answer…</div>
               </div>
-            )}
+            ))}
             <div className="a">
               {t.text ? <Answer text={t.text} hits={t.sources} onCite={(h) => onOpen(h, t.scope)} /> : !t.done && <Spinner />}
               {!t.done && t.text && <span className="caret" />}
@@ -191,5 +199,31 @@ export function Answer({ text, hits, onCite }: { text: string; hits: Hit[]; onCi
   }
   flush();
   return <div className="answer-md">{blocks}</div>;
+}
+
+// StatusCard: a subject's written status, shown before the answer.
+function StatusCard({ th, onTopic }: { th: ThreadRef; onTopic: (id: number) => void }) {
+  const st = th.status!;
+  return (
+    <section className="thread-status">
+      <div className="section-head">
+        <button className="link" onClick={() => onTopic(th.id)}>{th.name}</button>
+        <span className="dim">as of {fmtDate(th.asOf)}</span>
+      </div>
+      <p className="status-now">{st.now}</p>
+      {(st.changed?.length ?? 0) > 0 && (
+        <>
+          <div className="status-head">Changed recently</div>
+          <ul className="status-list">{st.changed!.slice(0, 3).map((c, i) => <li key={i}>{c.date && <span className="dim">{c.date} · </span>}{c.text}</li>)}</ul>
+        </>
+      )}
+      {(st.open?.length ?? 0) > 0 && (
+        <>
+          <div className="status-head">Open</div>
+          <ul className="status-list">{st.open!.slice(0, 4).map((o, i) => <li key={i}>{o.text}{o.who && <span className="dim"> — {o.who}</span>}</li>)}</ul>
+        </>
+      )}
+    </section>
+  );
 }
 

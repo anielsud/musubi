@@ -351,13 +351,15 @@ function Timeline({ map, lit, selected, onOpen, width, wide }: ViewProps) {
     else cur.add(id);
     setOpen(cur);
   };
-  const cx = (i: number) => labelW + colW * (i + 0.5);
-  // Many meetings: the timeline scrolls sideways, and dates label every
-  // few columns so they don't overlap.
-  const svgW = Math.max(width, labelW + colW * items.length + 12);
+  // The names stay put while the meetings scroll sideways: names and dots
+  // are two drawings side by side in one scrolling box, the names sticky.
+  const cx = (i: number) => colW * (i + 0.5);
+  const dotsW = Math.max(width - labelW, colW * items.length + 12);
+  // Dates label every few columns so they don't overlap.
   const step = Math.max(1, Math.ceil(48 / colW));
   let yy = headH;
-  const rows: JSX.Element[] = [];
+  const names: JSX.Element[] = [];
+  const dots: JSX.Element[] = [];
   for (const g of groups) {
     const opened = isOpen(g.c.id);
     // A folded cluster's dots: its topics' statements per meeting.
@@ -369,11 +371,18 @@ function Timeline({ map, lit, selected, onOpen, width, wide }: ViewProps) {
       }
     }
     const maxSum = Math.max(1, ...sum.values());
-    rows.push(
-      <g key={'g' + g.c.id} className={'tl-grow' + (folding ? ' foldable' : '')} onClick={() => folding && toggle(g.c.id)}>
-        <rect x={0} y={yy} width={svgW} height={groupH} className="tl-hit" />
+    const click = () => folding && toggle(g.c.id);
+    const cls = 'tl-grow' + (folding ? ' foldable' : '');
+    names.push(
+      <g key={'g' + g.c.id} className={cls} onClick={click}>
+        <rect x={0} y={yy} width={labelW} height={groupH} className="tl-hit" />
         <rect x={0} y={yy + 4} width={4} height={groupH - 8} fill={clusterColor(g.c.id)} rx={2} />
-        <text x={10} y={yy + 14} className="tl-group">{folding ? (opened ? '▾ ' : '▸ ') : ''}{short(g.c.label, wide ? 60 : 20)} · {g.rows.length}</text>
+        <text x={10} y={yy + 14} className="tl-group">{folding ? (opened ? '▾ ' : '▸ ') : ''}{short(g.c.label, wide ? 34 : 18)} · {g.rows.length}<title>{g.c.label}</title></text>
+      </g>,
+    );
+    dots.push(
+      <g key={'g' + g.c.id} className={cls} onClick={click}>
+        <rect x={0} y={yy} width={dotsW} height={groupH} className="tl-hit" />
         {[...sum.entries()].map(([i, n]) => <circle key={i} cx={cx(i)} cy={yy + groupH / 2} r={2 + 5.5 * Math.sqrt(n / maxSum)} fill={clusterColor(g.c.id)} fillOpacity={0.8}><title>{n} statements</title></circle>)}
       </g>,
     );
@@ -382,10 +391,16 @@ function Timeline({ map, lit, selected, onOpen, width, wide }: ViewProps) {
     for (const t of g.rows) {
       const y = yy + rowH / 2;
       const cols = (t.activity ?? []).map((a) => ({ i: col.get(a.item) ?? -1, n: a.n })).filter((a) => a.i >= 0).sort((a, b) => a.i - b.i);
-      rows.push(
-        <g key={t.id} className={'tl-trow' + (t.id === selected ? ' sel' : '')} onClick={() => onOpen(t.id)}>
-          <rect x={0} y={yy} width={svgW} height={rowH} className="tl-hit" />
-          <text x={10} y={y + 4} className="tl-label">{short(t.label, wide ? 40 : 22)}</text>
+      const tcls = 'tl-trow' + (t.id === selected ? ' sel' : '');
+      names.push(
+        <g key={t.id} className={tcls} onClick={() => onOpen(t.id)}>
+          <rect x={0} y={yy} width={labelW} height={rowH} className="tl-hit" />
+          <text x={10} y={y + 4} className="tl-label">{short(t.label, wide ? 40 : 22)}<title>{t.label}</title></text>
+        </g>,
+      );
+      dots.push(
+        <g key={t.id} className={tcls} onClick={() => onOpen(t.id)}>
+          <rect x={0} y={yy} width={dotsW} height={rowH} className="tl-hit" />
           {cols.length > 1 && <line x1={cx(cols[0].i)} x2={cx(cols[cols.length - 1].i)} y1={y} y2={y} stroke={clusterColor(t.cluster)} strokeOpacity={0.35} strokeWidth={2} />}
           {cols.map((a) => <circle key={a.i} cx={cx(a.i)} cy={y} r={2 + 5.5 * Math.sqrt(a.n / maxN)} fill={clusterColor(t.cluster)}><title>{a.n} statements</title></circle>)}
         </g>,
@@ -404,17 +419,20 @@ function Timeline({ map, lit, selected, onOpen, width, wide }: ViewProps) {
       </div>
     )}
     <div className="tl-scroll" style={{ maxHeight: wide ? window.innerHeight - 260 : 560 }}>
-      <svg className="topic-map tl" width={svgW} height={yy + 8}>
-        {items.map((it, i) => (
-          <g key={it.id}>
-            <line x1={labelW + colW * (i + 0.5)} x2={labelW + colW * (i + 0.5)} y1={headH - 6} y2={yy} className="tl-col" />
-            {i % step === 0 && <text x={labelW + colW * (i + 0.5)} y={16} textAnchor="middle" className="tl-head">{fmtDate(it.occurredAt)}</text>}
-            {colW > 70 && <text x={labelW + colW * (i + 0.5)} y={30} textAnchor="middle" className="tl-sub">{short(it.title, Math.floor(colW / 6.5))}</text>}
-            <title>{it.title}</title>
-          </g>
-        ))}
-        {rows}
-      </svg>
+      <div className="tl-split">
+        <svg className="topic-map tl tl-names" width={labelW} height={yy + 8}>{names}</svg>
+        <svg className="topic-map tl" width={dotsW} height={yy + 8}>
+          {items.map((it, i) => (
+            <g key={it.id}>
+              <line x1={cx(i)} x2={cx(i)} y1={headH - 6} y2={yy} className="tl-col" />
+              {i % step === 0 && <text x={i === 0 ? 2 : cx(i)} y={16} textAnchor={i === 0 ? 'start' : 'middle'} className="tl-head">{fmtDate(it.occurredAt)}</text>}
+              {colW > 70 && <text x={cx(i)} y={30} textAnchor="middle" className="tl-sub">{short(it.title, Math.floor(colW / 6.5))}</text>}
+              <title>{it.title}</title>
+            </g>
+          ))}
+          {dots}
+        </svg>
+      </div>
     </div>
     </>
   );

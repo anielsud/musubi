@@ -542,3 +542,9 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .found-row { text-align: left; padding: 6px 8px; border-radius: 7px; background: var(--bg-2); font-size: 12.5px; }
 .found-row:hover { background: var(--surface-2); }
 .found-now { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+.found-done { margin: 6px 0; font-size: 12px; }
+.found-done summary { color: var(--text-dim); cursor: pointer; }
+.tl-split { display: flex; width: max-content; min-width: 100%; }
+.tl-names { position: sticky; left: 0; z-index: 1; background: var(--bg-2); flex: none; }
+.tl-split .topic-map { border: none; border-radius: 0; }
+.tl-scroll:has(.tl-split) { border: 1px solid var(--line); background: var(--bg-2); }

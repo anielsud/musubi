@@ -1033,6 +1033,8 @@ func (r *Runner) writeStatuses(ctx context.Context, o KnowledgeOptions, ks *Know
 		}
 		if have["full"] != knowledge.StatusVersion+"/"+full.Hash {
 			jobs = append(jobs, job{th, "full", full})
+		} else if err := r.Store.RelabelThreadStatus(th.ID, "full", full.Label); err != nil {
+			return err
 		}
 		op := knowledge.StatusInputFor(th.Name, th.Scope, sts, open)
 		switch {
@@ -1042,6 +1044,10 @@ func (r *Runner) writeStatuses(ctx context.Context, o KnowledgeOptions, ks *Know
 			}
 		case have["open"] != knowledge.StatusVersion+"/"+op.Hash:
 			jobs = append(jobs, job{th, "open", op})
+		default:
+			if err := r.Store.RelabelThreadStatus(th.ID, "open", op.Label); err != nil {
+				return err
+			}
 		}
 	}
 	if len(jobs) == 0 {

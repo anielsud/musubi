@@ -295,6 +295,7 @@ export interface ThreadRef {
   name: string;
   asOf: string;
   now?: string;
+  status?: ThreadStatus;
 }
 
 export interface KnowledgeCounts {

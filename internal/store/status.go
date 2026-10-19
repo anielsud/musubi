@@ -236,3 +236,12 @@ func (s *Store) VisibleThreadItems(sc sensitivity.Scope, topics []int64) (map[in
 	}
 	return out, rows.Err()
 }
+
+// RelabelThreadStatus sets a stored status's label: its items' labels can
+// rise (a new rule, the labeller) without its text changing.
+func (s *Store) RelabelThreadStatus(topic int64, variant string, l sensitivity.Label) error {
+	_, err := s.db.Exec(`UPDATE thread_status SET level = ?, categories = ? WHERE topic_id = ? AND variant = ? AND (level != ? OR categories != ?)`,
+		int(l.Level), int(l.Categories), topic, variant, int(l.Level), int(l.Categories))
+	return err
+}
+

@@ -242,6 +242,14 @@ func TestThreadStatuses(t *testing.T) {
 	if ks.Statuses != 0 {
 		t.Errorf("rewrote %d unchanged statuses", ks.Statuses)
 	}
+	// A label raised later (a new rule, the labeller) reaches the stored
+	// status without a rewrite.
+	st.LabelStatement(ids[0], sensitivity.Label{Level: sensitivity.Confidential, Categories: sensitivity.Legal}, "test")
+	calls = 0
+	r.writeStatuses(context.Background(), o, &ks)
+	if got, _ := st.ThreadStatuses(sensitivity.Owner()); got[tid].Categories&sensitivity.Legal == 0 {
+		t.Errorf("status label not raised: %+v", got[tid])
+	}
 	// Retiring an item every scope sees changes both inputs; retiring the
 	// sensitive one changes only the full status.
 	var shared, private []int64

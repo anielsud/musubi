@@ -8,7 +8,7 @@ import (
 
 // RulesVersion changes whenever rule behavior changes, so the classify stage
 // re-runs everything it labelled with older rules.
-const RulesVersion = "r4"
+const RulesVersion = "r6"
 
 // ItemFacts is what the item-level rules look at.
 type ItemFacts struct {
@@ -36,7 +36,7 @@ type ItemFacts struct {
 // level it fails closed at Confidential.
 func ClassifyItem(f ItemFacts) Label {
 	if l, ok := nativeLabel(f.Native); ok {
-		l.Categories |= matchCategories(f.Title)
+		l.Categories |= matchCategories(f.Title) | titleCategories(f.Title)
 		return l
 	}
 	l := Label{Origin: OriginRule, Confidence: 0.7}
@@ -58,7 +58,7 @@ func ClassifyItem(f ItemFacts) Label {
 	default:
 		l.Level, l.Reason = Confidential, fmt.Sprintf("working group of %d", len(f.Audience))
 	}
-	if c := matchCategories(f.Title); c != 0 {
+	if c := matchCategories(f.Title) | titleCategories(f.Title); c != 0 {
 		l.Categories |= c
 		l.Level = maxLevel(l.Level, LevelFor(c))
 		l.Reason += "; title: " + c.String()
@@ -139,6 +139,27 @@ func maxLevel(a, b Level) Level {
 		return a
 	}
 	return b
+}
+
+// titleRules mark a whole meeting by what kind of meeting it is: an
+// interview is about a candidate from start to end, but its statements
+// ("he grew the team to 90 engineers") read like business facts one at a
+// time, and the statement labeller missed half of them (49 of 97 audited
+// items, research log 2026-10-19). Titles only: in a passage, "customer
+// interviews" is product research; a customer board's "debrief" isn't
+// about a candidate (r6).
+var titleRules = []textRule{
+	{cat: HR, re: rx(`interview|candidate|hiring panel|reference check`), not: rx(`customer|user|partner|market|press|podcast`)},
+}
+
+func titleCategories(title string) Categories {
+	var c Categories
+	for _, r := range titleRules {
+		if r.match(title) != "" {
+			c |= r.cat
+		}
+	}
+	return c
 }
 
 func matchCategories(text string) Categories {

@@ -25,6 +25,8 @@ type Answer struct {
 	Sources []store.Hit
 	// Threads are the subjects the answer drew on, for links to their pages.
 	Threads []ThreadRef
+	// PromptChars is the size of what the model read (for measuring).
+	PromptChars int
 }
 
 // ThreadRef is a thread an answer drew on, with the first sentence of its
@@ -34,6 +36,9 @@ type ThreadRef struct {
 	Name string    `json:"name"`
 	AsOf time.Time `json:"asOf"`
 	Now  string    `json:"now,omitempty"`
+	// Status is the thread's written status (inline ids removed), shown
+	// at once for "where are we" questions while the answer is written.
+	Status *knowledge.Status `json:"status,omitempty"`
 }
 
 // Hooks follow an answer as it is made: Found when the subjects and
@@ -56,11 +61,11 @@ Rules:
 - Be brief: a short paragraph or a short list.`
 
 const (
-	askThreads      = 3  // threads at most
-	askThreadItems  = 12 // latest current items per thread
-	askPassages     = 6  // passages alongside threads
-	askPassagesOnly = 8  // passages when no thread is used
-	statusCites     = 3  // sources cited per status point
+	askThreads      = 3 // threads at most
+	askThreadItems  = 8 // latest current items per thread
+	askPassages     = 4 // passages alongside threads
+	askPassagesOnly = 8 // passages when no thread is used
+	statusCites     = 2 // sources cited per status point
 	// askTimeout bounds an answer: a local model reads 10k tokens of
 	// context first, slowly when other requests share it.
 	askTimeout = 5 * time.Minute
@@ -132,6 +137,7 @@ func AskWith(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, questi
 		{Role: "system", Content: system},
 		{Role: "user", Content: "Today: " + time.Now().Format("Mon 2 Jan 2006") + "\n\n" + ctxt.String() + "Question: " + question},
 	}
+	ans.PromptChars = len(msgs[0].Content) + len(msgs[1].Content)
 	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.2, MaxTokens: 2000, Context: 16384, Timeout: askTimeout}, onToken)
 	if err != nil {
 		return ans, err
@@ -187,6 +193,7 @@ func threadContext(e *engine.Engine, sc sensitivity.Scope, vec []float32, questi
 			var s knowledge.Status
 			if json.Unmarshal([]byte(st.Body), &s) == nil {
 				ref.AsOf, ref.Now = st.AsOf, knowledge.FirstSentence(knowledge.StripIDs(s.Now))
+				ref.Status = shown(s)
 				fmt.Fprintf(b, "Status as of %s:\n%s\n", st.AsOf.Format("2 Jan 2006"), statusText(s, cite))
 			}
 		}
@@ -241,10 +248,10 @@ func statusText(s knowledge.Status, cite func(int64) string) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Now: %s %s\n", prose(s.Now), refs(s.NowIDs))
-	for _, c := range s.Changed[:min(len(s.Changed), 4)] {
+	for _, c := range s.Changed[:min(len(s.Changed), 3)] {
 		fmt.Fprintf(&b, "Changed (%s): %s %s\n", c.Date, prose(c.Text), refs(c.IDs))
 	}
-	for _, o := range s.Open[:min(len(s.Open), 6)] {
+	for _, o := range s.Open[:min(len(s.Open), 4)] {
 		extra := ""
 		if o.Who != "" {
 			extra += "; owner: " + o.Who
@@ -415,4 +422,19 @@ func personContext(e *engine.Engine, sc sensitivity.Scope, question string, b *s
 	}
 	b.WriteString("\n")
 	return nil
+}
+
+// shown is a status as the answer view shows it before the answer: the
+// writer's inline ids removed.
+func shown(s knowledge.Status) *knowledge.Status {
+	out := knowledge.Status{Now: knowledge.StripIDs(s.Now), People: s.People}
+	for _, c := range s.Changed {
+		c.Text = knowledge.StripIDs(c.Text)
+		out.Changed = append(out.Changed, c)
+	}
+	for _, o := range s.Open {
+		o.Text = knowledge.StripIDs(o.Text)
+		out.Open = append(out.Open, o)
+	}
+	return &out
 }

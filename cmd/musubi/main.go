@@ -614,7 +614,7 @@ func askCmd() *cobra.Command {
 				return err
 			}
 			if asJSON {
-				return json.NewEncoder(os.Stdout).Encode(map[string]any{"text": a.Text, "sources": a.Sources, "threads": a.Threads, "seconds": time.Since(t0).Seconds()})
+				return json.NewEncoder(os.Stdout).Encode(map[string]any{"text": a.Text, "sources": a.Sources, "threads": a.Threads, "seconds": time.Since(t0).Seconds(), "prompt_chars": a.PromptChars})
 			}
 			if len(a.Threads) > 0 {
 				fmt.Println("\n\nsubjects:")

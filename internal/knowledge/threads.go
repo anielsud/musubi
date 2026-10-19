@@ -323,7 +323,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 				// "none" leaves an item out on purpose (small talk); anything
 				// else that names no thread is asked again.
 				ref := strings.TrimSpace(g.Thread)
-				if _, ok := resolveThread(ref, codes, threads, byName); !ok && !strings.EqualFold(ref, "none") {
+				if _, ok := resolveThread(ref, codes, threads, byName); !ok && !leftOut(ref) {
 					continue
 				}
 				for _, id := range g.IDs {
@@ -381,7 +381,7 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 		for _, g := range res.Groups {
 			tid, ok := resolveThread(strings.TrimSpace(g.Thread), local, threads, byName)
 			if !ok {
-				if len(g.IDs) > 0 && !strings.EqualFold(strings.TrimSpace(g.Thread), "none") {
+				if len(g.IDs) > 0 && !leftOut(g.Thread) {
 					t.logf("threads %s: %d items grouped under %q, which names no thread", it.ID, len(g.IDs), g.Thread)
 				}
 				continue // none, or a code nobody defined
@@ -1294,3 +1294,11 @@ func resolveThread(ref string, local map[string]int64, threads map[int64]*thread
 	}
 	return 0, false
 }
+
+// leftOut: a group the reply files under "none" ("none — meeting
+// logistics") leaves its items out on purpose.
+func leftOut(ref string) bool {
+	r := strings.ToLower(strings.TrimSpace(ref))
+	return r == "none" || strings.HasPrefix(r, "none ") || strings.HasPrefix(r, "none—") || strings.HasPrefix(r, "none:") || strings.HasPrefix(r, "none-")
+}
+

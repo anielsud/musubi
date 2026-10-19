@@ -374,3 +374,11 @@ func TestResolveThread(t *testing.T) {
 		}
 	}
 }
+
+func TestLeftOut(t *testing.T) {
+	for ref, want := range map[string]bool{"none": true, "None — meeting logistics": true, "none: small talk": true, "nonexistent": false, "n1": false} {
+		if leftOut(ref) != want {
+			t.Errorf("leftOut(%q) = %v", ref, !want)
+		}
+	}
+}

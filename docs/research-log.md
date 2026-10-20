@@ -2407,8 +2407,16 @@ work unless the meeting is known to be an interview) and splits "none"
 into work, a role being hired for, and routine mentions of people (the
 one "none" drew false flags to roles, hiring processes and praise of
 teams). It halves the 27B's misses at the same precision.
-`knowledge.label.classifier` (off by default) labels with it under its
-own version. GLM-5.3-Flash on Baseten returns no log-probabilities and
+`knowledge.label.classifier` (off by default) labels new statements with
+it; statements labelled earlier keep their labels (labels only add, so
+relabelling would give the union of two labellers, which nobody would
+run going forward). On All, Jev labels from the October meetings on; the
+earlier corpus keeps its 27B labels.
+
+To do, later: relabel the whole corpus with the labeller in use
+(`musubi knowledge --redo label`, which replaces rather than adds once a
+reset of labeller labels exists) and check filtering end to end, so the
+corpus is on one labeller and its quality is measured as a whole. GLM-5.3-Flash on Baseten returns no log-probabilities and
 ignores "thinking off", so the one-token decider can't run there.
 
 *Relations*, on the linking benchmark's 227 reference pairs, one call per

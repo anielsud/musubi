@@ -983,7 +983,17 @@ func (r *Runner) labelStatements(ctx context.Context, o KnowledgeOptions, ks *Kn
 	if d == nil && cl == nil {
 		return nil
 	}
-	todo, err := r.Store.StatementsToLabel(version)
+	// A classifier labels what no labeller has checked: statements labelled
+	// earlier keep their labels (labels only add, so labelling them again
+	// would give the union of two labellers) unless asked
+	// (--redo label, which relabels everything under this version).
+	var todo []store.Statement
+	var err error
+	if cl != nil && !o.redo("label") {
+		todo, err = r.Store.StatementsUnlabelled()
+	} else {
+		todo, err = r.Store.StatementsToLabel(version)
+	}
 	if err != nil || len(todo) == 0 {
 		return err
 	}

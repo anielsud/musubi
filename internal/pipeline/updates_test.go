@@ -3,10 +3,14 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/sensitivity"
@@ -171,6 +175,23 @@ func TestStatementLabels(t *testing.T) {
 	// Checked once per version.
 	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: labelLLM{emptyLLM{"m1"}}}); ks.Checked != 0 {
 		t.Errorf("rechecked %d statements", ks.Checked)
+	}
+	// A classifier labels only what no labeller has checked; --redo label
+	// relabels everything with it.
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		fmt.Fprint(w, `{"answers":{"sensitive":{"choice":"work","probabilities":{"work":1}}},"usage":{"input_tokens":10}}`)
+	}))
+	defer srv.Close()
+	t.Setenv("JEV_TEST_KEY", "k")
+	r.Cfg.Knowledge.AllowHosted = true
+	r.Cfg.Knowledge.Label.Classifier = config.Classifier{Provider: "jev", URL: srv.URL, APIKey: "env:JEV_TEST_KEY"}
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: labelLLM{emptyLLM{"m1"}}}); ks.Checked != 0 || calls != 0 {
+		t.Errorf("relabelled %d statements (%d calls) without being asked", ks.Checked, calls)
+	}
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: labelLLM{emptyLLM{"m1"}}, Redo: []string{"label"}}); ks.Checked != len(sts) || calls != len(sts) {
+		t.Errorf("--redo label checked %d of %d (%d calls)", ks.Checked, len(sts), calls)
 	}
 	// Off restores the earlier behaviour.
 	r.Cfg.Knowledge.Label.Enabled = false

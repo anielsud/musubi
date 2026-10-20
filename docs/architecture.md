@@ -802,6 +802,14 @@ stay cheap.
 
 - A statement is visible exactly when its passage is and its own label
   allows (a point's: personal, or a more sensitive passage it rests on).
+- **Statement labels with a typed classifier**
+  (`knowledge.label.classifier`, off by default; `LabelVersionTyped`):
+  one call per statement to a classification model (`provider.Classifier`;
+  Jev) with the statement and its meeting's title, nine options (six
+  sensitive, three kinds of ordinary). It labels statements no labeller
+  has checked; `--redo label` relabels all. Measured on September's
+  audited sample: recall 0.86 at precision 0.91, against the 27B's 0.71
+  at 0.91 (research log 2026-10-20).
 - **Statement labels** (`knowledge.label`, on by default; `LabelVersion`):
   a local model reads each statement once, with one forward pass over six
   choices. It labels what passage rules miss: a named person's

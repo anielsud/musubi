@@ -996,8 +996,8 @@ func knowledgeCmd() *cobra.Command {
 			}
 			defer e.Close()
 			for _, s := range redo {
-				if s != "extract" && s != "links" && s != "threads" {
-					return fmt.Errorf("--redo takes extract, links or threads (got %q)", s)
+				if s != "extract" && s != "links" && s != "threads" && s != "label" {
+					return fmt.Errorf("--redo takes extract, links, threads or label (got %q)", s)
 				}
 			}
 			o := pipeline.KnowledgeOptions{Items: items, Limit: limit, Workers: workers,
@@ -1029,7 +1029,7 @@ func knowledgeCmd() *cobra.Command {
 	c.Flags().IntVar(&limit, "limit", 0, "extract at most this many items this run")
 	c.Flags().IntVar(&workers, "workers", 2, "parallel model requests")
 	c.Flags().BoolVarP(&verbose, "verbose", "v", false, "print each linking decision")
-	c.Flags().StringSliceVar(&redo, "redo", nil, "bring these stages up to their current version: extract, links (rethreads too, in thread mode), threads")
+	c.Flags().StringSliceVar(&redo, "redo", nil, "bring these stages up to their current version: extract, links (rethreads too, in thread mode), threads, label (relabel every statement with the configured labeller)")
 	c.Flags().IntVar(&newest, "newest", 0, "with --redo extract: only this many items, newest first")
 	c.Flags().BoolVar(&noThreads, "no-threads", false, "stop after linking (threads applied from elsewhere)")
 	c.Flags().BoolVar(&plan, "plan", false, "say what a run would do, and what is on an earlier version, without doing it")

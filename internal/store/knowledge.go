@@ -1079,6 +1079,11 @@ func (s *Store) StatementsToLabel(version string) ([]Statement, error) {
 	return s.statements(`WHERE st.label_version != ? ORDER BY st.id`, version)
 }
 
+// StatementsUnlabelled lists statements no labeller has checked.
+func (s *Store) StatementsUnlabelled() ([]Statement, error) {
+	return s.statements(`WHERE st.label_version = '' ORDER BY st.id`)
+}
+
 // LabelStatement raises a statement's own label (never lowers it: a
 // labeller only adds what it recognises) and records the labeller's
 // version.

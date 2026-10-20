@@ -172,9 +172,9 @@ type Label struct {
 	// instead of Model's one-token decision: provider "jev" (TypeSafe).
 	// On September's audited sample (research log 2026-10-20) it found 86%
 	// of sensitive statements against the 27B's 71%, at the same
-	// precision, in seconds. Setting it relabels every statement under its
-	// own version on the next knowledge run; labels only ever add, so
-	// earlier labels stay. Empty: Model, the earlier behaviour.
+	// precision, in seconds. It labels statements no labeller has checked;
+	// those labelled earlier keep their labels unless relabelled with
+	// musubi knowledge --redo label. Empty: Model, the earlier behaviour.
 	Classifier Classifier `toml:"classifier"`
 }
 

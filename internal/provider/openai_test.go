@@ -271,3 +271,36 @@ func TestHostedRateLimited(t *testing.T) {
 		t.Fatalf("got %q, %v after %d calls", out, err, calls)
 	}
 }
+
+type failLLM struct{ local bool }
+
+func (failLLM) Complete(context.Context, []Message, ChatOptions, func(string)) (string, error) {
+	return "", fmt.Errorf("down")
+}
+func (f failLLM) Local() bool     { return f.local }
+func (failLLM) ModelName() string { return "fail" }
+
+type okLLM struct{}
+
+func (okLLM) Complete(context.Context, []Message, ChatOptions, func(string)) (string, error) {
+	return "local answer", nil
+}
+func (okLLM) Local() bool       { return true }
+func (okLLM) ModelName() string { return "ok" }
+
+// The fallback answers when the primary fails, and the pair counts as
+// hosted when either is.
+func TestFallback(t *testing.T) {
+	var noted error
+	f := Fallback{Primary: failLLM{}, Secondary: okLLM{}, Note: func(err error) { noted = err }}
+	out, err := f.Complete(context.Background(), nil, ChatOptions{}, nil)
+	if err != nil || out != "local answer" || noted == nil {
+		t.Fatalf("got %q, %v (noted %v)", out, err, noted)
+	}
+	if f.Local() {
+		t.Error("a hosted primary counted as local")
+	}
+	if (Fallback{Primary: failLLM{local: true}, Secondary: okLLM{}}).Local() != true {
+		t.Error("two local models counted as hosted")
+	}
+}

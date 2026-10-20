@@ -2564,3 +2564,21 @@ other four-meeting runs). The race detector found one race, older than
 this: reconcile's workers read other threads for cross context while
 finished threads were written back; that context is now taken before
 the workers start.
+
+**Ask on GLM-5.3-Flash (hosted) instead of the local 27B.** Same 28
+questions, same data and retrieval (the copy from before October), only
+the answering model changed; two blind Opus graders, all 28 each:
+
+| | Grader 1: 27B → GLM | Grader 2: 27B → GLM |
+|---|---|---|
+| Wins (27B / GLM / tie) | 4 / 17 / 7 | 5 / 18 / 5 |
+| Must facts (of 105) | 59 → 67 | 63 → 71 |
+| Wrong | 7 → 5 | 7 → 4 |
+| Useful (0–3) | 2.07 → 2.39 | 1.89 → 2.21 |
+| Prep questions, must facts (of 18) | 8 → 11 | 8 → 11 |
+
+Answers took 3 s median (10 s at most) against 170 s for the 27B (four
+at a time), and $0.027 for the 28. `[ask.fallback]` names a model that
+answers when the hosted one fails (checked with the hosted address
+broken: the local 27B answered in 63 s). On All, Ask and talking points
+are hosted with the 27B as fallback; the code's defaults stay local.

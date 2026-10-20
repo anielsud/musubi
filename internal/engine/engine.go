@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -67,6 +68,16 @@ func Open(cfgPath string) (*Engine, error) {
 			st.Close()
 			return nil, err
 		}
+	}
+	if cfg.Ask.Fallback.Provider != "" && e.AskLLM != nil {
+		fb, err := provider.NewLLM(cfg.Ask.Fallback)
+		if err != nil {
+			st.Close()
+			return nil, err
+		}
+		e.AskLLM = provider.Fallback{Primary: e.AskLLM, Secondary: fb, Note: func(err error) {
+			fmt.Fprintf(os.Stderr, "ask: %s failed (%v); answering with %s\n", cfg.Ask.Model.Model, err, fb.ModelName())
+		}}
 	}
 	return e, nil
 }

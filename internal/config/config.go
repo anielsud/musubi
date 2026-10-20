@@ -48,6 +48,10 @@ type Ask struct {
 	// Model answers; provider "" uses [llm]. A hosted model reads only
 	// what the cloud scope allows, unless knowledge.allow_hosted.
 	Model LLM `toml:"model"`
+	// Fallback answers when Model fails (unreachable, refused, rate limited
+	// past its waits): a local model behind a hosted one. Provider "": no
+	// fallback. Talking points (prep) use the same pair.
+	Fallback LLM `toml:"fallback"`
 	// Threads answers from the threads a question is about (their status
 	// and current items) as well as from passages. false answers from
 	// passages alone, the earlier behaviour.

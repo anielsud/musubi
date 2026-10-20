@@ -904,7 +904,7 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 		}
 	}
 	th := &knowledge.Threader{Store: r.Store, LLM: llm, Vecs: vecs, Version: stamp, Chunk: kc.Threads.Chunk, Parallel: kc.Threads.Parallel,
-		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, WarmFirst: kc.WarmCache, AuditFixes: kc.Threads.AuditFixes, ConsolidateWindow: kc.Threads.ConsolidateWindow, Merged: kc.Threads.Merged, ConsolidateEvery: kc.Threads.ConsolidateEvery, Logf: r.logf}
+		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, WarmFirst: kc.WarmCache, AuditFixes: kc.Threads.AuditFixes, ConsolidateWindow: kc.Threads.ConsolidateWindow, Merged: kc.Threads.Merged, ConsolidateEvery: kc.Threads.ConsolidateEvery, Overlap: kc.Threads.Overlap, Logf: r.logf}
 	// Corrections whose mending didn't finish (the model was unreachable
 	// when they were made) are done first, so new items meet the graph as
 	// corrected.
@@ -928,6 +928,24 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 		}
 		r.logf("threads: %d corrections made earlier had their threads mended", len(pending))
 	}
+	// With overlap, an item's consolidation runs while the next item is
+	// threaded (one at a time); waitTail collects it.
+	type tailResult struct {
+		st  knowledge.ThreadStats
+		err error
+	}
+	var tailCh chan tailResult
+	waitTail := func() error {
+		if tailCh == nil {
+			return nil
+		}
+		res := <-tailCh
+		tailCh = nil
+		ks.Threads.Relations += res.st.Relations
+		ks.Threads.Calls += res.st.Calls
+		return res.err
+	}
+	defer waitTail()
 	for i, it := range todo {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -935,16 +953,48 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 		t0 := time.Now()
 		// Not marked threaded (under these rules) but placed: a run stopped
 		// mid-item, or an item kept from earlier rules being redone.
+		if placed, err := r.Store.ThreadsOfItem(it.ID); err != nil {
+			return err
+		} else if len(placed) > 0 {
+			if err := waitTail(); err != nil {
+				return err
+			}
+		}
 		if n, err := knowledge.Unthread(r.Store, it.ID); err != nil {
 			return fmt.Errorf("threads %s: unthread: %w", it.ID, err)
 		} else if n > 0 {
 			r.logf("threads %s: was already in %d threads (a stopped run, or earlier rules); taken out first", it.ID, n)
 		}
-		thread := th.Thread
-		if !latestDone.IsZero() && it.Start.Before(latestDone) {
-			thread = th.Insert
+		inserting := !latestDone.IsZero() && it.Start.Before(latestDone)
+		var st knowledge.ThreadStats
+		var err error
+		switch {
+		case inserting:
+			if err := waitTail(); err != nil {
+				return err
+			}
+			st, err = th.Insert(ctx, it)
+		case kc.Threads.Overlap:
+			var tail func(context.Context) (knowledge.ThreadStats, error)
+			st, tail, err = th.ThreadFront(ctx, it)
+			if err == nil {
+				w := time.Now()
+				err = waitTail() // the previous item's review, overlapped with this one
+				if d := time.Since(w); d > time.Second {
+					r.logf("threads %s: waited %s for the previous item's review", it.ID, d.Round(time.Second))
+				}
+			}
+			if err == nil && tail != nil {
+				ch := make(chan tailResult, 1)
+				go func() {
+					s, e := tail(ctx)
+					ch <- tailResult{s, e}
+				}()
+				tailCh = ch
+			}
+		default:
+			st, err = th.Thread(ctx, it)
 		}
-		st, err := thread(ctx, it)
 		if err != nil {
 			return fmt.Errorf("threads %s: %w", it.ID, err)
 		}
@@ -973,6 +1023,9 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 				return err
 			}
 		}
+	}
+	if err := waitTail(); err != nil {
+		return err
 	}
 	// The owner's merges and splits, again wherever threading put their
 	// statements (a no-op where they still hold).

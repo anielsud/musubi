@@ -204,6 +204,24 @@ func (s *Store) MarkThreaded(itemID, stamp string) error {
 	return err
 }
 
+// ThreadCurrentIDs lists a thread's current statements.
+func (s *Store) ThreadCurrentIDs(id int64) ([]int64, error) {
+	rows, err := s.db.Query(`SELECT statement_id FROM thread_items WHERE topic_id = ? AND current = 1`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var x int64
+		if err := rows.Scan(&x); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
 // TouchThread counts one more touch of a thread since its last review and
 // returns the count.
 func (s *Store) TouchThread(id int64) (int, error) {

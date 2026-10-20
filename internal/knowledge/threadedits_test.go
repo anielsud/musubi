@@ -80,3 +80,69 @@ func TestThreadEdits(t *testing.T) {
 	}
 	agree("undone")
 }
+
+// Overlapped threading (each item's review while the next is threaded)
+// ends with the same threads and the same current items as one item after
+// another.
+func TestThreadOverlapSameResult(t *testing.T) {
+	items := []ThreadItem{{ID: "m:1", Start: time.Date(2026, 9, 16, 15, 0, 0, 0, time.UTC)}, {ID: "m:3", Start: time.Date(2026, 9, 23, 15, 0, 0, 0, time.UTC)}, {ID: "m:2", Start: time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)}}
+	state := func(f *cardFixture) map[int64]bool {
+		ms, _ := f.st.ThreadMembers()
+		rows, _ := f.st.Threads()
+		cur := map[int64]bool{}
+		for _, r := range rows {
+			for _, id := range r.Current {
+				cur[id] = true
+			}
+		}
+		out := map[int64]bool{}
+		for _, m := range ms {
+			out[m.Statement] = cur[m.Statement]
+		}
+		return out
+	}
+	f1 := newCardFixture(t)
+	f1.st.ClearThreads()
+	th := &Threader{Store: f1.st, LLM: &insertLLM{}, Chunk: 70, Parallel: 2, Version: "v-test", AuditFixes: true}
+	for _, it := range items {
+		if _, err := th.Thread(context.Background(), it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := state(f1)
+	f2 := newCardFixture(t)
+	f2.st.ClearThreads()
+	th2 := &Threader{Store: f2.st, LLM: &insertLLM{}, Chunk: 70, Parallel: 2, Version: "v-test", AuditFixes: true, Overlap: true}
+	var prev chan error
+	for _, it := range items {
+		_, tail, err := th2.ThreadFront(context.Background(), it)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if prev != nil {
+			if err := <-prev; err != nil {
+				t.Fatal(err)
+			}
+			prev = nil
+		}
+		if tail != nil {
+			ch := make(chan error, 1)
+			go func() { _, e := tail(context.Background()); ch <- e }()
+			prev = ch
+		}
+	}
+	if prev != nil {
+		if err := <-prev; err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := state(f2)
+	if len(got) != len(want) {
+		t.Fatalf("memberships %d, want %d", len(got), len(want))
+	}
+	for id, c := range want {
+		if got[id] != c {
+			t.Errorf("statement %d current=%v, want %v", id, got[id], c)
+		}
+	}
+}

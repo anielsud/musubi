@@ -2550,3 +2550,17 @@ threaded again after them, so the batch appends in time order.
 `knowledge.threads.consolidate_every` (off): review a thread every N
 touches, counted in the store, plus the growth-triggered full reviews;
 to be judged on the ELT year, where threads are mature.
+
+**Overlapped consolidation** (`knowledge.threads.overlap`, now default
+on). Each meeting's review runs while the next meeting is placed and
+reconciled, waiting per thread. Four ELT meetings, with phase times
+logged: fronts summed 7m44s, reviews summed 3m44s (11m28s serial);
+actual 8m40s, every review but the last hidden. Over a long batch the
+saving approaches consolidation's share of wall clock, a quarter to a
+third. Quality within noise (retiring updates retired 39.3%,
+reference-current retired 2.0%, against 33.0% and 3.3% for the serial
+run; derived and stored agree on 97.0% against 97.0–97.7% across the
+other four-meeting runs). The race detector found one race, older than
+this: reconcile's workers read other threads for cross context while
+finished threads were written back; that context is now taken before
+the workers start.

@@ -620,6 +620,14 @@ scope gets the fullest one it may see. The model is
 `knowledge.allow_hosted`). On GLM-5.3-Flash: 275 ELT-year threads in 2
 minutes for $0.18; September's 519 in 3½ minutes.
 
+Consecutive items overlap (`knowledge.threads.overlap`, default on): an
+item's consolidation runs while the next item is placed and reconciled.
+Threads under review are marked; the next item waits for one before
+adding to it, reconciling it or retiring anything in it, then narrows its
+snapshot to what is still current (a review only retires). Lapse runs
+before the review in this mode. A batch slightly older than a few
+threaded items rewinds them (`knowledge.threads.rewind`) and appends.
+
 A knowledge run is resumable from what is stored: an item not marked
 threaded under the current rules but already in threads (a run stopped
 part way) is taken out of them (`knowledge.Unthread`, no model) before

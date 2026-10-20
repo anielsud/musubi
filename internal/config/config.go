@@ -220,6 +220,11 @@ type Threads struct {
 	// times it is touched (and when its current set grows by half); 0 or
 	// 1: every time.
 	ConsolidateEvery int `toml:"consolidate_every"`
+	// Overlap runs an item's consolidation while the next item is
+	// threaded, waiting only where both touch a thread: on four ELT
+	// meetings 8m40s against 11m28s serial, quality unchanged (research
+	// log 2026-10-20). false: one item after another, as before.
+	Overlap bool `toml:"overlap"`
 	// InsertOlder threads new items older than ones already threaded by
 	// inserting them (knowledge.Threader.Insert: judged against their
 	// neighbours earlier and later, current derived), not after them in
@@ -356,7 +361,7 @@ func DefaultConfig() Config {
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, ProposeAliases: true},
+		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, ProposeAliases: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

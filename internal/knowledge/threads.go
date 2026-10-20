@@ -171,6 +171,12 @@ type Threader struct {
 	// whenever its current set has grown by half (fullReview); 0 or 1:
 	// every time, as before.
 	ConsolidateEvery int
+	// Overlap (ThreadFront): an item's consolidation runs while the next
+	// item is threaded; a thread under review is waited for before the
+	// next item adds to it, reconciles it or retires anything in it.
+	Overlap bool
+	mu      sync.Mutex
+	pending map[int64]chan struct{} // threads under review → closed when done
 	// WarmFirst reconciles one thread alone before the rest, so their
 	// shared instructions are cached by the server.
 	WarmFirst bool
@@ -475,6 +481,9 @@ func (t *Threader) place(ctx context.Context, it ThreadItem, stats *ThreadStats)
 	}
 	for _, tid := range order {
 		th := threads[tid]
+		if err := t.settle(tid, th); err != nil {
+			return nil, err
+		}
 		var lvl sensitivity.Level
 		for _, id := range th.members {
 			lvl = max(lvl, byID[id].Level)
@@ -508,6 +517,90 @@ func (t *Threader) Thread(ctx context.Context, it ThreadItem) (ThreadStats, erro
 	return stats, t.lapse(it, threads, known)
 }
 
+// ThreadFront threads an item as Thread does, with its consolidation
+// returned to run while the next item is threaded (Overlap): the threads it
+// reviews are marked under review until it finishes. Lapse runs first, so
+// the review is the only later change. tail is nil when there is nothing
+// to review.
+func (t *Threader) ThreadFront(ctx context.Context, it ThreadItem) (ThreadStats, func(context.Context) (ThreadStats, error), error) {
+	var stats ThreadStats
+	t0 := time.Now()
+	p, err := t.place(ctx, it, &stats)
+	if err != nil || p == nil {
+		return stats, nil, err
+	}
+	order, threads, known, byID := p.order, p.threads, p.known, p.byID
+	stats.Touched = len(order)
+	t1 := time.Now()
+	if err := t.reconcileAll(ctx, it, order, threads, known, byID, &stats); err != nil {
+		return stats, nil, err
+	}
+	t.logf("threads %s: place %s, reconcile %s", it.ID, t1.Sub(t0).Round(time.Second), time.Since(t1).Round(time.Second))
+	if !t.AuditFixes {
+		return stats, nil, nil
+	}
+	if err := t.lapse(it, threads, known); err != nil {
+		return stats, nil, err
+	}
+	todo, err := t.consolidateTargets(order, threads, byID)
+	if err != nil || len(todo) == 0 {
+		return stats, nil, err
+	}
+	done := make(chan struct{})
+	t.mu.Lock()
+	if t.pending == nil {
+		t.pending = map[int64]chan struct{}{}
+	}
+	for _, tid := range todo {
+		t.pending[tid] = done
+	}
+	t.mu.Unlock()
+	tail := func(ctx context.Context) (ThreadStats, error) {
+		var ts ThreadStats
+		t2 := time.Now()
+		err := t.consolidateRun(ctx, it, todo, threads, known, byID, &ts)
+		t.logf("threads %s: review of %d threads %s (overlapped)", it.ID, len(todo), time.Since(t2).Round(time.Second))
+		t.mu.Lock()
+		for _, tid := range todo {
+			if t.pending[tid] == done {
+				delete(t.pending, tid)
+			}
+		}
+		t.mu.Unlock()
+		close(done)
+		return ts, err
+	}
+	return stats, tail, nil
+}
+
+// settle waits for a thread under review (Overlap) and then narrows th's
+// current items to those still current: a review only retires.
+func (t *Threader) settle(tid int64, th *threadState) error {
+	t.mu.Lock()
+	ch := t.pending[tid]
+	t.mu.Unlock()
+	if ch == nil {
+		return nil
+	}
+	<-ch
+	cur, err := t.Store.ThreadCurrentIDs(tid)
+	if err != nil {
+		return err
+	}
+	still := map[int64]bool{}
+	for _, id := range cur {
+		still[id] = true
+	}
+	var keep []int64
+	for _, id := range th.previous {
+		if still[id] {
+			keep = append(keep, id)
+		}
+	}
+	th.previous = keep
+	return nil
+}
+
 // statementAt returns a statement's kind, time and text, from this item or
 // from earlier ones.
 func statementAt(id int64, known map[int64]store.Statement, byID map[int64]store.ItemStatement) (store.ItemStatement, bool) {
@@ -525,19 +618,18 @@ func statementAt(id int64, known map[int64]store.Statement, byID map[int64]store
 // only judges what the new items do; the audits found 86% of items still
 // current months after they were settled.
 func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64, threads map[int64]*threadState, known map[int64]store.Statement, byID map[int64]store.ItemStatement, stats *ThreadStats) error {
-	if t.Merged {
-		return nil // reconcile did the review
+	todo, err := t.consolidateTargets(order, threads, byID)
+	if err != nil {
+		return err
 	}
-	type result struct {
-		tid int64
-		cur []int64
-		out struct {
-			Outdated []struct {
-				ID, By int64
-				Why    string
-			} `json:"outdated"`
-		}
-		err error
+	return t.consolidateRun(ctx, it, todo, threads, known, byID, stats)
+}
+
+// consolidateTargets picks the touched threads whose current list is
+// reviewed this time.
+func (t *Threader) consolidateTargets(order []int64, threads map[int64]*threadState, byID map[int64]store.ItemStatement) ([]int64, error) {
+	if t.Merged {
+		return nil, nil // reconcile did the review
 	}
 	var todo []int64
 	for _, tid := range order {
@@ -548,7 +640,7 @@ func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64
 		if t.ConsolidateEvery > 1 && !fullReview(th.previous, byID) {
 			n, err := t.Store.TouchThread(tid)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if n < t.ConsolidateEvery {
 				continue
@@ -556,10 +648,26 @@ func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64
 		}
 		if t.ConsolidateEvery > 1 {
 			if err := t.Store.ReviewedThread(tid); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		todo = append(todo, tid)
+	}
+	return todo, nil
+}
+
+// consolidateRun reviews the given threads' current lists.
+func (t *Threader) consolidateRun(ctx context.Context, it ThreadItem, todo []int64, threads map[int64]*threadState, known map[int64]store.Statement, byID map[int64]store.ItemStatement, stats *ThreadStats) error {
+	type result struct {
+		tid int64
+		cur []int64
+		out struct {
+			Outdated []struct {
+				ID, By int64
+				Why    string
+			} `json:"outdated"`
+		}
+		err error
 	}
 	results := make([]result, len(todo))
 	var wg sync.WaitGroup
@@ -765,6 +873,17 @@ func (t *Threader) lapse(it ThreadItem, threads map[int64]*threadState, known ma
 			now = append(now, id)
 		}
 		if len(now) != len(th.previous) {
+			if err := t.settle(tid, th); err != nil {
+				return err
+			}
+			now = now[:0]
+			for _, id := range th.previous {
+				s, ok := known[id]
+				if ok && (s.Kind == "commitment" || s.Kind == "question") && it.Start.Sub(s.SaidAt) > lapseAfter {
+					continue
+				}
+				now = append(now, id)
+			}
 			if err := t.Store.SetThreadCurrent(tid, now, t.prov(it, "lapse")); err != nil {
 				return err
 			}
@@ -930,6 +1049,18 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 		shown, cross []int64
 		crossOf      map[int64]int64 // cross item → its thread
 	}
+	// Cross-thread context for every touched thread, taken before any
+	// worker starts: results written back while others still run would
+	// change what a later worker sees (and race with it).
+	type crossSet struct {
+		ids []int64
+		of  map[int64]int64
+	}
+	crossCtx := map[int64]crossSet{}
+	for _, tid := range order {
+		ids, of := t.crossFor(tid, threads)
+		crossCtx[tid] = crossSet{ids, of}
+	}
 	jobs := make(chan int64)
 	results := make(chan result)
 	var wg sync.WaitGroup
@@ -944,7 +1075,7 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 			for tid := range jobs {
 				th := threads[tid]
 				shown := t.shownFor(th, capN)
-				cross, crossOf := t.crossFor(tid, threads)
+				cross, crossOf := crossCtx[tid].ids, crossCtx[tid].of
 				out, err := t.reconcile(ctx, it, th.row, shown, th.members, known, byID, cross, crossOf, threads)
 				if tid == order[0] {
 					warmOnce.Do(func() { close(warm) })
@@ -1094,10 +1225,13 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 		if th == nil {
 			continue
 		}
-		cur := th.previous
 		if len(th.members) > 0 { // touched but not yet written: its own result will rebuild it
 			continue
 		}
+		if err := t.settle(tid, th); err != nil {
+			return err
+		}
+		cur := th.previous
 		var now []int64
 		for _, id := range cur {
 			if !contains64(gone, id) {

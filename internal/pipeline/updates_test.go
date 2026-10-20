@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -178,20 +179,20 @@ func TestStatementLabels(t *testing.T) {
 	}
 	// A classifier labels only what no labeller has checked; --redo label
 	// relabels everything with it.
-	calls := 0
+	var calls atomic.Int64
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		calls++
+		calls.Add(1)
 		fmt.Fprint(w, `{"answers":{"sensitive":{"choice":"work","probabilities":{"work":1}}},"usage":{"input_tokens":10}}`)
 	}))
 	defer srv.Close()
 	t.Setenv("JEV_TEST_KEY", "k")
 	r.Cfg.Knowledge.AllowHosted = true
 	r.Cfg.Knowledge.Label.Classifier = config.Classifier{Provider: "jev", URL: srv.URL, APIKey: "env:JEV_TEST_KEY"}
-	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: labelLLM{emptyLLM{"m1"}}}); ks.Checked != 0 || calls != 0 {
-		t.Errorf("relabelled %d statements (%d calls) without being asked", ks.Checked, calls)
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: labelLLM{emptyLLM{"m1"}}}); ks.Checked != 0 || calls.Load() != 0 {
+		t.Errorf("relabelled %d statements (%d calls) without being asked", ks.Checked, calls.Load())
 	}
-	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: labelLLM{emptyLLM{"m1"}}, Redo: []string{"label"}}); ks.Checked != len(sts) || calls != len(sts) {
-		t.Errorf("--redo label checked %d of %d (%d calls)", ks.Checked, len(sts), calls)
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: labelLLM{emptyLLM{"m1"}}, Redo: []string{"label"}}); ks.Checked != len(sts) || calls.Load() != int64(len(sts)) {
+		t.Errorf("--redo label checked %d of %d (%d calls)", ks.Checked, len(sts), calls.Load())
 	}
 	// Off restores the earlier behaviour.
 	r.Cfg.Knowledge.Label.Enabled = false
@@ -202,11 +203,11 @@ func TestStatementLabels(t *testing.T) {
 // item, citing every id it was given.
 type statusLLM struct {
 	emptyLLM
-	calls *int
+	calls *atomic.Int64
 }
 
 func (s statusLLM) Complete(_ context.Context, msgs []provider.Message, _ provider.ChatOptions, _ func(string)) (string, error) {
-	*s.calls++
+	s.calls.Add(1)
 	user := msgs[len(msgs)-1].Content
 	now := "Launch next week."
 	if strings.Contains(user, "leaving") {
@@ -232,15 +233,15 @@ func TestThreadStatuses(t *testing.T) {
 		ids = append(ids, s.ID)
 	}
 	st.AddToThread(tid, ids, 0)
-	calls := 0
+	var calls atomic.Int64
 	o := KnowledgeOptions{StatusLLM: statusLLM{emptyLLM{"m1"}, &calls}}
 	var ks KnowledgeStats
 	if err := r.writeStatuses(context.Background(), o, &ks); err != nil {
 		t.Fatal(err)
 	}
 	// One from every item, one from what a shared screen may show.
-	if ks.Statuses != 2 || calls != 2 {
-		t.Fatalf("wrote %d statuses in %d calls", ks.Statuses, calls)
+	if ks.Statuses != 2 || calls.Load() != 2 {
+		t.Fatalf("wrote %d statuses in %d calls", ks.Statuses, calls.Load())
 	}
 	read := func(sc sensitivity.Scope) knowledge.Status {
 		got, err := st.ThreadStatuses(sc)
@@ -266,7 +267,7 @@ func TestThreadStatuses(t *testing.T) {
 	// A label raised later (a new rule, the labeller) reaches the stored
 	// status without a rewrite.
 	st.LabelStatement(ids[0], sensitivity.Label{Level: sensitivity.Confidential, Categories: sensitivity.Legal}, "test")
-	calls = 0
+	calls.Store(0)
 	r.writeStatuses(context.Background(), o, &ks)
 	if got, _ := st.ThreadStatuses(sensitivity.Owner()); got[tid].Categories&sensitivity.Legal == 0 {
 		t.Errorf("status label not raised: %+v", got[tid])

@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -53,7 +54,9 @@ type Jev struct {
 	URL, Model string
 	APIKey     string // keychain:<service> or env:<VARIABLE>
 	PriceIn    float64
+	keyOnce    sync.Once
 	key        string
+	keyErr     error
 	client     *http.Client
 }
 
@@ -65,12 +68,10 @@ func NewJev(url, model, apiKey string, priceIn float64) *Jev {
 func (j *Jev) Name() string { return j.Model }
 
 func (j *Jev) Classify(ctx context.Context, state any, questions map[string]Question) (map[string]Answer, error) {
-	if j.key == "" {
-		k, err := readKey(j.APIKey)
-		if err != nil {
-			return nil, err
-		}
-		j.key = k
+	// Read once, by whichever of the concurrent callers comes first.
+	j.keyOnce.Do(func() { j.key, j.keyErr = readKey(j.APIKey) })
+	if j.keyErr != nil {
+		return nil, j.keyErr
 	}
 	if err := spendAllowed(); err != nil {
 		return nil, err

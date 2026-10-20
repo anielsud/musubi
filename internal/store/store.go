@@ -64,6 +64,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := addColumns(db, "topics", "since_review INTEGER NOT NULL DEFAULT 0"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	// Corrections made before this column had their threads mended then.
 	if err := addColumns(db, "corrections", "related INTEGER NOT NULL DEFAULT 1"); err != nil {
 		db.Close()

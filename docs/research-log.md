@@ -2494,3 +2494,59 @@ show; only the ELT year's audit can. Parked.
 Both runs hit Baseten's rate limit together (429): hosted calls now
 wait it out (10 s doubling to 80 s, about 12 minutes in all) without
 using up a try.
+
+**Retirement by population: small chains.** Of the benchmark's 100
+retiring updates (in its subjects), 59 happen within one meeting, a
+median of one statement apart (mostly an answer straight after the
+question); 41 cross meetings (supersedes 17, completes 15, answers 9),
+and those are not close in wording (the 5 nearest by meaning hold the
+retired item for 62% of all updates). Per statement, a chain: the
+previous 5 statements of its meeting and the 10 nearest earlier
+statements of its subject from earlier meetings (the reference's own
+subjects: an upper bound on candidates; the chain holds the retired item
+for 71 of 92). One question per chain: which does it answer, settle or
+replace?
+
+| 4 meetings | Retiring updates retired | Reference-current retired | Pairs false retire | Cross-meeting found |
+|---|---|---|---|---|
+| t4 threads (reconcile + consolidate) | 33.0% | 3.3% | 1.0% | 6 / 41 |
+| Jev on chains, ≥ 0.9 | 11.6% | 3.3% | 1.5% | |
+| GLM on chains, every relation | 48.2% | 10.6% | 8.6% | 16 / 41 |
+| GLM chains: answers in-meeting, all across meetings | 39.3% | 3.3% | 4.0% | 16 / 41 |
+| t4 + GLM chains across meetings | 44.6% | 3.3% | 2.5% | 16 / 41 |
+
+GLM's chain "supersedes" was the noise (122 made, 12 matching the
+reference, 79 within one meeting: a walk-through read as replacement);
+its "answers" were precise (61 made, 34 matching, 52 within a meeting).
+Threads catch few of the cross-meeting retirements, which is the
+staleness the audits keep finding; chains find nearly three times as
+many. Chain calls are small (2 s median, 118 reasoning tokens, against
+535 and 1,280 for reconcile and consolidate): 964 of them, $0.25, 7m43s
+for 4 meetings, against $0.13 for t4. Next: candidates from the
+system's own threads instead of the reference's, then the ELT year.
+
+**What bounds threading wall clock.** Four ELT meetings, one change at a
+time from the same base, single runs:
+
+| | Wall clock | Note |
+|---|---|---|
+| parallel 8 (default) | 7m50s | |
+| parallel 16 | 8m35s | queueing isn't the bound |
+| hedge_after 30 s | 7m42s | 12 calls hedged; the backups took as long (48–63 s) |
+| consolidate_every 2 | call time −33%, quality within noise | young threads: most reviews are growth-triggered and still run |
+
+A meeting's critical path is assign (chunks in turn: 54 s for 254
+statements) → merge → the slowest reconcile → the slowest consolidate;
+on the fourth meeting 54 + 15 + 83 + 99 s of its 4m11s. The slowest calls
+are the biggest threads' prompts, reasoning 6–7k tokens; a fresh sample
+of the same prompt is as slow, so hedging doesn't help, and they stream
+normally, so the stall rule doesn't either. What does: work off the
+critical path (labels on a classifier; rewind and append, not insert;
+consolidation overlapped with the next meeting).
+
+`knowledge.threads.rewind` (default 3): when new items are older than at
+most that many threaded items, those are unthreaded (no model) and
+threaded again after them, so the batch appends in time order.
+`knowledge.threads.consolidate_every` (off): review a thread every N
+touches, counted in the store, plus the growth-triggered full reviews;
+to be judged on the ELT year, where threads are mature.

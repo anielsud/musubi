@@ -216,12 +216,24 @@ type Threads struct {
 	// Merged reconciles and consolidates a touched thread in one call
 	// (experiment; threads version t4m). false: two calls.
 	Merged bool `toml:"merged"`
+	// ConsolidateEvery reviews a thread's current list every this many
+	// times it is touched (and when its current set grows by half); 0 or
+	// 1: every time.
+	ConsolidateEvery int `toml:"consolidate_every"`
 	// InsertOlder threads new items older than ones already threaded by
 	// inserting them (knowledge.Threader.Insert: judged against their
 	// neighbours earlier and later, current derived), not after them in
 	// time order. For backfills and late sources. false threads them
 	// after, as before, and says --redo threads would put them in order.
 	InsertOlder bool `toml:"insert_older"`
+	// Rewind: when new items are older than at most this many items
+	// already threaded, those few are taken out of their threads (no
+	// model) and threaded again after them, so the batch is threaded in
+	// time order instead of inserted. A batch that arrived a day late
+	// costs a meeting or two again, not an insert per item: on the October
+	// backfill one meeting threaded early sent 30 through insertion, whose
+	// calls reason 2.7 times as long (research log 2026-10-20). 0: off.
+	Rewind int `toml:"rewind"`
 }
 
 // Points configures meeting-level point extraction.
@@ -344,7 +356,7 @@ func DefaultConfig() Config {
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, ProposeAliases: true},
+		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, ProposeAliases: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

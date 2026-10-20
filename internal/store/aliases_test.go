@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -167,5 +168,28 @@ func TestOwnerEditsSurviveUpgrade(t *testing.T) {
 		if err := s.db.QueryRow(`SELECT count(*) FROM ` + tb).Scan(&n); err != nil || n != 1 {
 			t.Errorf("%s after upgrade: %d rows, %v", tb, n, err)
 		}
+	}
+}
+
+// Threaded items after a time, oldest first; unmarking takes one out.
+func TestThreadedSince(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for i, d := range []int{1, 7, 9} {
+		at := time.Date(2026, 10, d, 15, 0, 0, 0, time.UTC)
+		id := fmt.Sprintf("m:%d", i)
+		s.UpsertItem(item.Item{ID: id, Source: "t", Ref: id, Kind: item.KindMeeting, Title: "x", OccurredAt: at, Segments: []item.Segment{{Text: "x"}}})
+		s.MarkThreaded(id, "v")
+	}
+	got, err := s.ThreadedSince(time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC))
+	if err != nil || len(got) != 2 || got[0].ID != "m:1" || got[1].ID != "m:2" {
+		t.Fatalf("since: %+v %v", got, err)
+	}
+	s.UnmarkThreaded("m:1")
+	if got, _ := s.ThreadedSince(time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)); len(got) != 1 || got[0].ID != "m:2" {
+		t.Errorf("after unmark: %+v", got)
 	}
 }

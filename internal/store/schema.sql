@@ -263,7 +263,8 @@ CREATE TABLE IF NOT EXISTS topics (
 	summary     TEXT NOT NULL,
 	label_level INTEGER NOT NULL,  -- highest level of the statements the label was written from
 	centroid    BLOB,
-	size        INTEGER NOT NULL
+	size        INTEGER NOT NULL,
+	since_review INTEGER NOT NULL DEFAULT 0 -- touches since its current list was reviewed (consolidate_every)
 );
 -- Topics cross-link rather than nest: by shared customers, projects and
 -- people ("same customer"), by meaning across different ones ("parallel":

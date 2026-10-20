@@ -166,6 +166,11 @@ type Threader struct {
 	// and the consolidation pass is skipped. They ask one question, split
 	// by what each may see (research log 2026-10-20). false: two calls.
 	Merged bool
+	// ConsolidateEvery reviews a touched thread's current list every this
+	// many times it is touched (counted in the store, across runs), and
+	// whenever its current set has grown by half (fullReview); 0 or 1:
+	// every time, as before.
+	ConsolidateEvery int
 	// WarmFirst reconciles one thread alone before the rest, so their
 	// shared instructions are cached by the server.
 	WarmFirst bool
@@ -536,9 +541,25 @@ func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64
 	}
 	var todo []int64
 	for _, tid := range order {
-		if th := threads[tid]; th != nil && len(th.previous) > consolidateMin {
-			todo = append(todo, tid)
+		th := threads[tid]
+		if th == nil || len(th.previous) <= consolidateMin {
+			continue
 		}
+		if t.ConsolidateEvery > 1 && !fullReview(th.previous, byID) {
+			n, err := t.Store.TouchThread(tid)
+			if err != nil {
+				return err
+			}
+			if n < t.ConsolidateEvery {
+				continue
+			}
+		}
+		if t.ConsolidateEvery > 1 {
+			if err := t.Store.ReviewedThread(tid); err != nil {
+				return err
+			}
+		}
+		todo = append(todo, tid)
 	}
 	results := make([]result, len(todo))
 	var wg sync.WaitGroup

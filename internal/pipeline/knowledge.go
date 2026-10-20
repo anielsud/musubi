@@ -838,6 +838,45 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 	}
 	todo := p.todo
 	knowledge.ThreadOrder(todo)
+	// A few items threaded already but newer than new ones: thread them
+	// again after, so everything appends in time order.
+	if !p.rebuild && len(todo) > 0 && kc.Threads.Rewind > 0 {
+		newer, err := r.Store.ThreadedSince(todo[0].Start)
+		if err != nil {
+			return err
+		}
+		inTodo := map[string]bool{}
+		for _, it := range todo {
+			inTodo[it.ID] = true
+		}
+		var redo []store.ItemTime
+		for _, x := range newer {
+			if !inTodo[x.ID] {
+				redo = append(redo, x)
+			}
+		}
+		older := 0
+		if len(redo) > 0 {
+			for _, it := range todo {
+				if it.Start.Before(redo[len(redo)-1].At) {
+					older++
+				}
+			}
+		}
+		if len(redo) > 0 && len(redo) <= kc.Threads.Rewind && older > len(redo) {
+			for _, x := range redo {
+				if _, err := knowledge.Unthread(r.Store, x.ID); err != nil {
+					return err
+				}
+				if err := r.Store.UnmarkThreaded(x.ID); err != nil {
+					return err
+				}
+				todo = append(todo, knowledge.ThreadItem{ID: x.ID, Start: x.At})
+			}
+			knowledge.ThreadOrder(todo)
+			r.logf("threads: %d new items are older than %d threaded already; those are threaded again after them, so all append in time order", older, len(redo))
+		}
+	}
 	// Threading follows time: an item is matched against threads as they
 	// stood when it happened. Items older than ones already threaded (a
 	// backfill) are inserted (threads.insert_older), or else threaded
@@ -865,7 +904,7 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 		}
 	}
 	th := &knowledge.Threader{Store: r.Store, LLM: llm, Vecs: vecs, Version: stamp, Chunk: kc.Threads.Chunk, Parallel: kc.Threads.Parallel,
-		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, WarmFirst: kc.WarmCache, AuditFixes: kc.Threads.AuditFixes, ConsolidateWindow: kc.Threads.ConsolidateWindow, Merged: kc.Threads.Merged, Logf: r.logf}
+		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, WarmFirst: kc.WarmCache, AuditFixes: kc.Threads.AuditFixes, ConsolidateWindow: kc.Threads.ConsolidateWindow, Merged: kc.Threads.Merged, ConsolidateEvery: kc.Threads.ConsolidateEvery, Logf: r.logf}
 	// Corrections whose mending didn't finish (the model was unreachable
 	// when they were made) are done first, so new items meet the graph as
 	// corrected.

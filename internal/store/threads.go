@@ -204,6 +204,56 @@ func (s *Store) MarkThreaded(itemID, stamp string) error {
 	return err
 }
 
+// TouchThread counts one more touch of a thread since its last review and
+// returns the count.
+func (s *Store) TouchThread(id int64) (int, error) {
+	if _, err := s.db.Exec(`UPDATE topics SET since_review = since_review + 1 WHERE id = ?`, id); err != nil {
+		return 0, err
+	}
+	var n int
+	err := s.db.QueryRow(`SELECT since_review FROM topics WHERE id = ?`, id).Scan(&n)
+	return n, err
+}
+
+// ReviewedThread records that a thread's current list was reviewed.
+func (s *Store) ReviewedThread(id int64) error {
+	_, err := s.db.Exec(`UPDATE topics SET since_review = 0 WHERE id = ?`, id)
+	return err
+}
+
+// UnmarkThreaded records that an item is no longer threaded (it was taken
+// out of its threads to be threaded again).
+func (s *Store) UnmarkThreaded(itemID string) error {
+	_, err := s.db.Exec(`DELETE FROM thread_runs WHERE item_id = ?`, itemID)
+	return err
+}
+
+// ThreadedSince lists threaded items that happened after t, oldest first.
+func (s *Store) ThreadedSince(t time.Time) ([]ItemTime, error) {
+	rows, err := s.db.Query(`SELECT i.id, i.occurred_at FROM thread_runs r JOIN items i ON i.id = r.item_id WHERE i.occurred_at > ? ORDER BY i.occurred_at`, t.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ItemTime
+	for rows.Next() {
+		var x ItemTime
+		var at int64
+		if err := rows.Scan(&x.ID, &at); err != nil {
+			return nil, err
+		}
+		x.At = time.Unix(at, 0)
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
+// ItemTime is an item and when it happened.
+type ItemTime struct {
+	ID string
+	At time.Time
+}
+
 // ThreadMember is a statement's place in a thread.
 type ThreadMember struct {
 	Topic, Statement, Claim int64

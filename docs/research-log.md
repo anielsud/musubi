@@ -2260,3 +2260,55 @@ Calibration on All:
 
 Topic cards lead with the status's first sentence. A replay shows only
 statuses written by then.
+
+## All rethread under the current rules (2026-10-19)
+
+One full rethread of All (165 meetings, 16,895 statements) with
+everything since the first All run on: statement-level relations,
+retiring everywhere, the re-ask for unresolved thread references,
+consolidation window 24 with full reviews at 1.5× growth, and the 16k
+cap with one low-effort retry.
+
+| Measure | Before | After |
+|---|---|---|
+| Statements in no thread | 8% | 3% |
+| Derived "current" agrees with stored | 91% | 99% |
+| Retired with no relation explaining it | 1,424 | 155 |
+| ELT year audit: missed updates fixed | 45/71 | 47/71 |
+| ELT year audit: stale fixed | 68/108 | 68/108 |
+| ELT year audit: wrong retirements fixed | 31/45 | 34/45 |
+| September audit: missed updates fixed | 53/94 | 57/94 |
+| September audit: stale fixed | 62/122 | 64/122 |
+| September audit: wrong retirements fixed | 28/52 | 35/52 |
+
+Current stayed at 77%.
+
+Cost and time: 6h4m wall clock, $4.14 over 3,838 calls. By kind:
+
+| Kind | Calls | $ | Call time |
+|---|---|---|---|
+| reconcile | 1,592 | 1.51 | 389 min |
+| consolidate | 1,133 | 1.44 | 396 min |
+| assign | 334 | 0.63 | 59 min |
+| status | 637 | 0.50 | 96 min |
+| merge | 142 | 0.07 | 18 min |
+
+The run took 1.5× the first All run (247 min), from the re-asks and
+the full reviews. One consolidation (one thread) timed out three times
+and was skipped. Reconcile and consolidate are the time cost, so a
+narrower reconcile is the speed lever.
+
+99% agreement means the stored relations explain "current", which local
+insertion and forgetting rely on. `insert_older` is now on for All:
+meetings older than the latest threaded go through local insertion
+instead of a rethread.
+
+Ask on the rethreaded All (28 questions, local 27B, two blind Opus
+graders) against the earlier All answers: 14 wins to 13, one tie. Must
+facts 65/105 against 67/105, wrong 9 each, invented 0 against 2, current
+23/28 against 25/28, useful 1.89 against 2.11. That is within the noise
+of the earlier self-comparison (10–8). By type, lookups gained (16 → 18
+of 22) and change questions lost (13 → 10 of 21); two of the losses
+lead with an older position. The rethread fixed the graph without
+changing Ask answers much; better change answers would come from the
+statuses, not the threading.

@@ -366,7 +366,8 @@ CREATE TABLE IF NOT EXISTS corrections (
 	new        TEXT NOT NULL,
 	by         TEXT NOT NULL,
 	at         INTEGER NOT NULL,
-	undone     INTEGER NOT NULL DEFAULT 0
+	undone     INTEGER NOT NULL DEFAULT 0,
+	related    INTEGER NOT NULL DEFAULT 0 -- 1 once the graph around it was mended
 );
 CREATE INDEX IF NOT EXISTS corrections_item ON corrections(item_id);
 
@@ -404,4 +405,21 @@ CREATE TABLE IF NOT EXISTS thread_status (
 	categories INTEGER NOT NULL,
 	as_of      INTEGER NOT NULL,  -- the latest item it was written from
 	PRIMARY KEY (topic_id, variant)
+);
+
+-- The owner's thread edits, kept to the side like corrections: a merge
+-- (from's statements joined to into's) or a split (statements moved out
+-- to a thread of their own). Applied to the threads as they are, and again
+-- after a rethread wherever the statements they name have gone; undone
+-- ones are kept for the record.
+CREATE TABLE IF NOT EXISTS thread_edits (
+	id         INTEGER PRIMARY KEY,
+	kind       TEXT NOT NULL,      -- merge, split
+	moved      TEXT NOT NULL,      -- JSON statement ids: merge, from's; split, those moved out
+	stay       TEXT NOT NULL,      -- JSON statement ids: merge, into's; split, those left
+	name       TEXT NOT NULL,      -- merge: the name kept; split: the new thread's
+	old_name   TEXT NOT NULL,      -- merge: from's name (for undo); split: the source's
+	by         TEXT NOT NULL,
+	at         INTEGER NOT NULL,
+	undone     INTEGER NOT NULL DEFAULT 0
 );

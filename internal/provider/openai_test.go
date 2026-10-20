@@ -183,3 +183,59 @@ func TestOpenAIHedged(t *testing.T) {
 		t.Errorf("ledger:\n%s", b)
 	}
 }
+
+// A stream that stalls (one chunk, then nothing) is sent again after
+// stall_after; one streaming steadily is left alone.
+func TestOpenAIStall(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	steady := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/event-stream")
+		fl := w.(http.Flusher)
+		if steady { // 50 chunks a second for 0.6 s
+			for i := 0; i < 30; i++ {
+				fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n")
+				fl.Flush()
+				time.Sleep(20 * time.Millisecond)
+			}
+		} else if n == 1 {
+			fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"slow\"}}]}\n\n")
+			fl.Flush()
+			select {
+			case <-r.Context().Done():
+			case <-time.After(5 * time.Second):
+			}
+			return
+		}
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n")
+		fmt.Fprintf(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	url := strings.Replace(srv.URL, "127.0.0.1", "localtest.me", 1)
+	if _, err := net.LookupHost("localtest.me"); err != nil {
+		t.Skip("needs localtest.me to resolve to 127.0.0.1")
+	}
+	t.Setenv("MUSUBI_SPEND_LEDGER", filepath.Join(t.TempDir(), "spend.jsonl"))
+	llm, _ := NewLLM(config.LLM{Provider: "openai", URL: url, Model: "m", StallAfter: 0.2, StallRate: 20})
+	t0 := time.Now()
+	out, err := llm.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}}, ChatOptions{}, nil)
+	if err != nil || out != "done" || time.Since(t0) > 3*time.Second {
+		t.Fatalf("stalled: got %q, %v after %s", out, err, time.Since(t0))
+	}
+	mu.Lock()
+	steady, calls = true, 0
+	mu.Unlock()
+	if _, err := llm.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}}, ChatOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if calls != 1 {
+		t.Errorf("a steady stream was sent again: %d calls", calls)
+	}
+}

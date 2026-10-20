@@ -386,6 +386,7 @@ export interface PrepSubject {
   asOf: string;
   newSince: ThreadItem[] | null;
   items: ThreadItem[] | null;
+  private?: boolean;
 }
 
 export interface PrepView {
@@ -394,7 +395,7 @@ export interface PrepView {
   since: string;
   met: number;
   subjects: PrepSubject[] | null;
-  open: { text: string; who?: string; due?: string; thread: number; name: string; items: ThreadItem[] | null }[] | null;
+  open: { text: string; who?: string; due?: string; thread: number; name: string; items: ThreadItem[] | null; raised: string; quiet?: boolean; overdue?: boolean; private?: boolean }[] | null;
   share: { thread: number; name: string; item: ThreadItem }[] | null;
 }
 
@@ -424,4 +425,14 @@ export interface AliasUsage {
   threadId: number;
   current: boolean;
   hasKept: boolean;
+}
+
+export interface ThreadEditView {
+  id: number;
+  kind: 'merge' | 'split';
+  name: string;
+  oldName: string;
+  moved: number;
+  at: string;
+  undone: boolean;
 }

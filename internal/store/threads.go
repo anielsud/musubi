@@ -479,6 +479,41 @@ func (s *Store) DeleteEmptyThreads(threads map[int64]bool) error {
 	return nil
 }
 
+// PendingCorrections lists the statements whose corrections haven't had
+// the graph around them mended (a correction made while the model was
+// unreachable), with who made them, oldest first.
+func (s *Store) PendingCorrections() ([]PendingCorrection, error) {
+	rows, err := s.db.Query(`SELECT c.statement, max(c.field = 'text'), min(c.by) FROM corrections c JOIN statements st ON st.id = c.statement
+		WHERE c.related = 0 AND c.undone = 0 GROUP BY c.statement ORDER BY min(c.at)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PendingCorrection
+	for rows.Next() {
+		var p PendingCorrection
+		if err := rows.Scan(&p.Statement, &p.Text, &p.By); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// PendingCorrection is a statement with corrections still to mend around.
+type PendingCorrection struct {
+	Statement int64
+	Text      bool // its text changed (re-embedded)
+	By        string
+}
+
+// MarkCorrectionsRelated records that the graph around a statement's
+// corrections was mended.
+func (s *Store) MarkCorrectionsRelated(statement int64) error {
+	_, err := s.db.Exec(`UPDATE corrections SET related = 1 WHERE statement = ? AND related = 0`, statement)
+	return err
+}
+
 // CorrectStatement records the owner's correction of a statement (its
 // text, and who it belongs to; empty text and nil who keep them) in
 // corrections, shows it on the statement, and takes the statement out of
@@ -499,7 +534,7 @@ func (s *Store) CorrectStatement(id int64, text string, who []string, by string)
 			if _, err := tx.Exec(`UPDATE statements SET text = ?, search_text = '' WHERE id = ?`, text, id); err != nil {
 				return err
 			}
-			if _, err := tx.Exec(`INSERT INTO corrections(item_id, statement, extracted, field, old, new, by, at) VALUES (?,?,?,?,?,?,?,?)`,
+			if _, err := tx.Exec(`INSERT INTO corrections(item_id, statement, extracted, field, old, new, by, at, related) VALUES (?,?,?,?,?,?,?,?,0)`,
 				item, id, extracted, "text", oldText, text, by, now); err != nil {
 				return err
 			}
@@ -510,7 +545,7 @@ func (s *Store) CorrectStatement(id int64, text string, who []string, by string)
 				if _, err := tx.Exec(`UPDATE statements SET who = ?, holder = ? WHERE id = ?`, string(b), strings.Join(who, ", "), id); err != nil {
 					return err
 				}
-				if _, err := tx.Exec(`INSERT INTO corrections(item_id, statement, extracted, field, old, new, by, at) VALUES (?,?,?,?,?,?,?,?)`,
+				if _, err := tx.Exec(`INSERT INTO corrections(item_id, statement, extracted, field, old, new, by, at, related) VALUES (?,?,?,?,?,?,?,?,0)`,
 					item, id, extracted, "who", oldWho, string(b), by, now); err != nil {
 					return err
 				}

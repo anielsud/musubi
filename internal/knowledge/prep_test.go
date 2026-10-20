@@ -2,10 +2,12 @@ package knowledge
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/anielsud/musubi/internal/item"
+	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/sensitivity"
 	"github.com/anielsud/musubi/internal/store"
 )
@@ -71,6 +73,14 @@ func TestPrep(t *testing.T) {
 	}
 	if !shared {
 		t.Errorf("the later Juniper count, said without her, wasn't suggested: %+v", v.Share)
+	}
+	// Juniper is ordinary work: not marked for the owner alone.
+	v, err = Prep(f.st, sensitivity.Owner(), PrepRequest{Template: "m:1", MarkPrivate: true, QuietAfter: 21 * 24 * time.Hour}, all, "Sam Owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Subjects) == 0 || v.Subjects[0].Name != "Juniper programme" || v.Subjects[0].Private {
+		t.Fatalf("subjects with MarkPrivate %+v", v.Subjects)
 	}
 }
 
@@ -163,5 +173,32 @@ func TestAliasCandidates(t *testing.T) {
 	}
 	if _, ok := got["Miles"]; ok && len(englishWords()) > 0 {
 		t.Errorf("a word proposed as a name: %v", got)
+	}
+}
+
+func TestDueDate(t *testing.T) {
+	for s, want := range map[string]bool{"2026-09-25": true, "2026-09-25 (later today)": true, "end of quarter": false, "ASAP (set 9/22)": false, "": false} {
+		if _, ok := dueDate(s); ok != want {
+			t.Errorf("dueDate(%q) = %v", s, ok)
+		}
+	}
+}
+
+type fakeClassifier map[string]float64
+
+func (f fakeClassifier) Name() string { return "fake" }
+func (f fakeClassifier) Classify(_ context.Context, state any, _ map[string]provider.Question) (map[string]provider.Answer, error) {
+	if state.(map[string]string)["meeting"] == "" {
+		return nil, fmt.Errorf("no meeting given")
+	}
+	return map[string]provider.Answer{"sensitive": {Probabilities: f}}, nil
+}
+
+// A candidate's background is HR; the sensitive options' probabilities add
+// up, so a split between two of them still labels.
+func TestStatementSensitivityTyped(t *testing.T) {
+	c, p, err := StatementSensitivityTyped(context.Background(), fakeClassifier{"candidate": 0.35, "people": 0.25, "work": 0.4}, "They grew the team to 90.", "Interview - VP")
+	if err != nil || c != sensitivity.HR || p < 0.59 || p > 0.61 {
+		t.Errorf("got %v %.2f %v", c, p, err)
 	}
 }

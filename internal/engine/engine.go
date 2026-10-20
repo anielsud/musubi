@@ -200,6 +200,7 @@ func (e *Engine) ThreadFinder() (*knowledge.ThreadFinder, error) {
 	if err != nil {
 		return nil, err
 	}
+	f.Newer = e.Cfg.Ask.FindNewer
 	e.finder, e.finderSig = f, sig
 	return f, nil
 }

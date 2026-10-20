@@ -400,7 +400,7 @@ func personContext(e *engine.Engine, sc sensitivity.Scope, question string, b *s
 	if who == "" {
 		return nil
 	}
-	v, err := knowledge.Prep(e.Store, sc, knowledge.PrepRequest{People: []string{who}}, items, e.Cfg.Owner.Name)
+	v, err := knowledge.Prep(e.Store, sc, knowledge.PrepRequest{People: []string{who}, QuietAfter: e.Cfg.Prep.QuietAfter(), MarkPrivate: e.Cfg.Prep.MarkPrivate}, items, e.Cfg.Owner.Name)
 	if err != nil || len(v.Subjects) == 0 {
 		return err
 	}

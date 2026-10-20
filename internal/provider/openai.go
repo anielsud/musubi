@@ -30,13 +30,16 @@ type OpenAI struct {
 	key               string // resolved on first use
 	priceIn, priceOut float64
 	hedgeAfter        time.Duration // hosted: send a backup request after this (0: never)
+	stallAfter        time.Duration // hosted: check a stream's pace after this (0: never)
+	stallRate         float64       // tokens a second below which it has stalled
 }
 
 func NewOpenAI(c config.LLM) *OpenAI {
 	// No client timeout: calls carry their own (withRetry), and a thinking
 	// pass legitimately runs for minutes.
 	return &OpenAI{URL: strings.TrimRight(c.URL, "/"), Model: c.Model, client: &http.Client{}, apiKey: c.APIKey, effort: c.ReasoningEffort,
-		priceIn: c.PriceIn, priceOut: c.PriceOut, hedgeAfter: time.Duration(c.HedgeAfter * float64(time.Second))}
+		priceIn: c.PriceIn, priceOut: c.PriceOut, hedgeAfter: time.Duration(c.HedgeAfter * float64(time.Second)),
+		stallAfter: stallDefault(c.StallAfter), stallRate: cmpOrF(c.StallRate, 20)}
 }
 
 func (o *OpenAI) ModelName() string { return o.Model }
@@ -52,7 +55,7 @@ func (o *OpenAI) Complete(ctx context.Context, msgs []Message, opt ChatOptions, 
 		return o.completeHosted(ctx, msgs, opt, onToken)
 	}
 	if onToken != nil {
-		out, _, err := o.stream(ctx, msgs, opt, opt.MaxTokens, onToken)
+		out, _, err := o.stream(ctx, msgs, opt, opt.MaxTokens, onToken, nil)
 		return out, err
 	}
 	return withRetry(ctx, "openai", opt, func(ctx context.Context) (string, error) { return o.complete(ctx, msgs, opt) })

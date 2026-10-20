@@ -53,3 +53,52 @@ func StatementSensitivity(ctx context.Context, d provider.Decider, text string) 
 	}
 	return labelCategory[best], 1 - p["none"], nil
 }
+
+// LabelVersionTyped stamps labels from a typed classifier (Classifier).
+const LabelVersionTyped = "sl3t"
+
+// The labelling question for a typed classifier. The negative options are
+// split (work, a role being hired for, routine mentions) and the meeting's
+// title is given: on the audited sample, one "none" drew most false flags
+// to roles and teams, and candidates' backgrounds read as ordinary work
+// without knowing the meeting was an interview (research log 2026-10-20).
+var labelQuestion = provider.Question{Type: "choice",
+	Instructions: "`statement` was extracted from `meeting`, one of a senior executive's meetings. Which of these does the statement say? Sensitive content is only shown where it may be.",
+	Options: map[string]string{
+		"people":    "a specific named person's performance, standing, conduct, discipline, improvement plan, resignation, exit, replacement, layoff or dismissal, or a hiring or firing decision about them",
+		"candidate": "anything about a job candidate: their background, past jobs and teams, experience, location, how they work, their interview, assessment or offer (in an interview meeting, what the candidate says about themselves counts)",
+		"pay":       "a person's salary, bonus, equity or offer terms",
+		"medical":   "anyone's health, illness, injury, treatment or medical appointment",
+		"legal":     "a legal dispute, investigation, harassment or discrimination complaint, employment-law advice",
+		"private":   "anyone's life outside work: family, children, home, possessions, hobbies, holidays, personal travel, beliefs",
+		"work":      "business plans, products, customers, deals, costs and tools, money in aggregate, team or headcount numbers, org structure and who owns what",
+		"role":      "a role or opening being hired for (what it covers, its timeline, the interview process) without assessing a named candidate",
+		"routine":   "routine mentions of people at work: who attended, owns, works on, is responsive, will meet whom; praise or description of a team; someone's management or working style",
+	}}
+
+var typedCategory = map[string]sensitivity.Categories{
+	"people": sensitivity.HR, "candidate": sensitivity.HR, "pay": sensitivity.Compensation, "medical": sensitivity.Health,
+	"legal": sensitivity.Legal, "private": sensitivity.Personal,
+}
+
+// StatementSensitivityTyped is StatementSensitivity with a typed
+// classifier: the category with the most probability among the sensitive
+// ones, and the probability of any.
+func StatementSensitivityTyped(ctx context.Context, cl provider.Classifier, text, meeting string) (sensitivity.Categories, float64, error) {
+	a, err := cl.Classify(ctx, map[string]string{"statement": text, "meeting": meeting}, map[string]provider.Question{"sensitive": labelQuestion})
+	if err != nil {
+		return 0, 0, err
+	}
+	pr := a["sensitive"].Probabilities
+	p, best, bp := 0.0, "", 0.0
+	for c := range typedCategory {
+		p += pr[c]
+		if pr[c] > bp {
+			best, bp = c, pr[c]
+		}
+	}
+	if best == "" {
+		return 0, p, nil
+	}
+	return typedCategory[best], p, nil
+}

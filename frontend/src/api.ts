@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { AliasUsage, AliasView, AppStatus, ClaimView, Comparison, DatasetView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, TopicMapData, TopicSummary, TopicView } from './types';
+import type { AliasUsage, AliasView, AppStatus, ClaimView, Comparison, DatasetView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, ThreadEditView, TopicMapData, TopicSummary, TopicView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -51,6 +51,10 @@ export const api = {
   confirmAliasAs: (id: number, keep: string, statements: number[], reviewed: number[], all: boolean): Promise<void> => app().ConfirmAliasAs(id, keep, statements, reviewed, all),
   decideAlias: (id: number, confirm: boolean): Promise<void> => app().DecideAlias(id, confirm),
   correctStatement: (id: number, text: string, who: string): Promise<void> => app().CorrectStatement(id, text, who),
+  mergeThreads: (into: number, from: number): Promise<number> => app().MergeThreads(into, from),
+  splitThread: (from: number, ids: number[], name: string): Promise<number> => app().SplitThread(from, ids, name),
+  undoThreadEdit: (id: number): Promise<void> => app().UndoThreadEdit(id),
+  threadEdits: (): Promise<ThreadEditView[] | null> => app().ThreadEdits(),
   prepTargets: (): Promise<PrepTarget[] | null> => app().PrepTargets(),
   prep: (req: PrepRequest, scope: string): Promise<PrepView> => app().Prep(req, scope),
   prepBrief: (id: string, req: PrepRequest, scope: string): Promise<void> => app().PrepBrief(id, req, scope),

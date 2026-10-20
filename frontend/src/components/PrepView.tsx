@@ -89,10 +89,14 @@ export function PrepView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h
               <ul className="status-list prep-open">
                 {view.open!.map((o, i) => {
                   const byId = new Map((o.items ?? []).map((it) => [it.id, it] as [number, ThreadItem]));
+                  const firstQuiet = o.quiet && !view.open![i - 1]?.quiet;
                   return (
-                    <li key={i}>
+                    <li key={i} className={o.quiet ? 'prep-quiet' : undefined}>
+                      {firstQuiet && <div className="status-head">Gone quiet: nothing said of these since; check before raising</div>}
                       <Cited text={o.text} byId={byId} onSource={src} />
-                      <span className="dim"> — {[o.who, o.due && 'due ' + o.due].filter(Boolean).join(' · ')} · </span>
+                      {o.overdue && <span className="badge prep-overdue">overdue</span>}
+                      {o.private && <span className="scope-pill">for you</span>}
+                      <span className="dim"> — {[o.who, o.due && 'due ' + o.due, o.raised && 'raised ' + fmtDate(o.raised)].filter(Boolean).join(' · ')} · </span>
                       <button className="link" onClick={() => onTopic(o.thread)}>{o.name}</button>
                       <Refs ids={(o.items ?? []).map((x) => x.id)} byId={byId} onSource={src} />
                     </li>
@@ -109,6 +113,7 @@ export function PrepView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h
             return (
               <article key={s.id} className="prep-subject">
                 <button className="topic-label link" onClick={() => onTopic(s.id)}>{s.name}</button>
+                {s.private && <span className="scope-pill" title="About people's jobs, pay, health, legal matters or private lives: for you, not the room">for you, not the room</span>}
                 <div className="dim small">{s.why} · as of {fmtDate(s.asOf)}</div>
                 {s.status && <p className="status-now"><Cited text={s.status.now} byId={byId} onSource={src} /></p>}
                 {(s.newSince?.length ?? 0) > 0 && (

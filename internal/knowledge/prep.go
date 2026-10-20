@@ -28,6 +28,16 @@ type PrepRequest struct {
 	People []string  `json:"people,omitempty"`
 	Since  time.Time `json:"since,omitempty"`
 	Title  string    `json:"title,omitempty"`
+	// Now is when the meeting is (zero: now); open items are aged to it.
+	Now time.Time `json:"now,omitempty"`
+	// QuietAfter: an open item last raised longer ago than this, with
+	// nothing since, is shown as gone quiet (listed after the live ones)
+	// rather than as open. Zero turns it off.
+	QuietAfter time.Duration `json:"quietAfter,omitempty"`
+	// MarkPrivate marks subjects about people's jobs, pay, health, legal
+	// matters or private lives (the sharing rule's threshold), and, in a
+	// meeting with more than one other person, lists them last.
+	MarkPrivate bool `json:"markPrivate,omitempty"`
 }
 
 type PrepView struct {
@@ -41,10 +51,12 @@ type PrepView struct {
 }
 
 type PrepSubject struct {
-	ID       int64              `json:"id"`
-	Name     string             `json:"name"`
-	Why      string             `json:"why"`
-	Status   *Status            `json:"status,omitempty"`
+	ID     int64   `json:"id"`
+	Name   string  `json:"name"`
+	Why    string  `json:"why"`
+	Status *Status `json:"status,omitempty"`
+	// Private: for the owner, not the room (MarkPrivate).
+	Private  bool               `json:"private,omitempty"`
 	AsOf     time.Time          `json:"asOf"`
 	NewSince []store.ThreadItem `json:"newSince"`
 	Items    []store.ThreadItem `json:"items"` // every visible item, for citations
@@ -57,6 +69,12 @@ type PrepOpen struct {
 	Thread int64              `json:"thread"`
 	Name   string             `json:"name"`
 	Items  []store.ThreadItem `json:"items"`
+	// Raised is when it was last said; Quiet, that nothing has been said
+	// of it for QuietAfter; Overdue, that its due date has passed.
+	Raised  time.Time `json:"raised"`
+	Quiet   bool      `json:"quiet,omitempty"`
+	Overdue bool      `json:"overdue,omitempty"`
+	Private bool      `json:"private,omitempty"`
 }
 
 type PrepShare struct {
@@ -327,11 +345,27 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 		}
 	}
 	sort.Slice(ss, func(i, j int) bool { return ss[i].score > ss[j].score })
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	// The share of a thread's items about people's jobs, pay, health,
+	// legal matters or private lives (see "Worth sharing" below).
+	private := func(tid int64) bool {
+		bad := 0
+		for _, it := range tis[tid] {
+			if !shareable(it.Label) {
+				bad++
+			}
+		}
+		return float64(bad) >= prepSensitiveShare*float64(len(tis[tid]))
+	}
 	mine := map[int64]bool{}
 	for _, s := range ss[:min(len(ss), prepSubjects)] {
 		its := tis[s.id]
 		sub := PrepSubject{ID: s.id, Name: name[s.id], Items: its, AsOf: its[len(its)-1].SaidAt}
 		sub.Why = whyLine(s.holders, s.inMeets)
+		sub.Private = req.MarkPrivate && private(s.id)
 		if stt, ok := statuses[s.id]; ok {
 			var x Status
 			if json.Unmarshal([]byte(stt.Body), &x) == nil {
@@ -339,7 +373,20 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 				for _, o := range x.Open {
 					_, theirs := group.match(o.Who)
 					if theirs || strings.Contains(PrepNameKey(o.Who), ownerKey) || mentions(group, o.Who) {
-						v.Open = append(v.Open, PrepOpen{Text: o.Text, Who: o.Who, Due: o.Due, Thread: s.id, Name: sub.Name, Items: pick(its, o.IDs)})
+						po := PrepOpen{Text: o.Text, Who: o.Who, Due: o.Due, Thread: s.id, Name: sub.Name, Items: pick(its, o.IDs), Private: sub.Private}
+						for _, it := range po.Items {
+							if it.SaidAt.After(po.Raised) {
+								po.Raised = it.SaidAt
+							}
+						}
+						if po.Raised.IsZero() {
+							po.Raised = sub.AsOf
+						}
+						po.Quiet = req.QuietAfter > 0 && now.Sub(po.Raised) > req.QuietAfter
+						if d, ok := dueDate(o.Due); ok && now.After(d.Add(24*time.Hour)) {
+							po.Overdue = true
+						}
+						v.Open = append(v.Open, po)
 					}
 				}
 			}
@@ -352,6 +399,20 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 		v.Subjects = append(v.Subjects, sub)
 		mine[s.id] = true
 	}
+	// In a meeting with more than one other person, what is for the owner
+	// alone goes last, so a shared screen opens on what the room can see.
+	if req.MarkPrivate && len(v.People) > 1 {
+		sort.SliceStable(v.Subjects, func(i, j int) bool { return !v.Subjects[i].Private && v.Subjects[j].Private })
+	}
+	// Live items first, then those gone quiet; the most recently raised
+	// first within each.
+	sort.SliceStable(v.Open, func(i, j int) bool {
+		a, b := v.Open[i], v.Open[j]
+		if a.Quiet != b.Quiet {
+			return !a.Quiet
+		}
+		return a.Raised.After(b.Raised)
+	})
 	// Worth sharing: the latest word on their subjects, said since, in
 	// meetings none of them attended. A thread whose items are often about
 	// people's jobs, pay, health, legal matters or private lives is left
@@ -360,13 +421,7 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 	// names. On September, such subjects ran 38–49% labelled, ordinary
 	// work 4–6% (research log 2026-10-17).
 	for _, s := range ss {
-		bad := 0
-		for _, it := range tis[s.id] {
-			if !shareable(it.Label) {
-				bad++
-			}
-		}
-		if float64(bad) >= prepSensitiveShare*float64(len(tis[s.id])) {
+		if private(s.id) {
 			continue
 		}
 		for _, it := range tis[s.id] {
@@ -406,6 +461,17 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 	}
 	v.Share = kept
 	return v, nil
+}
+
+// dueDate reads a due date the status gives as a date ("2026-09-25",
+// "2026-09-25 (later today)"); "end of quarter" and the like aren't read.
+func dueDate(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if len(s) < 10 {
+		return time.Time{}, false
+	}
+	d, err := time.Parse("2006-01-02", s[:10])
+	return d, err == nil
 }
 
 // mentions: an owner field like "ELT / Dana Ruiz" names one of the group.

@@ -136,3 +136,36 @@ func TestAddAlias(t *testing.T) {
 		t.Errorf("scoped %v", sc)
 	}
 }
+
+// The owner's corrections, decided aliases and thread edits survive a
+// schema upgrade, which drops and rebuilds everything derived.
+func TestOwnerEditsSurviveUpgrade(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "t.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		`INSERT INTO corrections(item_id, statement, extracted, field, old, new, by, at) VALUES ('m:1', 1, 'a', 'text', 'a', 'b', 'owner', 1)`,
+		`INSERT INTO learned_aliases(keep, variant, kind, status, evidence, score, by, at) VALUES ('Dhaka', 'Daka', 'spelling', 'confirmed', '', 1, 'owner', 1)`,
+	} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.RecordThreadEdit(ThreadEdit{Kind: "merge", Moved: []StatementKey{{Item: "m:1", Text: "a"}}, Name: "x", By: "owner"}); err != nil {
+		t.Fatal(err)
+	}
+	s.db.Exec(`PRAGMA user_version = 1`)
+	s.Close()
+	if s, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, tb := range []string{"corrections", "learned_aliases", "thread_edits"} {
+		var n int
+		if err := s.db.QueryRow(`SELECT count(*) FROM ` + tb).Scan(&n); err != nil || n != 1 {
+			t.Errorf("%s after upgrade: %d rows, %v", tb, n, err)
+		}
+	}
+}

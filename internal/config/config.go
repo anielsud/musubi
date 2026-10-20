@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
+	"time"
 )
 
 type Config struct {
@@ -23,7 +24,24 @@ type Config struct {
 	Sensitivity Sensitivity `toml:"sensitivity"`
 	Knowledge   Knowledge   `toml:"knowledge"`
 	Ask         Ask         `toml:"ask"`
+	Prep        Prep        `toml:"prep"`
 }
+
+// Prep configures meeting preparation.
+type Prep struct {
+	// QuietDays: an open item with nothing said of it for this many days
+	// is shown as gone quiet, after the live ones. 0 shows every open item
+	// as open, the earlier behaviour.
+	QuietDays int `toml:"quiet_days"`
+	// MarkPrivate marks subjects about people's jobs, pay, health, legal
+	// matters or private lives as for the owner alone, and lists them last
+	// in a meeting with more than one other person. false: unmarked, in
+	// score order, the earlier behaviour.
+	MarkPrivate bool `toml:"mark_private"`
+}
+
+// QuietAfter is QuietDays as a duration.
+func (p Prep) QuietAfter() time.Duration { return time.Duration(p.QuietDays) * 24 * time.Hour }
 
 // Ask configures answering questions.
 type Ask struct {
@@ -37,6 +55,12 @@ type Ask struct {
 	// SmallContext reads fewer items, passages and citations: answers start
 	// sooner, slightly worse on the question set (off by default).
 	SmallContext bool `toml:"small_context"`
+	// FindNewer adds one later-active thread just past the margin (a
+	// subject whose latest turn was threaded apart). Off by default: it
+	// finds more of the reference's sources (263 of 383 against 249) but
+	// answers didn't improve, since the model leans on the threads it is
+	// given first (research log 2026-10-20).
+	FindNewer bool `toml:"find_newer"`
 }
 
 // Knowledge configures statement extraction.
@@ -144,6 +168,25 @@ type Label struct {
 	// MinP is the probability of "sensitive" at which a statement is
 	// labelled.
 	MinP float64 `toml:"min_p"`
+	// Classifier, when set, labels with a typed classification model
+	// instead of Model's one-token decision: provider "jev" (TypeSafe).
+	// On September's audited sample (research log 2026-10-20) it found 86%
+	// of sensitive statements against the 27B's 71%, at the same
+	// precision, in seconds. Setting it relabels every statement under its
+	// own version on the next knowledge run; labels only ever add, so
+	// earlier labels stay. Empty: Model, the earlier behaviour.
+	Classifier Classifier `toml:"classifier"`
+}
+
+// Classifier configures a typed classification model.
+type Classifier struct {
+	Provider string  `toml:"provider"` // "jev"
+	URL      string  `toml:"url"`
+	Model    string  `toml:"model"`
+	APIKey   string  `toml:"api_key"` // keychain:<service> or env:<VARIABLE>
+	PriceIn  float64 `toml:"price_in"`
+	// MinP for this classifier (0: 0.5, measured).
+	MinP float64 `toml:"min_p"`
 }
 
 // Threads configures grouping = "threads".
@@ -219,6 +262,15 @@ type LLM struct {
 	// sent again and the first reply used, cutting the slow tail for
 	// about a tenth more spend. 0 never does.
 	HedgeAfter float64 `toml:"hedge_after"`
+	// StallAfter (seconds, hosted only): a reply streaming slower than
+	// StallRate tokens a second this long after it was sent is sent again,
+	// the first reply used. Most slow calls are stalled streams, not long
+	// ones: in the All rethread, calls over two minutes had a median of
+	// 632 tokens at 4 a second, against 127 normally (research log
+	// 2026-10-20). 0: 30 s; negative: off, the earlier behaviour.
+	StallAfter float64 `toml:"stall_after"`
+	// StallRate (tokens a second): 0 is 20.
+	StallRate float64 `toml:"stall_rate"`
 }
 
 // Live configures the side panel during a meeting.
@@ -288,6 +340,7 @@ func DefaultConfig() Config {
 		Embed:         Embed{Provider: "ollama", Model: "nomic-embed-text", URL: "http://127.0.0.1:11434"},
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
+		Prep:          Prep{QuietDays: 21, MarkPrivate: true},
 		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, ProposeAliases: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{

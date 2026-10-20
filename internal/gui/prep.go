@@ -95,6 +95,7 @@ func (a *App) Prep(req knowledge.PrepRequest, scope string) (*knowledge.PrepView
 			}
 		}
 	}
+	req.QuietAfter, req.MarkPrivate = a.eng.Cfg.Prep.QuietAfter(), a.eng.Cfg.Prep.MarkPrivate
 	return knowledge.Prep(a.eng.Store, sc, req, items, a.eng.Cfg.Owner.Name)
 }
 

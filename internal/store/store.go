@@ -29,8 +29,10 @@ var schema string
 // an upgrade drops the derived tables and the next update refills them.
 const schemaVersion = 4
 
-// kept survive a schema upgrade: they are not derived from raw.
-var kept = map[string]bool{"forgotten": true, "audit": true, "judgments": true}
+// kept survive a schema upgrade: they are not derived from raw. The
+// owner's corrections, decided aliases and thread edits are among them:
+// they are kept to the side and applied again to whatever is rebuilt.
+var kept = map[string]bool{"forgotten": true, "audit": true, "judgments": true, "corrections": true, "learned_aliases": true, "thread_edits": true}
 
 type Store struct {
 	db    *sql.DB
@@ -59,6 +61,11 @@ func Open(path string) (*Store, error) {
 	// Provenance on thread edges (docs/incremental-design.md).
 	if err := addColumns(db, "thread_items", "version TEXT NOT NULL DEFAULT ''", "added_in TEXT NOT NULL DEFAULT ''", "added_at INTEGER NOT NULL DEFAULT 0",
 		"retired_in TEXT NOT NULL DEFAULT ''", "retired_at INTEGER NOT NULL DEFAULT 0", "retired_why TEXT NOT NULL DEFAULT ''"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	// Corrections made before this column had their threads mended then.
+	if err := addColumns(db, "corrections", "related INTEGER NOT NULL DEFAULT 1"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
@@ -220,7 +227,8 @@ func addColumns(db *sql.DB, table string, defs ...string) error {
 	}
 	for _, d := range defs {
 		if name := strings.Fields(d)[0]; !cols[name] {
-			if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + d); err != nil {
+			// Another process opening the same database may add it first.
+			if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + d); err != nil && !strings.Contains(err.Error(), "duplicate column name") {
 				return err
 			}
 		}

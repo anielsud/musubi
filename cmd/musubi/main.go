@@ -718,7 +718,7 @@ func prepCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			req := knowledge.PrepRequest{People: people}
+			req := knowledge.PrepRequest{People: people, QuietAfter: e.Cfg.Prep.QuietAfter(), MarkPrivate: e.Cfg.Prep.MarkPrivate}
 			if len(args) == 1 {
 				req.Template = args[0]
 			}
@@ -728,7 +728,11 @@ func prepCmd() *cobra.Command {
 			}
 			fmt.Printf("%s — with %s; since %s; %d meetings with them\n", v.Title, strings.Join(v.People, ", "), v.Since.Format("2006-01-02"), v.Met)
 			for _, s := range v.Subjects {
-				fmt.Printf("\n# %s  (%s)\n", s.Name, s.Why)
+				mark := ""
+				if s.Private {
+					mark = "  [for you, not the room]"
+				}
+				fmt.Printf("\n# %s  (%s)%s\n", s.Name, s.Why, mark)
 				if s.Status != nil {
 					fmt.Printf("  now: %s\n", knowledge.StripIDs(s.Status.Now))
 				}
@@ -737,8 +741,21 @@ func prepCmd() *cobra.Command {
 				}
 			}
 			fmt.Println("\nOpen between you:")
+			quiet := false
 			for _, o := range v.Open {
-				fmt.Printf("  - %s [%s; %s] (%s)\n", knowledge.StripIDs(o.Text), o.Who, o.Due, o.Name)
+				if o.Quiet && !quiet {
+					fmt.Println("\nGone quiet (nothing said of it since; check before raising):")
+					quiet = true
+				}
+				var tags []string
+				tags = append(tags, "raised "+o.Raised.Format("02 Jan"))
+				if o.Overdue {
+					tags = append(tags, "overdue")
+				}
+				if o.Private {
+					tags = append(tags, "for you")
+				}
+				fmt.Printf("  - %s [%s; %s] (%s; %s)\n", knowledge.StripIDs(o.Text), o.Who, o.Due, o.Name, strings.Join(tags, ", "))
 			}
 			fmt.Println("\nWorth sharing:")
 			for _, s := range v.Share {

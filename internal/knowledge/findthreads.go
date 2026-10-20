@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/anielsud/musubi/internal/sensitivity"
@@ -19,7 +20,16 @@ type ThreadFinder struct {
 	ids    []int64     // statements with vectors
 	vecs   [][]float32 // their vectors, normalised
 	member map[int64][]int64
+	latest map[int64]time.Time // thread → its latest statement
+
+	// Newer adds one thread a little further from the best (newerMargin)
+	// whose latest item is later than every thread found: where a subject's
+	// latest turn was threaded on its own (a role question whose latest
+	// word is in a comp thread).
+	Newer bool
 }
+
+const newerMargin = 0.12
 
 // ThreadMatch is a thread found for a question.
 type ThreadMatch struct {
@@ -42,7 +52,18 @@ func NewThreadFinder(st *store.Store, model string) (*ThreadFinder, error) {
 	if err != nil {
 		return nil, err
 	}
-	f := &ThreadFinder{rows: rows, member: member}
+	said, _, err := st.StatementTimes()
+	if err != nil {
+		return nil, err
+	}
+	f := &ThreadFinder{rows: rows, member: member, latest: map[int64]time.Time{}}
+	for id, ts := range member {
+		for _, t := range ts {
+			if said[id].After(f.latest[t]) {
+				f.latest[t] = said[id]
+			}
+		}
+	}
 	for i := range f.rows {
 		f.rows[i].Centroid = unit32(f.rows[i].Centroid)
 	}
@@ -146,5 +167,23 @@ func (f *ThreadFinder) Find(sc sensitivity.Scope, q []float32, question string, 
 	for n < len(out) && n < k && out[n].Score >= out[0].Score-margin {
 		n++
 	}
-	return out[:n]
+	found := out[:n:n]
+	if f.Newer && n > 0 {
+		var last time.Time
+		for _, m := range found {
+			if f.latest[m.ID].After(last) {
+				last = f.latest[m.ID]
+			}
+		}
+		for _, m := range out[n:] {
+			if m.Score < out[0].Score-newerMargin {
+				break
+			}
+			if f.latest[m.ID].After(last) {
+				found = append(found, m)
+				break
+			}
+		}
+	}
+	return found
 }

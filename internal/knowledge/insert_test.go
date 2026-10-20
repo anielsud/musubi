@@ -222,8 +222,22 @@ func TestCorrectStatement(t *testing.T) {
 		t.Fatal("precondition: answered")
 	}
 	embed := func(string) ([]float32, string, error) { return []float32{1, 0, 0}, "test", nil }
-	if _, err := th.Correct(context.Background(), answer, "Juniper: the names list is delayed to next month.", []string{"Dana Ruiz"}, "owner", embed); err != nil {
+	// Made while the model is unreachable: recorded, the mending pending.
+	th.LLM = downLLM{}
+	if _, err := th.Correct(context.Background(), answer, "Juniper: the names list is delayed to next month.", []string{"Dana Ruiz"}, "owner", embed); err == nil {
+		t.Fatal("no error with the model down")
+	}
+	pending, _ := f.st.PendingCorrections()
+	if len(pending) != 1 || pending[0].Statement != answer || !pending[0].Text {
+		t.Fatalf("pending %+v", pending)
+	}
+	// The next run mends it.
+	th.LLM = llm
+	if _, err := th.Rerelate(context.Background(), answer, true, "owner", embed); err != nil {
 		t.Fatal(err)
+	}
+	if pending, _ := f.st.PendingCorrections(); len(pending) != 0 {
+		t.Errorf("still pending %+v", pending)
 	}
 	if !current(question) {
 		t.Error("question still retired by a statement that no longer answers it")
@@ -236,3 +250,52 @@ func TestCorrectStatement(t *testing.T) {
 		t.Errorf("derived and stored disagree: %+v", c)
 	}
 }
+
+// An item placed but not marked threaded (a stopped run) is taken out of
+// its threads, the graph mended, and threaded again without being placed
+// twice.
+func TestUnthreadThenThreadAgain(t *testing.T) {
+	f := newCardFixture(t)
+	f.st.ClearThreads()
+	th := &Threader{Store: f.st, LLM: &insertLLM{}, Chunk: 70, Parallel: 2, Version: "v-test"}
+	m1 := ThreadItem{ID: "m:1", Start: time.Date(2026, 9, 16, 15, 0, 0, 0, time.UTC)}
+	m2 := ThreadItem{ID: "m:2", Start: time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)}
+	for _, it := range []ThreadItem{m1, m2} {
+		if _, err := th.Thread(context.Background(), it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func() int {
+		ms, _ := f.st.ThreadMembers()
+		return len(ms)
+	}
+	before := count()
+	n, err := Unthread(f.st, "m:2")
+	if err != nil || n == 0 {
+		t.Fatalf("unthread: %d, %v", n, err)
+	}
+	if threads, _ := f.st.ThreadsOfItem("m:2"); len(threads) != 0 {
+		t.Fatalf("still in %v", threads)
+	}
+	if _, err := th.Thread(context.Background(), m2); err != nil {
+		t.Fatal(err)
+	}
+	if after := count(); after != before {
+		t.Errorf("memberships %d, were %d", after, before)
+	}
+	c, err := CheckDerived(f.st, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Agree != c.Memberships {
+		t.Errorf("derived and stored disagree: %+v", c)
+	}
+}
+
+type downLLM struct{}
+
+func (downLLM) Complete(context.Context, []provider.Message, provider.ChatOptions, func(string)) (string, error) {
+	return "", fmt.Errorf("unreachable")
+}
+func (downLLM) Local() bool       { return true }
+func (downLLM) ModelName() string { return "down" }

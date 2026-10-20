@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDate } from '../api';
-import type { ClaimView, KnowledgeCounts, Statement, StatusPoint, ThreadDetail, ThreadItem, TopicMapData, TopicView } from '../types';
+import type { ClaimView, KnowledgeCounts, Statement, StatusPoint, ThreadDetail, ThreadItem, TopicMapData, TopicSummary, TopicView } from '../types';
 import { Empty, LabelBadge, Spinner } from './common';
 import { TopicViews, clusterColor, useWide } from './TopicViews';
 
@@ -112,6 +112,7 @@ function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope:
   const [t, setT] = useState<TopicView | null | undefined>(undefined);
   const [showHistory, setShowHistory] = useState(false);
   const [claimOpen, setClaimOpen] = useState<number | null>(null);
+  const [picked, setPicked] = useState<Set<number> | null>(null);
   const reload = () => api.topic(id, scope).then(setT);
   useEffect(() => {
     setT(undefined);
@@ -138,8 +139,13 @@ function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope:
         <div className="people"><span className="dim">who: </span>{t.people!.slice(0, 8).map((p) => `${p.name} (${p.claims})`).join(' · ')}</div>
       )}
 
+      {t.thread && scope === 'owner' && <ThreadEdit id={t.id} scope={scope} picked={picked} setPicked={setPicked} onDone={reload} />}
       {t.thread ? (
-        <ThreadSection d={t.thread} onSource={onSource} owner={scope === 'owner'} onChanged={reload} />
+        <ThreadSection d={t.thread} onSource={onSource} owner={scope === 'owner'} onChanged={reload} picked={picked} onPick={(x) => {
+          const n = new Set(picked ?? []);
+          if (n.has(x)) n.delete(x); else n.add(x);
+          setPicked(n);
+        }} />
       ) : (
         <>
           <div className="section-head"><span>What's believed now</span></div>
@@ -191,7 +197,7 @@ function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope:
 
 // ThreadSection: a thread's written status, then its current items, with
 // what was replaced folded away.
-function ThreadSection({ d, onSource, owner, onChanged }: { d: ThreadDetail; onSource: (itemId: string, chunkId: number) => void; owner: boolean; onChanged: () => void }) {
+function ThreadSection({ d, onSource, owner, onChanged, picked, onPick }: { d: ThreadDetail; onSource: (itemId: string, chunkId: number) => void; owner: boolean; onChanged: () => void; picked?: Set<number> | null; onPick?: (id: number) => void }) {
   const [showRetired, setShowRetired] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const all = [...(d.current ?? []), ...(d.retired ?? [])];
@@ -229,14 +235,14 @@ function ThreadSection({ d, onSource, owner, onChanged }: { d: ThreadDetail; onS
       )}
       <div className="section-head"><span>Current ({cur.length})</span></div>
       {cur.length === 0 && <Empty>Nothing current; see what was replaced.</Empty>}
-      {(showAll ? cur : cur.slice(0, 12)).map((it) => <ItemRow key={it.id} it={it} onSource={onSource} owner={owner} onChanged={onChanged} />)}
+      {(showAll || picked ? cur : cur.slice(0, 12)).map((it) => <ItemRow key={it.id} it={it} onSource={onSource} owner={owner} onChanged={onChanged} picked={picked} onPick={onPick} />)}
       {cur.length > 12 && !showAll && <button className="link" onClick={() => setShowAll(true)}>show all {cur.length}</button>}
       {retired.length > 0 && (
         <>
           <button className="section-head link-head" onClick={() => setShowRetired(!showRetired)}>
             <span>{showRetired ? '▾' : '▸'} Replaced, done or answered ({retired.length})</span>
           </button>
-          {showRetired && retired.map((it) => <ItemRow key={it.id} it={it} onSource={onSource} owner={owner} onChanged={onChanged} />)}
+          {(showRetired || picked) && retired.map((it) => <ItemRow key={it.id} it={it} onSource={onSource} owner={owner} onChanged={onChanged} picked={picked} onPick={onPick} />)}
         </>
       )}
     </>
@@ -289,7 +295,7 @@ function PointRow({ p, byId, onSource, lead, tail }: { p: StatusPoint; byId: Map
 
 // ItemRow is a thread's item; the owner can correct its text or who said
 // it (the graph is mended around it: Threader.Correct).
-function ItemRow({ it, onSource, owner, onChanged }: { it: ThreadItem; onSource: (itemId: string, chunkId: number) => void; owner?: boolean; onChanged?: () => void }) {
+function ItemRow({ it, onSource, owner, onChanged, picked, onPick }: { it: ThreadItem; onSource: (itemId: string, chunkId: number) => void; owner?: boolean; onChanged?: () => void; picked?: Set<number> | null; onPick?: (id: number) => void }) {
   const who = (it.who?.length ? it.who.join(', ') : it.holder) || '';
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(it.text);
@@ -319,8 +325,9 @@ function ItemRow({ it, onSource, owner, onChanged }: { it: ThreadItem; onSource:
     );
   }
   return (
-    <div className="stmt-wrap">
-    {owner && <button className="link stmt-edit" onClick={() => setEditing(true)} title="Correct the text or who said it">correct</button>}
+    <div className={'stmt-wrap' + (picked ? ' picking' : '')}>
+    {picked && <input type="checkbox" className="stmt-pick" checked={picked.has(it.id)} onChange={() => onPick?.(it.id)} title="Split this out" />}
+    {owner && !picked && <button className="link stmt-edit" onClick={() => setEditing(true)} title="Correct the text or who said it">correct</button>}
     <button className={'stmt' + (it.current ? '' : ' retired')} onClick={() => onSource(it.itemId, it.chunkId)} title="Open the source passage">
       <div className="stmt-head">
         <b>{who || 'unknown'}</b>
@@ -418,5 +425,64 @@ export function ClaimResults({ q, scope, onSource }: { q: string } & NavProps) {
       <div className="section-head"><span>Claims</span></div>
       {cs.map((c) => <ClaimCard key={c.id} c={c} scope={scope} open={open === c.id} onToggle={() => setOpen(open === c.id ? null : c.id)} onSource={onSource} onChanged={run} />)}
     </section>
+  );
+}
+
+// ThreadEdit: the owner merges another thread into this one, or splits
+// picked statements out to a thread of their own. Both are recorded to the
+// side, applied again after a rethread, and can be undone; the threads'
+// statuses are written again in the background.
+function ThreadEdit({ id, scope, picked, setPicked, onDone }: { id: number; scope: string; picked: Set<number> | null; setPicked: (s: Set<number> | null) => void; onDone: () => void }) {
+  const [threads, setThreads] = useState<TopicSummary[]>([]);
+  const [mode, setMode] = useState<'' | 'merge'>('');
+  const [other, setOther] = useState('');
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [last, setLast] = useState<{ id: number; what: string } | null>(null);
+  useEffect(() => {
+    if (mode === 'merge' && threads.length === 0) api.topics(scope).then((ts) => setThreads((ts ?? []).filter((x) => x.id !== id)));
+  }, [mode]);
+  const run = (p: Promise<number>, what: string) => {
+    setBusy(true);
+    setErr('');
+    p.then(
+      (eid) => { setBusy(false); setLast({ id: eid, what }); setMode(''); setPicked(null); setOther(''); setName(''); onDone(); },
+      (e) => { setBusy(false); setErr(String(e)); },
+    );
+  };
+  const target = threads.find((x) => x.label === other);
+  return (
+    <div className="thread-edit">
+      {!mode && !picked && (
+        <>
+          <button className="link" onClick={() => setMode('merge')}>merge another thread into this</button>
+          <span className="dim"> · </span>
+          <button className="link" onClick={() => setPicked(new Set())}>split statements out…</button>
+        </>
+      )}
+      {mode === 'merge' && (
+        <div className="edit-actions">
+          <input list="merge-threads" value={other} onChange={(e) => setOther(e.target.value)} placeholder="the thread to merge in" />
+          <datalist id="merge-threads">{threads.map((x) => <option key={x.id} value={x.label} />)}</datalist>
+          {busy ? <Spinner /> : <button className="chip" disabled={!target} onClick={() => target && run(api.mergeThreads(id, target.id), `merged “${target.label}” in`)}>merge</button>}
+          <button className="link" onClick={() => setMode('')}>cancel</button>
+        </div>
+      )}
+      {picked && (
+        <div className="edit-actions">
+          <span className="dim">{picked.size} picked</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="name of the new thread" />
+          {busy ? <Spinner /> : <button className="chip" disabled={picked.size === 0 || !name.trim()} onClick={() => run(api.splitThread(id, [...picked], name.trim()), `split ${picked.size} out to “${name.trim()}”`)}>split</button>}
+          <button className="link" onClick={() => setPicked(null)}>cancel</button>
+        </div>
+      )}
+      {last && (
+        <div className="dim small">
+          {last.what}; kept if the threads are rebuilt. <button className="link" onClick={() => api.undoThreadEdit(last.id).then(() => { setLast(null); onDone(); }, (e) => setErr(String(e)))}>undo</button>
+        </div>
+      )}
+      {err && <div className="error small">{err}</div>}
+    </div>
   );
 }

@@ -235,18 +235,49 @@ func ForgetItem(st *store.Store, itemID string) (rawHash string, stillUsed bool,
 	return rawHash, stillUsed, RederiveThreads(st, threads, time.Time{}, store.Provenance{During: itemID, Why: "forget"})
 }
 
+// Unthread takes an item's statements out of every thread, with their
+// relations, and mends the graph as ForgetItem does, keeping the item and
+// its statements. A run stopped while threading an item leaves some of
+// its statements placed but the item not marked threaded; it is unthreaded
+// before being threaded again, so nothing is placed twice. No model.
+func Unthread(st *store.Store, itemID string) (int, error) {
+	threads, err := st.ThreadsOfItem(itemID)
+	if err != nil || len(threads) == 0 {
+		return 0, err
+	}
+	sts, err := st.LinkedItemStatements(itemID)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := st.RemoveFromThreads(sts); err != nil {
+		return 0, err
+	}
+	if err := st.DeleteEmptyThreads(threads); err != nil {
+		return 0, err
+	}
+	return len(threads), RederiveThreads(st, threads, time.Time{}, store.Provenance{During: itemID, Why: "unthread"})
+}
+
 // Correct changes a statement (its text, or who it belongs to; empty text
 // and nil who keep them), then mends the graph around it: re-embedded, its
 // relations judged again against its neighbours in each of its threads,
 // and "current" derived again there and wherever it retired something.
 // Its threads stay as they are: membership is by statement, not by words.
 func (t *Threader) Correct(ctx context.Context, id int64, text string, who []string, by string, embed func(string) ([]float32, string, error)) (ThreadStats, error) {
+	if err := t.Store.CorrectStatement(id, text, who, by); err != nil {
+		return ThreadStats{}, err
+	}
+	return t.Rerelate(ctx, id, text != "", by, embed)
+}
+
+// Rerelate mends the graph around a corrected statement (Correct, after
+// the correction is recorded) and marks its corrections done. A run that
+// fails part way (the model unreachable) leaves them pending, and the next
+// knowledge run does them (store.PendingCorrections).
+func (t *Threader) Rerelate(ctx context.Context, id int64, textChanged bool, by string, embed func(string) ([]float32, string, error)) (ThreadStats, error) {
 	var stats ThreadStats
 	before, err := t.Store.RetiringRelations()
 	if err != nil {
-		return stats, err
-	}
-	if err := t.Store.CorrectStatement(id, text, who, by); err != nil {
 		return stats, err
 	}
 	sts, err := t.Store.StatementsByID([]int64{id})
@@ -254,8 +285,8 @@ func (t *Threader) Correct(ctx context.Context, id int64, text string, who []str
 		return stats, err
 	}
 	s := sts[id]
-	if embed != nil && text != "" {
-		v, model, err := embed(text)
+	if embed != nil && textChanged {
+		v, model, err := embed(s.Text)
 		if err != nil {
 			return stats, err
 		}
@@ -351,7 +382,10 @@ func (t *Threader) Correct(ctx context.Context, id int64, text string, who []str
 			}
 		}
 	}
-	return stats, RederiveThreads(t.Store, changed, time.Time{}, store.Provenance{Version: t.Version, During: "correct", Why: by})
+	if err := RederiveThreads(t.Store, changed, time.Time{}, store.Provenance{Version: t.Version, During: "correct", Why: by}); err != nil {
+		return stats, err
+	}
+	return stats, t.Store.MarkCorrectionsRelated(id)
 }
 
 const relateSystem = `You keep one thread of a leadership team's notes, so that someone asking about the subject sees only where things stand. You get items already in the thread, each with its meeting date, kind/status, who said it, and whether it is CURRENT or RETIRED, and NEW items from one more meeting. That meeting may be older or newer than the items already there.

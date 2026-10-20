@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -169,7 +170,7 @@ func (o *OpenAI) record(u usage, finish string, took time.Duration, kind string)
 
 // stream sends one request and reads the reply as it streams, passing
 // each piece of text to onToken (nil: none).
-func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, maxTokens int, onToken func(string)) (string, string, error) {
+func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, maxTokens int, onToken func(string), progress *atomic.Int64) (string, string, error) {
 	if err := o.checkSpend(); err != nil {
 		return "", "", err
 	}
@@ -277,6 +278,9 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 			}
 			data := strings.TrimSpace(strings.TrimPrefix(l, "data:"))
 			chunks++
+			if progress != nil {
+				progress.Add(1)
+			}
 			if data == "[DONE]" {
 				o.record(used, finish, time.Since(started), opt.Kind)
 				recorded = true
@@ -347,6 +351,31 @@ func closeSchema(v any) any {
 	return v
 }
 
+func cmpOrD(a, b time.Duration) time.Duration {
+	if a > 0 {
+		return a
+	}
+	return b
+}
+
+func cmpOrF(a, b float64) float64 {
+	if a > 0 {
+		return a
+	}
+	return b
+}
+
+// stallDefault: 0 is 30 s, negative is off.
+func stallDefault(s float64) time.Duration {
+	switch {
+	case s < 0:
+		return 0
+	case s == 0:
+		return 30 * time.Second
+	}
+	return time.Duration(s * float64(time.Second))
+}
+
 func cmpOr(a, b string) string {
 	if a != "" {
 		return a
@@ -354,14 +383,15 @@ func cmpOr(a, b string) string {
 	return b
 }
 
-// hedged sends a request and, if it hasn't finished after hedgeAfter, the
-// same request again, taking whichever finishes first: a few calls run
-// many times the median (research log 2026-10-19), and a meeting's round
-// of calls waits for its slowest. Off (hedgeAfter 0) or when streaming to
-// a caller, it is one request.
+// hedged sends a request and, if it hasn't finished after hedgeAfter or
+// is streaming slower than stallRate after stallAfter, the same request
+// again, taking whichever finishes first: a few calls run many times the
+// median (research log 2026-10-19), and a meeting's round of calls waits
+// for its slowest. Off (both 0) or when streaming to a caller, it is one
+// request.
 func (o *OpenAI) hedged(ctx context.Context, msgs []Message, opt ChatOptions, maxTokens int, onToken func(string)) (string, string, error) {
-	if o.hedgeAfter <= 0 || onToken != nil {
-		return o.stream(ctx, msgs, opt, maxTokens, onToken)
+	if (o.hedgeAfter <= 0 && o.stallAfter <= 0) || onToken != nil {
+		return o.stream(ctx, msgs, opt, maxTokens, onToken, nil)
 	}
 	type res struct {
 		out, finish string
@@ -370,24 +400,40 @@ func (o *OpenAI) hedged(ctx context.Context, msgs []Message, opt ChatOptions, ma
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel() // stops the loser
 	results := make(chan res, 2)
-	send := func() {
+	var first atomic.Int64 // the first request's chunks so far
+	send := func(progress *atomic.Int64) {
 		go func() {
-			out, finish, err := o.stream(cctx, msgs, opt, maxTokens, nil)
+			out, finish, err := o.stream(cctx, msgs, opt, maxTokens, nil, progress)
 			results <- res{out, finish, err}
 		}()
 	}
-	send()
-	timer := time.NewTimer(o.hedgeAfter)
+	send(&first)
+	started := time.Now()
+	// A timer that never fires stands in for a check that is off.
+	never := time.Duration(1<<62 - 1)
+	timer := time.NewTimer(cmpOrD(o.hedgeAfter, never))
 	defer timer.Stop()
+	stall := time.NewTimer(cmpOrD(o.stallAfter, never))
+	defer stall.Stop()
 	inFlight, hedgedOnce := 1, false
+	backup := func() {
+		if !hedgedOnce {
+			hedgedOnce = true
+			inFlight++
+			send(nil)
+		}
+	}
 	var failed *res
 	for {
 		select {
 		case <-timer.C:
-			if !hedgedOnce {
-				hedgedOnce = true
-				inFlight++
-				send()
+			backup()
+		case <-stall.C:
+			// Long replies stream fast; a stalled one has sent little.
+			if float64(first.Load()) < o.stallRate*time.Since(started).Seconds() {
+				backup()
+			} else {
+				stall.Reset(10 * time.Second)
 			}
 		case r := <-results:
 			inFlight--

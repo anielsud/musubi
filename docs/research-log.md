@@ -2312,3 +2312,118 @@ of 22) and change questions lost (13 → 10 of 21); two of the losses
 lead with an older position. The rethread fixed the graph without
 changing Ask answers much; better change answers would come from the
 statuses, not the threading.
+
+## 2026-10-20: Prep, Ask retrieval and the slow tail
+
+**Prep: open items in time.** A group prep showed commitments three weeks
+old ("tell them later today") as open, because nothing later in the
+thread closed them. Open items now carry the date they were last raised;
+those with nothing said for 21 days (`prep.quiet_days`) are listed after
+the live ones as gone quiet, and a due date that has passed is marked
+overdue. No model.
+
+**Prep: for the owner, not the room.** In a prep for a meeting of six,
+the status lines of personnel subjects (a resignation, pay, one
+attendee's friction with another) sat at the top. The labels already
+tell those subjects apart: on that prep's eight subjects, the six about
+people ran 33–63% sensitive items, the two about ordinary work 0% and
+6%. Subjects at or over the sharing rule's 15% are now marked for the
+owner alone and, with more than one other person in the meeting, listed
+last (`prep.mark_private`). No model.
+
+**Ask: a subject's latest turn in another thread.** Of the questions the
+rethreaded answers lost, the two that missed the latest developments
+(a role question; a programme question) had them in a sibling thread
+created later (the role's comp talks; a strategy thread). Ask reads the
+threads within 0.08 of the best match; the comp thread scored 0.088
+below. With `ask.find_newer`, one more thread within 0.12 is read when
+its latest item is later than every thread found. Measured without a
+model, as the share of each question's reference source passages that
+sit in the threads read (28 questions, 383 passages):
+
+| | Passages in threads read |
+|---|---|
+| Before | 249 |
+| Name words weighted by rarity, short names counted | 242 |
+| One newer thread within 0.12 | 263 |
+| Both | 263 |
+
+The role question went from 9 to 15 of 17. Rarity weighting was
+dropped.
+
+Answers didn't follow. The 17 questions whose threads changed, rerun on
+the local 27B and graded blind by two Opus graders: before won 8 and 7,
+the rule 5 and 5 (4 and 5 ties); must facts 33 → 31 and 34 → 35 of 66;
+wrong statements 6 → 8 and 8 → 9. On the role question the comp thread
+was read but given one line, last, and its raise stated as done. The
+model leans on the threads it is given first; `ask.find_newer` is off by
+default. A later-active thread may need leading with, as the latest
+turn, rather than adding.
+
+**The slow tail is stalled streams.** In the All rethread (6h4m), the
+three slowest meetings took 31–43 minutes each, a third of the run, and
+the ten slowest 42%. 136 reconcile and consolidate calls ran over a
+minute, some to the 400-second limit. They weren't long replies: calls
+over two minutes had a median of 632 output tokens at about 4 tokens a
+second, against 127 a second for the rest; 7 of 77 were cut off at the
+token cap. Calls now get a backup request when, 30 seconds in, they have
+streamed fewer than 20 tokens a second (`llm.stall_after`,
+`llm.stall_rate`), the first reply used. A steadily streaming long
+reply is left alone, so this costs about one extra call in fifty and
+doesn't change any reply. Its effect on wall clock comes with the next
+hosted run.
+
+**Owner edits survive upgrades.** A schema upgrade drops every table
+not on the store's kept list, and the kept list had only the forget
+list, the audit log and judgments: the owner's statement corrections and
+decided aliases would have gone with the derived tables. They are kept
+now, with the new thread edits; corrections and edits name statements by
+item and extracted text, so they find them again after a rebuild.
+
+**A typed classifier (TypeSafe's Jev) for labels and relations.** One
+call carries several typed questions (choice, score, yes/no) about one
+input and returns distributions; about 0.1–0.3 s a call, input metered
+at $0.042 per million tokens. `provider.Classifier` is that shape, with
+Jev and an emulation over the one-token decider, so nothing depends on
+the vendor.
+
+*Statement labels*, on the seeded sample of 200 statements the
+September auditors flagged sensitive and 200 they didn't. The auditors'
+flags were checked by a blind Opus judge on every statement any model
+disagreed on (190): it overturned 61 of the first 138, mostly
+statements the auditors hadn't flagged (a resignation, candidates for a
+role, who replaces whom). Against that truth (207 sensitive of 400):
+
+| | Recall | Precision | Missed | False flags | 400 statements |
+|---|---|---|---|---|---|
+| 27B, one-token decision (sl2) | 0.71 | 0.91 | 59 | 15 | ~3½ min |
+| Jev, the same rubric, statement only | 0.90 | 0.79 | 21 | 50 | 17–28 s, $0.01 |
+| Jev v2, ≥ 0.5 | 0.86 | 0.91 | 30 | 18 | 17 s, $0.01 |
+| Jev v2, ≥ 0.3 | 0.91 | 0.86 | 18 | 32 | |
+| 27B or Jev v2 ≥ 0.5 (labels only add) | 0.89 | 0.87 | 23 | 28 | |
+
+v2 gives the meeting's title (a candidate's background reads as ordinary
+work unless the meeting is known to be an interview) and splits "none"
+into work, a role being hired for, and routine mentions of people (the
+one "none" drew false flags to roles, hiring processes and praise of
+teams). It halves the 27B's misses at the same precision.
+`knowledge.label.classifier` (off by default) labels with it under its
+own version. GLM-5.3-Flash on Baseten returns no log-probabilities and
+ignores "thinking off", so the one-token decider can't run there.
+
+*Relations*, on the linking benchmark's 227 reference pairs, one call per
+pair (both items, the reference's relation set as options):
+
+| | False retire | Missed retire | Related pairs connected |
+|---|---|---|---|
+| Jev, retire ≥ 0.5 | 20.2% | 0.0% | 91% |
+| Jev, retire ≥ 0.9 | 6.1% | 20.7% | 91% |
+| GLM threads (current) | 0.5% | 41.4% | 84% |
+| 8B pairwise (k16) | 22.2% | 20.7% | 96% |
+
+Pairwise, Jev is the 8B's shape at any threshold: it finds the
+retirements threads miss but hides live items far too often to decide
+alone (the worst failure). It doesn't replace reconcile. It may serve as
+a hint: a pair it retires with high confidence that a thread kept
+current is a candidate for the consolidation review, which applies the
+rules. Not tried.

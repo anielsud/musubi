@@ -863,11 +863,41 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 	}
 	th := &knowledge.Threader{Store: r.Store, LLM: llm, Vecs: vecs, Version: stamp, Chunk: kc.Threads.Chunk, Parallel: kc.Threads.Parallel,
 		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, WarmFirst: kc.WarmCache, AuditFixes: kc.Threads.AuditFixes, ConsolidateWindow: kc.Threads.ConsolidateWindow, Logf: r.logf}
+	// Corrections whose mending didn't finish (the model was unreachable
+	// when they were made) are done first, so new items meet the graph as
+	// corrected.
+	if pending, err := r.Store.PendingCorrections(); err != nil {
+		return err
+	} else if len(pending) > 0 {
+		var embed func(string) ([]float32, string, error)
+		if o.Embedder != nil {
+			embed = func(s string) ([]float32, string, error) {
+				v, err := o.Embedder.Embed(ctx, []string{s}, false)
+				if err != nil || len(v) == 0 {
+					return nil, "", err
+				}
+				return v[0], o.Embedder.Model(), nil
+			}
+		}
+		for _, pc := range pending {
+			if _, err := th.Rerelate(ctx, pc.Statement, pc.Text, pc.By, embed); err != nil {
+				return fmt.Errorf("correction of statement %d: %w", pc.Statement, err)
+			}
+		}
+		r.logf("threads: %d corrections made earlier had their threads mended", len(pending))
+	}
 	for i, it := range todo {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		t0 := time.Now()
+		// Not marked threaded (under these rules) but placed: a run stopped
+		// mid-item, or an item kept from earlier rules being redone.
+		if n, err := knowledge.Unthread(r.Store, it.ID); err != nil {
+			return fmt.Errorf("threads %s: unthread: %w", it.ID, err)
+		} else if n > 0 {
+			r.logf("threads %s: was already in %d threads (a stopped run, or earlier rules); taken out first", it.ID, n)
+		}
 		thread := th.Thread
 		if !latestDone.IsZero() && it.Start.Before(latestDone) {
 			thread = th.Insert
@@ -902,6 +932,13 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 			}
 		}
 	}
+	// The owner's merges and splits, again wherever threading put their
+	// statements (a no-op where they still hold).
+	if n, err := knowledge.ApplyThreadEdits(r.Store); err != nil {
+		return err
+	} else if n > 0 {
+		r.logf("threads: %d thread edits applied again", n)
+	}
 	if err := r.Store.PlaceClaimsInThreads(); err != nil {
 		return err
 	}
@@ -928,12 +965,37 @@ func (r *Runner) labelStatements(ctx context.Context, o KnowledgeOptions, ks *Kn
 		}
 		d, _ = llm.(provider.Decider)
 	}
-	if d == nil {
+	version, minP := knowledge.LabelVersion, kc.Label.MinP
+	var cl provider.Classifier
+	if c := kc.Label.Classifier; c.Provider != "" {
+		if c.Provider != "jev" {
+			return fmt.Errorf("knowledge.label.classifier: unknown provider %q", c.Provider)
+		}
+		if !kc.AllowHosted {
+			return fmt.Errorf("the statement labeller reads meeting text, so a hosted classifier needs knowledge.allow_hosted")
+		}
+		cl = provider.NewJev(c.URL, c.Model, c.APIKey, c.PriceIn)
+		version, minP = knowledge.LabelVersionTyped, c.MinP
+		if minP == 0 {
+			minP = 0.5
+		}
+	}
+	if d == nil && cl == nil {
 		return nil
 	}
-	todo, err := r.Store.StatementsToLabel(knowledge.LabelVersion)
+	todo, err := r.Store.StatementsToLabel(version)
 	if err != nil || len(todo) == 0 {
 		return err
+	}
+	titles := map[string]string{}
+	if cl != nil {
+		items, err := r.Store.AllItems()
+		if err != nil {
+			return err
+		}
+		for _, it := range items {
+			titles[it.ID] = it.Title
+		}
 	}
 	t0 := time.Now()
 	type result struct {
@@ -944,14 +1006,25 @@ func (r *Runner) labelStatements(ctx context.Context, o KnowledgeOptions, ks *Kn
 	jobs := make(chan store.Statement)
 	results := make(chan result)
 	var wg sync.WaitGroup
-	for w := 0; w < max(o.Workers, 1); w++ {
+	workers := max(o.Workers, 1)
+	if cl != nil {
+		workers = max(workers, 8) // a hosted classifier answers in about 0.1 s
+	}
+	for w := 0; w < workers; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for st := range jobs {
-				c, p, err := knowledge.StatementSensitivity(ctx, d, st.Text)
+				var c sensitivity.Categories
+				var p float64
+				var err error
+				if cl != nil {
+					c, p, err = knowledge.StatementSensitivityTyped(ctx, cl, st.Text, titles[st.ItemID])
+				} else {
+					c, p, err = knowledge.StatementSensitivity(ctx, d, st.Text)
+				}
 				var l sensitivity.Label
-				if err == nil && c != 0 && p >= kc.Label.MinP {
+				if err == nil && c != 0 && p >= minP {
 					l = sensitivity.Label{Level: sensitivity.LevelFor(c), Categories: c}
 				}
 				results <- result{st.ID, l, err}
@@ -976,7 +1049,7 @@ func (r *Runner) labelStatements(ctx context.Context, o KnowledgeOptions, ks *Kn
 			failed++
 			continue
 		}
-		if err := r.Store.LabelStatement(res.id, res.l, knowledge.LabelVersion); err != nil {
+		if err := r.Store.LabelStatement(res.id, res.l, version); err != nil {
 			return err
 		}
 		ks.Checked++

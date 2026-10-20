@@ -229,7 +229,12 @@ cold lane like any other source.
   attended). Sharing suggestions never include an item labelled with a
   category or restricted, nor anything from a thread where 15% or more of
   the items are (the labeller misses about a quarter of a sensitive
-  subject's items). "Draft" writes talking points with the Ask model.
+  subject's items). Open points carry the date they were last raised;
+  those with nothing said for `prep.quiet_days` (21) are listed after the
+  rest as gone quiet, and a passed due date is marked overdue. Subjects
+  over the same 15% are marked for the owner alone and, with more than
+  one other person attending, listed last (`prep.mark_private`).
+  "Draft" writes talking points with the Ask model.
   `musubi prep <item> [--brief]` is the same from the command line.
 - **Explore**:
   - **Topics**: the topic map in four views, picked with small buttons
@@ -615,6 +620,25 @@ scope gets the fullest one it may see. The model is
 `knowledge.allow_hosted`). On GLM-5.3-Flash: 275 ELT-year threads in 2
 minutes for $0.18; September's 519 in 3½ minutes.
 
+A knowledge run is resumable from what is stored: an item not marked
+threaded under the current rules but already in threads (a run stopped
+part way) is taken out of them (`knowledge.Unthread`, no model) before
+it is threaded again. A correction is recorded first and the graph
+mended after; one whose mending didn't finish (the model unreachable) is
+done at the start of the next run (`corrections.related`).
+
+**Thread edits** (`knowledge.MergeThreads`, `SplitThread`,
+`UndoThreadEdit`; the thread page in the app). The owner merges a thread
+into another or splits picked statements out to a new thread. No model:
+memberships move, "current" is derived again (relations are between
+statements, so they survive the move), and the edited threads' statuses
+are dropped and written again. Each edit is recorded in `thread_edits`,
+naming its statements by item and extracted text, and done again after
+every threading run wherever a rethread put them
+(`knowledge.ApplyThreadEdits`, a no-op where it holds). A newer edit that
+names statements on both sides of an older one supersedes it, so a merge
+of what was split doesn't fight the split on every run.
+
 `knowledge.on_update` (default on) runs the knowledge stages after the
 app's Update, so new meetings are threaded and their threads' statuses
 rewritten without the command line.
@@ -623,7 +647,10 @@ The thread finder (`knowledge.ThreadFinder`, cached until the knowledge
 changes) scores each thread whose name the scope may see by the better of
 its centroid and its three best-matching statements, plus a little for
 each question word in its name, and returns up to three within 0.08 of
-the best.
+the best. With `ask.find_newer` (off by default) it adds one more within 0.12
+when that thread's latest item is later than every thread found: a
+subject's latest turn is sometimes threaded on its own (research log
+2026-10-20).
 
 ### Topic map (`Views.Map`, computed when read)
 
@@ -946,6 +973,11 @@ purposes (replies, cloud calls) are logged to an audit table.
 (ONNX Runtime embeddings; llama.cpp or Ollama for extraction) and a Claude
 implementation. A stage asks for a provider by capability; the scope decides
 which providers it may receive data for.
+
+Hosted calls stream. A reply streaming slower than `llm.stall_rate` (20
+tokens a second) 30 seconds in (`llm.stall_after`) is sent again and the
+first reply used: most slow calls are stalled streams, not long replies
+(research log 2026-10-20).
 
 ## Deletion
 

@@ -584,3 +584,11 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .keep-input { font: inherit; font-weight: 700; width: 12em; padding: 1px 6px; }
 .corr-new { display: flex; gap: 6px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
 .corr-new input { width: 12em; }
+
+.prep-quiet { opacity: 0.7; }
+.prep-overdue { color: var(--lvl-confidential); margin-left: 6px; }
+
+.thread-edit { margin: 6px 0 10px; font-size: 12.5px; }
+.thread-edit input { min-width: 260px; }
+.stmt-wrap.picking { display: flex; gap: 8px; align-items: flex-start; }
+.stmt-pick { margin-top: 10px; }

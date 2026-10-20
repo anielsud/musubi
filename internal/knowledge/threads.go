@@ -38,6 +38,9 @@ const ThreadsVersion = "t3"
 // ThreadsVersionFixes is the version with Threader.AuditFixes.
 const ThreadsVersionFixes = "t4"
 
+// ThreadsVersionMerged is t4 with Threader.Merged.
+const ThreadsVersionMerged = "t4m"
+
 const assignSystem = `You organise a leadership team's meeting notes into threads, so that later someone can see the current state of any subject.
 
 A thread is ONE specific subject that can have a state over time: an initiative, programme, deal, account, metric, decision, problem, launch, event, hire or departure. It is never a broad theme ("AI strategy", "marketing", "growth"): if a theme holds several specific subjects, those are separate threads. Two items that share a word, a customer name, an event or a number are not in the same thread unless they are about the same subject.
@@ -108,6 +111,12 @@ What replaces what:
 - Only a newer item can replace an older one; never mark the newest statement of something as replaced by an older one.
 Items under "Related items in other threads" may be affected too, by the same rules.`
 
+// reconcileMerged is added with Merged: the review consolidation does, in
+// the same call.
+const reconcileMerged = `
+
+Also review the current items among themselves: list a current item that a later current item in the list replaces, completes or answers (by the same rules), with that later item as "later". Keep everything still true or still open: rules, standing facts, decisions still in force, open questions nobody answered, commitments not yet due. When unsure, keep the item.`
+
 // Cross-thread context (AuditFixes): other threads' current items at least
 // this similar to a new item, at most crossMax of them.
 const (
@@ -151,6 +160,12 @@ type Threader struct {
 	// ConsolidateWindow (config.Threads): 0 reviews up to consolidateMax
 	// current items; else the new items and their nearest current ones.
 	ConsolidateWindow int
+	// Merged makes reconcile and consolidate one call per touched thread:
+	// reconcile is shown the thread's whole current list (up to
+	// consolidateMax) and also lists what a later current item replaced,
+	// and the consolidation pass is skipped. They ask one question, split
+	// by what each may see (research log 2026-10-20). false: two calls.
+	Merged bool
 	// WarmFirst reconciles one thread alone before the rest, so their
 	// shared instructions are cached by the server.
 	WarmFirst bool
@@ -505,6 +520,9 @@ func statementAt(id int64, known map[int64]store.Statement, byID map[int64]store
 // only judges what the new items do; the audits found 86% of items still
 // current months after they were settled.
 func (t *Threader) consolidate(ctx context.Context, it ThreadItem, order []int64, threads map[int64]*threadState, known map[int64]store.Statement, byID map[int64]store.ItemStatement, stats *ThreadStats) error {
+	if t.Merged {
+		return nil // reconcile did the review
+	}
 	type result struct {
 		tid int64
 		cur []int64
@@ -877,6 +895,9 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 	if capN <= 0 {
 		capN = threadStateCap
 	}
+	if t.Merged {
+		capN = consolidateMax
+	}
 	par := t.Parallel
 	if par <= 0 {
 		par = 4
@@ -952,8 +973,25 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 		}
 		retired := map[int64]bool{}
 		seen := map[[2]int64]bool{}
+		shownSet := map[int64]bool{}
+		for _, id := range r.shown {
+			shownSet[id] = true
+		}
+		// The later item: a new one, or with Merged a current one shown.
+		laterOf := func(id int64) (store.ItemStatement, bool) {
+			if fresh[id] {
+				return byID[id], true
+			}
+			if t.Merged && shownSet[id] {
+				if s, ok := known[id]; ok {
+					return fromStatement(s), true
+				}
+			}
+			return store.ItemStatement{}, false
+		}
 		for _, e := range r.out.Effects {
-			if !fresh[e.Later] || !valid[e.Earlier] || e.Later == e.Earlier || seen[[2]int64{e.Later, e.Earlier}] {
+			later, okLater := laterOf(e.Later)
+			if !okLater || !valid[e.Earlier] || e.Later == e.Earlier || seen[[2]int64{e.Later, e.Earlier}] {
 				continue
 			}
 			seen[[2]int64{e.Later, e.Earlier}] = true
@@ -982,14 +1020,20 @@ func (t *Threader) reconcileAll(ctx context.Context, it ThreadItem, order []int6
 			if fresh[e.Earlier] {
 				ek, es, eat = byID[e.Earlier].Kind, byID[e.Earlier].Status, byID[e.Earlier].SaidAt
 			}
-			if t.AuditFixes && eat.After(byID[e.Later].SaidAt) {
+			if t.AuditFixes && eat.After(later.SaidAt) {
 				continue // never retired by an older item
+			}
+			// Same item (meeting) as the later one: a new item said before
+			// it today, or, merged, two current items from one meeting.
+			sameItem := fresh[e.Earlier]
+			if !fresh[e.Later] {
+				sameItem = known[e.Earlier].ItemID == known[e.Later].ItemID
 			}
 			var rel string
 			if t.AuditFixes {
-				rel = threadRuleV4(e.Relation, ek, es, fresh[e.Earlier], byID[e.Later].Text)
+				rel = threadRuleV4(e.Relation, ek, es, sameItem, later.Text)
 			} else {
-				rel = threadRule(e.Relation, ek, fresh[e.Earlier], byID[e.Later].Text)
+				rel = threadRule(e.Relation, ek, sameItem, later.Text)
 			}
 			if rel == "" {
 				continue
@@ -1224,6 +1268,9 @@ func (t *Threader) reconcile(ctx context.Context, it ThreadItem, th store.Thread
 		system := reconcileSystem
 		if t.AuditFixes {
 			system += reconcileFix
+		}
+		if t.Merged {
+			system += reconcileMerged
 		}
 		raw, err := t.LLM.Complete(ctx, []provider.Message{{Role: "system", Content: system}, {Role: "user", Content: msg}}, opt, nil)
 		if err != nil {

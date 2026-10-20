@@ -213,6 +213,9 @@ type Threads struct {
 	// most like them, at most this many in all. 0 reviews up to 80 of its
 	// current items each time, as before (the slowest calls of a run).
 	ConsolidateWindow int `toml:"consolidate_window"`
+	// Merged reconciles and consolidates a touched thread in one call
+	// (experiment; threads version t4m). false: two calls.
+	Merged bool `toml:"merged"`
 	// InsertOlder threads new items older than ones already threaded by
 	// inserting them (knowledge.Threader.Insert: judged against their
 	// neighbours earlier and later, current derived), not after them in

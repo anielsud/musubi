@@ -239,3 +239,35 @@ func TestOpenAIStall(t *testing.T) {
 		t.Errorf("a steady stream was sent again: %d calls", calls)
 	}
 }
+
+// Rate limited, then answered: the call waits it out (10 s) instead of
+// failing on the try.
+func TestHostedRateLimited(t *testing.T) {
+	var mu sync.Mutex
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+		if n == 1 {
+			http.Error(w, `{"error": "Too Many Requests"}`, 429)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	url := strings.Replace(srv.URL, "127.0.0.1", "localtest.me", 1)
+	if _, err := net.LookupHost("localtest.me"); err != nil {
+		t.Skip("needs localtest.me to resolve to 127.0.0.1")
+	}
+	if testing.Short() {
+		t.Skip("waits 10 s")
+	}
+	llm, _ := NewLLM(config.LLM{Provider: "openai", URL: url, Model: "m", StallAfter: -1})
+	out, err := llm.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}}, ChatOptions{}, nil)
+	if err != nil || out != "ok" {
+		t.Fatalf("got %q, %v after %d calls", out, err, calls)
+	}
+}

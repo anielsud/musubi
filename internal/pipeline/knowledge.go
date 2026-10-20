@@ -745,6 +745,9 @@ func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp str
 	version := knowledge.ThreadsVersion
 	if r.Cfg.Knowledge.Threads.AuditFixes {
 		version = knowledge.ThreadsVersionFixes
+		if r.Cfg.Knowledge.Threads.Merged {
+			version = knowledge.ThreadsVersionMerged
+		}
 	}
 	p := threadPlan{stamp: hashOf("threads", version, llm.ModelName(), linkStamp)}
 	p.old, _ = r.Store.GlobalStamp("threads")
@@ -862,7 +865,7 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 		}
 	}
 	th := &knowledge.Threader{Store: r.Store, LLM: llm, Vecs: vecs, Version: stamp, Chunk: kc.Threads.Chunk, Parallel: kc.Threads.Parallel,
-		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, WarmFirst: kc.WarmCache, AuditFixes: kc.Threads.AuditFixes, ConsolidateWindow: kc.Threads.ConsolidateWindow, Logf: r.logf}
+		Candidates: kc.Threads.Candidates, StateCap: kc.Threads.StateCap, WarmFirst: kc.WarmCache, AuditFixes: kc.Threads.AuditFixes, ConsolidateWindow: kc.Threads.ConsolidateWindow, Merged: kc.Threads.Merged, Logf: r.logf}
 	// Corrections whose mending didn't finish (the model was unreachable
 	// when they were made) are done first, so new items meet the graph as
 	// corrected.

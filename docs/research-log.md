@@ -2435,3 +2435,62 @@ alone (the worst failure). It doesn't replace reconcile. It may serve as
 a hint: a pair it retires with high confidence that a thread kept
 current is a candidate for the consolidation review, which applies the
 rules. Not tried.
+
+**Is retirement a classification problem? Slots, measured.** The idea:
+each subject has slots (one quantity for one period, one decision, one
+question, one deal's status); a fast classifier files each statement in
+a slot with its role (states where it stands, adds detail, asks,
+answers, commits, reports done), and a rule derives "current": within a
+slot, a later latest word retires what came before. Upper bound first:
+GLM defined each reference subject's slots having seen all its
+statements (15 calls, 298 slots, about 2.8 statements a slot); Jev filed
+the 833 members (28 s). Then rule variants on the same filing, no more
+calls. Against the linking benchmark ($0.11 in all):
+
+| | Retiring updates retired | Reference-current items retired | Pairs: false retire |
+|---|---|---|---|
+| GLM threads (current) | 32% | 1.3% | 0.5% |
+| Slots, Jev's role | 43% | 44% | 24% |
+| Slots, same extracted kind | 13% | 24% | 20% |
+| Slots, same kind and Jev's "latest" | 7% | 21% | 14% |
+| Slots, decisions and metrics, later meetings only | 2% | 0% | 0.5% |
+
+No rule separates the two: loose ones retire live items by the score,
+tight ones retire nothing. Jev called 65% of statements "where it stands
+now"; a slot mixes facts and positions that both stay current; and many
+retirements happen within one meeting (an answer minutes after the
+question). Whether an item is still the latest word turns on what the
+later one says about it, which a statement read alone doesn't carry,
+even filed in the right slot with hindsight. Retirement stays a
+whole-thread judgment; the classifier's place is around it (labels,
+routing, triage), not in it.
+
+**Reconcile and consolidate as one call** (`knowledge.threads.merged`,
+threads version t4m, off by default). They ask one question, split by
+what each may see: reconcile, the current items nearest the new ones
+(new against old); consolidate, the whole current list (old against
+old). Merged, reconcile is shown the whole list (up to 80) and also
+lists what a later current item replaced; consolidation is skipped.
+Four ELT meetings, both from the same base, threaded in parallel
+(scored from statement_relations; the base's old linker relations in
+claim_relations skew pair scores for databases built from it):
+
+| | Two calls (t4) | One call (t4m) |
+|---|---|---|
+| Retiring updates retired | 33.0% (37/112) | 30.4% (34/112) |
+| Reference-current items retired | 3.3% (5/151) | 1.3% (2/151) |
+| Pairs: false / missed retire | 1.0% / 31.0% | 1.5% / 34.5% |
+| Calls, call-minutes, cost | 140, 27.1, $0.133 | 108, 21.5, $0.109 |
+| Wall clock, meetings 1–3 | 7m39s | 6m38s |
+
+Quality is within run-to-run noise (assign alone gave 16 and 26 new
+threads in the first meeting). Merged retires a little less, rightly
+and wrongly; "supersedes" fell from 27 to 12: the review of old items
+among themselves, a secondary instruction in one call, is done less.
+The saving is about a fifth, partly spent on longer calls. Over months
+that review is what keeps staleness down, which four meetings can't
+show; only the ELT year's audit can. Parked.
+
+Both runs hit Baseten's rate limit together (429): hosted calls now
+wait it out (10 s doubling to 80 s, about 12 minutes in all) without
+using up a try.

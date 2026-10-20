@@ -66,6 +66,7 @@ func (o *OpenAI) completeHosted(ctx context.Context, msgs []Message, opt ChatOpt
 	maxTokens := max(opt.MaxTokens, hostedMinTokens)
 	var lastErr error
 	cut := false
+	throttled := 0
 	for try := 0; try < hostedTries; try++ {
 		o2 := opt
 		if cut {
@@ -80,6 +81,17 @@ func (o *OpenAI) completeHosted(ctx context.Context, msgs []Message, opt ChatOpt
 		switch {
 		case ctx.Err() != nil:
 			return "", ctx.Err()
+		case err != nil && rateLimited(err) && throttled < hostedThrottleTries:
+			// Rate limited or overloaded: wait and ask again, without
+			// using up a try (several runs at once share the limit).
+			throttled++
+			lastErr = err
+			try--
+			select {
+			case <-time.After(time.Duration(5<<min(throttled, 4)) * time.Second):
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
 		case err != nil:
 			lastErr = err
 		case finish == "length" && cut:
@@ -92,6 +104,16 @@ func (o *OpenAI) completeHosted(ctx context.Context, msgs []Message, opt ChatOpt
 		}
 	}
 	return "", fmt.Errorf("openai: %d tries: %w", hostedTries, lastErr)
+}
+
+// hostedThrottleTries bounds waiting out rate limits: with 10 s, 20 s,
+// 40 s, then 80 s waits, about 12 minutes in all.
+const hostedThrottleTries = 10
+
+// rateLimited: the endpoint asked us to slow down or is overloaded.
+func rateLimited(err error) bool {
+	m := err.Error()
+	return strings.Contains(m, "429 ") || strings.Contains(m, "503 ") || strings.Contains(m, "529 ")
 }
 
 // ErrCutOff: the reply ran to its cap twice. Callers that can do without

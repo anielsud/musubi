@@ -39,6 +39,53 @@ The owner's priorities, in order: the most value soonest ("minimum viable
 area under the curve"), then the right data at the right time, then low
 cost, then universality. Cost cuts are taken only when quality holds.
 
+## Why this shape
+
+The design makes one bet: a memory of conversation should be built from
+self-contained statements (a point that stands on its own, with its speaker,
+subject and time), reconstructed along several dimensions (person, customer,
+project, topic, thread), with time as a dimension the graph reasons over
+rather than a label on a meeting.
+
+**Why time cannot be a snapshot.** Code has an authority for "current": the
+file as it is now, with git holding the history. A snapshot of a codebase is
+cheap to rebuild and correct by construction. Conversation has no such
+source. The only record is the order in which things were said, so what is
+current has to be derived from how later statements relate to earlier ones:
+corrections, supersessions, reversals, lapses. A design that stores each
+meeting's topics and decisions as a container, and links meetings by subject
+or by series, can answer "what was discussed about X" but cannot say whether
+a decision still stands.
+
+**What each design answers.**
+
+| Question | Meeting-level (summaries, decisions per meeting) | Statements over time |
+|---|---|---|
+| What was discussed about X? | Yes, directly | Yes |
+| Where does X stand now? | Only by reading every meeting about it | Yes: the latest word and what it replaced |
+| What changed since a given date? | No | Yes |
+| What was superseded or dropped? | No | Yes |
+| Who owes what, and is it still open? | Per meeting | Across meetings |
+| Is a figure shown as current actually current? | Not tracked | Tracked, with provenance |
+
+**What it costs.** Extraction, threading and status derivation take several
+passes per meeting where a meeting summary takes one. This is why cost is
+managed by model placement and by running each stage once (see Approach and
+the model table below). Statements also lose context when written too small:
+the first atomic form lost its referents, so statements are written per few
+passages with a brief of the meeting (2026-10-11).
+
+**What it does not do.** It has no model of code structure, and it does not
+replace a meeting summary where one is all that is needed.
+
+**Status of the claim.** The pieces are measured: threads beat pairwise
+linking, and "current" derived from relations fixed part of the audited
+missed updates (see Research highlights). The overall claim, that this
+beats a meeting-level design on state questions, has not been tested head to
+head. The test is the same meetings indexed both ways and answered against a
+fixed set of status, change, supersession and commitment questions, graded
+blind. Until it runs, treat the claim as a hypothesis.
+
 ## Approach
 
 - **Measure before changing defaults.** Every change is checked on real

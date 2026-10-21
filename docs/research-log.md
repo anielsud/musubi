@@ -2600,3 +2600,24 @@ statements now in different threads (they were linked, then one side
 moved), and 240 statements are in more than one thread. Not worth a
 cross-thread linking pass now; the reconcile misses inside threads are
 the larger share.
+
+**Ask: the later thread first.** Following up `ask.find_newer`, which
+added the later-active thread last and saw the model lean on the others:
+`ask.newer_first` reads it first, headed as the subject's latest turn.
+All, Ask on GLM-5.3-Flash, the 18 questions find_newer changes; the 15
+whose threads differed graded blind by two Opus graders, who agreed on
+every question:
+
+| | Before (newer off) | Newer first |
+|---|---|---|
+| Wins (grader 1 / grader 2) | 5 / 5 | 4 / 4 (6 ties each) |
+| Must facts (of 58) | 34 / 36 | 31 / 32 |
+| Wrong | 3 / 3 | 1 / 1 |
+| Current | 13 / 13 | 13 / 14 |
+| Useful (0–3) | 2.13 / 2.33 | 2.07 / 2.20 |
+
+Fewer wrong statements, fewer facts: the thread found as "later" is
+often a different subject that happens to be newer (a programme thread
+for a departure question), and leading with it crowds out the right one.
+Both options stay off; a later thread would have to be shown to be the
+same subject first. $0.04.

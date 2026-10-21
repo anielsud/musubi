@@ -29,9 +29,14 @@ func TestFindNewer(t *testing.T) {
 	}
 	f.Newer = true
 	got := f.Find(sensitivity.Owner(), q, "where is it", 3)
-	if len(got) != 2 || got[1].ID != 2 {
+	if len(got) != 2 || got[1].ID != 2 || !got[1].Newer {
 		t.Fatalf("with Newer: %+v", got)
 	}
+	f.NewerFirst = true
+	if got := f.Find(sensitivity.Owner(), q, "where is it", 3); len(got) != 2 || got[0].ID != 2 {
+		t.Fatalf("with NewerFirst: %+v", got)
+	}
+	f.NewerFirst = false
 	// A later thread too far from the best isn't added.
 	f.latest[3] = day(30)
 	f.rows[1].Centroid = at(0.70)

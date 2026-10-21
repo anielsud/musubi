@@ -65,6 +65,11 @@ type Ask struct {
 	// answers didn't improve, since the model leans on the threads it is
 	// given first (research log 2026-10-20).
 	FindNewer bool `toml:"find_newer"`
+	// NewerFirst reads that thread first, marked as the subject's latest
+	// turn, rather than after the others. Off: on the 15 questions it
+	// changed, fewer wrong statements (3 → 1) but fewer facts (34 → 31 of
+	// 58), wins 4 to 5 (research log 2026-10-20).
+	NewerFirst bool `toml:"newer_first"`
 }
 
 // Knowledge configures statement extraction.

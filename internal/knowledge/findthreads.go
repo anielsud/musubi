@@ -27,6 +27,8 @@ type ThreadFinder struct {
 	// latest turn was threaded on its own (a role question whose latest
 	// word is in a comp thread).
 	Newer bool
+	// NewerFirst puts that thread first rather than last.
+	NewerFirst bool
 }
 
 const newerMargin = 0.12
@@ -36,6 +38,8 @@ type ThreadMatch struct {
 	ID    int64
 	Name  string
 	Score float64
+	// Newer: added as later than every thread found (Newer).
+	Newer bool
 }
 
 // NewThreadFinder loads the index for the embedding model.
@@ -180,7 +184,12 @@ func (f *ThreadFinder) Find(sc sensitivity.Scope, q []float32, question string, 
 				break
 			}
 			if f.latest[m.ID].After(last) {
-				found = append(found, m)
+				m.Newer = true
+				if f.NewerFirst {
+					found = append([]ThreadMatch{m}, found...)
+				} else {
+					found = append(found, m)
+				}
 				break
 			}
 		}

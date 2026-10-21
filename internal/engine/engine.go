@@ -211,7 +211,7 @@ func (e *Engine) ThreadFinder() (*knowledge.ThreadFinder, error) {
 	if err != nil {
 		return nil, err
 	}
-	f.Newer = e.Cfg.Ask.FindNewer
+	f.Newer, f.NewerFirst = e.Cfg.Ask.FindNewer, e.Cfg.Ask.NewerFirst
 	e.finder, e.finderSig = f, sig
 	return f, nil
 }

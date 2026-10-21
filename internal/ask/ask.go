@@ -194,7 +194,11 @@ func threadContext(e *engine.Engine, sc sensitivity.Scope, vec []float32, questi
 			return ""
 		}
 		ref := ThreadRef{ID: t.ID, Name: t.Name, AsOf: its[len(its)-1].SaidAt}
-		fmt.Fprintf(b, "Subject: %s\n", t.Name)
+		if t.Newer && e.Cfg.Ask.NewerFirst {
+			fmt.Fprintf(b, "Subject: %s (the latest turn: later than the subjects below, so where it differs it is the current word)\n", t.Name)
+		} else {
+			fmt.Fprintf(b, "Subject: %s\n", t.Name)
+		}
 		if st, ok := statuses[t.ID]; ok {
 			var s knowledge.Status
 			if json.Unmarshal([]byte(st.Body), &s) == nil {
@@ -223,8 +227,8 @@ func threadContext(e *engine.Engine, sc sensitivity.Scope, vec []float32, questi
 }
 
 // inlineIDs are statement ids a status writer put in its prose: "(5435)",
-// "[5266, 5271]".
-var inlineIDs = regexp.MustCompile(`\s*[(\[]\s*\d{1,9}(?:\s*,\s*\d{1,9})*\s*[)\]]`)
+// "[5266, 5271]", "(5266–5271)".
+var inlineIDs = regexp.MustCompile(`\s*[(\[]\s*\d{1,9}(?:\s*[-–]\s*\d{1,9})?(?:\s*,\s*\d{1,9}(?:\s*[-–]\s*\d{1,9})?)*\s*[)\]]`)
 
 var digits = regexp.MustCompile(`\d+`)
 

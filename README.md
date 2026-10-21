@@ -9,6 +9,8 @@ Docs:
 - **Start with [overview.md](docs/overview.md):** the thesis, approach,
   the system at a glance, where it stands, the roadmap and the research
   highlights
+- [setup.md](docs/setup.md): install, keys, hosted models, building a
+  dataset, and costs per meeting
 - [architecture.md](docs/architecture.md): the design, as built
 - [incremental-design.md](docs/incremental-design.md): the subject graph,
   local operations, entities, aliases and correction rules
@@ -26,8 +28,11 @@ Docs:
 
 ## Use
 
-Needs Go, a C compiler (cgo), Node, and [Ollama](https://ollama.com) with
-`ollama pull nomic-embed-text qwen3:8b` (embeddings and the local chat model).
+**Setup, hosted models (GLM on Baseten, Jev), keys, building a dataset and
+what processing costs: [docs/setup.md](docs/setup.md).** In short: Go, a
+C compiler (cgo), Node, and [Ollama](https://ollama.com) with `ollama pull
+nomic-embed-text qwen3:8b`; hosted models are configured per dataset, with
+keys in the macOS keychain.
 
 ### Desktop app
 

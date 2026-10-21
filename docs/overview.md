@@ -112,6 +112,11 @@ Where each step runs (dataset "All", 2026-10-21):
 Jev is cleared for testing, not for the product; the product path is the
 same classifier interface over GLM or the local model.
 
+What it costs (measured; [setup.md](setup.md) has the breakdown): about
+4–6¢ a meeting to build the memory (extraction ~1¢, threading ~2.7¢,
+labels and statuses under 1¢), about $0.001 a question, and, as built,
+about 13¢ a meeting hour for Live relevance, the cost to cut next.
+
 ## Where it stands (2026-10-21)
 
 Built and in daily use: ingest, scoped search, the knowledge layer with
@@ -209,6 +214,7 @@ Each with its research-log entry. Methods and caveats are there.
 
 | Document | What it covers |
 |---|---|
+| [setup.md](setup.md) | Install, keys, hosted models, building a dataset, and what processing costs |
 | [architecture.md](architecture.md) | The design as built: stages, knowledge layer, storage, sensitivity, app |
 | [incremental-design.md](incremental-design.md) | The subject graph, local operations, provenance, entities, aliases and rules |
 | [scaling.md](scaling.md) | Growth to tens of thousands of meetings; cost; order of work |

@@ -15,7 +15,7 @@ import (
 )
 
 // StatusVersion changes with the status prompt or the items it is shown.
-const StatusVersion = "ts1"
+const StatusVersion = "ts2"
 
 // A thread's status is written from its current items (where it stands)
 // and the items retired in the weeks before its latest one (how it got
@@ -28,7 +28,9 @@ You get the subject and its items in time order, each with its date, kind/status
 - changed: up to four significant changes in the month before the latest item: what changed, from what to what, and when.
 - open: questions not yet answered, decisions pending, and commitments not known to be done, with who owns them and any due date said.
 - people: up to five people who drive the subject or hold positions on it, as written in the items.
-Use only the items. Be specific and brief; name figures and dates. Where items conflict or are unclear, say so. Cite the ids of the items each point rests on.`
+Use only the items. Be specific and brief; name figures and dates. Where items conflict or are unclear, say so. Cite the ids of the items each point rests on in the ids fields.
+
+The CURRENT and RETIRED marks and the item ids are for you, not the reader: never mention them, item numbers, "the notes" or "the items" in the text. Where a retired item still looks open, decide for yourself and list it or leave it out, without comment. One open entry is one question, decision or commitment.`
 
 var statusSchema = json.RawMessage(`{"type":"object","required":["now","now_ids","changed","open","people"],"properties":{
 "now":{"type":"string"},"now_ids":{"type":"array","items":{"type":"integer"}},

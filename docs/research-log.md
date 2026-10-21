@@ -2621,3 +2621,23 @@ often a different subject that happens to be newer (a programme thread
 for a departure question), and leading with it crowds out the right one.
 Both options stay off; a later thread would have to be shown to be the
 same subject first. $0.04.
+
+**Statuses: no talk about the notes (ts2).** 175 of 690 statuses on All
+had the writer's working in the reader's text ("Note: this item is
+marked RETIRED but no later item…", "item 3796", "not recorded in the
+items"), mostly in open items, which Prep shows. The prompt now says the
+CURRENT/RETIRED marks and ids are for the writer only, that a retired
+item that still looks open is decided without comment, and that one
+open entry is one item. Rewritten on a copy (736 calls, 0 failed,
+4m32s, $0.58):
+
+| | ts1 | ts2 |
+|---|---|---|
+| Statuses with such talk | 175 | 5 |
+| Open items | 2,688 (172 ch) | 2,682 (157 ch) |
+| Open items packing several (2+ semicolons or 300+ ch) | 145 | 77 |
+| Changed points | 1,295 | 1,283 |
+| Now, mean length | 684 ch | 643 ch |
+
+Same coverage, read side by side on samples; applied to All (the ts1
+rows kept in the dataset folder).

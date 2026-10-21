@@ -10,7 +10,12 @@ sources, and serves that knowledge two ways:
 - **Explore:** a graph, timeline, topic map and trend view across time, people,
   business area, customer and topic.
 
-Status (2026-10-16):
+Status (2026-10-21; the summary is in [overview.md](overview.md)):
+- **Built since 2026-10-16:** thread statuses; Ask from threads; meeting
+  prep; insert, forget and correct as local operations on the thread
+  graph, with the owner's merges, splits and corrections kept to the side;
+  correction rules for names and terms; the typed statement labeller;
+  Live focus and relevance; the stepped replay.
 - **Built:**
   - ingest (Tomoe sessions, inbox drops) and calendar linking;
   - classify / chunk / embed / resolve, with scoped search and graph;
@@ -194,6 +199,23 @@ cold lane like any other source.
   topic's card (see "Topic cards" below), rebuilt under the current scope
   whenever the scope changes. A replay sees only what was known when the
   replayed meeting happened.
+- **Focus** (`live.focus`): each card is cut to the three lines closest
+  to the last 90 s (embedding similarity), with the line of the
+  conversation that raised it; lookups quote theirs too. Subjects last
+  discussed over 60 days ago are marked old. Without relevance, the two
+  most recently raised cards and the two newest lookups are open; the
+  rest are one line each under "Earlier in this meeting". Sensitive cards
+  collapse to their title only on a shared screen.
+- **Relevance** (`[live.relevance]`): cards and lookups compete for four
+  places by how well they fit the last 90 s, asked of a classifier (Jev,
+  or the chat model's yes/no) as one question, about 100 ms a call. What
+  is shown keeps its place until a newcomer fits clearly better (0.15) or
+  it stops fitting (judged again every 20 s); nothing under the bar
+  (`min_p`, 0.5) is shown.
+- **Stepped replay** (`musubi live --replay ID --stepped`): the meeting
+  line by line on its own clock, each line's work (lookups, cards,
+  suggestions, summaries) done before the next, so the result doesn't
+  depend on speed. `--events` writes every panel event for measuring.
 - **Datasets**: a dropdown under the title bar switches the window to
   another instance listed in `~/.config/musubi/datasets.toml` (key, name,
   config, note; `MUSUBI_DATASETS` overrides the path), and "compare with…"
@@ -1004,9 +1026,10 @@ stale.
 
 ## Evaluation
 
-- **Replay:** play a past meeting's live text at real speed, record which cards
-  appear and when, and score them against hand judgements in
-  `testdata/private/`.
+- **Replay:** play a past meeting through Live with the stepped replay,
+  rebuild what the panel showed at moments of it, and have blind graders
+  judge each item against the conversation before it (research log,
+  2026-10-21).
 - **Classification:** precision and recall per level and category on a
   labelled set.
 - **Resolution:** mention-to-entity accuracy on a labelled set.

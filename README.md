@@ -6,7 +6,12 @@ commitments, and surfaces them live in a side panel during meetings as
 topic cards.
 
 Docs:
+- **Start with [overview.md](docs/overview.md):** the thesis, approach,
+  the system at a glance, where it stands, the roadmap and the research
+  highlights
 - [architecture.md](docs/architecture.md): the design, as built
+- [incremental-design.md](docs/incremental-design.md): the subject graph,
+  local operations, entities, aliases and correction rules
 - [scaling.md](docs/scaling.md): growth to tens of thousands of meetings,
   email and chat; how it is measured and made cheaper
 - [topic-cards.md](docs/topic-cards.md): cards in the live panel
@@ -46,7 +51,7 @@ bin/musubi show tomoe:<id>              # an item's chunks, labels, mentions
 bin/musubi stats
 bin/musubi forget <item id>
 bin/musubi ask "what did we decide about X?"
-bin/musubi live --replay <tomoe session id> --speed 20   # print live suggestions and briefs
+bin/musubi live --replay <tomoe session id> --stepped --events out.jsonl   # replay a meeting through Live, speed-independent
 bin/musubi knowledge                    # extract, link, and build topics or threads
 bin/musubi card "renewal pricing"       # the card the live panel would show
 bin/musubi topics; bin/musubi topic <id>; bin/musubi claims "pricing"

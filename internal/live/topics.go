@@ -34,6 +34,8 @@ type TopicCard struct {
 	Active       bool        `json:"active"`
 	Stale        bool        `json:"stale,omitempty"`
 	MentionedAgo float64     `json:"mentionedAgo"`
+	// Fit is how well it fits the conversation (live.relevance).
+	Fit float64 `json:"fit,omitempty"`
 }
 
 // FocusLine is a card line chosen for the conversation, with its section.
@@ -85,9 +87,15 @@ func (l *Live) termTopics(cycle int, text string, lines []Segment) {
 	// The conversation moves on: cards are ranked again, and close, as it
 	// does.
 	l.mu.Lock()
-	due := l.eng.Cfg.Live.Focus && len(l.topics) > 0 && l.since(l.topicsAt) >= focusRefresh
+	due := l.eng.Cfg.Live.Focus && (len(l.topics) > 0 || len(l.places) > 0) && l.since(l.topicsAt) >= focusRefresh
+	rel := l.rel != nil
 	l.mu.Unlock()
 	if due {
+		if rel {
+			// What is shown is judged again as the talk moves on; a lookup
+			// that no longer fits gives up its place.
+			l.rescore(cycle)
+		}
 		l.emitTopics(cycle)
 	}
 }
@@ -200,12 +208,44 @@ func (l *Live) emitTopics(cycle int) {
 	if focus {
 		l.focusCards(out, window)
 	}
+	// With relevance, cards hold places by how well they fit, competing
+	// with the lookups.
+	l.mu.Lock()
+	rel := l.rel
+	l.mu.Unlock()
+	var resend []Brief
+	if focus && rel != nil {
+		var q []float32
+		if strings.TrimSpace(window) != "" {
+			q = l.eng.Embed(l.ctxOrBackground(), window)
+		}
+		for i := range out {
+			if out[i].Lines == nil {
+				out[i].Lines = l.closestLines(out[i].Card, q)
+			}
+			l.offer(cycle, "card:"+out[i].Anchor.Key(), cardText(out[i]), nil)
+		}
+		resend, _ = l.choose()
+		for i := range out {
+			out[i].Active, _, out[i].Fit = l.placeOf("card:" + out[i].Anchor.Key())
+		}
+		sort.SliceStable(out, func(a, b int) bool {
+			if out[a].Active != out[b].Active {
+				return out[a].Active
+			}
+			return out[a].Fit > out[b].Fit
+		})
+	}
 	var titles []string
 	for _, c := range out {
 		titles = append(titles, c.Title)
 	}
 	l.trace(cycle, "topic", fmt.Sprintf("%d topic card(s) under %s", len(out), scopeName), time.Since(t0).Milliseconds(), map[string]any{"cards": titles})
 	l.emit("live:topics", out)
+	for _, b := range resend {
+		b.Rated = true
+		l.emit("live:brief", b)
+	}
 }
 
 // focusCards marks the cards to keep open (the most recently raised, a

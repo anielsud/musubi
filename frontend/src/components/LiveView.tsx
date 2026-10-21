@@ -61,7 +61,8 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
           const rest = prev.filter((x) => x.query.toLowerCase() !== b.query.toLowerCase());
           // Keep the panel focused: empty lookups drop out quietly.
           if (b.state === 'empty') return rest;
-          return [b, ...rest].slice(0, 8);
+          // With relevance, lookups wait to be judged: keep more of them.
+          return [b, ...rest].slice(0, b.rated || prev.some((x) => x.rated) ? 40 : 8);
         }),
       ),
       on<string>('live:error', (e) => setErr(e)),
@@ -81,8 +82,12 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
   // newest); the rest one line each under "Earlier in this meeting".
   const openTopics = focus ? topics.filter((t) => t.active || opened.has(topicKey(t))) : topics;
   const earlierTopics = focus ? topics.filter((t) => !t.active && !opened.has(topicKey(t))) : [];
-  const shownBriefs = focus ? briefs.filter((b, i) => i < 2 || opened.has('q:' + b.query)) : briefs;
-  const earlierBriefs = focus ? briefs.filter((b, i) => i >= 2 && !opened.has('q:' + b.query)) : [];
+  // With relevance on, the server gives lookups their places (b.open);
+  // those it never showed stay off the panel. Without, the newest two.
+  const rel = focus && !!status?.relevance;
+  const briefOpen = (b: Brief, i: number) => (rel ? !!b.open : i < 2) || opened.has('q:' + b.query);
+  const shownBriefs = focus ? briefs.filter(briefOpen) : briefs;
+  const earlierBriefs = focus ? briefs.filter((b, i) => !briefOpen(b, i) && (!rel || b.wasOpen)) : [];
   const active = status && (status.mode === 'live' || status.mode === 'replay' || status.mode === 'ended');
   const visibleSegs = showAll ? segs : segs.slice(-6);
 

@@ -43,8 +43,10 @@ export interface LiveStatus {
   session?: Session;
   scope: string;
   lines: number;
-  // The panel shows what fits the conversation (live.focus).
+  // The panel shows what fits the conversation (live.focus); relevance:
+  // what fits best takes the places (live.relevance).
   focus?: boolean;
+  relevance?: boolean;
 }
 
 export interface Suggestion {
@@ -66,6 +68,11 @@ export interface Brief {
   spokenAgo: number;
   // The line of the conversation the lookup is about.
   quote?: string;
+  // With relevance on: judged; has a place on the panel; had one; fit.
+  rated?: boolean;
+  open?: boolean;
+  wasOpen?: boolean;
+  fit?: number;
   summarizing: boolean;
   status?: { topic: number; name: string; asOf: string; now: string; changed?: string[] | null; open?: string[] | null };
 }

@@ -31,8 +31,10 @@ type Status struct {
 	Scope     string   `json:"scope"`
 	Lines     int      `json:"lines"`
 	Clock     float64  `json:"clock"`
-	// Focus: the panel shows what fits the conversation (live.focus).
-	Focus bool `json:"focus"`
+	// Focus: the panel shows what fits the conversation (live.focus);
+	// Relevance, that what fits best takes the places (live.relevance).
+	Focus     bool `json:"focus"`
+	Relevance bool `json:"relevance"`
 }
 
 // Brief is what was found for one suggestion.
@@ -49,6 +51,12 @@ type Brief struct {
 	SpokenAgo float64 `json:"spokenAgo"`
 	// Quote is the line of the conversation the lookup is about (focus).
 	Quote string `json:"quote,omitempty"`
+	// With live.relevance: Rated, that it was judged; Open, that it has a
+	// place on the panel; WasOpen, that it had one; Fit, how well it fits.
+	Rated   bool    `json:"rated,omitempty"`
+	Open    bool    `json:"open,omitempty"`
+	WasOpen bool    `json:"wasOpen,omitempty"`
+	Fit     float64 `json:"fit,omitempty"`
 	// Summarizing: passages are shown and a summary is on its way.
 	Summarizing bool `json:"summarizing"`
 	// Status is the written status of the thread the lookup is about,
@@ -102,8 +110,12 @@ type Live struct {
 	// conversation (focus); topicsAt is when the cards were last sent.
 	lineVecs map[string][]float32
 	topicsAt time.Time
-	briefed  map[string]time.Time
-	onSaved  func()
+	// rel judges what fits the conversation (relevance.go); places holds
+	// what competes for the panel's places.
+	rel     provider.Classifier
+	places  map[string]*place
+	briefed map[string]time.Time
+	onSaved func()
 
 	// Replays: timed (a timer at some speed) or clocked (an audio player).
 	replay      context.CancelFunc
@@ -160,7 +172,22 @@ func (l *Live) Reload() (err error) {
 	if err != nil {
 		return err
 	}
+	var rel provider.Classifier
+	if c := l.eng.Cfg.Live.Relevance; c.Provider != "" && l.eng.Cfg.Live.Focus {
+		var jev provider.Classifier
+		if c.Provider == "jev" {
+			// It reads the conversation: a hosted model needs the owner's leave.
+			if !l.eng.Cfg.Knowledge.AllowHosted {
+				return fmt.Errorf("live.relevance: a hosted classifier reads the meeting, so it needs knowledge.allow_hosted")
+			}
+			jev = provider.NewJev(c.URL, c.Model, c.APIKey, c.PriceIn)
+		}
+		if rel, err = relevance(jev, c.Provider, l.eng.Chat); err != nil {
+			return err
+		}
+	}
 	l.mu.Lock()
+	l.rel = rel
 	l.sug = s
 	l.topicIx = cs
 	l.spell = knowledge.Spellings(sp)
@@ -171,7 +198,7 @@ func (l *Live) Reload() (err error) {
 func (l *Live) Status() Status {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	st := Status{Connected: l.connected, Mode: l.mode, Scope: l.scope, Clock: l.clockLocked(), Focus: l.eng.Cfg.Live.Focus}
+	st := Status{Connected: l.connected, Mode: l.mode, Scope: l.scope, Clock: l.clockLocked(), Focus: l.eng.Cfg.Live.Focus, Relevance: l.rel != nil}
 	if l.meeting != nil {
 		s := l.meeting.Session
 		st.Session = &s
@@ -299,6 +326,7 @@ func (l *Live) handle(ev Event, mode string) {
 			l.briefed = map[string]time.Time{}
 			l.chips = nil
 			l.topics = nil
+			l.places = nil
 			l.lastModelVer = 0
 			l.mu.Unlock()
 			l.resetTraces()
@@ -797,6 +825,40 @@ func (l *Live) finishBrief(cycle int, b Brief, said float64, outcome, stage stri
 	now := l.clock()
 	if said >= 0 {
 		b.SpokenAgo = now - said
+	}
+	l.mu.Lock()
+	rel := l.rel
+	l.mu.Unlock()
+	if rel != nil && b.State == "done" {
+		key := briefKey(b.Query)
+		l.offer(cycle, key, briefText(b), &b)
+		b.Rated = true
+		b.Open, b.WasOpen, b.Fit = l.placeOf(key)
+		resend, cards := l.choose()
+		b.Open, b.WasOpen, b.Fit = l.placeOf(key)
+		for _, o := range resend {
+			if briefKey(o.Query) != key {
+				o.Rated = true
+				l.emit("live:brief", o)
+			}
+		}
+		if cards {
+			l.emitTopics(cycle)
+		}
+	} else if rel != nil && b.State == "empty" {
+		// Dropped (nothing found, or the summary says it's off the topic):
+		// out of the running, and its place goes to the next best.
+		l.mu.Lock()
+		delete(l.places, briefKey(b.Query))
+		l.mu.Unlock()
+		resend, cards := l.choose()
+		for _, o := range resend {
+			o.Rated = true
+			l.emit("live:brief", o)
+		}
+		if cards {
+			l.emitTopics(cycle)
+		}
 	}
 	l.emit("live:brief", b)
 	d := map[string]any{"query": b.Query, "kind": b.Kind, "outcome": outcome, "stage": stage, "readyAt": now, "totalMs": time.Since(b.At).Milliseconds()}

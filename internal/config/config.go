@@ -343,6 +343,13 @@ type Live struct {
 	// rest as one line, old subjects marked. false: every card in full, as
 	// before.
 	Focus bool `toml:"focus"`
+	// Relevance, with focus, chooses what takes the panel's places by how
+	// well it fits the last 90 s, asked of a classifier (provider "jev",
+	// or "decider": the [llm] model's yes/no) instead of by recency; MinP
+	// is the bar (0: 0.5). On a graded meeting (research log 2026-10-21)
+	// it showed 2.45 helpful items a moment against 1.0. Empty provider:
+	// the newest, as before.
+	Relevance Classifier `toml:"relevance"`
 }
 
 type Sensitivity struct {

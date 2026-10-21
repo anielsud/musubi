@@ -2582,3 +2582,21 @@ at a time), and $0.027 for the 28. `[ask.fallback]` names a model that
 answers when the hosted one fails (checked with the hosted address
 broken: the local 27B answered in 63 s). On All, Ask and talking points
 are hosted with the 27B as fallback; the code's defaults stay local.
+
+**Thread fragmentation, sized (no model calls).** The audit's worry was
+that a subject split over two threads leaves updates unlinked, so stale
+items stay current. Against the benchmark's gold labels, mapped onto All
+by meeting and text, 29 labelled retirements had both statements
+threaded. 28 sit in one thread: 18 linked, 4 unlinked with the earlier
+item still current, 2 cross-meeting unlinked, and 4 unlinked but retired
+by another relation. One is split across threads (same meeting). The
+missed retirements are mostly inside one thread, a reconcile miss, not
+a fragmentation one. Against the 15 reference subjects (4+ statements),
+All needs 1 thread to hold 80% of 6 subjects, 2 for 4, 3 for 3, and 4–6
+for 3. The broad ones split into their programmes, which is mostly
+sensible granularity: the reference subjects are coarser than threads
+should be. Across All's own relations, 15% of cross-item relations join
+statements now in different threads (they were linked, then one side
+moved), and 240 statements are in more than one thread. Not worth a
+cross-thread linking pass now; the reconcile misses inside threads are
+the larger share.

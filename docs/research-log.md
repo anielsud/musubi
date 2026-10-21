@@ -2728,3 +2728,23 @@ two of each drops helpful and unhelpful items alike. Churn is unchanged.
 What gets shown is the remaining problem: candidates need judging for
 relevance before they take a place. The 317 graded items are the test set
 for that.
+
+**Judging relevance before showing (offline, on the 317 graded items).**
+Each item, with the last 90 s, asked of Jev as one yes/no question
+("would glancing at it give them something relevant to what is being
+discussed right now?") and of GLM-5.3-Flash as a 0–3 rating; zero-shot,
+634 calls, 38 s, $0.06. Against the graders (helpful by both: 24% of
+items), Jev ranks at AUC 0.88, GLM 0.79. Choosing the panel's four items
+by score instead of by recency:
+
+| Choice of four | Helpful items on screen per moment | Moments with nothing helpful |
+|---|---|---|
+| Newest (focus as shipped) | 1.0 | 7 of 20 |
+| Top 4 by Jev | 2.45 | 1 of 20 |
+| Top 4 by GLM | 2.62 | 1 of 20 |
+| Old panel, 12 items | about 3.2 | 0 of 20 |
+
+As a gate, Jev ≥ 0.7 keeps 30% of items, 63% of them helpful; GLM's 3
+keeps 17%, 66% helpful. One meeting so far: to be confirmed on another.
+Jev is cleared for testing, not for the product, where GLM (or the
+decider emulation behind provider.Classifier) is the path.

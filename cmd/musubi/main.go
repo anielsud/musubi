@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -200,6 +201,10 @@ func searchCmd() *cobra.Command {
 func snippet(s string, n int) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if len(s) > n {
+		// Back to a rune boundary: a cut through a character is invalid UTF-8.
+		for n > 0 && !utf8.RuneStart(s[n]) {
+			n--
+		}
 		return s[:n] + "…"
 	}
 	return s

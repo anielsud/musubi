@@ -892,7 +892,7 @@ derived data. The raw store is a directory of blobs beside it.
 |---|---|
 | Keyword search | FTS5 |
 | Semantic search, topic clustering | sqlite-vec for exact cosine. Past 2,000 passages a 1-bit code index (`internal/vindex`; codes in `chunk_codes` and `claim_codes`, written with the vectors, about 96 bytes each in memory) proposes candidates, and the exact comparison runs over only those, through the same scope-filtered SQL. The candidates must hold twenty visible passages per result, otherwise the set is widened and finally scanned exactly, so a narrow scope never sees the wrong neighbours and never bypasses the filter. |
-| Graph | `entities` and `edges` tables (typed, timestamped, weighted, with provenance); traversal by recursive CTEs |
+| Graph | `entities` with `entity_aliases`, linked to items by `item_entities` and `mentions` and to each other through what they share (`item_links`, `topic_entities`, `topic_relations`); traversal by joins and recursive CTEs |
 | Facets across dimensions | person, customer, business area, project and topic are all entity types; a facet is a join through `edges`, with time as a filter |
 | Trends | time-bucketed aggregate tables; DuckDB can attach the SQLite file for heavier analysis |
 
@@ -906,6 +906,44 @@ the derived tables and the next update refills them. That includes the
 extracted statements, which at full scale cost hours of model time, so new
 columns on them are added in place (`addColumns`) instead of bumping the
 version.
+
+**Technology.** `mattn/go-sqlite3` (cgo, built with the `sqlite_fts5` tag)
+and `sqlite-vec`, in WAL mode with foreign keys on, a 10 s busy timeout and
+a single connection (one writer at a time is SQLite's model; it also keeps
+transactions from interleaving between goroutines). Vectors are float32
+blobs (nomic-embed-text: 768 dimensions, 3 KB each) compared exactly by
+sqlite-vec, with the 1-bit codes above in front past 2,000.
+
+**Schema** (`internal/store/schema.sql`, version 4; 34 tables), by layer:
+
+| Layer | Tables |
+|---|---|
+| Raw and items | `raw_manifest`, `items`, `item_links`, `item_audience`, `labels` |
+| Passages | `chunks`, `chunks_fts` (FTS5, porter), `chunk_vecs`, `chunk_codes` |
+| Entities | `entities`, `entity_aliases`, `item_entities`, `mentions` |
+| Knowledge | `statements`, `statement_vecs`, `claims`, `claim_codes`, `statement_claims`, `claim_relations`, `statement_relations` |
+| Topics and threads | `topics`, `topic_relations`, `topic_entities`, `topic_events`, `thread_items`, `thread_runs`, `thread_status` |
+| Owner's decisions (kept across rebuilds) | `corrections`, `learned_aliases`, `thread_edits`, `forgotten`, `audit`, `judgments` |
+| Stage bookkeeping | `stage_runs`, `global_runs` |
+
+**Size, measured (the "All" dataset, 2026-10-21):** 268 MB for 165
+meetings and 55 other items (9,494 passages, 20,879 statements, 690
+threads), about 1.6 MB a meeting, plus 11 MB of raw blobs. Vectors are
+most of it: statement vectors 86 MB, claim centroids 85 MB, passage
+vectors 39 MB; statements 14 MB, passages 10 MB, items 10 MB, the
+FTS index 4 MB. 99.6% of claims hold a single statement, so their
+centroids repeat the statement's vector: a third of the file. Storing a
+centroid only for claims of two or more, and vectors as float16, would
+take it to about 120 MB, under half of today's size.
+
+**Scaling.** `tools/scale-bench` times the read paths on a synthetic
+corpus shaped like the leadership meetings (research log, "Reads at
+scale"): at 1,600 meetings (192k passages, 400k claims) vector search
+takes 7–8 ms, a card lookup 12–15 ms, a topic page 0.3 s and the topic
+list 4.2 s cold. At today's 1.6 MB a meeting a person's 1,000 meetings
+are about 1.6 GB, well within SQLite; at company scale (tens of thousands
+of meetings) the vector bytes and cold aggregate loads are what to cut
+first ([scaling.md](scaling.md)), before any change of engine.
 
 A dedicated graph database is not warranted at this scale (thousands of items
 and entities). The schema is plain relational behind a `store` interface so it

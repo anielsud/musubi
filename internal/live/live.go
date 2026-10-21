@@ -30,6 +30,8 @@ type Status struct {
 	Scope     string   `json:"scope"`
 	Lines     int      `json:"lines"`
 	Clock     float64  `json:"clock"`
+	// Focus: the panel shows what fits the conversation (live.focus).
+	Focus bool `json:"focus"`
 }
 
 // Brief is what was found for one suggestion.
@@ -44,6 +46,8 @@ type Brief struct {
 	// SpokenAgo is how long before the brief was ready the topic was first
 	// said (meeting seconds); -1 when the words weren't said as such.
 	SpokenAgo float64 `json:"spokenAgo"`
+	// Quote is the line of the conversation the lookup is about (focus).
+	Quote string `json:"quote,omitempty"`
 	// Summarizing: passages are shown and a summary is on its way.
 	Summarizing bool `json:"summarizing"`
 	// Status is the written status of the thread the lookup is about,
@@ -93,8 +97,12 @@ type Live struct {
 	topicIx   *engine.Cards
 	spell     knowledge.Spellings // confirmed spelling aliases, applied to lines
 	topics    []shownTopic
-	briefed   map[string]time.Time
-	onSaved   func()
+	// lineVecs caches card lines' vectors for ranking them against the
+	// conversation (focus); topicsAt is when the cards were last sent.
+	lineVecs map[string][]float32
+	topicsAt time.Time
+	briefed  map[string]time.Time
+	onSaved  func()
 
 	// Replays: timed (a timer at some speed) or clocked (an audio player).
 	replay      context.CancelFunc
@@ -159,7 +167,7 @@ func (l *Live) Reload() (err error) {
 func (l *Live) Status() Status {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	st := Status{Connected: l.connected, Mode: l.mode, Scope: l.scope, Clock: l.clockLocked()}
+	st := Status{Connected: l.connected, Mode: l.mode, Scope: l.scope, Clock: l.clockLocked(), Focus: l.eng.Cfg.Live.Focus}
 	if l.meeting != nil {
 		s := l.meeting.Session
 		st.Session = &s
@@ -647,6 +655,9 @@ type sumJob struct {
 func (l *Live) brief(ctx context.Context, cycle int, s Suggestion, exclude []string, scopeName string, lines []Segment) {
 	b := Brief{Query: s.Query, Why: s.Why, Kind: s.Kind, State: "loading", At: time.Now(), SpokenAgo: -1}
 	said := evidenceAt(s.Query, lines)
+	if l.eng.Cfg.Live.Focus {
+		b.Quote = evidenceLine(s.Query, lines)
+	}
 	l.emit("live:brief", b)
 	sc, err := l.eng.Scope(scopeName)
 	if err != nil {

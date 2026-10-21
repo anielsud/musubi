@@ -140,3 +140,29 @@ func excerpt(s string, n int) string {
 	}
 	return s
 }
+
+// evidenceLine is the latest line sharing a content word with the query,
+// clipped around the first shared word: what in the conversation a card
+// or a brief answers. "" if none.
+func evidenceLine(query string, lines []Segment) string {
+	keys := contentWords(query)
+	for i := len(lines) - 1; i >= 0; i-- {
+		ws := strings.Fields(lines[i].Text)
+		for j, w := range ws {
+			for _, k := range words(w) {
+				if keys[k] {
+					from, to := max(0, j-8), min(len(ws), j+10)
+					q := strings.Join(ws[from:to], " ")
+					if from > 0 {
+						q = "…" + q
+					}
+					if to < len(ws) {
+						q += "…"
+					}
+					return q
+				}
+			}
+		}
+	}
+	return ""
+}

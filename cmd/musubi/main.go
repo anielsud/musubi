@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -836,7 +837,7 @@ func askCmd() *cobra.Command {
 }
 
 func liveCmd() *cobra.Command {
-	var replay string
+	var replay, events string
 	var speed float64
 	var duration time.Duration
 	c := &cobra.Command{
@@ -850,7 +851,24 @@ func liveCmd() *cobra.Command {
 			defer e.Close()
 			ctx, cancel := context.WithTimeout(cmd.Context(), duration)
 			defer cancel()
+			// Every event in full, one JSON line each, for measuring the
+			// panel (what it showed, and when).
+			var evw *json.Encoder
+			if events != "" {
+				f, err := os.Create(events)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				evw = json.NewEncoder(f)
+			}
+			var evMu sync.Mutex
 			l := live.New(e, func(ev string, data any) {
+				if evw != nil {
+					evMu.Lock()
+					evw.Encode(map[string]any{"at": time.Now(), "event": ev, "data": data})
+					evMu.Unlock()
+				}
 				switch ev {
 				case "live:segment":
 					return
@@ -882,6 +900,7 @@ func liveCmd() *cobra.Command {
 	}
 	c.Flags().StringVar(&replay, "replay", "", "Tomoe session id to replay")
 	c.Flags().Float64Var(&speed, "speed", 4, "replay speed")
+	c.Flags().StringVar(&events, "events", "", "write every panel event, in full, to this file (JSON lines)")
 	c.Flags().DurationVar(&duration, "for", 2*time.Minute, "how long to run")
 	return c
 }

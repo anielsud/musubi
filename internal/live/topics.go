@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/anielsud/musubi/internal/knowledge"
@@ -20,6 +23,24 @@ type TopicCard struct {
 	// SpokenAgo is how long before the card was ready its trigger was said
 	// (meeting seconds); -1 when it came from a lookup, not a word.
 	SpokenAgo float64 `json:"spokenAgo"`
+	// Focus (live.focus): Quote is the line of the conversation that last
+	// raised the card; Lines, its few lines closest to the last 90 s;
+	// Active, that it is one of the two most recently raised, within
+	// focusActive; Stale, that the subject was last discussed over
+	// staleAfter ago; MentionedAgo, meeting seconds since it was raised.
+	Focus        bool        `json:"focus"`
+	Quote        string      `json:"quote,omitempty"`
+	Lines        []FocusLine `json:"lines,omitempty"`
+	Active       bool        `json:"active"`
+	Stale        bool        `json:"stale,omitempty"`
+	MentionedAgo float64     `json:"mentionedAgo"`
+}
+
+// FocusLine is a card line chosen for the conversation, with its section.
+type FocusLine struct {
+	knowledge.CardLine
+	Section string  `json:"section"`
+	Score   float64 `json:"score"`
 }
 
 type shownTopic struct {
@@ -27,7 +48,18 @@ type shownTopic struct {
 	why       string
 	at        time.Time
 	spokenAgo float64
+	quote     string
+	mentioned float64 // meeting clock when last raised
 }
+
+const (
+	focusActive  = 180.0 // seconds a card stays open after it was last raised
+	focusOpen    = 2     // cards open at once
+	focusLines   = 3     // lines a card shows
+	focusWindow  = 90.0  // seconds of conversation the lines are ranked against
+	focusRefresh = 15 * time.Second
+	staleAfter   = 60 * 24 * time.Hour
+)
 
 // maxTopics is how many topic cards the panel keeps, newest first.
 const maxTopics = 4
@@ -48,7 +80,15 @@ func (l *Live) termTopics(cycle int, text string, lines []Segment) {
 		if said >= 0 {
 			ago = l.clock() - said
 		}
-		l.showTopic(cycle, h.Anchor, "says "+h.Term, ago)
+		l.showTopic(cycle, h.Anchor, "says "+h.Term, ago, evidenceLine(h.Term, lines))
+	}
+	// The conversation moves on: cards are ranked again, and close, as it
+	// does.
+	l.mu.Lock()
+	due := l.eng.Cfg.Live.Focus && len(l.topics) > 0 && time.Since(l.topicsAt) >= focusRefresh
+	l.mu.Unlock()
+	if due {
+		l.emitTopics(cycle)
 	}
 }
 
@@ -67,14 +107,28 @@ func (l *Live) lookupTopic(ctx context.Context, cycle int, s Suggestion) {
 		return
 	}
 	l.trace(cycle, "topic", fmt.Sprintf("“%s” opens %s (%s)", s.Query, a.Key(), how), time.Since(t0).Milliseconds(), nil)
-	l.showTopic(cycle, a, "“"+s.Query+"”", -1)
+	var quote string
+	l.mu.Lock()
+	if l.meeting != nil {
+		quote = evidenceLine(s.Query, l.meeting.RecentLines(focusWindow))
+	}
+	l.mu.Unlock()
+	l.showTopic(cycle, a, "“"+s.Query+"”", -1, quote)
 }
 
-func (l *Live) showTopic(cycle int, topic knowledge.Anchor, why string, spokenAgo float64) {
+func (l *Live) showTopic(cycle int, topic knowledge.Anchor, why string, spokenAgo float64, quote string) {
 	l.mu.Lock()
-	kept := []shownTopic{{id: topic, why: why, at: time.Now(), spokenAgo: spokenAgo}}
+	now := l.clockLocked()
+	kept := []shownTopic{{id: topic, why: why, at: time.Now(), spokenAgo: spokenAgo, quote: quote, mentioned: now}}
 	for _, t := range l.topics {
 		if t.id == topic {
+			if l.eng.Cfg.Live.Focus {
+				// Raised again: to the front, with the latest line.
+				t.mentioned = now
+				if quote != "" {
+					t.quote = quote
+				}
+			}
 			// Already up: keep it where the conversation first raised it.
 			kept[0] = t
 			continue
@@ -86,8 +140,9 @@ func (l *Live) showTopic(cycle int, topic knowledge.Anchor, why string, spokenAg
 	}
 	same := len(l.topics) > 0 && l.topics[0].id == topic
 	l.topics = kept
+	due := same && l.eng.Cfg.Live.Focus && time.Since(l.topicsAt) >= focusRefresh
 	l.mu.Unlock()
-	if !same {
+	if !same || due {
 		l.emitTopics(cycle)
 	}
 }
@@ -98,6 +153,13 @@ func (l *Live) emitTopics(cycle int) {
 	t0 := time.Now()
 	l.mu.Lock()
 	cs, shown, scopeName := l.topicIx, append([]shownTopic(nil), l.topics...), l.scope
+	l.topicsAt = time.Now()
+	clock := l.clockLocked()
+	var window string
+	if l.meeting != nil {
+		window = l.meeting.Recent(focusWindow)
+	}
+	focus := l.eng.Cfg.Live.Focus
 	// A replayed meeting sees only what was known when it happened.
 	now := time.Now()
 	if l.mode == "replay" && l.meeting != nil && !l.meeting.Session.CreatedAt.IsZero() {
@@ -127,9 +189,16 @@ func (l *Live) emitTopics(cycle int) {
 						tc.Now = knowledge.FirstSentence(knowledge.StripIDs(s.Now))
 					}
 				}
+				if focus {
+					tc.Focus, tc.Quote, tc.MentionedAgo = true, t.quote, clock-t.mentioned
+					tc.Stale = !c.Last.IsZero() && now.Sub(c.Last) > staleAfter
+				}
 				out = append(out, tc)
 			}
 		}
+	}
+	if focus {
+		l.focusCards(out, window)
 	}
 	var titles []string
 	for _, c := range out {
@@ -137,4 +206,125 @@ func (l *Live) emitTopics(cycle int) {
 	}
 	l.trace(cycle, "topic", fmt.Sprintf("%d topic card(s) under %s", len(out), scopeName), time.Since(t0).Milliseconds(), map[string]any{"cards": titles})
 	l.emit("live:topics", out)
+}
+
+// focusCards marks the cards to keep open (the most recently raised, a
+// fresh subject before an old one, within focusActive) and picks each
+// one's lines closest to the conversation.
+func (l *Live) focusCards(cards []TopicCard, window string) {
+	order := make([]int, len(cards))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		x, y := cards[order[a]], cards[order[b]]
+		if x.Stale != y.Stale {
+			return !x.Stale
+		}
+		return x.MentionedAgo < y.MentionedAgo
+	})
+	open := 0
+	for _, i := range order {
+		if open < focusOpen && cards[i].MentionedAgo <= focusActive {
+			cards[i].Active = true
+			open++
+		}
+	}
+	sort.SliceStable(cards, func(a, b int) bool {
+		if cards[a].Active != cards[b].Active {
+			return cards[a].Active
+		}
+		return cards[a].MentionedAgo < cards[b].MentionedAgo
+	})
+	var q []float32
+	if strings.TrimSpace(window) != "" {
+		q = l.eng.Embed(l.ctxOrBackground(), window)
+	}
+	for i := range cards {
+		if cards[i].Active {
+			cards[i].Lines = l.closestLines(cards[i].Card, q)
+		}
+	}
+}
+
+// closestLines ranks a card's lines by how close they are to the
+// conversation (q); without a vector, the card's own order. Due and
+// overdue items of the owner's are kept among them.
+func (l *Live) closestLines(c *knowledge.Card, q []float32) []FocusLine {
+	var all []FocusLine
+	for _, s := range c.Sections {
+		for _, ln := range s.Lines {
+			all = append(all, FocusLine{CardLine: ln, Section: s.Name})
+		}
+	}
+	if len(all) == 0 {
+		return nil
+	}
+	if q != nil {
+		vecs := l.lineVectors(all)
+		for i := range all {
+			if v := vecs[all[i].Text]; v != nil {
+				all[i].Score = cosine(q, v)
+			}
+		}
+		sort.SliceStable(all, func(a, b int) bool { return all[a].Score > all[b].Score })
+	}
+	return all[:min(len(all), focusLines)]
+}
+
+// lineVectors embeds card lines once each, for the meeting.
+func (l *Live) lineVectors(lines []FocusLine) map[string][]float32 {
+	l.mu.Lock()
+	if l.lineVecs == nil {
+		l.lineVecs = map[string][]float32{}
+	}
+	out := map[string][]float32{}
+	var todo []string
+	for _, ln := range lines {
+		if v, ok := l.lineVecs[ln.Text]; ok {
+			out[ln.Text] = v
+		} else if _, dup := out[ln.Text]; !dup {
+			out[ln.Text] = nil
+			todo = append(todo, ln.Text)
+		}
+	}
+	l.mu.Unlock()
+	if len(todo) == 0 || l.eng.Embedder == nil {
+		return out
+	}
+	vs, err := l.eng.Embedder.Embed(l.ctxOrBackground(), todo, false)
+	if err != nil || len(vs) != len(todo) {
+		return out
+	}
+	l.mu.Lock()
+	for i, t := range todo {
+		l.lineVecs[t], out[t] = vs[i], vs[i]
+	}
+	l.mu.Unlock()
+	return out
+}
+
+func (l *Live) ctxOrBackground() context.Context {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.ctx != nil {
+		return l.ctx
+	}
+	return context.Background()
+}
+
+func cosine(a, b []float32) float64 {
+	var d, na, nb float64
+	for i := range a {
+		if i >= len(b) {
+			break
+		}
+		d += float64(a[i]) * float64(b[i])
+		na += float64(a[i]) * float64(a[i])
+		nb += float64(b[i]) * float64(b[i])
+	}
+	if na == 0 || nb == 0 {
+		return 0
+	}
+	return d / math.Sqrt(na*nb)
 }

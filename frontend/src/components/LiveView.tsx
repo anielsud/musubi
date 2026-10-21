@@ -20,6 +20,9 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
   const [topics, setTopics] = useState<TopicCard[]>([]);
   const [typed, setTyped] = useState('');
   const [showAll, setShowAll] = useState(false);
+  const [showSearches, setShowSearches] = useState(false);
+  // Earlier cards and lookups opened by a click (focus).
+  const [opened, setOpened] = useState<Set<string>>(new Set());
   const [err, setErr] = useState('');
   const [audioRef, setAudioRef] = useState<string | null>(null);
   const tail = useRef<HTMLDivElement>(null);
@@ -71,6 +74,15 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
   }, [segs, showAll]);
 
   const scope = status?.scope ?? 'owner';
+  const focus = !!status?.focus;
+  const topicKey = (t: TopicCard) => (t.anchor?.term ? 'term:' + t.anchor.term.toLowerCase() : 'topic:' + (t.anchor?.topic ?? t.topicId));
+  const toggleOpened = (k: string) => setOpened((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  // Focus: two cards open (the server picks them), two lookups open (the
+  // newest); the rest one line each under "Earlier in this meeting".
+  const openTopics = focus ? topics.filter((t) => t.active || opened.has(topicKey(t))) : topics;
+  const earlierTopics = focus ? topics.filter((t) => !t.active && !opened.has(topicKey(t))) : [];
+  const shownBriefs = focus ? briefs.filter((b, i) => i < 2 || opened.has('q:' + b.query)) : briefs;
+  const earlierBriefs = focus ? briefs.filter((b, i) => i >= 2 && !opened.has('q:' + b.query)) : [];
   const active = status && (status.mode === 'live' || status.mode === 'replay' || status.mode === 'ended');
   const visibleSegs = showAll ? segs : segs.slice(-6);
 
@@ -110,9 +122,14 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
         <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Look something up…" />
       </form>
 
-      {suggestions.length > 0 && (
+      {suggestions.length > 0 && focus && (
+        <button className="link small searches" onClick={() => setShowSearches(!showSearches)}>
+          {showSearches ? 'hide searches' : `searches (${suggestions.length})`}
+        </button>
+      )}
+      {suggestions.length > 0 && (!focus || showSearches) && (
         <section>
-          <div className="section-head"><span>Suggested</span></div>
+          {!focus && <div className="section-head"><span>Suggested</span></div>}
           <div className="chips">
             {suggestions.map((s) => (
               <button key={s.query} className={'chip k-' + s.kind} title={s.why} onClick={() => lookUp(s.query, s.why, s.kind)}>
@@ -127,20 +144,38 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
       </div>
 
       <div className="live-right">
-      {topics.length > 0 && (
+      {openTopics.length > 0 && (
         <section className="topics">
-          {topics.map((t) => <TopicCardView key={t.anchor?.term ? 'term:' + t.anchor.term.toLowerCase() : 'topic:' + (t.anchor?.topic ?? t.topicId)} card={t} onTopic={onTopic} />)}
+          {openTopics.map((t) => <TopicCardView key={topicKey(t)} card={t} onTopic={onTopic} />)}
         </section>
       )}
 
       <section className="briefs">
-        {briefs.map((b) => (
+        {shownBriefs.map((b) => (
           <BriefCard key={b.query + b.at} brief={b} onOpen={(h) => onOpen(h, scope)} onTopic={onTopic} />
         ))}
         {active && briefs.length === 0 && topics.length === 0 && (
           <Empty>Briefings appear here as the conversation names people, customers and topics you have history on.</Empty>
         )}
       </section>
+
+      {(earlierTopics.length > 0 || earlierBriefs.length > 0) && (
+        <section className="earlier">
+          <div className="section-head"><span>Earlier in this meeting</span></div>
+          <div className="chips">
+            {earlierTopics.map((t) => (
+              <button key={topicKey(t)} className="chip earlier-chip" onClick={() => toggleOpened(topicKey(t))} title={t.quote ? '“' + t.quote + '”' : t.why}>
+                {t.title}{t.stale && <span className="dim"> · old</span>}
+              </button>
+            ))}
+            {earlierBriefs.map((b) => (
+              <button key={'q:' + b.query} className="chip earlier-chip k-brief" onClick={() => toggleOpened('q:' + b.query)} title={b.quote ? '“' + b.quote + '”' : b.why}>
+                {b.status?.name ?? b.query}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {cards.length > 0 && (
         <section>
@@ -266,7 +301,9 @@ function BriefCard({ brief, onOpen, onTopic }: { brief: Brief; onOpen: (h: Hit) 
         <span className="brief-q">{brief.query}</span>
         {(brief.state === 'loading' || brief.summarizing) && <Spinner />}
       </header>
-      {(brief.why && brief.why !== 'model') || lag ? (
+      {brief.quote ? (
+        <div className="card-quote">“{brief.quote}”{lag && <span className="dim"> · {lag}</span>}</div>
+      ) : (brief.why && brief.why !== 'model') || lag ? (
         <div className="brief-why">{[brief.why !== 'model' ? brief.why : '', lag].filter(Boolean).join(' · ')}</div>
       ) : null}
       {st && (
@@ -302,6 +339,58 @@ const sectionLabel: Record<string, string> = {
 // restricted ones, show their title only until opened (the backend sends
 // them uncollapsed in private).
 function TopicCardView({ card, onTopic }: { card: TopicCard; onTopic: (id: number) => void }) {
+  if (card.focus && !card.collapsed) return <FocusCardView card={card} onTopic={onTopic} />;
+  return <FullCardView card={card} onTopic={onTopic} />;
+}
+
+// FocusCardView is a card cut to the conversation: what was said that
+// raised it, the subject's age, and its few lines closest to the talk;
+// the whole card is a click away.
+function FocusCardView({ card, onTopic }: { card: TopicCard; onTopic: (id: number) => void }) {
+  const [more, setMore] = useState(false);
+  const sensitive = card.label.level === 'restricted' || card.label.level === 'confidential';
+  const lines = card.lines ?? [];
+  return (
+    <article className={'topic focus' + (card.stale ? ' stale' : '')}>
+      <header>
+        <span className="topic-title">{card.title}</span>
+        {sensitive && <span className={'sens-dot lvl-' + card.label.level} title={card.label.level + (card.label.categories && card.label.categories !== '-' ? ' · ' + card.label.categories : '')} />}
+        {card.topicId > 0 && <button className="link" onClick={() => onTopic(card.topicId)} title="Open the topic's page">page →</button>}
+      </header>
+      {card.quote && <div className="card-quote">“{card.quote}”</div>}
+      <div className="brief-why">
+        {card.stale && <span className="old">old · </span>}last discussed {fmtDate(card.last)} · {card.meetings} meeting{card.meetings === 1 ? '' : 's'}
+      </div>
+      {!more && lines.map((l) => (
+        <div key={l.claimId} className="focus-line">
+          {['Due', 'Yours', 'Open', 'Watch'].includes(l.section) && <span className="focus-sec">{sectionLabel[l.section] ?? l.section}</span>}
+          <TopicLineView line={l} />
+        </div>
+      ))}
+      {more && <CardBody card={card} />}
+      <button className="link small" onClick={() => setMore(!more)}>{more ? 'less' : 'more'}</button>
+    </article>
+  );
+}
+
+function CardBody({ card }: { card: TopicCard }) {
+  return (
+    <>
+      {card.now && <p className="card-now">{card.now}</p>}
+      {card.sections.map((s) => (
+        <div key={s.name} className={'topic-sec s-' + s.name.toLowerCase()}>
+          <div className="topic-sec-name">{sectionLabel[s.name] ?? s.name}</div>
+          {s.lines.map((l) => <TopicLineView key={l.claimId} line={l} />)}
+        </div>
+      ))}
+      {card.people && card.people.length > 0 && (
+        <div className="topic-people"><span className="topic-sec-name">Ask</span> {card.people.join(' · ')}</div>
+      )}
+    </>
+  );
+}
+
+function FullCardView({ card, onTopic }: { card: TopicCard; onTopic: (id: number) => void }) {
   const [reveal, setReveal] = useState(false);
   const hidden = card.collapsed && !reveal;
   const lag = card.spokenAgo >= 0 ? `${card.spokenAgo.toFixed(1)}s after it was said` : '';

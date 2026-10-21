@@ -43,6 +43,8 @@ export interface LiveStatus {
   session?: Session;
   scope: string;
   lines: number;
+  // The panel shows what fits the conversation (live.focus).
+  focus?: boolean;
 }
 
 export interface Suggestion {
@@ -62,6 +64,8 @@ export interface Brief {
   hits: Hit[] | null;
   at: string;
   spokenAgo: number;
+  // The line of the conversation the lookup is about.
+  quote?: string;
   summarizing: boolean;
   status?: { topic: number; name: string; asOf: string; now: string; changed?: string[] | null; open?: string[] | null };
 }
@@ -97,6 +101,14 @@ export interface TopicCard {
   // What raised the card: a topic, or a term (term cards span topics and
   // have no topic id).
   anchor: { topic?: number; term?: string };
+  // Focus: the line that raised it, its lines closest to the conversation,
+  // whether it stays open, and whether the subject is old.
+  focus?: boolean;
+  quote?: string;
+  lines?: (TopicLine & { section: string; score: number })[] | null;
+  active?: boolean;
+  stale?: boolean;
+  mentionedAgo?: number;
   now?: string;
   title: string;
   terms?: string[] | null;

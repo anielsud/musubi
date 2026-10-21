@@ -337,6 +337,12 @@ type Live struct {
 	LLMSuggestions bool `toml:"llm_suggestions"`
 	// UpdateOnSave ingests a meeting as soon as Tomoe saves it.
 	UpdateOnSave bool `toml:"update_on_save"`
+	// Focus shows what fits the conversation: each topic card's few lines
+	// closest to the last 90 s, the line that raised it, at most two cards
+	// open (the most recently mentioned, within three minutes) and the
+	// rest as one line, old subjects marked. false: every card in full, as
+	// before.
+	Focus bool `toml:"focus"`
 }
 
 type Sensitivity struct {
@@ -380,7 +386,7 @@ func DefaultConfig() Config {
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
-			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true,
+			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
 		},
 	}
 }

@@ -146,6 +146,8 @@ In order of value now:
    - Bring the product path (GLM, or the local model's yes/no) to Jev's
      quality on the graded set.
    - Measure end-to-end latency in live meetings.
+   - Cut Live relevance's cost (~13¢ a meeting hour as built): judge only
+     what changed, and re-check what is shown less often.
 2. **Correct current state.** Reduce reconcile misses inside threads; keep
    the owner's corrections cheap (rules, merges, splits, statement edits).
 3. **Coverage.** Backfill the corpus once, oldest first; relabel with the

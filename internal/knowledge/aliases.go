@@ -184,13 +184,13 @@ func AliasCandidates(items []item.Item, sts []store.Statement, owner string) []A
 				// Names that differ only in their ending, or where one is the
 				// other plus an ending, are usually two names (Paul and Paula,
 				// Mario and Marie) or two word forms; a mishearing changes the
-				// middle (Olaf for Olof).
+				// middle (Ivar for Ivor).
 				if endingOnly(PrepNameKey(keep), PrepNameKey(variant)) {
 					continue
 				}
 				// Acronyms a letter apart are different things (FTEs and
 				// FDEs, CIOs and CEOs); and a name heard wrong keeps its first
-				// sound far more often than not (Mikhail is not Nikhil,
+				// sound far more often than not (Mara is not Nara,
 				// whatever the sound key says).
 				if acronym(keep) && acronym(variant) {
 					continue
@@ -207,8 +207,8 @@ func AliasCandidates(items []item.Item, sts []store.Statement, owner string) []A
 			}
 		}
 	}
-	// A variant proposed for two different kept forms (Joan for Johan and
-	// for John) is ambiguous: neither is likely enough to put to the owner.
+	// A variant proposed for two different kept forms (Marton for Marten and
+	// for Martin) is ambiguous: neither is likely enough to put to the owner.
 	byVariant := map[string]int{}
 	for _, c := range out {
 		byVariant[PrepNameKey(c.Variant)]++
@@ -377,7 +377,7 @@ func englishWords() map[string]bool {
 // endingOnly: one is the other plus up to three letters (Paul and Paula,
 // Anders and Anderson), or they differ only in a final vowel, a for e or o
 // (Mario and Marie, Nicola and Nicole). A final consonant or i for y is
-// more often a misspelling (Ruis for Ruiz, Kelly for Kelli).
+// more often a misspelling (Ruis for Ruiz, Jenny for Jenni).
 func endingOnly(a, b string) bool {
 	if len(a) > len(b) {
 		a, b = b, a

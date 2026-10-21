@@ -126,8 +126,8 @@ The owner confirms them. A confirmed alias:
 
 ## Entities and aliases: design (2026-10-19)
 
-A rename applied everywhere is how subjects would merge wrongly: "Ben"
-becomes one Ben everywhere, and two people's subjects collapse. Four
+A rename applied everywhere is how subjects would merge wrongly: "Max"
+becomes one Max everywhere, and two people's subjects collapse. Four
 rules guard against it.
 
 **Never rewrite the source.** Statement and passage text stays as it was.
@@ -140,7 +140,7 @@ read through it. Undoing a wrong alias deletes edges.
 | Kind | Example | Reach |
 |---|---|---|
 | Spelling variant of one thing | a misheard place name | everywhere, once confirmed |
-| Short form, first name | "Ben", "Chris" | in context only: that meeting's attendees and speakers, the period, the team |
+| Short form, first name | "Max", "Sam" | in context only: that meeting's attendees and speakers, the period, the team |
 | Identity claim | two names, one person | needs evidence (the same email, the same attendee slot, the same voice) and the owner's confirmation |
 
 **Entity changes never move threads.** Membership is by statement, not by
@@ -173,7 +173,7 @@ Of 174 pairs (the list is private, in testdata/private/aliases):
   names, the transcript form against the invite form (a "Ruis" for a
   "Ruiz"), at most two letters apart.
 - **14 vetoed as two people:** names a letter apart that belong to
-  different attendees (a "Kristian" and a "Christian").
+  different attendees (a "Katrin" and a "Catrin").
 - **Ordinary words** ("Partners", "Visual", "Core") are dropped when written
   in lower case at least a fifth of the time.
 - **Still to tell apart:** two people a letter apart who never met in one

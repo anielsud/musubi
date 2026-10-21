@@ -153,7 +153,7 @@ def main():
                 # Two people: both attended one meeting under these names.
                 together = sum(1 for it in where[a] & where[b] if na in tokens_in[it] and nb in tokens_in[it])
                 # Each spelling is part of a different person's full name on
-                # invites (Christian X and Kristian Y): two people.
+                # invites (Catrin X and Katrin Y): two people.
                 fa, fb = full_of.get(na, set()), full_of.get(nb, set())
                 distinct = bool(fa) and bool(fb) and not (fa & fb) and not any(
                     x.split()[-1] == y.split()[-1] for x in fa for y in fb if len(x.split()) > 1 and len(y.split()) > 1)

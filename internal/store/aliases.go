@@ -239,7 +239,7 @@ func union(a, b []int64) []int64 {
 }
 
 // ConfirmAliasIn confirms an alias for some of its uses only (the
-// statements given): "Miles" is Myles where it's about the CFO, a distance
+// statements given): "Wade" is Wayde where it's about the person, the verb
 // elsewhere. reviewed are all the uses the owner looked at; uses made
 // later come back for review (UnreviewedUses). Called again, it adds to
 // what was confirmed and reviewed before.

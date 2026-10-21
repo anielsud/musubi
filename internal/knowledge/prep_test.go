@@ -133,18 +133,18 @@ func TestAliasCandidates(t *testing.T) {
 		}
 		return it
 	}
-	items := []item.Item{mk("1", "Dana Ruiz", "Kristian Holm"), mk("2", "Christian Berg"), mk("3", "Sam Owner")}
+	items := []item.Item{mk("1", "Dana Ruiz", "Katrin Holm"), mk("2", "Catrin Berg"), mk("3", "Sam Owner")}
 	st := func(item, text string) store.Statement { return store.Statement{ItemID: item, Text: text} }
 	sts := []store.Statement{
 		st("1", "Ruiz said the Dhaka office is ready."), st("1", "Ruiz again: Dhaka hiring."), st("2", "Ruis will check the Daka numbers."),
-		st("2", "Ruis and Daka again."), st("1", "Kristian presented."), st("2", "Christian agreed."), st("2", "Kristian and Christian."),
+		st("2", "Ruis and Daka again."), st("1", "Katrin presented."), st("2", "Catrin agreed."), st("2", "Katrin and Catrin."),
 		st("3", "Owner Sam and Sams team."), st("3", "Dhaka is the second site."),
 		st("1", "Ruiz and Dhaka."), st("1", "Ruiz in Dhaka."), st("1", "Ruiz, Dhaka."), st("2", "Ruiz: Dhaka."),
 		// A colleague with a near name, credited with statements: a person.
-		{ItemID: "2", Text: "Emil said the plan holds.", Who: []string{"Emil Novak"}}, st("1", "Emily agreed."), st("1", "Emily again."), st("1", "Emily, three."),
-		st("1", "Emily, four."), st("1", "Emily, five."), st("1", "Emily, six."),
+		{ItemID: "2", Text: "Ilse said the plan holds.", Who: []string{"Ilse Novak"}}, st("1", "Ilsa agreed."), st("1", "Ilsa again."), st("1", "Ilsa, three."),
+		st("1", "Ilsa, four."), st("1", "Ilsa, five."), st("1", "Ilsa, six."),
 		// A word that is also near a name.
-		st("1", "Myles approved."), st("1", "Myles again."), st("1", "Myles, three."), st("1", "Myles, four."), st("1", "Myles, five."), st("1", "Myles, six."), st("2", "It is 40 Miles away."),
+		st("1", "Wayde approved."), st("1", "Wayde again."), st("1", "Wayde, three."), st("1", "Wayde, four."), st("1", "Wayde, five."), st("1", "Wayde, six."), st("2", "They will Wade across."),
 	}
 	got := map[string]string{}
 	for _, c := range AliasCandidates(items, sts, "Sam Owner") {
@@ -153,14 +153,14 @@ func TestAliasCandidates(t *testing.T) {
 	if got["Ruis"] != "Ruiz" || got["Daka"] != "Dhaka" {
 		t.Errorf("variants not proposed: %v", got)
 	}
-	if _, ok := got["Kristian"]; ok {
+	if _, ok := got["Katrin"]; ok {
 		t.Errorf("two people proposed as one: %v", got)
 	}
-	if _, ok := got["Christian"]; ok {
+	if _, ok := got["Catrin"]; ok {
 		t.Errorf("two people proposed as one: %v", got)
 	}
-	// Emil is credited with a statement under a full name: a person.
-	if _, ok := got["Emil"]; ok {
+	// Ilse is credited with a statement under a full name: a person.
+	if _, ok := got["Ilse"]; ok {
 		t.Errorf("a colleague proposed as another's variant: %v", got)
 	}
 	for _, pair := range [][2]string{{"Paul", "Paula"}, {"Mario", "Marie"}, {"Anders", "Anderson"}} {
@@ -168,7 +168,7 @@ func TestAliasCandidates(t *testing.T) {
 			t.Errorf("%v: two names, not a mishearing", pair)
 		}
 	}
-	if endingOnly("olof", "olaf") || endingOnly("timko", "timco") || endingOnly("ruiz", "ruis") || endingOnly("kelli", "kelly") {
+	if endingOnly("ivor", "ivar") || endingOnly("rasko", "rasco") || endingOnly("ruiz", "ruis") || endingOnly("jenni", "jenny") {
 		t.Error("a mishearing in the middle taken for two names")
 	}
 	if _, ok := got["Miles"]; ok && len(englishWords()) > 0 {
@@ -207,7 +207,7 @@ func TestAliasRules(t *testing.T) {
 	for _, c := range []struct {
 		a, b string
 		want bool
-	}{{"Ruiz", "Ruis", true}, {"Mikhail", "Nikhil", false}, {"Kristen", "Christen", true}, {"Philip", "Filip", true}} {
+	}{{"Ruiz", "Ruis", true}, {"Mara", "Nara", false}, {"Karla", "Carla", true}, {"Philip", "Filip", true}} {
 		if sameStart(c.a, c.b) != c.want {
 			t.Errorf("sameStart(%q, %q) = %v", c.a, c.b, !c.want)
 		}
@@ -219,11 +219,11 @@ func TestAliasRules(t *testing.T) {
 	st := func(item, text string) store.Statement { return store.Statement{ItemID: item, Text: text} }
 	var sts []store.Statement
 	for i := 0; i < 8; i++ {
-		sts = append(sts, st("1", "Johan agreed."), st("1", "John agreed."))
+		sts = append(sts, st("1", "Marten agreed."), st("1", "Martin agreed."))
 	}
-	sts = append(sts, st("2", "Joan said so."), st("2", "Joan again."))
+	sts = append(sts, st("2", "Marton said so."), st("2", "Marton again."))
 	for _, c := range AliasCandidates(nil, sts, "Sam Owner") {
-		if c.Variant == "Joan" {
+		if c.Variant == "Marton" {
 			t.Errorf("ambiguous variant proposed: %+v", c)
 		}
 	}

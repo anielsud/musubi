@@ -96,7 +96,7 @@ func TestCorrectionsSurviveReextraction(t *testing.T) {
 func TestAliasConfirmedForSomeUses(t *testing.T) {
 	s, _ := Open(filepath.Join(t.TempDir(), "t.db"))
 	defer s.Close()
-	s.ProposeAlias(LearnedAlias{Keep: "Myles", Variant: "Miles", Kind: "spelling"})
+	s.ProposeAlias(LearnedAlias{Keep: "Wayde", Variant: "Wade", Kind: "spelling"})
 	as, _ := s.LearnedAliases("proposed")
 	if err := s.ConfirmAliasIn(as[0].ID, []int64{7, 9}, []int64{7, 8, 9}, "owner"); err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestAliasConfirmedForSomeUses(t *testing.T) {
 		t.Errorf("confirmed for two uses, applied everywhere: %v", g)
 	}
 	sc, _ := s.ScopedSpellings()
-	if sc[7]["miles"] != "Myles" || sc[9]["miles"] != "Myles" || sc[8] != nil {
+	if sc[7]["wade"] != "Wayde" || sc[9]["wade"] != "Wayde" || sc[8] != nil {
 		t.Errorf("scoped %v", sc)
 	}
 	// Reviewed: 7, 8, 9; a later use (10) isn't, so it comes back.
@@ -116,7 +116,7 @@ func TestAliasConfirmedForSomeUses(t *testing.T) {
 	// Reviewing 10 later, confirmed: it joins.
 	s.ConfirmAliasIn(as[0].ID, []int64{10}, []int64{10}, "owner")
 	sc, _ = s.ScopedSpellings()
-	if sc[7] == nil || sc[10]["miles"] != "Myles" {
+	if sc[7] == nil || sc[10]["wade"] != "Wayde" {
 		t.Errorf("after a second review %v", sc)
 	}
 }
@@ -124,16 +124,16 @@ func TestAliasConfirmedForSomeUses(t *testing.T) {
 func TestAddAlias(t *testing.T) {
 	s, _ := Open(filepath.Join(t.TempDir(), "t.db"))
 	defer s.Close()
-	id, err := s.AddAlias("Steele", "Sheetal", "owner")
+	id, err := s.AddAlias("Tyrrel", "Tirell", "owner")
 	if err != nil || id == 0 {
 		t.Fatal(id, err)
 	}
-	if again, _ := s.AddAlias("Steele", "Sheetal", "owner"); again != id {
+	if again, _ := s.AddAlias("Tyrrel", "Tirell", "owner"); again != id {
 		t.Errorf("added twice: %d, %d", id, again)
 	}
 	s.ConfirmAliasIn(id, []int64{3}, []int64{3, 4}, "owner")
 	sc, _ := s.ScopedSpellings()
-	if sc[3]["steele"] != "Sheetal" || sc[4] != nil {
+	if sc[3]["tyrrel"] != "Tirell" || sc[4] != nil {
 		t.Errorf("scoped %v", sc)
 	}
 }

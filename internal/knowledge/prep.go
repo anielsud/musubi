@@ -404,15 +404,21 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 	if req.MarkPrivate && len(v.People) > 1 {
 		sort.SliceStable(v.Subjects, func(i, j int) bool { return !v.Subjects[i].Private && v.Subjects[j].Private })
 	}
-	// Live items first, then those gone quiet; the most recently raised
-	// first within each.
+	// Live items first, then those gone quiet; with more than one other
+	// person, what is for the owner alone after the rest (as subjects); the
+	// most recently raised first within each.
+	inGroup := req.MarkPrivate && len(v.People) > 1
 	sort.SliceStable(v.Open, func(i, j int) bool {
 		a, b := v.Open[i], v.Open[j]
 		if a.Quiet != b.Quiet {
 			return !a.Quiet
 		}
+		if inGroup && a.Private != b.Private {
+			return !a.Private
+		}
 		return a.Raised.After(b.Raised)
 	})
+	v.Open = dedupeOpen(v.Open)
 	// Worth sharing: the latest word on their subjects, said since, in
 	// meetings none of them attended. A thread whose items are often about
 	// people's jobs, pay, health, legal matters or private lives is left
@@ -461,6 +467,54 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 	}
 	v.Share = kept
 	return v, nil
+}
+
+// dedupeOpen drops an open item that says what an earlier one in the list
+// says: related threads (a programme and its vendor's) often each carry
+// the same unresolved point. Most of the shorter one's words in the other
+// (word endings trimmed) is the same point.
+func dedupeOpen(open []PrepOpen) []PrepOpen {
+	words := func(s string) map[string]bool {
+		m := map[string]bool{}
+		for _, w := range strings.FieldsFunc(strings.ToLower(StripIDs(s)), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+			if len(w) > 3 {
+				for _, suf := range []string{"ing", "ed", "es", "s"} {
+					if len(w) > len(suf)+4 && strings.HasSuffix(w, suf) {
+						w = strings.TrimSuffix(w, suf)
+						break
+					}
+				}
+				m[w] = true
+			}
+		}
+		return m
+	}
+	var kept []PrepOpen
+	var seen []map[string]bool
+	for _, o := range open {
+		w := words(o.Text)
+		dup := false
+		for _, k := range seen {
+			both := 0
+			for x := range w {
+				if k[x] {
+					both++
+				}
+			}
+			// Measured against the shorter: a point restated with more
+			// detail is still the same point. Short ones are left alone.
+			short := min(len(w), len(k))
+			if short >= 5 && float64(both)/float64(short) >= 0.6 {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			kept = append(kept, o)
+			seen = append(seen, w)
+		}
+	}
+	return kept
 }
 
 // dueDate reads a due date the status gives as a date ("2026-09-25",

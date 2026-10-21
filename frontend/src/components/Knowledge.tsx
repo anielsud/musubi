@@ -253,11 +253,11 @@ function ThreadSection({ d, onSource, owner, onChanged, picked, onPick }: { d: T
 // chips that open the source.
 export function Cited({ text, byId, onSource }: { text: string; byId: Map<number, ThreadItem>; onSource: (itemId: string, chunkId: number) => void }) {
   const parts: React.ReactNode[] = [];
-  const re = /\s*[(\[]\s*(\d+(?:\s*,\s*\d+)*)\s*[)\]]/g;
+  const re = /\s*[(\[]\s*(\d+(?:\s*[-–]\s*\d+)?(?:\s*,\s*\d+(?:\s*[-–]\s*\d+)?)*)\s*[)\]]/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
-    const ids = m[1].split(',').map((x) => parseInt(x.trim(), 10));
+    const ids = idList(m[1]);
     if (!ids.some((id) => byId.has(id))) continue;
     if (m.index > last) parts.push(text.slice(last, m.index));
     parts.push(<Refs key={m.index} ids={ids} byId={byId} onSource={onSource} />);
@@ -270,16 +270,45 @@ export function Cited({ text, byId, onSource }: { text: string; byId: Map<number
 export function Refs({ ids, byId, onSource }: { ids: number[] | null | undefined; byId: Map<number, ThreadItem>; onSource: (itemId: string, chunkId: number) => void }) {
   const its = (ids ?? []).map((id) => byId.get(id)).filter((x): x is ThreadItem => !!x);
   if (!its.length) return null;
+  // One chip per date: several statements from one meeting read as one
+  // source ("Oct 1 ×3"); it opens the first, and its tooltip lists them all.
+  const groups: ThreadItem[][] = [];
+  for (const it of its) {
+    const g = groups.find((x) => fmtDate(x[0].saidAt) === fmtDate(it.saidAt));
+    if (g) g.push(it);
+    else groups.push([it]);
+  }
   return (
     <>
       {' '}
-      {its.slice(0, 4).map((it) => (
-        <button key={it.id} className="cite" onClick={() => onSource(it.itemId, it.chunkId)} title={`${it.itemTitle} · ${fmtDate(it.saidAt)}\n${it.text}`}>
-          {fmtDate(it.saidAt)}
+      {groups.slice(0, 4).map((g) => (
+        <button key={g[0].id} className="cite" onClick={() => onSource(g[0].itemId, g[0].chunkId)}
+          title={`${g[0].itemTitle} · ${fmtDate(g[0].saidAt)}\n` + g.map((it) => it.text).join('\n\n')}>
+          {fmtDate(g[0].saidAt)}{g.length > 1 ? ` ×${g.length}` : ''}
         </button>
       ))}
     </>
   );
+}
+
+// idList reads "12, 14" or a range "20358-20365" (at most 50 ids).
+function idList(s: string): number[] {
+  const out: number[] = [];
+  for (const part of s.split(',')) {
+    const [a, b] = part.split(/[-–]/).map((x) => parseInt(x.trim(), 10));
+    if (b !== undefined && b >= a && b - a < 50) for (let i = a; i <= b; i++) out.push(i);
+    else out.push(a);
+  }
+  return out;
+}
+
+// citedIn is the ids a status text already cites inline ("(5435)", "[12, 14]", "(20-24)").
+export function citedIn(text: string): Set<number> {
+  const out = new Set<number>();
+  for (const m of text.matchAll(/[(\[]\s*(\d+(?:\s*[-–]\s*\d+)?(?:\s*,\s*\d+(?:\s*[-–]\s*\d+)?)*)\s*[)\]]/g)) {
+    for (const id of idList(m[1])) out.add(id);
+  }
+  return out;
 }
 
 function PointRow({ p, byId, onSource, lead, tail }: { p: StatusPoint; byId: Map<number, ThreadItem>; onSource: (itemId: string, chunkId: number) => void; lead?: string; tail?: string }) {
@@ -288,7 +317,7 @@ function PointRow({ p, byId, onSource, lead, tail }: { p: StatusPoint; byId: Map
       {lead && <span className="dim">{lead} · </span>}
       <Cited text={p.text} byId={byId} onSource={onSource} />
       {tail && <span className="dim"> — {tail}</span>}
-      <Refs ids={p.ids} byId={byId} onSource={onSource} />
+      <Refs ids={(p.ids ?? []).filter((id) => !citedIn(p.text).has(id))} byId={byId} onSource={onSource} />
     </li>
   );
 }

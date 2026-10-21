@@ -516,7 +516,7 @@ func dot(a, b []float64) float64 {
 
 // inlineIDs are statement ids a status writer put in its prose: "(5435)",
 // "[5266, 5271]".
-var inlineIDs = regexp.MustCompile(`\s*[(\[]\s*\d{1,9}(?:\s*,\s*\d{1,9})*\s*[)\]]`)
+var inlineIDs = regexp.MustCompile(`\s*[(\[]\s*\d{1,9}(?:\s*[-–]\s*\d{1,9})?(?:\s*,\s*\d{1,9}(?:\s*[-–]\s*\d{1,9})?)*\s*[)\]]`)
 
 // StripIDs removes a status's inline statement ids.
 func StripIDs(s string) string { return inlineIDs.ReplaceAllString(s, "") }

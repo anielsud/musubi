@@ -202,3 +202,47 @@ func TestStatementSensitivityTyped(t *testing.T) {
 		t.Errorf("got %v %.2f %v", c, p, err)
 	}
 }
+
+func TestAliasRules(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{{"Ruiz", "Ruis", true}, {"Mikhail", "Nikhil", false}, {"Kristen", "Christen", true}, {"Philip", "Filip", true}} {
+		if sameStart(c.a, c.b) != c.want {
+			t.Errorf("sameStart(%q, %q) = %v", c.a, c.b, !c.want)
+		}
+	}
+	if !acronym("CIOs") || !acronym("FDEs") || acronym("Ruiz") || acronym("A") {
+		t.Error("acronym")
+	}
+	// A variant near two kept forms is put to nobody.
+	st := func(item, text string) store.Statement { return store.Statement{ItemID: item, Text: text} }
+	var sts []store.Statement
+	for i := 0; i < 8; i++ {
+		sts = append(sts, st("1", "Johan agreed."), st("1", "John agreed."))
+	}
+	sts = append(sts, st("2", "Joan said so."), st("2", "Joan again."))
+	for _, c := range AliasCandidates(nil, sts, "Sam Owner") {
+		if c.Variant == "Joan" {
+			t.Errorf("ambiguous variant proposed: %+v", c)
+		}
+	}
+}
+
+// The same unresolved point carried by two related threads is listed once.
+func TestDedupeOpen(t *testing.T) {
+	got := dedupeOpen([]PrepOpen{
+		{Text: "Rules to stop the vendor overloading the platform via the grading endpoint are not defined (1234)."},
+		{Text: "Whether the team can define rules so the vendor won't overload the platform via the grading endpoint."},
+		{Text: "The dataset must be reduced to the internal corpus."},
+	})
+	if len(got) != 2 {
+		t.Errorf("kept %d: %+v", len(got), got)
+	}
+}
+
+func TestStripIDsRange(t *testing.T) {
+	if got := StripIDs("the disputed figure (20358-20365) and more [12, 14]."); got != "the disputed figure and more." {
+		t.Errorf("got %q", got)
+	}
+}

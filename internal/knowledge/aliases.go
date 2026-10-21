@@ -188,6 +188,16 @@ func AliasCandidates(items []item.Item, sts []store.Statement, owner string) []A
 				if endingOnly(PrepNameKey(keep), PrepNameKey(variant)) {
 					continue
 				}
+				// Acronyms a letter apart are different things (FTEs and
+				// FDEs, CIOs and CEOs); and a name heard wrong keeps its first
+				// sound far more often than not (Mikhail is not Nikhil,
+				// whatever the sound key says).
+				if acronym(keep) && acronym(variant) {
+					continue
+				}
+				if !sameStart(keep, variant) {
+					continue
+				}
 				score := math.Sqrt(float64(count[variant])) / float64(1+d)
 				if onInvite[keep] {
 					score *= 1.5
@@ -197,8 +207,55 @@ func AliasCandidates(items []item.Item, sts []store.Statement, owner string) []A
 			}
 		}
 	}
+	// A variant proposed for two different kept forms (Joan for Johan and
+	// for John) is ambiguous: neither is likely enough to put to the owner.
+	byVariant := map[string]int{}
+	for _, c := range out {
+		byVariant[PrepNameKey(c.Variant)]++
+	}
+	kept := out[:0]
+	for _, c := range out {
+		if byVariant[PrepNameKey(c.Variant)] == 1 {
+			kept = append(kept, c)
+		}
+	}
+	out = kept
 	sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
 	return out
+}
+
+// acronym: written in capitals (a trailing plural s allowed), as CIOs.
+func acronym(w string) bool {
+	w = strings.TrimSuffix(w, "s")
+	up := 0
+	for _, r := range w {
+		if unicode.IsLower(r) {
+			return false
+		}
+		if unicode.IsUpper(r) {
+			up++
+		}
+	}
+	return up >= 2
+}
+
+// sameStart: the two begin with the same letter, or with ones that sound
+// alike at the start of a name (C and K, Ph and F).
+func sameStart(a, b string) bool {
+	ka, kb := PrepNameKey(a), PrepNameKey(b)
+	if ka == "" || kb == "" {
+		return false
+	}
+	first := func(s string) byte {
+		if strings.HasPrefix(s, "ph") {
+			return 'f'
+		}
+		if s[0] == 'k' {
+			return 'c'
+		}
+		return s[0]
+	}
+	return first(ka) == first(kb)
 }
 
 // shareFull: two sets of full names with one in common, or sharing a

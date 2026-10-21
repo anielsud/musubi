@@ -3,7 +3,7 @@ import { api, fmtDate, on } from '../api';
 import type { Hit, PrepRequest, PrepTarget, PrepView as Prep, ThreadItem, ThreadRef } from '../types';
 import { Empty, HitRow, Spinner } from './common';
 import { Answer } from './AskView';
-import { Cited, Refs } from './Knowledge';
+import { Cited, Refs, citedIn } from './Knowledge';
 
 // PrepView: before a meeting, what to bring: the subjects these people are
 // part of and where each stands, what moved since you last met, what is
@@ -98,7 +98,7 @@ export function PrepView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h
                       {o.private && <span className="scope-pill">for you</span>}
                       <span className="dim"> — {[o.who, o.due && 'due ' + o.due, o.raised && 'raised ' + fmtDate(o.raised)].filter(Boolean).join(' · ')} · </span>
                       <button className="link" onClick={() => onTopic(o.thread)}>{o.name}</button>
-                      <Refs ids={(o.items ?? []).map((x) => x.id)} byId={byId} onSource={src} />
+                      <Refs ids={(o.items ?? []).map((x) => x.id).filter((id) => !citedIn(o.text).has(id))} byId={byId} onSource={src} />
                     </li>
                   );
                 })}

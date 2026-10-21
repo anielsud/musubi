@@ -36,14 +36,20 @@ for sid, cid, tid in db.execute("""SELECT sc.statement_id, sc.claim_id, coalesce
         continue
     claim[sid], topic[sid] = cid, tid
     members.setdefault(cid, []).append(sid)
-rels = []
+rels, seen = [], set()
+def add(later, earlier, rel):
+    if later is None or earlier is None or later == earlier or (later, earlier, rel) in seen:
+        return
+    seen.add((later, earlier, rel))
+    rels.append({"later": later, "earlier": earlier, "rel": rel})
 for frm, to, rel, sid in db.execute("SELECT from_claim, to_claim, rel, statement_id FROM claim_relations"):
-    sid = m(sid)
-    if sid is None:
-        continue
     for e in members.get(to, []):
-        if e != sid:
-            rels.append({"later": sid, "earlier": e, "rel": rel})
+        add(m(sid), e, rel)
+# Threading also records relations between statements (two statements of
+# one claim have no claim relation); older databases lack the table.
+if db.execute("SELECT 1 FROM sqlite_master WHERE name = 'statement_relations'").fetchone():
+    for later, earlier, rel in db.execute("SELECT later, earlier, rel FROM statement_relations"):
+        add(m(later), m(earlier), rel)
 # Threads with their current items, for memory_eval.py.
 threads = {}
 for tid, label, summary, sid, cur in db.execute("""SELECT t.id, t.label, t.summary, ti.statement_id, ti.current

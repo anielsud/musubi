@@ -65,6 +65,9 @@ def main():
             for t in claim_st[tc]:
                 if t != sid:
                     retiring[t].append(sid)
+        if target.execute("SELECT 1 FROM sqlite_master WHERE name = 'statement_relations'").fetchone():
+            for later, earlier in target.execute("SELECT later, earlier FROM statement_relations WHERE rel IN ('supersedes','completes','answers','repeats')"):
+                retiring[earlier].append(later)
         threads = collections.defaultdict(list)
         for tid, sid, cur in target.execute("SELECT topic_id, statement_id, current FROM thread_items"):
             threads[tid].append((sid, cur))

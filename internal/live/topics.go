@@ -113,6 +113,13 @@ func (l *Live) emitTopics(cycle int) {
 				if err != nil || c == nil {
 					continue
 				}
+				// Collapsing sensitive cards is for a shared screen; in private
+				// they show as they are.
+				if c.Collapsed && scopeName == "owner" {
+					cc := *c
+					cc.Collapsed = false
+					c = &cc
+				}
 				tc := TopicCard{Card: c, Why: t.why, At: t.at, SpokenAgo: t.spokenAgo}
 				if st, ok := sts[c.TopicID]; ok && !c.Collapsed && !st.AsOf.After(now) {
 					var s knowledge.Status

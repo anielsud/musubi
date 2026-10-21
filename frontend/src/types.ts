@@ -94,6 +94,9 @@ export interface TopicLine {
 
 export interface TopicCard {
   topicId: number;
+  // What raised the card: a topic, or a term (term cards span topics and
+  // have no topic id).
+  anchor: { topic?: number; term?: string };
   now?: string;
   title: string;
   terms?: string[] | null;

@@ -129,7 +129,7 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
       <div className="live-right">
       {topics.length > 0 && (
         <section className="topics">
-          {topics.map((t) => <TopicCardView key={t.topicId} card={t} onTopic={onTopic} />)}
+          {topics.map((t) => <TopicCardView key={t.anchor?.term ? 'term:' + t.anchor.term.toLowerCase() : 'topic:' + (t.anchor?.topic ?? t.topicId)} card={t} onTopic={onTopic} />)}
         </section>
       )}
 
@@ -298,8 +298,9 @@ const sectionLabel: Record<string, string> = {
 
 // TopicCardView is a subject's card: where it stands, what is due, what is
 // yours, what is open, the rules, what must not be repeated, and who to
-// ask. Cards about people's jobs, pay or health, or restricted ones, show
-// their title only until opened.
+// ask. On a shared screen, cards about people's jobs, pay or health, or
+// restricted ones, show their title only until opened (the backend sends
+// them uncollapsed in private).
 function TopicCardView({ card, onTopic }: { card: TopicCard; onTopic: (id: number) => void }) {
   const [reveal, setReveal] = useState(false);
   const hidden = card.collapsed && !reveal;

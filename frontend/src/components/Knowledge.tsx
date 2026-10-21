@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDate } from '../api';
 import type { ClaimView, KnowledgeCounts, Statement, StatusPoint, ThreadDetail, ThreadItem, TopicMapData, TopicSummary, TopicView } from '../types';
-import { Empty, LabelBadge, Spinner } from './common';
+import { Empty, LabelBadge, Spelled, Spinner } from './common';
 import { TopicViews, clusterColor, useWide } from './TopicViews';
 
 // Status presentation: what's live first, then what changed.
@@ -327,15 +327,23 @@ function PointRow({ p, byId, onSource, lead, tail }: { p: StatusPoint; byId: Map
 function ItemRow({ it, onSource, owner, onChanged, picked, onPick }: { it: ThreadItem; onSource: (itemId: string, chunkId: number) => void; owner?: boolean; onChanged?: () => void; picked?: Set<number> | null; onPick?: (id: number) => void }) {
   const who = (it.who?.length ? it.who.join(', ') : it.holder) || '';
   const [editing, setEditing] = useState(false);
-  const [text, setText] = useState(it.text);
+  // Edited as written, not as the spelling rules read it.
+  const written = it.original || it.text;
+  const [text, setText] = useState(written);
   const [names, setNames] = useState(who);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  useEffect(() => {
+    if (!owner) return;
+    const f = (e: Event) => { if ((e as CustomEvent<number>).detail === it.id) setEditing(true); };
+    window.addEventListener('musubi:edit-statement', f);
+    return () => window.removeEventListener('musubi:edit-statement', f);
+  }, [owner, it.id]);
   if (editing) {
     const save = () => {
       setBusy(true);
       setErr('');
-      api.correctStatement(it.id, text === it.text ? '' : text, names === who ? '' : names).then(
+      api.correctStatement(it.id, text === written ? '' : text, names === who ? '' : names).then(
         () => { setEditing(false); setBusy(false); onChanged?.(); },
         (e) => { setErr(String(e)); setBusy(false); },
       );
@@ -345,7 +353,7 @@ function ItemRow({ it, onSource, owner, onChanged, picked, onPick }: { it: Threa
         <input value={names} onChange={(e) => setNames(e.target.value)} placeholder="who said it (names, comma-separated)" />
         <textarea value={text} rows={3} onChange={(e) => setText(e.target.value)} />
         <div className="edit-actions">
-          {busy ? <Spinner /> : <button className="chip" onClick={save} disabled={text === it.text && names === who}>save</button>}
+          {busy ? <Spinner /> : <button className="chip" onClick={save} disabled={text === written && names === who}>save</button>}
           <button className="link" onClick={() => setEditing(false)}>cancel</button>
           <span className="dim small">The original is kept; the change is recorded.</span>
         </div>
@@ -354,7 +362,8 @@ function ItemRow({ it, onSource, owner, onChanged, picked, onPick }: { it: Threa
     );
   }
   return (
-    <div className={'stmt-wrap' + (picked ? ' picking' : '')}>
+    <div className={'stmt-wrap' + (picked ? ' picking' : '')} data-statement={it.id} data-editable={owner ? '1' : undefined}
+      data-item={it.itemId} data-chunk={it.chunkId} data-title={it.itemTitle} data-at={it.saidAt}>
     {picked && <input type="checkbox" className="stmt-pick" checked={picked.has(it.id)} onChange={() => onPick?.(it.id)} title="Split this out" />}
     {owner && !picked && <button className="link stmt-edit" onClick={() => setEditing(true)} title="Correct the text or who said it">correct</button>}
     <button className={'stmt' + (it.current ? '' : ' retired')} onClick={() => onSource(it.itemId, it.chunkId)} title="Open the source passage">
@@ -363,7 +372,7 @@ function ItemRow({ it, onSource, owner, onChanged, picked, onPick }: { it: Threa
         <span className="dim">{it.kind}{it.status ? '/' + it.status : ''} · {fmtDate(it.saidAt)}</span>
         <LabelBadge label={it.label} compact />
       </div>
-      <div className="stmt-text">{it.text}</div>
+      <div className="stmt-text"><Spelled s={it} /></div>
       <div className="stmt-src">{it.itemTitle}</div>
     </button>
     </div>

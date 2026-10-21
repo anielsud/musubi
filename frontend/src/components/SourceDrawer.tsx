@@ -53,6 +53,7 @@ export function SourceDrawer({ src, onClose }: { src: SourceRef; onClose: () => 
           {item === null && <div className="empty">Not visible in this scope.</div>}
           {item?.chunks.map((c) => (
             <div key={c.chunkId} ref={c.chunkId === src.chunkId ? target : undefined}
+              data-item={src.itemId} data-chunk={c.chunkId} data-title={item.title} data-at={item.occurredAt}
               className={'passage' + (c.chunkId === src.chunkId ? ' cited' : '')}>
               <div className="passage-meta">
                 #{c.seq} {c.start > 0 && <>· {Math.floor(c.start / 60)}:{String(Math.floor(c.start % 60)).padStart(2, '0')}</>}

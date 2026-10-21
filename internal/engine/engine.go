@@ -49,6 +49,7 @@ func Open(cfgPath string) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	st.ReadWithRules = cfg.Knowledge.ApplySpellings
 	emb, err := provider.New(cfg.Embed)
 	if err != nil {
 		st.Close()

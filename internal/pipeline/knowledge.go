@@ -1208,6 +1208,13 @@ func (r *Runner) writeStatuses(ctx context.Context, o KnowledgeOptions, ks *Know
 	if err != nil {
 		return err
 	}
+	// Written from the text as the owner's spelling rules read it: the
+	// rules are in the input, so a rule made or undone rewrites the
+	// statuses it touches.
+	fix, err := r.Store.Corrector()
+	if err != nil {
+		return err
+	}
 	type job struct {
 		th      store.ThreadRow
 		variant string
@@ -1222,6 +1229,9 @@ func (r *Runner) writeStatuses(ctx context.Context, o KnowledgeOptions, ks *Know
 		sts, err := r.Store.ThreadStatements(th.ID)
 		if err != nil {
 			return err
+		}
+		for i := range sts {
+			sts[i].Text = fix.Text(sts[i].ID, sts[i].Text)
 		}
 		have := stamps[th.ID]
 		full := knowledge.StatusInputFor(th.Name, th.Scope, sts, nil)

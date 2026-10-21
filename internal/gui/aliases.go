@@ -25,6 +25,12 @@ type AliasView struct {
 	// NewUses: confirmed for some uses only, and used since in places not
 	// yet reviewed (they are listed for review).
 	NewUses int `json:"newUses,omitempty"`
+	// Mode is the rule (always, these, apart, review); Only, the statements
+	// a "these" rule applies to; Replaced, proposals the owner answered
+	// with this alias's kept form instead.
+	Mode     string   `json:"mode"`
+	Only     []int64  `json:"only,omitempty"`
+	Replaced []string `json:"replaced,omitempty"`
 }
 
 // Aliases lists aliases with a status ("proposed", "confirmed", "rejected")
@@ -33,9 +39,30 @@ func (a *App) Aliases(status string, limit int) ([]AliasView, error) {
 	if a.eng == nil {
 		return nil, fmt.Errorf("not ready: %s", a.err)
 	}
-	as, err := a.eng.Store.LearnedAliases(status)
-	if err != nil {
+	var as []store.LearnedAlias
+	var err error
+	if status == "rules" {
+		// Every decided rule: the same form everywhere or in some uses, and
+		// pairs kept apart.
+		all, err := a.eng.Store.LearnedAliases("")
+		if err != nil {
+			return nil, err
+		}
+		for _, x := range all {
+			if m := x.Mode(); m == store.RuleAlways || m == store.RuleThese || m == store.RuleApart {
+				as = append(as, x)
+			}
+		}
+	} else if as, err = a.eng.Store.LearnedAliases(status); err != nil {
 		return nil, err
+	}
+	replaced := map[int64][]string{}
+	if all, err := a.eng.Store.LearnedAliases("replaced"); err == nil {
+		for _, x := range all {
+			if b := x.ReplacedBy(); b != 0 {
+				replaced[b] = append(replaced[b], x.Keep)
+			}
+		}
 	}
 	// To review: the proposed ones, and those confirmed for some uses that
 	// have been used since where nobody has looked.
@@ -73,7 +100,8 @@ func (a *App) Aliases(status string, limit int) ([]AliasView, error) {
 			return nil, err
 		}
 		out = append(out, AliasView{ID: x.ID, Keep: x.Keep, Variant: x.Variant, Kind: x.Kind, Status: x.Status, Score: x.Score,
-			Statements: im.Statements, Items: im.Items, Threads: len(im.Threads), NewLinks: len(im.NewLinks), Sample: im.Sample, NewUses: newUses[x.ID]})
+			Statements: im.Statements, Items: im.Items, Threads: len(im.Threads), NewLinks: len(im.NewLinks), Sample: im.Sample, NewUses: newUses[x.ID],
+			Mode: x.Mode(), Only: x.Only(), Replaced: replaced[x.ID]})
 	}
 	return out, nil
 }
@@ -87,9 +115,7 @@ func (a *App) DecideAlias(id int64, confirm bool) error {
 	if err := a.eng.Store.DecideAlias(id, confirm, "owner"); err != nil {
 		return err
 	}
-	if a.live != nil {
-		a.live.Reload()
-	}
+	a.ruleChanged(id)
 	return nil
 }
 
@@ -132,15 +158,19 @@ func (a *App) AliasUsages(id int64, limit int) ([]store.AliasUsage, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Confirmed for some uses: only those not yet reviewed.
+		// Confirmed for some uses: those not yet reviewed are marked new and
+		// listed first; the rest follow, so the rule can be decided again
+		// as a whole.
 		if r := x.Reviewed(); r != nil {
-			var fresh []store.AliasUsage
+			var fresh, seen []store.AliasUsage
 			for _, u := range us {
-				if !r[u.Statement] {
+				if u.New = !r[u.Statement]; u.New {
 					fresh = append(fresh, u)
+				} else {
+					seen = append(seen, u)
 				}
 			}
-			us = fresh
+			us = append(fresh, seen...)
 		}
 		if limit > 0 && len(us) > limit {
 			us = us[:limit]
@@ -171,8 +201,8 @@ func (a *App) ConfirmAliasIn(id int64, statements, reviewed []int64, all bool) e
 	} else {
 		err = a.eng.Store.ConfirmAliasIn(id, statements, reviewed, "owner")
 	}
-	if err == nil && a.live != nil {
-		a.live.Reload()
+	if err == nil {
+		a.ruleChanged(id)
 	}
 	return err
 }
@@ -217,7 +247,7 @@ func (a *App) ConfirmAliasAs(id int64, keep string, statements, reviewed []int64
 			return err
 		}
 		if x.Status == "proposed" {
-			return a.eng.Store.DecideAlias(id, false, "owner")
+			return a.eng.Store.MarkAliasReplaced(id, nid, "owner")
 		}
 		return nil
 	}

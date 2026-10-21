@@ -37,6 +37,10 @@ var kept = map[string]bool{"forgotten": true, "audit": true, "judgments": true, 
 type Store struct {
 	db    *sql.DB
 	codes codeIndexes // nearest-neighbour prefilters (vecindex.go)
+	// ReadWithRules applies the owner's spelling rules when statements are
+	// read for showing or writing from (Corrector); set from
+	// knowledge.apply_spellings.
+	ReadWithRules bool
 }
 
 func init() { sqlite_vec.Auto() }
@@ -87,7 +91,11 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("schema: %w", err)
 	}
-	return &Store{db: db}, nil
+	if err := markReplacedAliases(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	return &Store{db: db, ReadWithRules: true}, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }

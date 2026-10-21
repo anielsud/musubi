@@ -383,7 +383,7 @@ CREATE TABLE IF NOT EXISTS learned_aliases (
 	variant   TEXT NOT NULL,   -- the other form
 	kind      TEXT NOT NULL,   -- spelling, short, identity
 	scope     TEXT NOT NULL DEFAULT '',  -- JSON: items, attendees, period ('' = everywhere)
-	status    TEXT NOT NULL,   -- proposed, confirmed, rejected
+	status    TEXT NOT NULL,   -- proposed, confirmed, rejected (both forms right), replaced (answered with another form)
 	evidence  TEXT NOT NULL DEFAULT '',  -- JSON, as proposed
 	score     REAL NOT NULL DEFAULT 0,
 	by        TEXT NOT NULL DEFAULT '',

@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { AliasUsage, AliasView, AppStatus, ClaimView, Comparison, DatasetView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, ThreadEditView, TopicMapData, TopicSummary, TopicView } from './types';
+import type { AliasUsage, AliasView, AppStatus, ClaimView, Comparison, DatasetView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, StatementEdit, ThreadEditView, TopicMapData, TopicSummary, TopicView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -50,6 +50,9 @@ export const api = {
   addAlias: (variant: string, keep: string): Promise<number> => app().AddAlias(variant, keep),
   confirmAliasAs: (id: number, keep: string, statements: number[], reviewed: number[], all: boolean): Promise<void> => app().ConfirmAliasAs(id, keep, statements, reviewed, all),
   decideAlias: (id: number, confirm: boolean): Promise<void> => app().DecideAlias(id, confirm),
+  setAliasRule: (id: number, mode: string, keep: string, statements: number[], reviewed: number[]): Promise<number> => app().SetAliasRule(id, mode, keep, statements, reviewed),
+  statementEdits: (): Promise<StatementEdit[] | null> => app().StatementEdits(),
+  undoStatementEdit: (id: number): Promise<void> => app().UndoStatementEdit(id),
   correctStatement: (id: number, text: string, who: string): Promise<void> => app().CorrectStatement(id, text, who),
   mergeThreads: (into: number, from: number): Promise<number> => app().MergeThreads(into, from),
   splitThread: (from: number, ids: number[], name: string): Promise<number> => app().SplitThread(from, ids, name),

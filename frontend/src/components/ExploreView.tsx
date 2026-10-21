@@ -15,9 +15,11 @@ interface Props {
   onOpenItem: (itemId: string, scope: string) => void;
   // topicReq opens a topic's page (from Ask, Live or prep).
   topicReq?: { id: number; n: number } | null;
+  // correctReq opens Corrections on a word (from a text selection).
+  correctReq?: { variant: string; n: number } | null;
 }
 
-export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicReq }: Props) {
+export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicReq, correctReq }: Props) {
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<Hit[] | null>(null);
   const [ents, setEnts] = useState<EntityRef[]>([]);
@@ -32,6 +34,9 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
   useEffect(() => {
     if (topicReq) setMode('topics');
   }, [topicReq]);
+  useEffect(() => {
+    if (correctReq && scope === 'owner') setMode('corrections');
+  }, [correctReq]);
 
   useEffect(() => {
     if (!focus) {
@@ -74,7 +79,7 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
       </div>
       {mode === 'topics' && <TopicsPane scope={scope} onSource={openSource} want={topicReq} />}
       {mode === 'compare' && <CompareView scope={scope} />}
-      {mode === 'corrections' && scope === 'owner' && <CorrectionsView onSource={openSource} />}
+      {mode === 'corrections' && scope === 'owner' && <CorrectionsView onSource={openSource} start={correctReq} />}
       {mode === 'search' && <>
       <form className="lookup" onSubmit={(e) => { e.preventDefault(); run(q); }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search passages, people, customers…" />

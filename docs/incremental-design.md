@@ -159,6 +159,34 @@ statements are about and by, and the text. Not a directory.
 as a vocabulary hint (Tomoe, or the platform's custom vocabulary), so
 later meetings arrive right.
 
+### Rules, and what a rule changes (2026-10-21)
+
+The owner decides an alias as one of three rules, each saying what it
+will do before it applies, and each can be opened and decided again (or
+sent back to review) later:
+
+| Rule | Meaning | Effect |
+|---|---|---|
+| Same thing, always | every use of the variant is the kept form | read as the kept form everywhere, new meetings included |
+| Same thing, these uses only | only the checked uses are | read so in those statements; later uses come back for review |
+| Both are right | the two are different things | nothing is read differently; the pair is kept apart and not proposed again |
+
+A rule is set outright: deciding again replaces what was decided, it
+doesn't add to it. A proposal answered with a third, typed form isn't the
+owner's rejection: it is kept as replaced by the new rule (so it isn't
+proposed again) and shown on it.
+
+What reads with the rules (`knowledge.apply_spellings`; off, they are
+used for matching only, as before): thread items on the topic page and
+in prep (the written form on hover), Ask's context (items, and passages
+for the always-rules), and the status writer's input, so statuses name
+the kept form. After a rule is made, changed or undone, the statements
+using its variant are brought in line in the background: vectors of the
+text as the rules read it, search by both forms, and their threads'
+statuses written again (the rules are part of a status's input hash).
+Threads don't move: a rule that links two threads is a merge to propose.
+Feeding confirmed spellings to the recogniser is left for later.
+
 ### First candidate run (tools/entity-bench/aliases.py, on All)
 
 It pairs close spellings (edit distance, a sound key) and weighs:

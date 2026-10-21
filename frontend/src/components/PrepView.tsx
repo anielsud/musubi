@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../api';
 import type { Hit, PrepRequest, PrepTarget, PrepView as Prep, ThreadItem, ThreadRef } from '../types';
-import { Empty, HitRow, Spinner } from './common';
+import { Empty, HitRow, Spelled, Spinner } from './common';
 import { Answer } from './AskView';
 import { Cited, Refs, citedIn } from './Knowledge';
 
@@ -121,7 +121,7 @@ export function PrepView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h
                     <div className="status-head">New since you last met</div>
                     <ul className="status-list">
                       {s.newSince!.map((it) => (
-                        <li key={it.id}><span className="dim">{fmtDate(it.saidAt)} · </span>{it.text} <Refs ids={[it.id]} byId={byId} onSource={src} /></li>
+                        <li key={it.id} data-statement={it.id} data-item={it.itemId} data-chunk={it.chunkId} data-title={it.itemTitle} data-at={it.saidAt}><span className="dim">{fmtDate(it.saidAt)} · </span><Spelled s={it} /> <Refs ids={[it.id]} byId={byId} onSource={src} /></li>
                       ))}
                     </ul>
                   </>

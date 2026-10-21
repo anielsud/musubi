@@ -703,3 +703,40 @@ func reapplyCorrections(tx *sql.Tx, itemID string) error {
 	}
 	return nil
 }
+
+// StatementEdit is one of the owner's corrections to a statement, for the
+// rules list.
+type StatementEdit struct {
+	ID        int64     `json:"id"`
+	Statement int64     `json:"statement"`
+	ItemID    string    `json:"itemId"`
+	ItemTitle string    `json:"itemTitle"`
+	ChunkID   int64     `json:"chunkId"`
+	Field     string    `json:"field"` // text, who
+	Old       string    `json:"old"`
+	New       string    `json:"new"`
+	At        time.Time `json:"at"`
+	Gone      bool      `json:"gone"` // the statement is no longer extracted
+}
+
+// StatementEdits lists the corrections not undone, newest first.
+func (s *Store) StatementEdits() ([]StatementEdit, error) {
+	rows, err := s.db.Query(`SELECT c.id, c.statement, c.item_id, coalesce(i.title, ''), coalesce(st.chunk_id, 0), c.field, c.old, c.new, c.at, st.id IS NULL
+		FROM corrections c LEFT JOIN items i ON i.id = c.item_id LEFT JOIN statements st ON st.id = c.statement
+		WHERE c.undone = 0 ORDER BY c.at DESC, c.id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StatementEdit
+	for rows.Next() {
+		var e StatementEdit
+		var at int64
+		if err := rows.Scan(&e.ID, &e.Statement, &e.ItemID, &e.ItemTitle, &e.ChunkID, &e.Field, &e.Old, &e.New, &at, &e.Gone); err != nil {
+			return nil, err
+		}
+		e.At = time.Unix(at, 0)
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}

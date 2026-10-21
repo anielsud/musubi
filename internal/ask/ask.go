@@ -89,8 +89,13 @@ func AskWith(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, questi
 	}
 	// Confirmed spellings: a question with a misheard or variant name also
 	// finds the kept form.
+	passage := func(s string) string { return s }
 	if sp, err := e.Store.ConfirmedSpellings(); err == nil {
-		question = knowledge.Spellings(sp).Expand(question)
+		spell := knowledge.Spellings(sp)
+		question = spell.Expand(question)
+		if e.Cfg.Knowledge.ApplySpellings {
+			passage = spell.Canonical
+		}
 	}
 	vec := e.Embed(ctx, question)
 	var ctxt strings.Builder
@@ -123,7 +128,7 @@ func AskWith(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, questi
 		ctxt.WriteString("Passages found by search:\n\n")
 		for _, h := range hits {
 			n := add(h)
-			fmt.Fprintf(&ctxt, "[%d] %s — %s (%s)\n%s\n\n", n, h.OccurredAt.Format("Mon 2 Jan 2006"), h.Title, h.Kind, clip(h.Text, 1800))
+			fmt.Fprintf(&ctxt, "[%d] %s — %s (%s)\n%s\n\n", n, h.OccurredAt.Format("Mon 2 Jan 2006"), h.Title, h.Kind, clip(passage(h.Text), 1800))
 		}
 	}
 	if h.Found != nil {

@@ -40,6 +40,8 @@ type App struct {
 	lastUpdate time.Time
 	ollamaUp   bool
 	askCancel  context.CancelFunc
+	// spellMu runs one refresh after a spelling rule at a time.
+	spellMu sync.Mutex
 }
 
 func NewApp() *App { return &App{} }

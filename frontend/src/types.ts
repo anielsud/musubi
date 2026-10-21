@@ -192,6 +192,8 @@ export interface Statement {
   line: number;
   kind: string;
   text: string;
+  // The text as written, when a spelling rule changed it for reading.
+  original?: string;
   holder: string;
   holderId?: string;
   certainty: number;
@@ -412,6 +414,25 @@ export interface AliasView {
   newLinks: number;
   sample: string[] | null;
   newUses?: number;
+  // The rule: always, these (only the statements in only), apart (both
+  // forms right), review (undecided).
+  mode: 'always' | 'these' | 'apart' | 'review';
+  only?: number[] | null;
+  // Proposals answered with this alias's kept form instead.
+  replaced?: string[] | null;
+}
+
+export interface StatementEdit {
+  id: number;
+  statement: number;
+  itemId: string;
+  itemTitle: string;
+  chunkId: number;
+  field: 'text' | 'who';
+  old: string;
+  new: string;
+  at: string;
+  gone: boolean;
 }
 
 export interface AliasUsage {
@@ -425,6 +446,8 @@ export interface AliasUsage {
   threadId: number;
   current: boolean;
   hasKept: boolean;
+  // Not reviewed yet: used since a rule for some uses was decided.
+  new?: boolean;
 }
 
 export interface ThreadEditView {

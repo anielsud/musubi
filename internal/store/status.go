@@ -234,7 +234,21 @@ func (s *Store) VisibleThreadItems(sc sensitivity.Scope, topics []int64) (map[in
 		x.Label = sensitivity.Label{Level: sensitivity.Level(lvl), Categories: sensitivity.Categories(cats)}
 		out[x.Topic] = append(out[x.Topic], x)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	// Read with the owner's spelling rules; what was written is kept.
+	fix, err := s.Corrector()
+	if err != nil {
+		return nil, err
+	}
+	for _, its := range out {
+		for i := range its {
+			fix.Fix(&its[i].Statement)
+		}
+	}
+	return out, nil
 }
 
 // RelabelThreadStatus sets a stored status's label: its items' labels can

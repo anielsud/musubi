@@ -2665,3 +2665,26 @@ So usable hints are a matter of fewer, steadier ones: one card per
 thread, updated as the talk on it continues, rather than a brief per
 query; a gate on whether the talk is about work; and a bar for showing
 a thread's status.
+
+## 2026-10-21: Corrections as rules
+
+The corrections screen hid what a decision did: one button whose effect
+depended on how many uses were checked (some: those statements; all: a
+rule for every use, new meetings too), a proposal answered with a typed
+form listed as the owner's rejection, and nothing editable once decided.
+It now offers three rules that say what they do (docs/incremental-design.md,
+"Rules, and what a rule changes"), a Rules tab where every rule and
+statement edit can be opened, changed or undone, and a menu on selected
+text (ask about it, correct its spelling, edit the statement, open or
+copy the source). Of All's 15 pairs marked rejected, 5 were proposals
+answered with a typed form; they are now replaced.
+
+Rules now reach what is shown and written, not only matching. Checked on
+a copy of All with the rule for one surname (15 statements, 5 threads):
+before, the 5 threads' statuses named the variant 7 times and the kept
+form 9; after the background refresh (re-embedding the 15, their threads'
+statuses written again), 0 and 16. The first run found possessives never
+matched a rule ("…'s team" was one word to the matcher, in Live and prep
+too); fixed. The first refresh after upgrading rewrites every status a
+confirmed rule touches (81 on All, $0.10, 81 s); later ones only their
+own threads.

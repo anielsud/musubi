@@ -27,14 +27,17 @@ type Value struct {
 
 // Statement is one thing someone said or wrote, extracted from a passage.
 type Statement struct {
-	ID        int64     `json:"id"`
-	ItemID    string    `json:"itemId"`
-	ChunkID   int64     `json:"chunkId"`
-	ChunkSeq  int       `json:"chunkSeq"`
-	ChunkHash string    `json:"-"`
-	Line      int       `json:"line"`
-	Kind      string    `json:"kind"`
-	Text      string    `json:"text"`
+	ID        int64  `json:"id"`
+	ItemID    string `json:"itemId"`
+	ChunkID   int64  `json:"chunkId"`
+	ChunkSeq  int    `json:"chunkSeq"`
+	ChunkHash string `json:"-"`
+	Line      int    `json:"line"`
+	Kind      string `json:"kind"`
+	Text      string `json:"text"`
+	// Original is the text as written when a spelling rule changed it for
+	// reading (Corrector.Fix); empty otherwise.
+	Original  string    `json:"original,omitempty"`
 	Holder    string    `json:"holder"`
 	HolderID  string    `json:"holderId,omitempty"`
 	Certainty float64   `json:"certainty"`

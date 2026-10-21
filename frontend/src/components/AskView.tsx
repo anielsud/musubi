@@ -22,9 +22,19 @@ const examples = [
   'What did I agree to follow up on this week?',
 ];
 
-export function AskView({ onOpen, scope, onTopic }: { onOpen: (h: Hit, scope: string) => void; scope: string; onTopic: (id: number) => void }) {
+export function AskView({ onOpen, scope, onTopic, prefill }: {
+  onOpen: (h: Hit, scope: string) => void; scope: string; onTopic: (id: number) => void;
+  // prefill puts a question in the box (from a text selection) to edit or send.
+  prefill?: { text: string; n: number } | null;
+}) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [q, setQ] = useState('');
+  const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!prefill) return;
+    setQ(prefill.text);
+    setTimeout(() => { box.current?.focus(); box.current?.select(); }, 0);
+  }, [prefill?.n]);
   const end = useRef<HTMLDivElement>(null);
   const busy = turns.some((t) => !t.done);
 
@@ -117,6 +127,7 @@ export function AskView({ onOpen, scope, onTopic }: { onOpen: (h: Hit, scope: st
       </div>
       <form className="composer" onSubmit={(e) => { e.preventDefault(); send(q); }}>
         <textarea
+          ref={box}
           value={q}
           rows={2}
           placeholder="Ask anything…"

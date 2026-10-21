@@ -139,6 +139,12 @@ type Knowledge struct {
 	// stages (knowledge.ProposeAliases): proposals only, for the owner to
 	// confirm in Explore → Corrections. false proposes none.
 	ProposeAliases bool `toml:"propose_aliases"`
+	// ApplySpellings reads text with the owner's confirmed spelling rules
+	// wherever it is shown or written from (thread items, Ask's context,
+	// statuses), and refreshes vectors, search and statuses when a rule
+	// changes. false: rules are used for matching only (lines, lookups,
+	// questions, prep), as before.
+	ApplySpellings bool `toml:"apply_spellings"`
 	// OnUpdate runs the knowledge stages after the app's Update (new items
 	// are extracted, linked, threaded and their threads' statuses
 	// rewritten). false leaves them to `musubi knowledge`, as before.
@@ -370,7 +376,7 @@ func DefaultConfig() Config {
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, ProposeAliases: true},
+		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

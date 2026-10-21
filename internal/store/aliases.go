@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -163,6 +164,7 @@ type AliasUsage struct {
 	ThreadID  int64     `json:"threadId"`
 	Current   bool      `json:"current"`
 	HasKept   bool      `json:"hasKept"` // the thread mentions the kept form too
+	New       bool      `json:"new,omitempty"` // not reviewed yet (a rule for some uses)
 }
 
 // UsagesOf lists the statements using an alias's variant, newest first.
@@ -218,6 +220,9 @@ func (s *Store) UsagesOf(a LearnedAlias, limit int) ([]AliasUsage, error) {
 type aliasScope struct {
 	Statements []int64 `json:"statements"`
 	Reviewed   []int64 `json:"reviewed,omitempty"`
+	// ReplacedBy: a proposal the owner answered with another right form
+	// (status replaced), kept so it isn't proposed again.
+	ReplacedBy int64 `json:"replacedBy,omitempty"`
 }
 
 func parseScope(s string) aliasScope {
@@ -308,4 +313,121 @@ func (s *Store) AddAlias(variant, keep, by string) (int64, error) {
 	var id int64
 	err := s.db.QueryRow(`SELECT id FROM learned_aliases WHERE keep = ? AND variant = ? AND kind = 'spelling'`, keep, variant).Scan(&id)
 	return id, err
+}
+
+// Alias rule modes: what the owner decided an alias means.
+const (
+	RuleAlways  = "always"   // every use is the kept form, new meetings too
+	RuleThese   = "these"    // the given uses only; new uses come back for review
+	RuleApart   = "apart"    // both forms are right: nothing changes, not proposed again
+	RuleReview  = "review"   // undecided (proposed)
+	RuleReplace = "replaced" // answered with another right form (ReplacedBy)
+)
+
+// Mode is the alias's rule mode.
+func (a LearnedAlias) Mode() string {
+	switch a.Status {
+	case "confirmed":
+		if a.Scope == "" {
+			return RuleAlways
+		}
+		return RuleThese
+	case "rejected":
+		return RuleApart
+	case "replaced":
+		return RuleReplace
+	}
+	return RuleReview
+}
+
+// Only lists the statements a "these" rule applies to.
+func (a LearnedAlias) Only() []int64 {
+	if a.Mode() != RuleThese {
+		return nil
+	}
+	return parseScope(a.Scope).Statements
+}
+
+// ReplacedBy is the alias that replaced this one, 0 if none.
+func (a LearnedAlias) ReplacedBy() int64 {
+	if a.Status != "replaced" {
+		return 0
+	}
+	return parseScope(a.Scope).ReplacedBy
+}
+
+// SetAliasRule sets what an alias means, outright (an edit replaces what
+// was decided before rather than adding to it): RuleAlways, RuleThese with
+// the statements it applies to (reviewed: every use the owner looked at;
+// uses made later come back for review), RuleApart, or RuleReview to undo
+// the decision.
+func (s *Store) SetAliasRule(id int64, mode string, statements, reviewed []int64, by string) error {
+	var status, scope string
+	switch mode {
+	case RuleAlways:
+		status = "confirmed"
+	case RuleThese:
+		if len(statements) == 0 {
+			return fmt.Errorf("a rule for some uses needs at least one")
+		}
+		b, _ := json.Marshal(aliasScope{Statements: union(nil, statements), Reviewed: union(reviewed, statements)})
+		status, scope = "confirmed", string(b)
+	case RuleApart:
+		status = "rejected"
+	case RuleReview:
+		status = "proposed"
+	default:
+		return fmt.Errorf("unknown rule %q", mode)
+	}
+	res, err := s.db.Exec(`UPDATE learned_aliases SET status = ?, scope = ?, by = ?, at = ? WHERE id = ?`, status, scope, by, time.Now().Unix(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("no alias %d", id)
+	}
+	return nil
+}
+
+// MarkAliasReplaced records that the owner answered a proposal with
+// another right form (the alias with) rather than deciding it.
+func (s *Store) MarkAliasReplaced(id, with int64, by string) error {
+	b, _ := json.Marshal(aliasScope{ReplacedBy: with})
+	_, err := s.db.Exec(`UPDATE learned_aliases SET status = 'replaced', scope = ?, by = ?, at = ? WHERE id = ?`, string(b), by, time.Now().Unix(), id)
+	return err
+}
+
+// StatementsUsing lists the statements whose text uses word (whole word,
+// any case).
+func (s *Store) StatementsUsing(word string) ([]int64, error) {
+	re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(word) + `\b`)
+	rows, err := s.db.Query(`SELECT id, text FROM statements WHERE text LIKE ?`, "%"+word+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		var t string
+		if err := rows.Scan(&id, &t); err != nil {
+			return nil, err
+		}
+		if re.MatchString(t) {
+			out = append(out, id)
+		}
+	}
+	return out, rows.Err()
+}
+
+// markReplacedAliases: before the replaced status, a proposal answered
+// with another right form was marked rejected, in the same moment the new
+// alias was made. Those are replaced, not the owner's rejection.
+func markReplacedAliases(db *sql.DB) error {
+	_, err := db.Exec(`UPDATE learned_aliases SET status = 'replaced',
+		scope = (SELECT json_object('replacedBy', n.id) FROM learned_aliases n WHERE n.variant = learned_aliases.variant AND n.kind = learned_aliases.kind
+			AND n.keep != learned_aliases.keep AND n.by = 'owner' AND n.status != 'rejected' AND n.id > learned_aliases.id AND abs(n.at - learned_aliases.at) <= 2 ORDER BY n.id LIMIT 1)
+		WHERE status = 'rejected' AND by = 'owner' AND EXISTS (SELECT 1 FROM learned_aliases n WHERE n.variant = learned_aliases.variant AND n.kind = learned_aliases.kind
+			AND n.keep != learned_aliases.keep AND n.by = 'owner' AND n.status != 'rejected' AND n.id > learned_aliases.id AND abs(n.at - learned_aliases.at) <= 2)`)
+	return err
 }

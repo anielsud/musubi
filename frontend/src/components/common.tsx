@@ -63,3 +63,10 @@ export function Spinner() {
 export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty">{children}</div>;
 }
+
+// Spelled shows a statement's text as the owner's spelling rules read it,
+// with what was written on hover when a rule changed it.
+export function Spelled({ s }: { s: { text: string; original?: string } }) {
+  if (!s.original) return <>{s.text}</>;
+  return <span className="respelled" title={`Written as: ${s.original}`}>{s.text}</span>;
+}

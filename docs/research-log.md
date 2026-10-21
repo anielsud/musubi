@@ -2688,3 +2688,43 @@ matched a rule ("…'s team" was one word to the matcher, in Live and prep
 too); fixed. The first refresh after upgrading rewrites every status a
 confirmed rule touches (81 on All, $0.10, 81 s); later ones only their
 own threads.
+
+## 2026-10-21: Live, step 1 (focus) measured with a stepped replay
+
+**Stepped replay.** The timed replay wasn't speed-independent: the
+suggestion model runs back to back on the wall clock, and "looked up
+recently", the card refresh and summary staleness were wall-clock timers,
+so a faster replay looked things up differently. `musubi live --replay ID
+--stepped` plays the meeting line by line on the meeting's clock, doing
+each line's work before the next. Two runs of the first 5 minutes agreed
+on the lookups and cards in order, differing only in the local model's
+wording (2m51s and 2m42s). The whole 61-minute meeting took 40m56s and
+looked up 359 queries an hour, against 353 for the real-time replay the
+night before. One difference from live: every summary is written, where
+live skips one queued over 25 s.
+
+**Focus (`live.focus`).** Each card cut to its 3 lines closest to the
+last 90 s, with the line that raised it; two cards open, the rest one
+line each; two lookups open; old subjects marked. Measured on the same
+replay, 20 moments 3 minutes apart, the old panel (all cards in full, the
+last 8 lookups) against the focused one, every item graded blind by two
+Opus graders per half (helpful now, given the last 90 s; clear at a
+glance), agreeing on 295 of 317:
+
+| | Old panel | Focused |
+|---|---|---|
+| Items on screen (median) | 12 | 4 |
+| Characters on screen (median) | 13,544 | 2,563 |
+| Helpful (grader sets 1 / 2) | 30% / 26% | 28% / 24% |
+| Clear | 51% / 42% | 79% / 59% |
+| Helpful items on screen per moment | 3.5 / 3.0 | 1.1 / 0.9 |
+| Moments with nothing helpful | 0 / 0 | 7 / 8 of 20 |
+| Characters per helpful item (median) | ~4,300–4,600 | ~2,250 |
+| Distinct items an hour | 457 | 453 |
+
+Full cards were clear 2% of the time, focused cards 65%. Relevance didn't
+move: a quarter of what is shown helps either way, and keeping the newest
+two of each drops helpful and unhelpful items alike. Churn is unchanged.
+What gets shown is the remaining problem: candidates need judging for
+relevance before they take a place. The 317 graded items are the test set
+for that.

@@ -85,7 +85,7 @@ func (l *Live) termTopics(cycle int, text string, lines []Segment) {
 	// The conversation moves on: cards are ranked again, and close, as it
 	// does.
 	l.mu.Lock()
-	due := l.eng.Cfg.Live.Focus && len(l.topics) > 0 && time.Since(l.topicsAt) >= focusRefresh
+	due := l.eng.Cfg.Live.Focus && len(l.topics) > 0 && l.since(l.topicsAt) >= focusRefresh
 	l.mu.Unlock()
 	if due {
 		l.emitTopics(cycle)
@@ -140,7 +140,7 @@ func (l *Live) showTopic(cycle int, topic knowledge.Anchor, why string, spokenAg
 	}
 	same := len(l.topics) > 0 && l.topics[0].id == topic
 	l.topics = kept
-	due := same && l.eng.Cfg.Live.Focus && time.Since(l.topicsAt) >= focusRefresh
+	due := same && l.eng.Cfg.Live.Focus && l.since(l.topicsAt) >= focusRefresh
 	l.mu.Unlock()
 	if !same || due {
 		l.emitTopics(cycle)
@@ -153,7 +153,7 @@ func (l *Live) emitTopics(cycle int) {
 	t0 := time.Now()
 	l.mu.Lock()
 	cs, shown, scopeName := l.topicIx, append([]shownTopic(nil), l.topics...), l.scope
-	l.topicsAt = time.Now()
+	l.topicsAt = l.now()
 	clock := l.clockLocked()
 	var window string
 	if l.meeting != nil {

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anielsud/musubi/internal/ask"
@@ -109,6 +110,9 @@ type Live struct {
 	replayT0    time.Time
 	replaySpeed float64
 	clocked     *clockedReplay
+	// stepped: a stepped replay (stepped.go); vclk is its meeting clock.
+	stepped atomic.Bool
+	vclk    atomic.Uint64
 
 	llmBusy sync.Mutex
 
@@ -181,6 +185,8 @@ func (l *Live) pushStatus() { l.emit("live:status", l.Status()) }
 // clockLocked is the meeting time now, in seconds from its start.
 func (l *Live) clockLocked() float64 {
 	switch {
+	case l.stepped.Load():
+		return l.stepClock()
 	case l.clocked != nil:
 		return l.clocked.last
 	case l.replay != nil:
@@ -341,13 +347,16 @@ func (l *Live) handle(ev Event, mode string) {
 		l.traceMu.Unlock()
 		l.emit("live:segment", ev.Segment)
 		if ev.Segment.Status != "removed" {
-			select {
-			case l.wake <- struct{}{}:
-			default:
+			// A stepped replay runs the model itself, on the meeting clock.
+			if !l.stepped.Load() {
+				select {
+				case l.wake <- struct{}{}:
+				default:
+				}
 			}
 			if l.eng.Cfg.Live.FastLane {
 				seg := *ev.Segment
-				go l.fastLane(seg)
+				l.spawn(func() { l.fastLane(seg) })
 			}
 		}
 	}
@@ -360,14 +369,14 @@ func (l *Live) claimLocked(q string) (bool, string) {
 	key := normalize(q)
 	cw := contentWords(q)
 	for k, at := range l.briefed {
-		if time.Since(at) >= briefTTL {
+		if l.since(at) >= briefTTL {
 			continue
 		}
 		if k == key || overlap(cw, contentWords(k)) >= 0.5 {
 			return false, k
 		}
 	}
-	l.briefed[key] = time.Now()
+	l.briefed[key] = l.now()
 	return true, ""
 }
 
@@ -463,7 +472,8 @@ func (l *Live) fastLane(seg Segment) {
 		l.emit("live:entities", l.cards(sc, sug.Entities(recent), exclude))
 	}
 	for _, s := range todo {
-		go l.brief(ctx, id, s, exclude, scopeName, lines)
+		s := s
+		l.spawn(func() { l.brief(ctx, id, s, exclude, scopeName, lines) })
 	}
 }
 
@@ -624,7 +634,8 @@ func (l *Live) modelCycle(ctx context.Context, sug *Suggester, recent string, li
 	}
 	l.trace(id, "rank", fmt.Sprintf("%d suggestions, %d to look up", len(out), len(todo)), 0, decisions)
 	for _, s := range todo {
-		go l.brief(ctx, id, s, exclude, scopeName, lines)
+		s := s
+		l.spawn(func() { l.brief(ctx, id, s, exclude, scopeName, lines) })
 	}
 }
 
@@ -638,7 +649,7 @@ func (l *Live) Brief(ctx context.Context, s Suggestion, exclude []string, scopeN
 		}
 		lines = l.meeting.RecentLines(float64(max(30, l.eng.Cfg.Live.Window)))
 	}
-	l.briefed[normalize(s.Query)] = time.Now()
+	l.briefed[normalize(s.Query)] = l.now()
 	l.mu.Unlock()
 	l.brief(ctx, l.nextCycle(), s, exclude, scopeName, lines)
 }
@@ -663,7 +674,7 @@ func (l *Live) brief(ctx context.Context, cycle int, s Suggestion, exclude []str
 	if err != nil {
 		return
 	}
-	go l.lookupTopic(ctx, cycle, s)
+	l.spawn(func() { l.lookupTopic(ctx, cycle, s) })
 	t0 := time.Now()
 	l.mu.Lock()
 	query := l.spell.Expand(s.Query)
@@ -703,9 +714,11 @@ func (l *Live) brief(ctx context.Context, cycle int, s Suggestion, exclude []str
 	summarise := l.eng.Chat != nil && l.eng.Chat.Local() && b.Status == nil
 	b.Summarizing = summarise
 	l.finishBrief(cycle, b, said, "passages shown", "passages")
-	if summarise {
+	if summarise && l.stepped.Load() {
+		l.summarise(ctx, sumJob{cycle: cycle, b: b, said: said, ready: l.now()})
+	} else if summarise {
 		select {
-		case l.sumQ <- sumJob{cycle: cycle, b: b, said: said, ready: time.Now()}:
+		case l.sumQ <- sumJob{cycle: cycle, b: b, said: said, ready: l.now()}:
 		default:
 			l.trace(cycle, "summary", "summary queue full; passages only", 0, nil)
 			b.Summarizing = false
@@ -742,7 +755,7 @@ func (l *Live) summarizer(ctx context.Context) {
 
 func (l *Live) summarise(ctx context.Context, job sumJob) {
 	b := job.b
-	if age := time.Since(job.ready); age > staleSummary {
+	if age := l.since(job.ready); age > staleSummary {
 		b.Summarizing = false
 		l.emit("live:brief", b)
 		l.trace(job.cycle, "summary", fmt.Sprintf("“%s”: skipped, %s old", b.Query, age.Round(time.Second)), 0, nil)

@@ -838,6 +838,8 @@ func askCmd() *cobra.Command {
 
 func liveCmd() *cobra.Command {
 	var replay, events string
+	var stepped bool
+	var until float64
 	var speed float64
 	var duration time.Duration
 	c := &cobra.Command{
@@ -863,10 +865,15 @@ func liveCmd() *cobra.Command {
 				evw = json.NewEncoder(f)
 			}
 			var evMu sync.Mutex
+			var lv *live.Live
 			l := live.New(e, func(ev string, data any) {
 				if evw != nil {
 					evMu.Lock()
-					evw.Encode(map[string]any{"at": time.Now(), "event": ev, "data": data})
+					rec := map[string]any{"at": time.Now(), "event": ev, "data": data}
+					if stepped && lv != nil {
+						rec["clock"] = lv.StepClock()
+					}
+					evw.Encode(rec)
 					evMu.Unlock()
 				}
 				switch ev {
@@ -886,6 +893,16 @@ func liveCmd() *cobra.Command {
 				j, _ := json.Marshal(data)
 				fmt.Printf("%s %s %s\n", time.Now().Format("15:04:05"), ev, snippet(string(j), 600))
 			}, nil)
+			lv = l
+			if replay != "" && stepped {
+				if err := l.Reload(); err != nil {
+					return err
+				}
+				t0 := time.Now()
+				err := l.ReplayStepped(ctx, replay, until)
+				fmt.Fprintf(os.Stderr, "stepped replay: %s\n", time.Since(t0).Round(time.Second))
+				return err
+			}
 			if replay != "" {
 				if err := l.Reload(); err != nil {
 					return err
@@ -901,6 +918,8 @@ func liveCmd() *cobra.Command {
 	c.Flags().StringVar(&replay, "replay", "", "Tomoe session id to replay")
 	c.Flags().Float64Var(&speed, "speed", 4, "replay speed")
 	c.Flags().StringVar(&events, "events", "", "write every panel event, in full, to this file (JSON lines)")
+	c.Flags().BoolVar(&stepped, "stepped", false, "with --replay: line by line on the meeting's clock, each line's work done before the next (speed-independent; --speed ignored)")
+	c.Flags().Float64Var(&until, "until", 0, "with --stepped: stop at this many seconds into the meeting")
 	c.Flags().DurationVar(&duration, "for", 2*time.Minute, "how long to run")
 	return c
 }

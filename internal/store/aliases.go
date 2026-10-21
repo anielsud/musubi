@@ -163,7 +163,7 @@ type AliasUsage struct {
 	Thread    string    `json:"thread"`
 	ThreadID  int64     `json:"threadId"`
 	Current   bool      `json:"current"`
-	HasKept   bool      `json:"hasKept"` // the thread mentions the kept form too
+	HasKept   bool      `json:"hasKept"`       // the thread mentions the kept form too
 	New       bool      `json:"new,omitempty"` // not reviewed yet (a rule for some uses)
 }
 

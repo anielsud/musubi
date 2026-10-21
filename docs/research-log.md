@@ -2641,3 +2641,27 @@ open entry is one item. Rewritten on a copy (736 calls, 0 failed,
 
 Same coverage, read side by side on samples; applied to All (the ts1
 rows kept in the dataset folder).
+
+**Live baseline before in-meeting hints work.** One 61-minute meeting
+from today (391 lines), replayed through `musubi live --replay` at 1×
+against All, with the shipped Live settings (qwen3:8b suggesting
+continuously, two auto-briefs, fast lane, topic cards). No cost.
+
+- Speed is fine: passages show a median 1.8 s after the phrase is said
+  (66 ms median for the lookup itself; 2.4 s p90), and the brief's
+  summary takes a further 2.0 s median (2.4 s p90).
+- Volume is the problem: 353 distinct queries briefed in the hour (6 a
+  minute), 253 with a summary kept, 40 summaries dropped as off-topic,
+  60 thread statuses shown. One subject discussed for ten minutes
+  (support escalations) was briefed 15+ times under slightly different
+  queries, each a new brief.
+- Small talk still triggers lookups: the opening travel chat produced
+  12 queries, all empty, despite "skip small talk" in the prompt.
+- Some matches miss: a status shown for a role-change thread on an
+  escalations query; a venue-logistics passage for a mention of the
+  conference.
+
+So usable hints are a matter of fewer, steadier ones: one card per
+thread, updated as the talk on it continues, rather than a brief per
+query; a gate on whether the talk is about work; and a bar for showing
+a thread's status.

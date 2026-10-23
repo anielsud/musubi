@@ -93,8 +93,17 @@ func (r *Runner) Queue() (Queue, error) {
 	per := centsThread + centsLabelStatus
 	newN := q.NewExtract + q.NewThread
 	q.CatchUpUSD = (float64(q.NewExtract)*centsExtract + float64(newN)*per) / 100
+	// A rethread takes the preferred copy of a meeting recorded twice, which
+	// may not be extracted yet.
+	switching := 0
+	for id, kept := range meetingDuplicates(items, kc.PreferSource, func(string) bool { return false }) {
+		_ = id
+		if !extracted(kept) {
+			switching++
+		}
+	}
 	all := q.Threaded + newN + q.OlderExtract + q.OlderThread
-	q.RethreadUSD = (float64(q.NewExtract+q.OlderExtract)*centsExtract + float64(all)*per) / 100
+	q.RethreadUSD = (float64(q.NewExtract+q.OlderExtract+switching)*centsExtract + float64(all)*per) / 100
 	q.RethreadHours = float64(all) * minutesThread / 60
 	if kc.Extract == "none" {
 		q.CatchUpUSD -= float64(q.NewExtract) * centsExtract / 100

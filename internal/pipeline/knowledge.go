@@ -65,6 +65,9 @@ type KnowledgeOptions struct {
 	Auto bool
 	// hold are items this run leaves unextracted, so not threaded either.
 	hold map[string]bool
+	// dups are meeting recordings another one stands in for: never
+	// threaded.
+	dups map[string]string
 }
 
 func (o KnowledgeOptions) redo(stage string) bool {
@@ -173,10 +176,17 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		}
 		return out
 	}
+	// Outside a rethread the copy already extracted stays, so threads
+	// don't churn; a rethread takes the preferred source.
+	rethread := o.redo("threads") || o.redo("links")
 	dups := meetingDuplicates(items, r.Cfg.Knowledge.PreferSource, func(id string) bool {
+		if rethread {
+			return false
+		}
 		s, _ := r.Store.StageStamp("extract", id)
 		return s != ""
 	})
+	o.dups = dups
 	if len(dups) > 0 {
 		r.logf("%d meetings recorded twice (Tomoe and a transcript): one of each becomes knowledge", len(dups))
 	}
@@ -441,6 +451,20 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	})
 	r.Workers = workers
 	ks.ExtractTime = time.Since(tExtract)
+	// A copy another recording stands in for gives up its statements (and
+	// with them its threads) once the kept one is extracted.
+	for id, kept := range dups {
+		if s, _ := r.Store.StageStamp("extract", kept); s == "" {
+			continue
+		}
+		if s, _ := r.Store.StageStamp("extract", id); s == "" || s == "duplicate/"+kept {
+			continue
+		}
+		if err := r.Store.ReplaceStatements(id, "duplicate", kept, nil); err != nil {
+			return ks, err
+		}
+		r.logf("%s: recorded twice; its statements give way to %s", id, kept)
+	}
 	ks.Gated = int(gatedN.Load())
 	if err != nil {
 		return ks, err
@@ -873,7 +897,7 @@ func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp str
 		}
 	}
 	for i := len(p.todo) - 1; i >= 0; i-- {
-		if o.hold[p.todo[i].ID] {
+		if o.hold[p.todo[i].ID] || o.dups[p.todo[i].ID] != "" {
 			p.todo = append(p.todo[:i], p.todo[i+1:]...)
 		}
 	}

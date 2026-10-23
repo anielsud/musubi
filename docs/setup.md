@@ -146,8 +146,9 @@ leave to someone: **Catch up** (a big batch of new meetings) and
 **Rethread everything in time order** (to take in a backlog; it stops at
 one and a half times its estimate). A meeting recorded twice (a Tomoe
 session and the meeting app's transcript) becomes knowledge once
-(`knowledge.prefer_source`, default Tomoe, unless the other was extracted
-already).
+(`knowledge.prefer_source`, default Tomoe; outside a rethread the copy
+already extracted stays, so threads don't churn, and a rethread switches to
+the preferred one, retiring the other's statements).
 
 ## 7. Spend ledger and caps
 

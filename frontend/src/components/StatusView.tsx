@@ -79,8 +79,10 @@ function WorkQueue() {
   const load = () => api.queue().then((v) => { setQ(v); setErr(null); }, (e) => setErr(String(e)));
   useEffect(() => {
     load();
+    // Other processes (the CLI, a run elsewhere) change the queue too.
+    const t = setInterval(load, 30000);
     const offs = [on('queue:changed', load), on('update:done', load)];
-    return () => offs.forEach((f) => f());
+    return () => { clearInterval(t); offs.forEach((f) => f()); };
   }, []);
   if (err) return <section><div className="section-head"><span>Work queue</span></div><div className="error">{err}</div></section>;
   if (!q) return null;
@@ -90,7 +92,7 @@ function WorkQueue() {
   const frontier = q.frontier && !q.frontier.startsWith('0001') ? fmtDate(q.frontier) : null;
   return (
     <section className="kv">
-      <div className="section-head"><span>Work queue</span>{q.running && <span className="dim small"><Spinner /> {q.running === 'rethread' ? 'rethreading in time order…' : 'catching up…'}</span>}</div>
+      <div className="section-head"><span>Work queue <button className="icon-btn small" title="Refresh" onClick={load}>↻</button></span>{q.running && <span className="dim small"><Spinner /> {q.running === 'rethread' ? 'rethreading in time order…' : 'catching up…'}</span>}</div>
       {q.extract === 'none' && (
         <div className="warn small">Extraction is off for this dataset (knowledge.extract = "none"): new meetings are stored and searchable but don't become knowledge.</div>
       )}

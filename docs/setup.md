@@ -106,8 +106,8 @@ earlier behaviour, is in `internal/config/config.go`.
   `~/.local/share/musubi/inbox/<source>/` (format: `internal/source/mcpdrop`).
 - **Datasets.** Experiments run as separate instances, each a directory
   with its own `config.toml` and `data/`, listed in
-  `~/.config/musubi/datasets.toml`; the app switches between them and opens
-  two side by side. `MUSUBI_CONFIG` points the CLI at one.
+  `~/.config/musubi/datasets.toml`; the app switches between them.
+  `MUSUBI_CONFIG` points the CLI at one.
 
 ## 6. Building a dataset
 

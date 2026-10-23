@@ -3,7 +3,6 @@ package gui
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/anielsud/musubi/internal/config"
@@ -102,25 +101,5 @@ func (a *App) SwitchDataset(key string) error {
 	}
 	os.WriteFile(lastDatasetPath(), []byte(d.Key), 0o600)
 	a.emit("app:status", a.Status())
-	return nil
-}
-
-// OpenDatasetWindow opens a dataset in a window of its own (another app
-// process), for comparing two side by side.
-func (a *App) OpenDatasetWindow(key string) error {
-	d, err := findDataset(key)
-	if err != nil {
-		return err
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	cmd := exec.Command(exe)
-	cmd.Env = append(os.Environ(), "MUSUBI_CONFIG="+d.Config)
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	go cmd.Wait()
 	return nil
 }

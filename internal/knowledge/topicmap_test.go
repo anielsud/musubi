@@ -68,12 +68,4 @@ func TestThreadMapAndCompare(t *testing.T) {
 	if len(m.Edges) != 0 {
 		t.Errorf("edges %+v", m.Edges)
 	}
-
-	c, err := CompareDatasets(v, v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if c.Mode != "statements" || c.Counts["same"] != 2 || len(c.OnlyB) != 0 {
-		t.Fatalf("self-comparison: %s %v", c.Mode, c.Counts)
-	}
 }

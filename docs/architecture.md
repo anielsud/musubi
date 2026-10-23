@@ -218,12 +218,11 @@ cold lane like any other source.
   depend on speed. `--events` writes every panel event for measuring.
 - **Datasets**: a dropdown under the title bar switches the window to
   another instance listed in `~/.config/musubi/datasets.toml` (key, name,
-  config, note; `MUSUBI_DATASETS` overrides the path), and "compare with…"
-  opens one in a window of its own (another app process with
-  `MUSUBI_CONFIG` set), so two can sit side by side. The window title
+  config, note; `MUSUBI_DATASETS` overrides the path). The window title
   names the dataset; the last one opened is reopened at start. Entries
-  whose config doesn't exist yet show as not built. Explore → Compare
-  lines the window's topics up with another dataset's (see "Topic map").
+  whose config doesn't exist yet show as not built. (Comparing two
+  datasets side by side, and Explore → Compare, were removed on
+  2026-10-23: the dataset choice they served is made.)
 - **Landscape**: the ▭ button widens the window to most of the screen
   (and back). From 1000 px wide the layout uses columns: in Explore, the
   topic views stay on the left and the list or a topic's page opens beside
@@ -269,7 +268,6 @@ cold lane like any other source.
     what was replaced folded away.
   - **Search**: passage search, entity lookup, and a radial graph of an
     entity's connections with its timeline.
-  - **Compare**: this dataset's topics against another's.
 - Policy (2026-10-16): the approved hosted endpoints may read any data,
   meeting text included. With a cloud chat model configured, Q&A still
   filters passages to the cloud scope and live suggestions are off. Points,
@@ -713,17 +711,6 @@ The views:
 - **Timeline**: a row per topic, a column per meeting, grouped by cluster.
 - **Clusters**: a card per cluster with its topics and the clusters it
   links to most.
-
-**Compare** (`CompareDatasets`) lines up two datasets' topics. Datasets
-over the same statements are matched by shared statements (keyed by item
-and normalised text): for each topic of one side, the share found in each
-topic of the other, and the reverse. Datasets extracted separately are
-matched by wording (TF-IDF cosine over the topics' statements). Each row
-is "same", "split" (spread over several), "merged" (held together with
-other topics), "partial" or "only here"; topics only on the other side are
-listed too. It runs in about 0.2 s. On Best GLM against the reference
-subjects: 83% of statements shared; 4 same, 5 split, 22 merged, 6 partial,
-19 only here (the reference covers only 15 subjects).
 
 Both are quadratic in topics (pairs of stored relations, all-pairs layout
 in the browser); fine for hundreds, not for the 4,000+ threads of a large

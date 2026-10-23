@@ -68,8 +68,8 @@ least). Calendar, mail and chat arrive as JSON envelopes in
 `~/.local/share/musubi/inbox/<source>/` (format in
 `internal/source/mcpdrop`). `MUSUBI_CONFIG` points the CLI and the app at
 another config, for experiment instances beside the real one. The app lists
-datasets from `~/.config/musubi/datasets.toml` in a dropdown and can open
-two side by side:
+datasets from `~/.config/musubi/datasets.toml` in a dropdown to switch
+between:
 
 ```toml
 [[dataset]]

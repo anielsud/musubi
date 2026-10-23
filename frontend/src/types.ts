@@ -366,29 +366,6 @@ export interface TopicMapData {
   meaning: boolean;
 }
 
-export interface CompareTopic {
-  id: number;
-  label: string;
-  statements: number;
-  cluster: number;
-}
-
-export interface CompareRow {
-  a: CompareTopic;
-  matches: { b: CompareTopic; coverA: number; coverB: number }[] | null;
-  status: 'same' | 'split' | 'merged' | 'partial' | 'only';
-  with?: string[];
-}
-
-export interface Comparison {
-  mode: 'statements' | 'wording';
-  rows: CompareRow[] | null;
-  onlyB: CompareTopic[] | null;
-  counts: Record<string, number>;
-  sizes: Record<string, number>;
-  shared: number;
-}
-
 export interface PrepTarget {
   itemId: string;
   title: string;

@@ -4,7 +4,6 @@ import type { EntityRef, Graph, Hit } from '../types';
 import { Empty, HitRow, LabelBadge, Spinner } from './common';
 import { GraphView } from './GraphView';
 import { ClaimResults, TopicsPane } from './Knowledge';
-import { CompareView } from './CompareView';
 import { CorrectionsView } from './CorrectionsView';
 
 interface Props {
@@ -27,7 +26,7 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [trail, setTrail] = useState<EntityRef[]>([]);
-  const [mode, setMode] = useState<'topics' | 'search' | 'compare' | 'corrections'>('topics');
+  const [mode, setMode] = useState<'topics' | 'search' | 'corrections'>('topics');
   const [lastQ, setLastQ] = useState('');
   const openSource = (itemId: string, chunkId: number) => onOpen({ itemId, chunkId } as unknown as Hit, scope);
 
@@ -74,11 +73,9 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
       <div className="segmented">
         <button className={mode === 'topics' ? 'on' : ''} onClick={() => { setMode('topics'); setFocus(null); }}>Topics</button>
         <button className={mode === 'search' ? 'on' : ''} onClick={() => setMode('search')}>Search</button>
-        <button className={mode === 'compare' ? 'on' : ''} onClick={() => { setMode('compare'); setFocus(null); }} title="Line this dataset's topics up with another's">Compare</button>
         {scope === 'owner' && <button className={mode === 'corrections' ? 'on' : ''} onClick={() => { setMode('corrections'); setFocus(null); }} title="Misheard or misspelled names and terms to confirm or reject">Corrections</button>}
       </div>
       {mode === 'topics' && <TopicsPane scope={scope} onSource={openSource} want={topicReq} />}
-      {mode === 'compare' && <CompareView scope={scope} />}
       {mode === 'corrections' && scope === 'owner' && <CorrectionsView onSource={openSource} start={correctReq} />}
       {mode === 'search' && <>
       <form className="lookup" onSubmit={(e) => { e.preventDefault(); run(q); }}>

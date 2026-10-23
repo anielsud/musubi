@@ -126,9 +126,8 @@ by side), all on the same four meetings, under
 A system output (`system-*.json`) becomes a dataset with `apply_threads.py`
 on a copy of `_base`, then `musubi --config <dataset>/config.toml
 thread-links` for the threads' centroids and relations, with no model
-calls. Explore → Compare in the app lines two datasets' subjects up
-(architecture.md, "Topic map"): which match, which one side splits or
-merges, and what only one side has.
+calls. (The app's Explore → Compare, which lined two datasets' subjects
+up, was removed on 2026-10-23.)
 
 ## Running it
 

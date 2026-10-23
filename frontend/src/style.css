@@ -465,29 +465,6 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .cc-topic { text-align: left; font-size: 12px; padding: 2px 4px; border-radius: 5px; color: var(--text-dim); }
 .cc-topic:hover, .cc-topic.sel { background: var(--surface-2); color: var(--text); }
 
-/* Compare */
-.compare { display: flex; flex-direction: column; gap: 10px; }
-.cmp-pick { display: flex; gap: 6px; align-items: center; }
-.cmp-pick select { flex: 1; min-width: 0; font-size: 12px; padding: 4px 6px; }
-.small-btn { font-size: 11.5px; padding: 4px 9px; border-radius: 6px; border: 1px solid var(--line); color: var(--text-dim); background: var(--surface); white-space: nowrap; }
-.small-btn:hover { color: var(--text); }
-.small-btn:disabled { opacity: 0.4; }
-.cmp-sides { display: flex; gap: 8px; align-items: center; font-weight: 600; font-size: 12.5px; }
-.cmp-filter { display: flex; flex-wrap: wrap; gap: 4px; }
-.cmp-filter button { font-size: 11.5px; padding: 2px 9px; border-radius: 10px; border: 1px solid var(--line); color: var(--text-dim); }
-.cmp-filter button.on { color: var(--text); border-color: var(--text-dim); background: var(--surface-2); }
-.cmp-rows { display: flex; flex-direction: column; }
-.cmp-row { display: grid; grid-template-columns: 1fr; gap: 3px; padding: 7px 4px; border-bottom: 1px solid var(--line); }
-.cmp-left { font-weight: 500; display: flex; align-items: baseline; }
-.cmp-status { display: flex; }
-.cmp-pill { font-size: 10.5px; padding: 1px 7px; border-radius: 8px; border: 1px solid var(--line); color: var(--text-dim); }
-.cs-same { color: var(--accent); border-color: rgba(94, 234, 212, 0.4); }
-.cs-split, .cs-merged { color: var(--gold); border-color: rgba(245, 201, 122, 0.4); }
-.cs-only { color: var(--accent-2); border-color: rgba(167, 139, 250, 0.4); }
-.cmp-match { font-size: 12px; display: flex; align-items: center; gap: 0; color: var(--text-dim); }
-.cmp-bar { width: 40px; height: 4px; border-radius: 2px; background: var(--surface-2); margin-right: 8px; flex: 0 0 40px; overflow: hidden; }
-.cmp-bar span { display: block; height: 100%; background: var(--accent); }
-
 /* Landscape: wide windows (an ultrawide monitor, or the ▭ button) get
    columns instead of one long panel. */
 @media (min-width: 1000px) {
@@ -511,7 +488,7 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .topic-row .cl-dot { margin-right: -4px; }
 .cmp-left .dim, .cmp-match .dim { margin-left: 6px; white-space: nowrap; }
 .cmp-left, .cmp-match { min-width: 0; }
-.tviews, .topics, .compare { min-width: 0; max-width: 100%; }
+.tviews, .topics { min-width: 0; max-width: 100%; }
 
 /* A thread's written status on its page, and in Ask and prep. */
 .thread-status { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0 4px; }

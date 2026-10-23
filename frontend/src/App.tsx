@@ -121,11 +121,9 @@ export function App() {
   );
 }
 
-// DatasetPicker switches this window to another dataset, or opens one in a
-// window of its own to compare side by side.
+// DatasetPicker switches this window to another dataset.
 function DatasetPicker({ onError }: { onError: (m: string) => void }) {
   const [sets, setSets] = useState<DatasetView[]>([]);
-  const [other, setOther] = useState('');
   useEffect(() => {
     const t = setTimeout(() => api.datasets().then((d) => setSets(d ?? [])).catch(() => {}), 200);
     return () => clearTimeout(t);
@@ -135,10 +133,6 @@ function DatasetPicker({ onError }: { onError: (m: string) => void }) {
   const switchTo = (key: string) => {
     if (!key || key === current) return;
     api.switchDataset(key).then(() => window.location.reload(), (e) => onError(String(e)));
-  };
-  const openWindow = () => {
-    const key = other || sets.find((d) => d.available && !d.current)?.key;
-    if (key) api.openDatasetWindow(key).catch((e) => onError(String(e)));
   };
   return (
     <div className="datasets" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
@@ -150,11 +144,6 @@ function DatasetPicker({ onError }: { onError: (m: string) => void }) {
           </option>
         ))}
       </select>
-      <select className="other" value={other} onChange={(e) => setOther(e.target.value)} title="Dataset to open in a new window">
-        <option value="">compare with…</option>
-        {sets.filter((d) => d.available && !d.current).map((d) => <option key={d.key} value={d.key}>{d.name}</option>)}
-      </select>
-      <button className="icon-btn" title="Open the chosen dataset in a new window, side by side" onClick={openWindow}>⧉</button>
     </div>
   );
 }

@@ -66,9 +66,10 @@ type Meeting struct {
 }
 
 type meetingLine struct {
-	chunk int // index into Chunks
-	n     int // line within the chunk, from 1
-	text  string
+	chunk   int // index into Chunks
+	n       int // line within the chunk, from 1
+	text    string
+	speaker string // "" when nobody is named
 }
 
 // NewMeeting numbers the chunks' lines across the meeting. The owner's
@@ -84,7 +85,7 @@ func NewMeeting(title string, date time.Time, known, owner string, chunks []stor
 			case l.Speaker != "":
 				t = l.Speaker + ": " + t
 			}
-			m.lines = append(m.lines, meetingLine{ci, i + 1, t})
+			m.lines = append(m.lines, meetingLine{ci, i + 1, t, l.Speaker})
 		}
 	}
 	return m

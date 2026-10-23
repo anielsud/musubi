@@ -245,6 +245,11 @@ func (e *Engine) Knowledge(ctx context.Context, log io.Writer, o pipeline.Knowle
 	if o.Workers == 0 {
 		o.Workers = 2
 	}
+	if lm := e.Cfg.Knowledge.Lean.Model; e.Cfg.Knowledge.Extract == "lean" && lm.Provider != "" && o.Extractor == nil {
+		if o.Extractor, err = provider.NewLLM(lm); err != nil {
+			return ks, err
+		}
+	}
 	if pm := e.Cfg.Knowledge.Points.Model; e.Cfg.Knowledge.Extract == "points" && pm.Provider != "" && o.Extractor == nil {
 		if o.Extractor, err = provider.NewLLM(pm); err != nil {
 			return ks, err
@@ -253,4 +258,13 @@ func (e *Engine) Knowledge(ctx context.Context, log io.Writer, o pipeline.Knowle
 	e.updating.Lock()
 	defer e.updating.Unlock()
 	return r.Knowledge(ctx, o)
+}
+
+// Queue reports the knowledge layer's waiting work (pipeline.Queue).
+func (e *Engine) Queue() (pipeline.Queue, error) {
+	r, err := e.Runner(nil, io.Discard)
+	if err != nil {
+		return pipeline.Queue{}, err
+	}
+	return r.Queue()
 }

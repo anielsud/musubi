@@ -336,8 +336,20 @@ pay (see the research log).
 Statements are taken one passage at a time, so they miss what the next
 passage clarifies and lean on "it" and "the agreement". Points are the
 meeting-level alternative, measured on the pilot at about 23.5 of 24 key
-points and 1–2% wrong (Qwen3.8-27B thinking, on llama-server). Email and
-chat stay on statements.
+points and 1–2% wrong (Qwen3.8-27B thinking, on llama-server). Lean
+extraction (`knowledge.extract = "lean"`, `internal/knowledge/lean.go`) is
+the measured hosted prompt, lean_ex_v2: a brief of the whole meeting, then
+every item in 50-line parts with 8 lines of context, turned into statements
+the way imported items are. Email and chat stay on statements.
+
+What runs when: an update after new data (`on_update`) extracts and
+threads only items newer than the thread frontier (the newest threaded
+meeting), at most `auto_max`; older items are held (`threads.hold_older`)
+until a rethread in time order, since threading appends. A meeting
+recorded twice (Tomoe and a transcript overlapping) is knowledge once
+(`prefer_source`). `Runner.Queue` reports the waiting work; the Status
+tab shows it and starts "catch up" and "rethread" runs under a spend
+cap.
 
 1. **Known facts**, written in code: the owner and their company, and each
    invitee's organisation by email domain. An address that isn't

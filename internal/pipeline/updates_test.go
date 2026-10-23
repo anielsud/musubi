@@ -318,3 +318,55 @@ func TestLatestThreaded(t *testing.T) {
 		t.Errorf("latest %v, want %v", at, items[len(items)-1].OccurredAt)
 	}
 }
+
+// Threading only appends in time order: an item older than what's threaded
+// waits for a rethread, and an automatic update takes only a few new ones.
+func TestHeldWork(t *testing.T) {
+	r, st := build(t)
+	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate = "statements", 0
+	r.Cfg.Knowledge.Threads.Rewind = 0
+	o := KnowledgeOptions{LLM: emptyLLM{"m1"}, Embedder: provider.Hash{Dim: 64}}
+	items, _ := st.AllItems()
+	if len(items) < 3 {
+		t.Fatalf("%d items", len(items))
+	}
+	newest := items[0]
+	for _, it := range items {
+		if it.OccurredAt.After(newest.OccurredAt) {
+			newest = it
+		}
+	}
+	cur := r.linkStamp(o)
+	llm := emptyLLM{"t1"}
+	p, _ := r.planThreads(o, llm, cur, false)
+	st.SetGlobalStamp("threads", p.stamp)
+	st.MarkThreaded(newest.ID, p.stamp)
+	older := 0
+	for _, it := range items {
+		if it.OccurredAt.Before(newest.OccurredAt) {
+			older++
+		}
+	}
+	if p, _ = r.planThreads(o, llm, cur, false); p.held != older || len(p.todo) != len(items)-1-older {
+		t.Fatalf("held %d of %d older items; todo %d", p.held, older, len(p.todo))
+	}
+	if p, _ = r.planThreads(KnowledgeOptions{LLM: o.LLM, Redo: []string{"threads"}}, llm, cur, false); p.held != 0 || len(p.todo) != len(items) {
+		t.Fatalf("a rethread holds nothing: held %d, todo %d", p.held, len(p.todo))
+	}
+	r.Cfg.Knowledge.Threads.HoldOlder = false
+	if p, _ = r.planThreads(o, llm, cur, false); p.held != 0 || len(p.todo) != len(items)-1 {
+		t.Fatalf("hold_older off threads them now, as before: held %d, todo %d", p.held, len(p.todo))
+	}
+
+	// An automatic update on a fresh dataset takes auto_max items.
+	r2, _ := build(t)
+	r2.Cfg.Knowledge.Extract, r2.Cfg.Knowledge.Gate, r2.Cfg.Knowledge.AutoMax = "statements", 0, 1
+	ks := knowledgeRun(t, r2, KnowledgeOptions{LLM: emptyLLM{"m1"}, Auto: true})
+	if ks.Items != 1 || ks.Held.Batch < 2 {
+		t.Fatalf("auto: extracted %d, held %d for a run by hand", ks.Items, ks.Held.Batch)
+	}
+	// A run by hand takes the rest.
+	if ks := knowledgeRun(t, r2, KnowledgeOptions{LLM: emptyLLM{"m1"}}); ks.Items < 2 || ks.Held.Batch != 0 {
+		t.Fatalf("by hand: extracted %d, held %d", ks.Items, ks.Held.Batch)
+	}
+}

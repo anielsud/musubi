@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { AliasUsage, AliasView, AppStatus, ClaimView, DatasetView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, StatementEdit, ThreadEditView, TopicMapData, TopicSummary, TopicView } from './types';
+import type { AliasUsage, AliasView, AppStatus, ClaimView, DatasetView, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, StatementEdit, ThreadEditView, TopicMapData, TopicSummary, TopicView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -15,6 +15,8 @@ const app = () => window.go?.gui?.App;
 export const api = {
   status: (): Promise<AppStatus> => app().Status(),
   update: (): Promise<void> => app().Update(),
+  queue: (): Promise<QueueView> => app().Queue(),
+  runKnowledge: (kind: 'catchup' | 'rethread'): Promise<void> => app().RunKnowledge(kind),
   search: (q: string, scope: string, k = 12): Promise<Hit[] | null> => app().Search(q, scope, k),
   ask: (id: string, q: string, scope: string): Promise<void> => app().Ask(id, q, scope),
   stopAsk: (): Promise<void> => app().StopAsk(),

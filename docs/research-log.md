@@ -2748,3 +2748,20 @@ As a gate, Jev ≥ 0.7 keeps 30% of items, 63% of them helpful; GLM's 3
 keeps 17%, 66% helpful. One meeting so far: to be confirmed on another.
 Jev is cleared for testing, not for the product, where GLM (or the
 decider emulation behind provider.Classifier) is the path.
+
+## 2026-10-23: Lean extraction in the app
+
+The measured meeting prompt (lean_ex_v2, until now `tools/insights-eval`)
+now runs in the Go pipeline (`knowledge.extract = "lean"`), with the same
+prompts, parts (50 lines, 8 of context), brief and schema; items become
+statements through the import path. Speaker placeholders (Tomoe's
+"Person 3", a room's device, a provisional "Ana?") are shown to the model
+as "unknown speaker", as the Python tool showed unknown labels.
+
+Parity, two September meetings on GLM-5.3-Flash, same directory file, each
+meeting's title as its description (as the September run): the Q4 roadmap
+meeting gave 91 items (Python 87), the same mix of kinds, 84% of the Python
+items with a close counterpart (word overlap ≥ 0.4); a 1:1 gave 35 (Python
+41), 59%. Sampling isn't deterministic (temperature 0.7), so some spread is
+expected; no kind or attribution pattern differed. $0.034 for both, about
+4 minutes each.

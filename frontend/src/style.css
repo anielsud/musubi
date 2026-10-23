@@ -596,3 +596,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .focus-sec { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent-2); flex: none; }
 .searches { margin: 4px 0; align-self: flex-start; }
 .earlier .chips { flex-wrap: wrap; }
+
+/* Status: work queue */
+.warn { color: #c8963e; margin: 4px 0 8px; }
+.confirm-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.confirm-row .small { flex: 1 1 100%; }

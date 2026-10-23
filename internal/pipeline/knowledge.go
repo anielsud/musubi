@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -57,6 +58,13 @@ type KnowledgeOptions struct {
 	// StatusLLM writes thread statuses; nil builds it from
 	// knowledge.status.model, else uses the threads model.
 	StatusLLM provider.LLM
+	// Auto is the update that follows new data (knowledge.on_update): it
+	// takes only items newer than everything threaded, at most
+	// knowledge.auto_max of them, and leaves the rest for a run someone
+	// starts (see Held).
+	Auto bool
+	// hold are items this run leaves unextracted, so not threaded either.
+	hold map[string]bool
 }
 
 func (o KnowledgeOptions) redo(stage string) bool {
@@ -77,6 +85,17 @@ type Outdated struct {
 	// Backfilled: items threaded after newer ones (older meetings added
 	// later); --redo threads puts everything in time order.
 	Backfilled int
+}
+
+// Held is work a run left for later on purpose.
+type Held struct {
+	// Older: items older than what's threaded (a backlog). Threading them
+	// now would put them out of time order, so they wait for a rethread
+	// in order (--redo threads).
+	Older int
+	// Batch: new items beyond what an automatic update takes
+	// (knowledge.auto_max); a run someone starts takes them.
+	Batch int
 }
 
 // Planned is what a run would do (KnowledgeOptions.Plan).
@@ -100,6 +119,7 @@ type KnowledgeStats struct {
 	Statuses, StatusFailed      int // thread statuses written; failed (tried again next run)
 	Threads                     knowledge.ThreadStats
 	Outdated                    Outdated
+	Held                        Held
 	Planned                     Planned
 }
 
@@ -153,7 +173,17 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		}
 		return out
 	}
+	dups := meetingDuplicates(items, r.Cfg.Knowledge.PreferSource, func(id string) bool {
+		s, _ := r.Store.StageStamp("extract", id)
+		return s != ""
+	})
+	if len(dups) > 0 {
+		r.logf("%d meetings recorded twice (Tomoe and a transcript): one of each becomes knowledge", len(dups))
+	}
 	wanted := func(id string) bool {
+		if dups[id] != "" {
+			return false
+		}
 		if len(o.Items) == 0 {
 			return true
 		}
@@ -173,8 +203,14 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	if o.Extractor == nil {
 		o.Extractor = o.LLM
 	}
-	if kc.Extract == "points" && !o.Extractor.Local() && !kc.AllowHosted {
-		return ks, fmt.Errorf("points extraction reads meeting text, so it needs a local model (got %s)", o.Extractor.ModelName())
+	if (kc.Extract == "points" || kc.Extract == "lean") && !o.Extractor.Local() && !kc.AllowHosted {
+		return ks, fmt.Errorf("%s extraction reads meeting text, so it needs a local model (got %s) or knowledge.allow_hosted", kc.Extract, o.Extractor.ModelName())
+	}
+	people := ""
+	if kc.Extract == "lean" {
+		if people, err = r.leanPeople(reg); err != nil {
+			return ks, err
+		}
 	}
 	pc := kc.Points
 	// invitees are who the calendar says was invited, else who was heard.
@@ -201,6 +237,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		title   string
 		orgs    map[string]string
 		known   string // points: the facts sheet; "" extracts statements
+		lean    bool
 	}
 	var jobs, older []job
 	for i := range items {
@@ -227,6 +264,15 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 				fmt.Sprint(pc.Think), fmt.Sprint(pc.Segment))
 			input = hashOf("input", chunkStamp, clsStamp, known)
 		}
+		lean := kc.Extract == "lean" && it.Kind == item.KindMeeting
+		if lean {
+			lc := kc.Lean
+			version = knowledge.LeanVersion
+			// Not the people list: it grows with every new name, which
+			// would put every meeting out of date.
+			h = hashOf("lean", version, chunkStamp, o.Extractor.ModelName(), r.Cfg.Owner.Name, lc.Description,
+				lc.Directory, fmt.Sprint(lc.Segment), fmt.Sprint(lc.Context))
+		}
 		cur, _ := r.Store.StageStamp("extract", it.ID)
 		if cur == version+"/"+h {
 			continue
@@ -235,7 +281,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		if e, ok := links[it.ID]; ok && byID[e] != nil {
 			title = byID[e].Title
 		}
-		j := job{it: it, hash: h, input: input, version: version, title: title, orgs: speakerOrgs(it), known: known}
+		j := job{it: it, hash: h, input: input, version: version, title: title, orgs: speakerOrgs(it), known: known, lean: lean}
 		if cur != "" && kc.Updates != "auto" {
 			// Extracted before under another version. Its input changed too
 			// (or it is new) → extract; only the version changed → keep it
@@ -259,6 +305,34 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		older = older[n:]
 	}
 	ks.Outdated.Extract = len(older)
+	if o.Auto {
+		// After new data, take only what appends in time order, a few at a
+		// time; older items (a backlog) and big batches wait for a run
+		// someone starts.
+		frontier, err := r.threadFrontier(items)
+		if err != nil {
+			return ks, err
+		}
+		sort.Slice(jobs, func(a, b int) bool { return jobs[a].it.OccurredAt.Before(jobs[b].it.OccurredAt) })
+		o.hold = map[string]bool{}
+		var keep []job
+		for _, j := range jobs {
+			switch {
+			case kc.Threads.HoldOlder && !frontier.IsZero() && !j.it.OccurredAt.After(frontier):
+				ks.Held.Older++
+			case kc.AutoMax > 0 && len(keep) >= kc.AutoMax:
+				ks.Held.Batch++
+			default:
+				keep = append(keep, j)
+				continue
+			}
+			o.hold[j.it.ID] = true
+		}
+		jobs = keep
+		if ks.Held.Older+ks.Held.Batch > 0 {
+			r.logf("extract: %d items left for a run started by hand (%d older than what's threaded, %d beyond knowledge.auto_max)", ks.Held.Older+ks.Held.Batch, ks.Held.Older, ks.Held.Batch)
+		}
+	}
 	if o.Limit > 0 && len(jobs) > o.Limit {
 		ks.Pending = len(jobs) - o.Limit
 		jobs = jobs[:o.Limit]
@@ -289,6 +363,17 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		for _, j := range jobs {
 			j := j
 			yield(func() (func() error, error) {
+				if j.lean {
+					sts, err := r.extractLean(ctx, o.Extractor, reg, j.it, j.title, people, j.chunks)
+					if err != nil {
+						return nil, fmt.Errorf("lean %s: %w", j.it.ID, err)
+					}
+					return func() error {
+						ks.Items++
+						ks.Statements += len(sts)
+						return r.Store.ReplaceStatementsFrom(j.it.ID, j.version, j.hash, j.input, sts)
+					}, nil
+				}
 				if j.known != "" {
 					sts, err := r.extractPoints(ctx, o.Extractor, pc, reg, j.it, j.title, j.known, j.chunks)
 					if err != nil {
@@ -653,9 +738,24 @@ func (r *Runner) ImportItems(itemID string, imported []knowledge.Imported, sourc
 	if err != nil {
 		return 0, 0, err
 	}
-	labels, err := r.Store.ItemLabels(itemID)
+	sts, skipped, err := r.importedStatements(reg, it, chunks, imported)
 	if err != nil {
 		return 0, 0, err
+	}
+	chunkStamp, _ := r.Store.StageStamp("chunk", itemID)
+	if err := r.Store.ReplaceStatements(itemID, ImportVersion, hashOf("import", chunkStamp, sourceTag), sts); err != nil {
+		return 0, 0, err
+	}
+	return len(sts), skipped, nil
+}
+
+// importedStatements turns items extracted for a meeting (imported, or by
+// the lean extraction) into its statements: checked against the meeting,
+// holders resolved, labelled from the passages they rest on.
+func (r *Runner) importedStatements(reg *registry.Registry, it *item.Item, chunks []store.Chunk, imported []knowledge.Imported) ([]store.Statement, int, error) {
+	labels, err := r.Store.ItemLabels(it.ID)
+	if err != nil {
+		return nil, 0, err
 	}
 	// The check accepts figures and names the meeting itself vouches for:
 	// its date (extractors write "on 2026-09-16") and the full names of
@@ -682,11 +782,7 @@ func (r *Runner) ImportItems(itemID string, imported []knowledge.Imported, sourc
 		return reg.Participant(item.Participant{Name: name})
 	}
 	sts, skipped := m.ImportStatements(imported, it.OccurredAt, holder, labels, r.Cfg.Knowledge.ImportKeepProposed)
-	chunkStamp, _ := r.Store.StageStamp("chunk", itemID)
-	if err := r.Store.ReplaceStatements(itemID, ImportVersion, hashOf("import", chunkStamp, sourceTag), sts); err != nil {
-		return 0, 0, err
-	}
-	return len(sts), skipped, nil
+	return sts, skipped, nil
 }
 
 // thread threads every item not yet threaded under the current rules,
@@ -718,6 +814,7 @@ type threadPlan struct {
 	rebuild    bool // clear every thread and rethread every item
 	todo       []knowledge.ThreadItem
 	older      int // items threaded under earlier rules, kept
+	held       int // items older than what's threaded, left for a rethread
 }
 
 func (r *Runner) threadLLM(o KnowledgeOptions) (provider.LLM, error) {
@@ -761,14 +858,39 @@ func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp str
 	if err != nil {
 		return p, err
 	}
+	var threaded []time.Time
 	for _, it := range items {
 		d := done[it.ID]
+		if d != "" {
+			threaded = append(threaded, it.OccurredAt)
+		}
 		switch {
 		case p.rebuild, auto && d != p.stamp, d == "":
 			p.todo = append(p.todo, knowledge.ThreadItem{ID: it.ID, Start: it.OccurredAt})
 		case d != p.stamp:
 			p.older++
 		}
+	}
+	for i := len(p.todo) - 1; i >= 0; i-- {
+		if o.hold[p.todo[i].ID] {
+			p.todo = append(p.todo[:i], p.todo[i+1:]...)
+		}
+	}
+	if !p.rebuild && r.Cfg.Knowledge.Threads.HoldOlder {
+		// An item older than more threaded items than a rewind redoes would
+		// be threaded out of time order: it waits for a rethread instead.
+		sort.Slice(threaded, func(a, b int) bool { return threaded[a].Before(threaded[b]) })
+		rewind := r.Cfg.Knowledge.Threads.Rewind
+		keep := p.todo[:0]
+		for _, t := range p.todo {
+			newer := len(threaded) - sort.Search(len(threaded), func(i int) bool { return threaded[i].After(t.Start) })
+			if newer > rewind {
+				p.held++
+				continue
+			}
+			keep = append(keep, t)
+		}
+		p.todo = keep
 	}
 	return p, nil
 }
@@ -831,6 +953,10 @@ func (r *Runner) thread(ctx context.Context, o KnowledgeOptions, linkStamp strin
 		if err := r.Store.SetGlobalStamp("threads", stamp); err != nil {
 			return err
 		}
+	}
+	ks.Held.Older += p.held
+	if p.held > 0 {
+		r.logf("threads: %d items are older than what's threaded and wait for a rethread in time order (musubi knowledge --redo threads)", p.held)
 	}
 	ks.Outdated.Threads = p.older
 	if p.older > 0 {
@@ -1303,4 +1429,124 @@ func (r *Runner) writeStatuses(ctx context.Context, o KnowledgeOptions, ks *Know
 	}
 	r.logf("status: %d written, %d failed, in %s", ks.Statuses, ks.StatusFailed, time.Since(t0).Round(time.Second))
 	return ctx.Err()
+}
+
+// extractLean extracts a meeting's statements with the lean prompt
+// (knowledge.extract = "lean").
+func (r *Runner) extractLean(ctx context.Context, llm provider.LLM, reg *registry.Registry, it *item.Item, title, people string, chunks []store.Chunk) ([]store.Statement, error) {
+	lc := r.Cfg.Knowledge.Lean
+	m := knowledge.NewMeeting(title, it.OccurredAt, "", r.Cfg.Owner.Name, chunks)
+	imported, err := knowledge.LeanExtract(ctx, llm, m, knowledge.LeanParams{
+		Segment: lc.Segment, Context: lc.Context, Parallel: lc.Parallel, Description: lc.Description, People: people,
+	}, "extract-"+it.ID)
+	if err != nil {
+		return nil, err
+	}
+	sts, skipped, err := r.importedStatements(reg, it, chunks, imported)
+	if err != nil {
+		return nil, err
+	}
+	if skipped > 0 {
+		r.logf("lean %s: %d of %d items skipped (unknown kind, or no line in the meeting)", it.ID, skipped, len(imported))
+	}
+	return sts, nil
+}
+
+// leanPeople is who the lean prompt may recognise: the configured
+// directory ("- Name: title (office)"), else the people Musubi knows.
+func (r *Runner) leanPeople(reg *registry.Registry) (string, error) {
+	var b strings.Builder
+	if path := r.Cfg.Knowledge.Lean.Directory; path != "" {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("knowledge.lean.directory: %w", err)
+		}
+		var d struct {
+			People [][]string `json:"people"`
+		}
+		if err := json.Unmarshal(raw, &d); err != nil {
+			return "", fmt.Errorf("knowledge.lean.directory: %w", err)
+		}
+		for _, p := range d.People {
+			if len(p) == 0 {
+				continue
+			}
+			b.WriteString("- " + p[0])
+			if len(p) > 1 && p[1] != "" {
+				b.WriteString(": " + p[1])
+			}
+			if len(p) > 2 && p[2] != "" {
+				b.WriteString(" (" + p[2] + ")")
+			}
+			b.WriteString("\n")
+		}
+		return strings.TrimRight(b.String(), "\n"), nil
+	}
+	var names []string
+	for _, e := range reg.Entities {
+		if e.Type == "person" {
+			names = append(names, e.Name)
+		}
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		b.WriteString("- " + n + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n"), nil
+}
+
+// LeanDryRun extracts one meeting with the lean prompt without storing
+// anything: the items as the model gave them, and the statements they'd
+// become.
+func (r *Runner) LeanDryRun(ctx context.Context, llm provider.LLM, itemID string) ([]knowledge.Imported, []store.Statement, error) {
+	items, err := r.Store.AllItems()
+	if err != nil {
+		return nil, nil, err
+	}
+	var it *item.Item
+	for i := range items {
+		if items[i].ID == itemID {
+			it = &items[i]
+		}
+	}
+	if it == nil {
+		return nil, nil, fmt.Errorf("no item %s", itemID)
+	}
+	reg, err := registry.Build(r.Cfg, r.CuratedPath, items)
+	if err != nil {
+		return nil, nil, err
+	}
+	people, err := r.leanPeople(reg)
+	if err != nil {
+		return nil, nil, err
+	}
+	chunks, err := r.Store.Chunks(itemID)
+	if err != nil {
+		return nil, nil, err
+	}
+	lc := r.Cfg.Knowledge.Lean
+	m := knowledge.NewMeeting(it.Title, it.OccurredAt, "", r.Cfg.Owner.Name, chunks)
+	imported, err := knowledge.LeanExtract(ctx, llm, m, knowledge.LeanParams{
+		Segment: lc.Segment, Context: lc.Context, Parallel: lc.Parallel, Description: lc.Description, People: people,
+	}, "extract-"+it.ID)
+	if err != nil {
+		return nil, nil, err
+	}
+	sts, _, err := r.importedStatements(reg, it, chunks, imported)
+	return imported, sts, err
+}
+
+// threadFrontier is when the newest threaded item happened (zero if none).
+func (r *Runner) threadFrontier(items []item.Item) (time.Time, error) {
+	done, err := r.Store.ThreadedItems()
+	if err != nil {
+		return time.Time{}, err
+	}
+	var t time.Time
+	for _, it := range items {
+		if done[it.ID] != "" && it.OccurredAt.After(t) {
+			t = it.OccurredAt
+		}
+	}
+	return t, nil
 }

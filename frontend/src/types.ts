@@ -458,3 +458,22 @@ export interface ThreadEditView {
   at: string;
   undone: boolean;
 }
+
+// The knowledge layer's waiting work (internal/gui/queue.go).
+export interface QueueView {
+  extract: string;
+  frontier: string;
+  threaded: number;
+  newExtract: number;
+  newThread: number;
+  autoMax: number;
+  olderExtract: number;
+  olderThread: number;
+  duplicates: number;
+  catchUpUsd: number;
+  rethreadUsd: number;
+  rethreadHours: number;
+  running: string;
+  spent: number;
+  ledger: string;
+}

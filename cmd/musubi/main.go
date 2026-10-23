@@ -49,7 +49,7 @@ func root() *cobra.Command {
 	r := &cobra.Command{Use: "musubi", Short: "Local-first personal knowledge base", SilenceUsage: true}
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
-	r.AddCommand(importItemsCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), aliasesCmd(), liveCmd(),
+	r.AddCommand(importItemsCmd(), extractLeanCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), aliasesCmd(), liveCmd(),
 		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd())
 	return r
 }
@@ -1342,4 +1342,50 @@ func threadLinksCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func extractLeanCmd() *cobra.Command {
+	var itemID, out string
+	c := &cobra.Command{
+		Use:   "extract-lean",
+		Short: "Extract one meeting with the lean prompt (knowledge.lean) and write the items to a file; stores nothing",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			if !e.Cfg.Knowledge.AllowHosted {
+				return fmt.Errorf("knowledge.allow_hosted is off")
+			}
+			llm, err := provider.NewLLM(e.Cfg.Knowledge.Lean.Model)
+			if err != nil || llm == nil {
+				return fmt.Errorf("knowledge.lean.model: %v", err)
+			}
+			id, err := e.Store.ResolveItemID(itemID)
+			if err != nil {
+				return err
+			}
+			r, err := e.Runner(nil, os.Stderr)
+			if err != nil {
+				return err
+			}
+			began := time.Now()
+			items, sts, err := r.LeanDryRun(cmd.Context(), llm, id)
+			if err != nil {
+				return err
+			}
+			b, _ := json.MarshalIndent(map[string]any{"item": id, "items": items}, "", " ")
+			if err := os.WriteFile(out, b, 0o644); err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "%s: %d items, %d statements, %.0fs\n", id, len(items), len(sts), time.Since(began).Seconds())
+			return nil
+		},
+	}
+	c.Flags().StringVar(&itemID, "item", "", "item id or prefix")
+	c.Flags().StringVar(&out, "out", "", "where to write the items")
+	c.MarkFlagRequired("item")
+	c.MarkFlagRequired("out")
+	return c
 }

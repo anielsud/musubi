@@ -40,7 +40,23 @@ func tomoeSpeaker(s string) (name string, owner, known bool) {
 		}
 		return n, false, true
 	}
-	return s, false, false
+	// A name the user gave a speaker in Tomoe is known; Tomoe's own
+	// placeholders ("Person 3", "New speaker", a provisional "Ana?") aren't.
+	if tomoePlaceholder.MatchString(s) || strings.HasSuffix(s, "?") || strings.HasSuffix(s, "?)") || isRoomName(s) {
+		return s, false, false
+	}
+	return strings.TrimSpace(s), false, s != ""
+}
+
+var tomoePlaceholder = regexp.MustCompile(`^(Person \d+|New speaker|System Audio)( \(.*\))?$`)
+
+func isRoomName(s string) bool {
+	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool { return !('a' <= r && r <= 'z') }) {
+		if w == "room" || w == "rooms" {
+			return true
+		}
+	}
+	return false
 }
 
 func fromTomoe(b []byte) ([]Item, error) {

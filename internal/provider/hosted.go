@@ -475,3 +475,10 @@ func (o *OpenAI) hedged(ctx context.Context, msgs []Message, opt ChatOptions, ma
 		}
 	}
 }
+
+// LedgerTotal is the dollars recorded in the spend ledger at path.
+func LedgerTotal(path string) float64 {
+	ledgerMu.Lock()
+	defer ledgerMu.Unlock()
+	return ledgerTotal(path)
+}

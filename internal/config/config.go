@@ -93,7 +93,9 @@ type Knowledge struct {
 	// topics run), "statements" (one call per passage, the earlier
 	// behaviour) or "points" (a meeting-level
 	// brief, then self-contained points per run of passages, read with the
-	// neighbouring passages as context; see docs/research-log.md).
+	// neighbouring passages as context; see docs/research-log.md) or "lean"
+	// (the measured meeting prompt, lean_ex_v2, on a hosted model: a brief,
+	// then every item in 50-line parts; other items use "statements").
 	Extract string `toml:"extract"`
 	// StrictLinks stops linking from retiring live items: a same-meeting
 	// "supersedes" without a spoken correction becomes "refines", one
@@ -107,6 +109,12 @@ type Knowledge struct {
 	ImportKeepProposed bool `toml:"import_keep_proposed"`
 	// Points configures extract = "points".
 	Points Points `toml:"points"`
+	// Lean configures extract = "lean".
+	Lean Lean `toml:"lean"`
+	// PreferSource decides which recording of a meeting recorded twice
+	// (a Tomoe session and the meeting app's transcript, overlapping) becomes
+	// knowledge, unless one is extracted already: the first source listed.
+	PreferSource []string `toml:"prefer_source"`
 	// Grouping is how claims are grouped and related: "topics" (pairwise
 	// judging, then clustering; the earlier behaviour) or "threads" (a model
 	// assigns each meeting's items to specific threads, then reconciles
@@ -149,6 +157,10 @@ type Knowledge struct {
 	// are extracted, linked, threaded and their threads' statuses
 	// rewritten). false leaves them to `musubi knowledge`, as before.
 	OnUpdate bool `toml:"on_update"`
+	// AutoMax is the most new items an update after new data
+	// (on_update) extracts and threads; a bigger batch waits for a run
+	// someone starts, which shows its cost first. 0: no limit, as before.
+	AutoMax int `toml:"auto_max"`
 	// Status writes each thread's status (where it stands, what changed,
 	// what is open) after threading, for the topic page, Ask and meeting
 	// prep (knowledge.WriteStatus).
@@ -209,6 +221,11 @@ type Threads struct {
 	// Model does the threading; provider "" uses [llm]. Measured with
 	// Qwen3.8-27B on llama-server (provider "openai").
 	Model LLM `toml:"model"`
+	// HoldOlder leaves an item older than more threaded items than Rewind
+	// redoes (a backlog) unthreaded until everything is rethreaded in time
+	// order (--redo threads), as threading is only right in time order.
+	// false threads it now, out of order, as before (counted "backfilled").
+	HoldOlder bool `toml:"hold_older"`
 	// Chunk is how many items one assign call reads; Parallel how many
 	// threads are reconciled at once (match the server's slots).
 	Chunk    int `toml:"chunk"`
@@ -270,6 +287,25 @@ type Points struct {
 	// Parallel is how many segments are extracted at once; match the
 	// server's slots (llama-server -np).
 	Parallel int `toml:"parallel"`
+}
+
+// Lean configures lean extraction (knowledge.extract = "lean").
+type Lean struct {
+	// Model is the extraction model; provider "" uses [llm]. Measured on
+	// GLM-5.3-Flash on Baseten (provider "openai").
+	Model LLM `toml:"model"`
+	// Segment is how many lines one call covers, Context how many lines
+	// either side it reads as context, Parallel how many calls at once.
+	Segment  int `toml:"segment"`
+	Context  int `toml:"context"`
+	Parallel int `toml:"parallel"`
+	// Description says what the meetings are ("the weekly executive
+	// leadership meeting"); "" uses each meeting's title.
+	Description string `toml:"description"`
+	// Directory, if set, is a JSON file {"people": [[name, title, office]]}
+	// shown to the model only for recognising who is meant; else the people
+	// Musubi knows (calendars, earlier meetings) by name.
+	Directory string `toml:"directory"`
 }
 
 // LLM is the chat model for answers, live query suggestions and briefs.
@@ -389,7 +425,7 @@ func DefaultConfig() Config {
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, ProposeAliases: true, ApplySpellings: true},
+		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe"}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

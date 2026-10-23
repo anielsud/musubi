@@ -117,21 +117,37 @@ bin/musubi knowledge --plan          # what a run would do
 bin/musubi knowledge                 # thread, label and write statuses
 ```
 
-**Extraction for the "All" dataset runs outside the app**, from meeting
-transcripts with the measured prompt (`lean_ex_v2`, GLM-5.3-Flash):
+**Extraction runs in the app** with the measured meeting prompt
+(`lean_ex_v2`, GLM-5.3-Flash), when the dataset asks for it:
 
-```sh
-cd tools/insights-eval
-python3 transcripts.py drops ../../path/to/data/inbox/meetings <transcripts…>
-python3 transcripts.py extract <items dir> "<one-line description>" <transcripts…>
-# then, per meeting: bin/musubi import-items --item <id> --file <items.json>
-# with [knowledge] extract = "none", then bin/musubi knowledge
+```toml
+[knowledge]
+extract = "lean"           # meetings: the measured prompt; email and chat: statements
+
+[knowledge.lean]
+# directory = "…/directory.json"   # optional {"people": [[name, title, office]]},
+                                    # only for recognising who is meant
+[knowledge.lean.model]     # same fields as [knowledge.threads.model]
 ```
 
-`tools/link-bench/backfill.py` runs the whole sequence for a dataset and
-resumes where it stopped. In-app extraction (`knowledge.extract =
-"points"` or `"statements"`) was measured on local models; bringing
-`lean_ex_v2` into the Go pipeline is open work.
+`bin/musubi extract-lean --item <id> --out items.json` extracts one
+meeting without storing anything, to check it. (The Python tools in
+`tools/insights-eval` that did this before still work, with
+`extract = "none"` and `import-items`.)
+
+**What runs on its own, and what waits.** After each meeting Tomoe saves,
+the app ingests it and, with `knowledge.on_update`, extracts and threads
+it, but only meetings newer than everything threaded, at most
+`knowledge.auto_max` (5) at a time. Threading is only right in time order,
+so an older meeting (a backlog) waits until everything is rethreaded in
+order (`knowledge.threads.hold_older`). The Status tab's **Work queue**
+shows what's waiting, with estimates, and starts the two runs updates
+leave to someone: **Catch up** (a big batch of new meetings) and
+**Rethread everything in time order** (to take in a backlog; it stops at
+one and a half times its estimate). A meeting recorded twice (a Tomoe
+session and the meeting app's transcript) becomes knowledge once
+(`knowledge.prefer_source`, default Tomoe, unless the other was extracted
+already).
 
 ## 7. Spend ledger and caps
 

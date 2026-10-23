@@ -1,5 +1,6 @@
-import { api, fmtDate } from '../api';
-import type { AppStatus } from '../types';
+import { useEffect, useState } from 'react';
+import { api, fmtDate, on } from '../api';
+import type { AppStatus, QueueView } from '../types';
 import { Spinner } from './common';
 
 const levels = ['public', 'internal', 'confidential', 'restricted'];
@@ -36,6 +37,8 @@ export function StatusView({ status }: { status: AppStatus | null }) {
         )}
       </section>
 
+      <WorkQueue />
+
       <section className="kv">
         <div className="section-head"><span>Engine</span></div>
         <Row k="owner" v={status.owner || '—'} />
@@ -61,4 +64,63 @@ function Tile({ n, label }: { n: number; label: string }) {
 
 function Row({ k, v }: { k: string; v: string }) {
   return <div className="kv-row"><span className="k">{k}</span><span className="v">{v}</span></div>;
+}
+
+const usd = (n: number) => (n < 1 ? `${Math.max(1, Math.round(n * 100))}¢` : `$${n.toFixed(n < 10 ? 2 : 0)}`);
+
+// WorkQueue is the knowledge layer's waiting work: what updates take on
+// their own (new meetings, a few at a time), and what needs a run started
+// here (a big batch, or a backlog that only joins by rethreading in time
+// order).
+function WorkQueue() {
+  const [q, setQ] = useState<QueueView | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState(false);
+  const load = () => api.queue().then((v) => { setQ(v); setErr(null); }, (e) => setErr(String(e)));
+  useEffect(() => {
+    load();
+    const offs = [on('queue:changed', load), on('update:done', load)];
+    return () => offs.forEach((f) => f());
+  }, []);
+  if (err) return <section><div className="section-head"><span>Work queue</span></div><div className="error">{err}</div></section>;
+  if (!q) return null;
+  const newN = q.newExtract + q.newThread;
+  const older = q.olderExtract + q.olderThread;
+  const run = (kind: 'catchup' | 'rethread') => { setConfirm(false); api.runKnowledge(kind).then(load, (e) => setErr(String(e))); };
+  const frontier = q.frontier && !q.frontier.startsWith('0001') ? fmtDate(q.frontier) : null;
+  return (
+    <section className="kv">
+      <div className="section-head"><span>Work queue</span>{q.running && <span className="dim small"><Spinner /> {q.running === 'rethread' ? 'rethreading in time order…' : 'catching up…'}</span>}</div>
+      {q.extract === 'none' && (
+        <div className="warn small">Extraction is off for this dataset (knowledge.extract = "none"): new meetings are stored and searchable but don't become knowledge.</div>
+      )}
+      <Row k="threaded" v={`${q.threaded.toLocaleString()} meetings${frontier ? `, through ${frontier}` : ''}`} />
+      <Row k="new, to extract" v={String(q.newExtract)} />
+      <Row k="new, to thread" v={String(q.newThread)} />
+      <Row k="backlog (older than threaded)" v={older ? `${older.toLocaleString()} (${q.olderExtract} to extract, ${q.olderThread} extracted)` : 'none'} />
+      {q.duplicates > 0 && <Row k="recorded twice" v={`${q.duplicates} (one of each is used)`} />}
+      <Row k="spent (ledger)" v={usd(q.spent)} />
+      <p className="dim small">
+        After each new meeting, an update takes {q.autoMax > 0 ? `up to ${q.autoMax}` : 'every'} new {q.autoMax === 1 ? 'meeting' : 'meetings'} on its own.
+        Older meetings can only join the threads in time order, so they wait for a rethread.
+      </p>
+      {newN > 0 && (
+        <button className="wide" disabled={!!q.running} onClick={() => run('catchup')}>
+          Catch up: {newN} new {newN === 1 ? 'meeting' : 'meetings'}, about {usd(q.catchUpUsd)}
+        </button>
+      )}
+      {older > 0 && !confirm && (
+        <button className="wide" disabled={!!q.running} onClick={() => setConfirm(true)}>
+          Rethread everything in time order: about {usd(q.rethreadUsd)}, {q.rethreadHours.toFixed(q.rethreadHours < 10 ? 1 : 0)} h
+        </button>
+      )}
+      {confirm && (
+        <div className="confirm-row">
+          <span className="small">Rethreading rebuilds every thread from the oldest meeting on, taking in the backlog. Hosted calls stop at about {usd(q.rethreadUsd * 1.5)}.</span>
+          <button className="primary" onClick={() => run('rethread')}>Rethread</button>
+          <button onClick={() => setConfirm(false)}>Cancel</button>
+        </div>
+      )}
+    </section>
+  );
 }

@@ -37,6 +37,7 @@ type App struct {
 
 	mu         sync.Mutex
 	updating   bool
+	running    string // a knowledge run started from the Status page
 	lastUpdate time.Time
 	ollamaUp   bool
 	askCancel  context.CancelFunc
@@ -157,7 +158,7 @@ func (a *App) Update() {
 		return
 	}
 	a.mu.Lock()
-	if a.updating {
+	if a.updating || a.running != "" {
 		a.mu.Unlock()
 		return
 	}
@@ -177,7 +178,7 @@ func (a *App) Update() {
 			// New items join their threads, and the threads' statuses are
 			// rewritten, before the views reload.
 			a.emit("update:done", msg+"; updating topics…")
-			if ks, kerr := a.eng.Knowledge(a.ctx, io.Discard, pipeline.KnowledgeOptions{}); kerr != nil {
+			if ks, kerr := a.eng.Knowledge(a.ctx, io.Discard, pipeline.KnowledgeOptions{Auto: true}); kerr != nil {
 				msg += "; topics: " + kerr.Error()
 			} else if ks.Threads.Items > 0 || ks.Statuses > 0 {
 				msg += fmt.Sprintf("; %d threaded, %d statuses rewritten", ks.Threads.Items, ks.Statuses)
@@ -188,6 +189,7 @@ func (a *App) Update() {
 		}
 		a.emit("update:done", msg)
 		a.emit("app:status", a.Status())
+		a.emit("queue:changed", nil)
 	}()
 }
 

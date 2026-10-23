@@ -106,6 +106,18 @@ func (s *Store) ReplaceStatementsFrom(itemID, version, hash, input string, sts [
 		if _, err := tx.Exec(`DELETE FROM statements WHERE item_id = ?`, itemID); err != nil {
 			return err
 		}
+		// An item threaded before goes back into the threads in its place
+		// even when newer items are threaded (WasThreaded): its statements
+		// changed, it isn't a backlog.
+		var runs int
+		if err := tx.QueryRow(`SELECT count(*) FROM thread_runs WHERE item_id = ?`, itemID).Scan(&runs); err != nil {
+			return err
+		}
+		if runs > 0 {
+			if err := stamp(tx, "was-threaded", itemID, "1", ""); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.Exec(`DELETE FROM thread_runs WHERE item_id = ?`, itemID); err != nil {
 			return err
 		}
@@ -1094,4 +1106,11 @@ func (s *Store) LabelStatement(id int64, l sensitivity.Label, version string) er
 	_, err := s.db.Exec(`UPDATE statements SET level = max(level, ?), categories = categories | ?, label_version = ? WHERE id = ?`,
 		int(l.Level), int64(l.Categories), version, id)
 	return err
+}
+
+// WasThreaded reports whether an item was threaded before its statements
+// were last replaced.
+func (s *Store) WasThreaded(itemID string) bool {
+	v, _ := s.StageStamp("was-threaded", itemID)
+	return v != ""
 }

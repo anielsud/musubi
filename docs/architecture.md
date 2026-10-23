@@ -345,7 +345,10 @@ the way imported items are. Email and chat stay on statements.
 What runs when: an update after new data (`on_update`) extracts and
 threads only items newer than the thread frontier (the newest threaded
 meeting), at most `auto_max`; older items are held (`threads.hold_older`)
-until a rethread in time order, since threading appends. A meeting
+until a rethread in time order, since threading appends. An item already
+extracted or threaded isn't a backlog: re-extracted after its content
+changed (a speaker renamed in Tomoe), it goes back into the threads in its
+place. A meeting
 recorded twice (Tomoe and a transcript overlapping) is knowledge once
 (`prefer_source`). `Runner.Queue` reports the waiting work; the Status
 tab shows it and starts "catch up" and "rethread" runs under a spend

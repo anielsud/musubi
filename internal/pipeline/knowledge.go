@@ -238,6 +238,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		orgs    map[string]string
 		known   string // points: the facts sheet; "" extracts statements
 		lean    bool
+		prior   bool // extracted before (a changed input, not a backlog)
 	}
 	var jobs, older []job
 	for i := range items {
@@ -281,7 +282,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		if e, ok := links[it.ID]; ok && byID[e] != nil {
 			title = byID[e].Title
 		}
-		j := job{it: it, hash: h, input: input, version: version, title: title, orgs: speakerOrgs(it), known: known, lean: lean}
+		j := job{it: it, hash: h, input: input, version: version, title: title, orgs: speakerOrgs(it), known: known, lean: lean, prior: cur != ""}
 		if cur != "" && kc.Updates != "auto" {
 			// Extracted before under another version. Its input changed too
 			// (or it is new) → extract; only the version changed → keep it
@@ -318,7 +319,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		var keep []job
 		for _, j := range jobs {
 			switch {
-			case kc.Threads.HoldOlder && !frontier.IsZero() && !j.it.OccurredAt.After(frontier):
+			case kc.Threads.HoldOlder && !frontier.IsZero() && !j.it.OccurredAt.After(frontier) && !j.prior:
 				ks.Held.Older++
 			case kc.AutoMax > 0 && len(keep) >= kc.AutoMax:
 				ks.Held.Batch++
@@ -884,7 +885,7 @@ func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp str
 		keep := p.todo[:0]
 		for _, t := range p.todo {
 			newer := len(threaded) - sort.Search(len(threaded), func(i int) bool { return threaded[i].After(t.Start) })
-			if newer > rewind {
+			if newer > rewind && !r.Store.WasThreaded(t.ID) {
 				p.held++
 				continue
 			}

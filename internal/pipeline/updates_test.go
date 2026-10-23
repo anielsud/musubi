@@ -370,3 +370,35 @@ func TestHeldWork(t *testing.T) {
 		t.Fatalf("by hand: extracted %d, held %d", ks.Items, ks.Held.Batch)
 	}
 }
+
+// A meeting threaded before and re-extracted (a speaker renamed in Tomoe)
+// goes back into the threads in its place, even when newer ones exist.
+func TestReextractedRejoins(t *testing.T) {
+	r, st := build(t)
+	r.Cfg.Knowledge.Threads.Rewind = 0
+	o := KnowledgeOptions{LLM: emptyLLM{"m1"}, Embedder: provider.Hash{Dim: 64}}
+	items, _ := st.AllItems()
+	oldest, newest := items[0], items[0]
+	for _, it := range items {
+		if it.OccurredAt.Before(oldest.OccurredAt) {
+			oldest = it
+		}
+		if it.OccurredAt.After(newest.OccurredAt) {
+			newest = it
+		}
+	}
+	cur := r.linkStamp(o)
+	llm := emptyLLM{"t1"}
+	p, _ := r.planThreads(o, llm, cur, false)
+	st.SetGlobalStamp("threads", p.stamp)
+	for _, it := range items {
+		st.MarkThreaded(it.ID, p.stamp)
+	}
+	if err := st.ReplaceStatementsFrom(oldest.ID, "x", "h", "renamed", nil); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = r.planThreads(o, llm, cur, false)
+	if p.held != 0 || len(p.todo) != 1 || p.todo[0].ID != oldest.ID {
+		t.Fatalf("re-extracted oldest: held %d, todo %+v", p.held, p.todo)
+	}
+}

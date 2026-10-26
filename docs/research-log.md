@@ -2765,3 +2765,37 @@ items with a close counterpart (word overlap ≥ 0.4); a 1:1 gave 35 (Python
 41), 59%. Sampling isn't deterministic (temperature 0.7), so some spread is
 expected; no kind or attribution pattern differed. $0.034 for both, about
 4 minutes each.
+
+## 2026-10-26: Where a batch run's time goes
+
+The October rethread (lean extraction of 108 meetings, then threading
+about 300 meetings oldest first, GLM-5.3-Flash on Baseten) at the point
+119 meetings were threaded:
+
+| Phase | Wall clock | Note |
+|---|---|---|
+| Extract 108 meetings | 1h24m | 2 meetings at a time (`--workers` default 2) |
+| Thread 119 meetings | 3h56m | 2.0 min a meeting, strictly in turn |
+| — place (assign, merge) | 1h28m | 37% |
+| — reconcile | 2h13m | 57% |
+| — review | 1h50m | overlapped with the next meeting, mostly hidden |
+
+1,600 threading calls, 8.8 s each on average; a meeting waits on its
+slowest call. Already measured and not a lever: parallel 16, hedging,
+the stall rule (2026-10-20/21). Low reconcile effort was rejected on
+quality (2026-10-16).
+
+Not yet done, to do before the next batch run:
+1. Extract more meetings at once. The CLI's `--workers` default of 2
+   dates from the local model; hosted, 8–16 would have taken the
+   extraction to about 10–15 minutes. No change in output.
+2. Thread while extraction runs: thread the oldest meeting as soon as it
+   is extracted, instead of after the whole batch. No change in output.
+3. Pipeline meetings: place meeting N+1 while N reconciles. Placement then
+   sees thread summaries one reconcile behind; needs a quality check on
+   the four ELT meetings. Up to about a third of threading.
+4. Thread short consecutive meetings in one pass (fewer slow-call waits).
+   Needs the same quality check.
+5. Serving: the slowest calls stream at about 4 tokens a second on the
+   shared endpoint. Measure a dedicated deployment or another approved
+   provider; a narrower reconcile (2026-10-20) is still unbuilt.

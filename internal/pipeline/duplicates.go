@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/anielsud/musubi/internal/item"
@@ -18,6 +19,12 @@ const (
 	sameMeetingStart   = 10 * time.Minute
 	sameMeetingOverlap = 0.5
 )
+
+// missedShare: a preferred copy with fewer words than this share of the
+// other's missed the meeting (on 37 meetings both Tomoe and Bluedot
+// recorded, six Tomoe copies held 0–71% of Bluedot's words; the rest
+// 86–98%).
+const missedShare = 0.8
 
 // meetingDuplicates maps each meeting recording that another one stands in
 // for to the one kept. Kept: one already extracted (its statements may be
@@ -58,6 +65,11 @@ func meetingDuplicates(items []item.Item, prefer []string, extracted func(id str
 			if rank(b) < rank(a) {
 				keep, drop = b, a
 			}
+			// The preferred copy missed the meeting (a broken capture): it
+			// holds much less of what was said than the other.
+			if !extracted(keep.ID) && float64(wordCount(keep)) < missedShare*float64(wordCount(drop)) {
+				keep, drop = drop, keep
+			}
 			dup[drop.ID] = keep.ID
 			if drop == a {
 				break
@@ -92,4 +104,12 @@ func recordingEnd(it *item.Item) time.Time {
 		end = max(end, s.End, s.Start)
 	}
 	return it.OccurredAt.Add(time.Duration(end * float64(time.Second)))
+}
+
+func wordCount(it *item.Item) int {
+	n := 0
+	for _, s := range it.Segments {
+		n += len(strings.Fields(s.Text))
+	}
+	return n
 }

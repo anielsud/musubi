@@ -30,3 +30,25 @@ func TestMeetingDuplicates(t *testing.T) {
 		t.Errorf("duplicates = %v, want the extracted transcript kept", d)
 	}
 }
+
+// A preferred copy that missed most of the meeting gives way to the other.
+func TestMissedCopyGivesWay(t *testing.T) {
+	at := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
+	words := func(n int) []item.Segment {
+		var s []item.Segment
+		for i := 0; i < n; i++ {
+			s = append(s, item.Segment{Text: "one two three four five", Start: float64(i * 10), End: float64(i*10 + 9)})
+		}
+		return s
+	}
+	items := []item.Item{
+		{ID: "tomoe:x", Source: "tomoe", Kind: item.KindMeeting, OccurredAt: at, EndedAt: at.Add(30 * time.Minute), Segments: words(10)},
+		{ID: "bluedot:x", Source: "bluedot", Kind: item.KindMeeting, OccurredAt: at, EndedAt: at.Add(30 * time.Minute), Segments: words(100)},
+		{ID: "tomoe:y", Source: "tomoe", Kind: item.KindMeeting, OccurredAt: at.Add(2 * time.Hour), EndedAt: at.Add(150 * time.Minute), Segments: words(95)},
+		{ID: "bluedot:y", Source: "bluedot", Kind: item.KindMeeting, OccurredAt: at.Add(2 * time.Hour), EndedAt: at.Add(150 * time.Minute), Segments: words(100)},
+	}
+	d := meetingDuplicates(items, []string{"tomoe", "bluedot"}, func(string) bool { return false })
+	if d["tomoe:x"] != "bluedot:x" || d["bluedot:y"] != "tomoe:y" {
+		t.Errorf("duplicates = %v: want Tomoe's broken copy of x to give way, and Tomoe kept for y", d)
+	}
+}

@@ -101,7 +101,13 @@ earlier behaviour, is in `internal/config/config.go`.
 
 - **Tomoe sessions** are read from `~/.local/share/tomoe/sessions`
   (`tomoe_sessions`); `musubi update` ingests new ones, and the app does
-  when Tomoe saves a meeting (`live.update_on_save`).
+  when Tomoe saves a meeting (`live.update_on_save`) and, with
+  `live.update_every` (minutes), on a timer.
+- **Bluedot transcripts** (markdown) are read from a folder (`bluedot_dir`,
+  from `bluedot_since`): for meetings Tomoe missed. A meeting both recorded
+  is knowledge once: Tomoe's copy, unless it holds under 80% of Bluedot's
+  words (a broken capture). One knowledge run at a time per dataset, across
+  the app and the CLI (`knowledge.lock` in the data folder).
 - **Calendar, email, chat and CRM** arrive as JSON envelopes in
   `~/.local/share/musubi/inbox/<source>/` (format: `internal/source/mcpdrop`).
 - **Datasets.** Experiments run as separate instances, each a directory

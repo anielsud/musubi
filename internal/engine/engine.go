@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/anielsud/musubi/internal/raw"
 	"github.com/anielsud/musubi/internal/sensitivity"
 	"github.com/anielsud/musubi/internal/source"
+	"github.com/anielsud/musubi/internal/source/bluedot"
 	"github.com/anielsud/musubi/internal/source/mcpdrop"
 	"github.com/anielsud/musubi/internal/source/tomoe"
 	"github.com/anielsud/musubi/internal/store"
@@ -94,6 +96,16 @@ func (e *Engine) Runner(embs []provider.Embedder, log io.Writer) (*pipeline.Runn
 	var conns []source.Connector
 	if e.Cfg.TomoeSessions != "" {
 		conns = append(conns, tomoe.Connector{Dir: e.Cfg.TomoeSessions})
+	}
+	if e.Cfg.BluedotDir != "" {
+		conns = append(conns, bluedot.Connector{Dir: e.Cfg.BluedotDir, Since: e.Cfg.BluedotSince, Known: func(ref string) bool {
+			for _, src := range []string{"teams", "teams-elt"} {
+				if _, ok, _ := e.Store.ManifestHash(src, ref); ok {
+					return true
+				}
+			}
+			return false
+		}})
 	}
 	conns = append(conns, mcpdrop.Connector{Dir: e.Cfg.InboxDir()})
 	if embs == nil && e.Embedder != nil {
@@ -257,6 +269,13 @@ func (e *Engine) Knowledge(ctx context.Context, log io.Writer, o pipeline.Knowle
 	}
 	e.updating.Lock()
 	defer e.updating.Unlock()
+	// One knowledge run per dataset, across processes (the app and the
+	// CLI): two would thread the same items.
+	unlock, err := lockFile(filepath.Join(e.Cfg.DataDir, "knowledge.lock"))
+	if err != nil {
+		return ks, err
+	}
+	defer unlock()
 	return r.Knowledge(ctx, o)
 }
 

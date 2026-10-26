@@ -16,6 +16,12 @@ type Config struct {
 	DataDir string `toml:"data_dir"`
 	// TomoeSessions is Tomoe's session directory; empty disables the source.
 	TomoeSessions string `toml:"tomoe_sessions"`
+	// BluedotDir is a folder of Bluedot meeting transcripts (markdown);
+	// empty disables the source. BluedotSince ("2006-01-02") skips older
+	// files. A transcript already loaded through the inbox (the same file,
+	// as source "teams") isn't read again.
+	BluedotDir   string `toml:"bluedot_dir"`
+	BluedotSince string `toml:"bluedot_since"`
 
 	Owner       Owner       `toml:"owner"`
 	Embed       Embed       `toml:"embed"`
@@ -373,6 +379,10 @@ type Live struct {
 	LLMSuggestions bool `toml:"llm_suggestions"`
 	// UpdateOnSave ingests a meeting as soon as Tomoe saves it.
 	UpdateOnSave bool `toml:"update_on_save"`
+	// UpdateEvery (minutes) also updates on a timer, for sources that
+	// change on their own schedule (a transcript folder). 0: only on save
+	// and by hand, as before.
+	UpdateEvery int `toml:"update_every"`
 	// Focus shows what fits the conversation: each topic card's few lines
 	// closest to the last 90 s, the line that raised it, at most two cards
 	// open (the most recently mentioned, within three minutes) and the
@@ -425,7 +435,7 @@ func DefaultConfig() Config {
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe"}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
+		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

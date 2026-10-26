@@ -28,6 +28,7 @@ import (
 	"github.com/anielsud/musubi/internal/raw"
 	"github.com/anielsud/musubi/internal/sensitivity"
 	"github.com/anielsud/musubi/internal/source"
+	"github.com/anielsud/musubi/internal/source/bluedot"
 	"github.com/anielsud/musubi/internal/source/mcpdrop"
 	"github.com/anielsud/musubi/internal/source/tomoe"
 	"github.com/anielsud/musubi/internal/store"
@@ -100,6 +101,16 @@ func runner(cfg config.Config, st *store.Store, embs []provider.Embedder, inbox,
 	var conns []source.Connector
 	if cfg.TomoeSessions != "" {
 		conns = append(conns, tomoe.Connector{Dir: cfg.TomoeSessions})
+	}
+	if cfg.BluedotDir != "" {
+		conns = append(conns, bluedot.Connector{Dir: cfg.BluedotDir, Since: cfg.BluedotSince, Known: func(ref string) bool {
+			for _, src := range []string{"teams", "teams-elt"} {
+				if _, ok, _ := st.ManifestHash(src, ref); ok {
+					return true
+				}
+			}
+			return false
+		}})
 	}
 	conns = append(conns, mcpdrop.Connector{Dir: inbox})
 	return &pipeline.Runner{Cfg: cfg, Store: st, Raw: rs, Connectors: conns, Embedders: embs, CuratedPath: curated, Log: os.Stderr}, nil

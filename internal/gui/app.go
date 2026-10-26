@@ -88,6 +88,20 @@ func (a *App) openConfig(path string) error {
 		a.emit("app:status", a.Status())
 	}()
 	go a.live.Run(lctx)
+	if n := e.Cfg.Live.UpdateEvery; n > 0 {
+		go func() {
+			t := time.NewTicker(time.Duration(n) * time.Minute)
+			defer t.Stop()
+			for {
+				select {
+				case <-lctx.Done():
+					return
+				case <-t.C:
+					a.Update() // skips itself while another is going
+				}
+			}
+		}()
+	}
 	// Build the topic map now, so Explore opens without waiting for every
 	// claim's evidence to load (seconds on a large corpus). The result is
 	// cached until the data, the scope or the day changes.

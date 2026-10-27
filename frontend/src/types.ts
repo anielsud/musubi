@@ -198,14 +198,6 @@ export interface AppStatus {
   dataset: string;
 }
 
-export interface DatasetView {
-  key: string;
-  name: string;
-  note?: string;
-  available: boolean;
-  current: boolean;
-}
-
 export interface Statement {
   id: number;
   itemId: string;

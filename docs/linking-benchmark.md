@@ -110,8 +110,8 @@ runs per variant (`CACHE_SALT` reruns the same prompts afresh).
 ## Datasets
 
 The benchmark's systems are kept as app datasets (listed in
-`~/.config/musubi/datasets.toml`, opened from the app's dropdown, two side
-by side), all on the same four meetings, under
+`~/.config/musubi/datasets.toml`; the app's dropdown and side-by-side
+view that opened them were removed in October 2026), all on the same four meetings, under
 `testdata/private/datasets/`:
 
 | Dataset | Holds |

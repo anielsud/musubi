@@ -216,13 +216,13 @@ cold lane like any other source.
   line by line on its own clock, each line's work (lookups, cards,
   suggestions, summaries) done before the next, so the result doesn't
   depend on speed. `--events` writes every panel event for measuring.
-- **Datasets**: a dropdown under the title bar switches the window to
-  another instance listed in `~/.config/musubi/datasets.toml` (key, name,
-  config, note; `MUSUBI_DATASETS` overrides the path). The window title
-  names the dataset; the last one opened is reopened at start. Entries
-  whose config doesn't exist yet show as not built. (Comparing two
-  datasets side by side, and Explore → Compare, were removed on
-  2026-10-23: the dataset choice they served is made.)
+- **Datasets**: the window opens `MUSUBI_CONFIG` when set, else the
+  dataset last opened, else the first built one in
+  `~/.config/musubi/datasets.toml` (key, name, config, note;
+  `MUSUBI_DATASETS` overrides the path), else the default config. The
+  window title names the dataset. The dropdown that switched datasets was
+  removed on 2026-10-27, after side-by-side compare (2026-10-23): one
+  dataset is in use and no experiments need switching.
 - **Landscape**: the ▭ button widens the window to most of the screen
   (and back). From 1000 px wide the layout uses columns: in Explore, the
   topic views stay on the left and the list or a topic's page opens beside

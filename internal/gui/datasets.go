@@ -1,21 +1,11 @@
 package gui
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/anielsud/musubi/internal/config"
 )
-
-// DatasetView is a dataset as the dropdown shows it.
-type DatasetView struct {
-	Key       string `json:"key"`
-	Name      string `json:"name"`
-	Note      string `json:"note,omitempty"`
-	Available bool   `json:"available"`
-	Current   bool   `json:"current"`
-}
 
 // lastDatasetPath remembers the dataset last opened, for the next start.
 func lastDatasetPath() string {
@@ -58,48 +48,4 @@ func datasetName(path string) string {
 		return "default"
 	}
 	return filepath.Base(filepath.Dir(path))
-}
-
-// Datasets lists the datasets in the datasets file.
-func (a *App) Datasets() ([]DatasetView, error) {
-	ds, err := config.LoadDatasets()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]DatasetView, 0, len(ds))
-	for _, d := range ds {
-		out = append(out, DatasetView{Key: d.Key, Name: d.Name, Note: d.Note, Available: d.Available(), Current: d.Config == a.cfgPath})
-	}
-	return out, nil
-}
-
-func findDataset(key string) (config.Dataset, error) {
-	ds, err := config.LoadDatasets()
-	if err != nil {
-		return config.Dataset{}, err
-	}
-	for _, d := range ds {
-		if d.Key == key {
-			if !d.Available() {
-				return d, fmt.Errorf("dataset %q is not built yet", d.Name)
-			}
-			return d, nil
-		}
-	}
-	return config.Dataset{}, fmt.Errorf("no dataset %q", key)
-}
-
-// SwitchDataset opens another dataset in this window; the frontend reloads.
-func (a *App) SwitchDataset(key string) error {
-	d, err := findDataset(key)
-	if err != nil {
-		return err
-	}
-	if err := a.openConfig(d.Config); err != nil {
-		a.err = err.Error()
-		return err
-	}
-	os.WriteFile(lastDatasetPath(), []byte(d.Key), 0o600)
-	a.emit("app:status", a.Status())
-	return nil
 }

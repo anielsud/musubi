@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { AliasUsage, AliasView, AppStatus, ClaimView, DatasetView, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, StatementEdit, ThreadEditView, TopicMapData, TopicSummary, TopicView } from './types';
+import type { AliasUsage, AliasView, AppStatus, ClaimView, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, StatementEdit, ThreadEditView, TopicMapData, TopicSummary, TopicView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -40,8 +40,6 @@ export const api = {
   claim: (id: number, scope: string): Promise<ClaimView | null> => app().Claim(id, scope),
   searchClaims: (q: string, scope: string): Promise<ClaimView[] | null> => app().SearchClaims(q, scope),
   judge: (statementId: number, verdict: string, note = ''): Promise<void> => app().Judge(statementId, verdict, note),
-  datasets: (): Promise<DatasetView[] | null> => app().Datasets(),
-  switchDataset: (key: string): Promise<void> => app().SwitchDataset(key),
   topicMap: (scope: string): Promise<TopicMapData> => app().TopicMap(scope),
   setWide: (on: boolean): Promise<void> => app().SetWide(on),
   aliases: (status: string, limit = 100): Promise<AliasView[] | null> => app().Aliases(status, limit),

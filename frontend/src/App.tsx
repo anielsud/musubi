@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, on } from './api';
-import type { AppStatus, DatasetView, Hit, LiveStatus } from './types';
+import type { AppStatus, Hit, LiveStatus } from './types';
 import { LiveView } from './components/LiveView';
 import { AskView } from './components/AskView';
 import { PrepView } from './components/PrepView';
@@ -90,8 +90,6 @@ export function App() {
         </div>
       </header>
 
-      <DatasetPicker onError={setToast} />
-
       <nav className="tabs" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
         {(['live', 'ask', 'prep', 'explore', 'status'] as View[]).map((v) => (
           <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
@@ -117,33 +115,6 @@ export function App() {
       <SelectionMenu onAsk={askAbout} onCorrect={correct} onSource={(itemId, chunkId) => setSource({ itemId, chunkId, scope })} />
       </div>
       {diag && <DiagPanel />}
-    </div>
-  );
-}
-
-// DatasetPicker switches this window to another dataset.
-function DatasetPicker({ onError }: { onError: (m: string) => void }) {
-  const [sets, setSets] = useState<DatasetView[]>([]);
-  useEffect(() => {
-    const t = setTimeout(() => api.datasets().then((d) => setSets(d ?? [])).catch(() => {}), 200);
-    return () => clearTimeout(t);
-  }, []);
-  if (sets.length === 0) return null;
-  const current = sets.find((d) => d.current)?.key ?? '';
-  const switchTo = (key: string) => {
-    if (!key || key === current) return;
-    api.switchDataset(key).then(() => window.location.reload(), (e) => onError(String(e)));
-  };
-  return (
-    <div className="datasets" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
-      <select value={current} onChange={(e) => switchTo(e.target.value)} title="Dataset shown in this window">
-        {!current && <option value="">default config</option>}
-        {sets.map((d) => (
-          <option key={d.key} value={d.key} disabled={!d.available} title={d.note}>
-            {d.name}{d.available ? '' : ' (not built)'}
-          </option>
-        ))}
-      </select>
     </div>
   );
 }

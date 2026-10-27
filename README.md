@@ -67,15 +67,15 @@ Config: `~/.config/musubi/config.toml` (owner email and internal domains at
 least). Calendar, mail and chat arrive as JSON envelopes in
 `~/.local/share/musubi/inbox/<source>/` (format in
 `internal/source/mcpdrop`). `MUSUBI_CONFIG` points the CLI and the app at
-another config, for experiment instances beside the real one. The app lists
-datasets from `~/.config/musubi/datasets.toml` in a dropdown to switch
-between:
+another config, for experiment instances beside the real one. The app opens
+the dataset last opened from `~/.config/musubi/datasets.toml`, else its
+first entry:
 
 ```toml
 [[dataset]]
-key = "best-glm"
-name = "Best GLM"
-config = "/path/to/datasets/best-glm/config.toml"
+key = "all"
+name = "All"
+config = "/path/to/datasets/all/config.toml"
 note = "what is in it"
 ```
 

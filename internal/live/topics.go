@@ -36,6 +36,9 @@ type TopicCard struct {
 	MentionedAgo float64     `json:"mentionedAgo"`
 	// Fit is how well it fits the conversation (live.relevance).
 	Fit float64 `json:"fit,omitempty"`
+	// Kept: pushed off the panel by newer cards, kept collapsed
+	// (live.keep_topics); not ranked against the conversation.
+	Kept bool `json:"kept,omitempty"`
 }
 
 // FocusLine is a card line chosen for the conversation, with its section.
@@ -143,9 +146,24 @@ func (l *Live) showTopic(cycle int, topic knowledge.Anchor, why string, spokenAg
 		}
 		kept = append(kept, t)
 	}
+	// Raised again after it was pushed off: back on the panel.
+	dropped := l.dropped[:0:0]
+	for _, t := range l.dropped {
+		if t.id == topic {
+			continue
+		}
+		dropped = append(dropped, t)
+	}
 	if len(kept) > maxTopics {
+		if l.eng.Cfg.Live.Focus && l.eng.Cfg.Live.KeepTopics > 0 {
+			dropped = append(append([]shownTopic(nil), kept[maxTopics:]...), dropped...)
+			if len(dropped) > l.eng.Cfg.Live.KeepTopics {
+				dropped = dropped[:l.eng.Cfg.Live.KeepTopics]
+			}
+		}
 		kept = kept[:maxTopics]
 	}
+	l.dropped = dropped
 	same := len(l.topics) > 0 && l.topics[0].id == topic
 	l.topics = kept
 	due := same && l.eng.Cfg.Live.Focus && l.since(l.topicsAt) >= focusRefresh
@@ -161,6 +179,7 @@ func (l *Live) emitTopics(cycle int) {
 	t0 := time.Now()
 	l.mu.Lock()
 	cs, shown, scopeName := l.topicIx, append([]shownTopic(nil), l.topics...), l.scope
+	dropped := append([]shownTopic(nil), l.dropped...)
 	l.topicsAt = l.now()
 	clock := l.clockLocked()
 	var window string
@@ -174,14 +193,14 @@ func (l *Live) emitTopics(cycle int) {
 		now = l.meeting.Session.CreatedAt
 	}
 	l.mu.Unlock()
-	out := []TopicCard{}
+	out, kept := []TopicCard{}, []TopicCard{}
 	if cs != nil {
 		if sc, err := l.eng.Scope(scopeName); err == nil {
 			sts, _ := l.eng.Store.ThreadStatuses(sc)
-			for _, t := range shown {
+			build := func(t shownTopic) *TopicCard {
 				c, err := cs.Card(sc, t.id, now)
 				if err != nil || c == nil {
-					continue
+					return nil
 				}
 				// Collapsing sensitive cards is for a shared screen; in private
 				// they show as they are.
@@ -201,7 +220,18 @@ func (l *Live) emitTopics(cycle int) {
 					tc.Focus, tc.Quote, tc.MentionedAgo = true, t.quote, clock-t.mentioned
 					tc.Stale = !c.Last.IsZero() && now.Sub(c.Last) > staleAfter
 				}
-				out = append(out, tc)
+				return &tc
+			}
+			for _, t := range shown {
+				if tc := build(t); tc != nil {
+					out = append(out, *tc)
+				}
+			}
+			for _, t := range dropped {
+				if tc := build(t); tc != nil {
+					tc.Kept = true
+					kept = append(kept, *tc)
+				}
 			}
 		}
 	}
@@ -236,6 +266,7 @@ func (l *Live) emitTopics(cycle int) {
 			return out[a].Fit > out[b].Fit
 		})
 	}
+	out = append(out, kept...)
 	var titles []string
 	for _, c := range out {
 		titles = append(titles, c.Title)

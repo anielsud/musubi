@@ -205,7 +205,13 @@ cold lane like any other source.
   discussed over 60 days ago are marked old. Without relevance, the two
   most recently raised cards and the two newest lookups are open; the
   rest are one line each under "Earlier in this meeting". Sensitive cards
-  collapse to their title only on a shared screen.
+  collapse to their title only on a shared screen. The panel holds four
+  cards; with `live.keep_topics` (default 0: dropped), cards pushed off
+  by newer ones stay for the meeting, at most that many, most recent
+  first. They aren't ranked against the conversation. In landscape,
+  earlier cards show as collapsed cards (title, the line that raised it,
+  age) as a menu of what else to raise; a click opens one, × collapses
+  it. Raised again, a kept card goes back on the panel.
 - **Relevance** (`[live.relevance]`): cards and lookups compete for four
   places by how well they fit the last 90 s, asked of a classifier (Jev,
   or the chat model's yes/no) as one question, about 100 ms a call. What

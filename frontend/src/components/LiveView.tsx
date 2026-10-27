@@ -151,7 +151,10 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
       <div className="live-right">
       {openTopics.length > 0 && (
         <section className="topics">
-          {openTopics.map((t) => <TopicCardView key={topicKey(t)} card={t} onTopic={onTopic} />)}
+          {openTopics.map((t) => (
+            <TopicCardView key={topicKey(t)} card={t} onTopic={onTopic}
+              onClose={focus && opened.has(topicKey(t)) && !t.active ? () => toggleOpened(topicKey(t)) : undefined} />
+          ))}
         </section>
       )}
 
@@ -167,9 +170,14 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
       {(earlierTopics.length > 0 || earlierBriefs.length > 0) && (
         <section className="earlier">
           <div className="section-head"><span>Earlier in this meeting</span></div>
+          {earlierTopics.length > 0 && (
+            <div className="topic-stubs">
+              {earlierTopics.map((t) => <TopicStub key={topicKey(t)} card={t} onOpen={() => toggleOpened(topicKey(t))} onTopic={onTopic} />)}
+            </div>
+          )}
           <div className="chips">
             {earlierTopics.map((t) => (
-              <button key={topicKey(t)} className="chip earlier-chip" onClick={() => toggleOpened(topicKey(t))} title={t.quote ? '“' + t.quote + '”' : t.why}>
+              <button key={topicKey(t)} className="chip earlier-chip topic-chip" onClick={() => toggleOpened(topicKey(t))} title={t.quote ? '“' + t.quote + '”' : t.why}>
                 {t.title}{t.stale && <span className="dim"> · old</span>}
               </button>
             ))}
@@ -343,15 +351,35 @@ const sectionLabel: Record<string, string> = {
 // ask. On a shared screen, cards about people's jobs, pay or health, or
 // restricted ones, show their title only until opened (the backend sends
 // them uncollapsed in private).
-function TopicCardView({ card, onTopic }: { card: TopicCard; onTopic: (id: number) => void }) {
-  if (card.focus && !card.collapsed) return <FocusCardView card={card} onTopic={onTopic} />;
+function TopicCardView({ card, onTopic, onClose }: { card: TopicCard; onTopic: (id: number) => void; onClose?: () => void }) {
+  if (card.focus && !card.collapsed) return <FocusCardView card={card} onTopic={onTopic} onClose={onClose} />;
   return <FullCardView card={card} onTopic={onTopic} />;
+}
+
+// TopicStub is a card that has left the panel, collapsed to what it is
+// and what raised it: in landscape, the menu of what else to raise. A
+// click opens it again.
+function TopicStub({ card, onOpen, onTopic }: { card: TopicCard; onOpen: () => void; onTopic: (id: number) => void }) {
+  return (
+    <article className={'topic stub' + (card.stale ? ' stale' : '')} onClick={onOpen} title="Open the card">
+      <header>
+        <span className="topic-title">{card.title}</span>
+        {card.topicId > 0 && (
+          <button className="link" onClick={(e) => { e.stopPropagation(); onTopic(card.topicId); }} title="Open the topic's page">page →</button>
+        )}
+      </header>
+      {card.quote && <div className="card-quote">“{card.quote}”</div>}
+      <div className="brief-why">
+        {card.stale && <span className="old">old · </span>}last discussed {fmtDate(card.last)} · {card.meetings} meeting{card.meetings === 1 ? '' : 's'}
+      </div>
+    </article>
+  );
 }
 
 // FocusCardView is a card cut to the conversation: what was said that
 // raised it, the subject's age, and its few lines closest to the talk;
 // the whole card is a click away.
-function FocusCardView({ card, onTopic }: { card: TopicCard; onTopic: (id: number) => void }) {
+function FocusCardView({ card, onTopic, onClose }: { card: TopicCard; onTopic: (id: number) => void; onClose?: () => void }) {
   const [more, setMore] = useState(false);
   const sensitive = card.label.level === 'restricted' || card.label.level === 'confidential';
   const lines = card.lines ?? [];
@@ -361,6 +389,7 @@ function FocusCardView({ card, onTopic }: { card: TopicCard; onTopic: (id: numbe
         <span className="topic-title">{card.title}</span>
         {sensitive && <span className={'sens-dot lvl-' + card.label.level} title={card.label.level + (card.label.categories && card.label.categories !== '-' ? ' · ' + card.label.categories : '')} />}
         {card.topicId > 0 && <button className="link" onClick={() => onTopic(card.topicId)} title="Open the topic's page">page →</button>}
+        {onClose && <button className="link" onClick={onClose} title="Collapse it again">×</button>}
       </header>
       {card.quote && <div className="card-quote">“{card.quote}”</div>}
       <div className="brief-why">
@@ -372,6 +401,7 @@ function FocusCardView({ card, onTopic }: { card: TopicCard; onTopic: (id: numbe
           <TopicLineView line={l} />
         </div>
       ))}
+      {!more && lines.length === 0 && card.now && <p className="card-now">{card.now}</p>}
       {more && <CardBody card={card} />}
       <button className="link small" onClick={() => setMore(!more)}>{more ? 'less' : 'more'}</button>
     </article>

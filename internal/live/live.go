@@ -106,6 +106,7 @@ type Live struct {
 	topicIx   *engine.Cards
 	spell     knowledge.Spellings // confirmed spelling aliases, applied to lines
 	topics    []shownTopic
+	dropped   []shownTopic // pushed off by newer cards, most recent first (live.keep_topics)
 	// lineVecs caches card lines' vectors for ranking them against the
 	// conversation (focus); topicsAt is when the cards were last sent.
 	lineVecs map[string][]float32
@@ -326,6 +327,7 @@ func (l *Live) handle(ev Event, mode string) {
 			l.briefed = map[string]time.Time{}
 			l.chips = nil
 			l.topics = nil
+			l.dropped = nil
 			l.places = nil
 			l.lastModelVer = 0
 			l.mu.Unlock()

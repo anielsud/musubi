@@ -389,6 +389,11 @@ type Live struct {
 	// rest as one line, old subjects marked. false: every card in full, as
 	// before.
 	Focus bool `toml:"focus"`
+	// KeepTopics, with focus: topic cards pushed off the panel's few by
+	// newer ones are kept for the rest of the meeting, at most this many,
+	// collapsed ("what else should I raise"); raised again, they come back.
+	// 0: dropped, as before.
+	KeepTopics int `toml:"keep_topics"`
 	// Relevance, with focus, chooses what takes the panel's places by how
 	// well it fits the last 90 s, asked of a classifier (provider "jev",
 	// or "decider": the [llm] model's yes/no) instead of by recency; MinP

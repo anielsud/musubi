@@ -116,6 +116,8 @@ export interface TopicCard {
   active?: boolean;
   stale?: boolean;
   mentionedAgo?: number;
+  // Pushed off the panel by newer cards, kept collapsed for the meeting.
+  kept?: boolean;
   now?: string;
   title: string;
   terms?: string[] | null;

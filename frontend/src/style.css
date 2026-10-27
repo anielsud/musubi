@@ -593,6 +593,15 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .focus-sec { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent-2); flex: none; }
 .searches { margin: 4px 0; align-self: flex-start; }
 .earlier .chips { flex-wrap: wrap; }
+/* Cards that left the panel: chips in the side panel, collapsed cards in
+   landscape (a menu of what else to raise). */
+.topic-stubs { display: none; }
+.topic.stub { cursor: pointer; gap: 4px; }
+.topic.stub .card-quote { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+@media (min-width: 1000px) {
+  .topic-stubs { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; margin-bottom: 8px; }
+  .earlier .topic-chip { display: none; }
+}
 
 /* Status: work queue */
 .warn { color: #c8963e; margin: 4px 0 8px; }

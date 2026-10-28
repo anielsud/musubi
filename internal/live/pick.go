@@ -12,6 +12,7 @@ import (
 	"github.com/anielsud/musubi/internal/engine"
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/provider"
+	"github.com/anielsud/musubi/internal/store"
 )
 
 // Picking topic cards (live.pick, research log 2026-10-28). Lookups,
@@ -68,11 +69,18 @@ type pickState struct {
 	menuKey  string
 	menuAt   float64
 	menuBusy bool
+	// options caches each candidate's option text for the meeting, by
+	// scope ("" when the scope can't see it): candidates repeat from one
+	// pick to the next, and building their cards dominated a pick.
+	options map[string]string
+	// statuses: the scope's written statuses, read once per meeting.
+	statuses      map[int64]store.ThreadStatusRow
+	statusesScope string
 }
 
 func newPickState() pickState {
 	return pickState{at: math.Inf(-1), menuAt: math.Inf(-1), picked: map[int64]float64{},
-		briefs: map[int64]*cardBrief{}, briefing: map[int64]bool{}, menu: map[int64]int{}}
+		briefs: map[int64]*cardBrief{}, briefing: map[int64]bool{}, menu: map[int64]int{}, options: map[string]string{}}
 }
 
 // picking: live.pick is on and has its classifier.
@@ -177,6 +185,7 @@ func (l *Live) pick(cycle int) {
 			add(h.topic, h.w, h.why)
 		}
 	}
+	tNear := time.Now()
 	for i, t := range cs.Near(ctx, window, pickTalk) {
 		add(t, 3/float64(i+1), "the talk")
 	}
@@ -190,11 +199,13 @@ func (l *Live) pick(cycle int) {
 		}
 		return order[i] < order[j]
 	})
+	nearMs := time.Since(tNear).Milliseconds()
 	sc, err := l.eng.Scope(scopeName)
 	if err != nil {
 		return
 	}
-	sts, _ := l.eng.Store.ThreadStatuses(sc)
+	tOpts := time.Now()
+	var sts map[int64]store.ThreadStatusRow
 	opts := map[string]string{"none": "None of these topics is what the conversation is about"}
 	titles := map[int64]string{}
 	var ids []int64
@@ -202,26 +213,41 @@ func (l *Live) pick(cycle int) {
 		if len(ids) == pickCands {
 			break
 		}
-		c, err := cs.Card(sc, knowledge.Anchor{Topic: t}, asOf)
-		if err != nil || c == nil {
-			continue
-		}
-		s := fmt.Sprintf("%s (last discussed %s)", c.Title, c.Last.Format("2006-01-02"))
-		if st, ok := sts[c.TopicID]; ok && !c.Collapsed && !st.AsOf.After(asOf) {
-			var v knowledge.Status
-			if json.Unmarshal([]byte(st.Body), &v) == nil {
-				if n := knowledge.FirstSentence(knowledge.StripIDs(v.Now)); n != "" {
-					s += " — " + n
+		key := fmt.Sprintf("%s/%d", scopeName, t)
+		l.mu.Lock()
+		s, ok := l.pk.options[key]
+		l.mu.Unlock()
+		if !ok {
+			if c, err := cs.Card(sc, knowledge.Anchor{Topic: t}, asOf); err == nil && c != nil {
+				s = fmt.Sprintf("%s (last discussed %s)", c.Title, c.Last.Format("2006-01-02"))
+				if sts == nil {
+					sts = l.pickStatuses(scopeName)
+				}
+				if st, ok := sts[c.TopicID]; ok && !c.Collapsed && !st.AsOf.After(asOf) {
+					var v knowledge.Status
+					if json.Unmarshal([]byte(st.Body), &v) == nil {
+						if n := knowledge.FirstSentence(knowledge.StripIDs(v.Now)); n != "" {
+							s += " — " + n
+						}
+					}
 				}
 			}
+			l.mu.Lock()
+			l.pk.options[key] = s
+			l.mu.Unlock()
+		}
+		if s == "" {
+			continue
 		}
 		opts[fmt.Sprintf("t%d", t)] = s
-		titles[t] = c.Title
+		titles[t], _, _ = strings.Cut(s, " (last discussed")
 		ids = append(ids, t)
 	}
+	optsMs := time.Since(tOpts).Milliseconds()
 	if len(ids) == 0 {
 		return
 	}
+	tJev := time.Now()
 	a, err := rel.Classify(ctx, map[string]any{"meeting": title, "conversation": window},
 		map[string]provider.Question{"topic": {Type: "choice", Instructions: pickQuestion, Options: opts}})
 	if err != nil {
@@ -252,7 +278,7 @@ func (l *Live) pick(cycle int) {
 		cands = append(cands, fmt.Sprintf("%s %.2f (%s)", titles[r.t], r.p, why[r.t]))
 	}
 	l.trace(cycle, "topic", fmt.Sprintf("picked %d of %d: %s", len(picked), len(ids), strings.Join(names, "; ")), time.Since(t0).Milliseconds(),
-		map[string]any{"none": probs["none"], "candidates": cands})
+		map[string]any{"none": probs["none"], "candidates": cands, "nearMs": nearMs, "optionsMs": optsMs, "classifyMs": time.Since(tJev).Milliseconds()})
 	l.mu.Lock()
 	l.pk.picked = picked
 	l.mu.Unlock()
@@ -266,6 +292,25 @@ func (l *Live) pick(cycle int) {
 }
 
 const pickQuestion = "`conversation` is the last 3 minutes of a live meeting (speech recognition; \"You\" is the executive). The options are topics from the executive's past meetings. Which one is the conversation right now actually about, so that showing its notes would help them in this conversation? Choose \"none\" if the conversation is about something none of them covers, about small talk, or only touches one in passing (a shared word or name is not enough)."
+
+// pickStatuses is the scope's written statuses, read once per meeting.
+func (l *Live) pickStatuses(scopeName string) map[int64]store.ThreadStatusRow {
+	l.mu.Lock()
+	sts, ok := l.pk.statuses, l.pk.statusesScope == scopeName && l.pk.statuses != nil
+	l.mu.Unlock()
+	if ok {
+		return sts
+	}
+	sc, err := l.eng.Scope(scopeName)
+	if err != nil {
+		return nil
+	}
+	sts, _ = l.eng.Store.ThreadStatuses(sc)
+	l.mu.Lock()
+	l.pk.statuses, l.pk.statusesScope = sts, scopeName
+	l.mu.Unlock()
+	return sts
+}
 
 // pickedCards marks the picked cards open, best first, with their lines
 // and briefs; the rest stay as one line.

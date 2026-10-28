@@ -80,9 +80,25 @@ const (
 
 // BuildCardIndex reads the knowledge layer into a card index.
 func BuildCardIndex(st *store.Store) (*CardIndex, error) {
+	return BuildCardIndexBefore(st, time.Time{})
+}
+
+// BuildCardIndexBefore reads only what was said before a time (zero: all
+// of it), so a replayed meeting finds no topic, term or claim that came
+// later: topics built from the meeting itself included.
+func BuildCardIndexBefore(st *store.Store, before time.Time) (*CardIndex, error) {
 	rows, err := st.CardRows()
 	if err != nil {
 		return nil, err
+	}
+	if !before.IsZero() {
+		kept := rows[:0]
+		for _, r := range rows {
+			if r.SaidAt.Before(before) {
+				kept = append(kept, r)
+			}
+		}
+		rows = kept
 	}
 	aliases, err := st.PersonNameParts()
 	if err != nil {
@@ -120,6 +136,15 @@ func BuildCardIndex(st *store.Store) (*CardIndex, error) {
 	members, err := st.ThreadMembers()
 	if err != nil {
 		return nil, err
+	}
+	if !before.IsZero() {
+		kept := members[:0]
+		for _, m := range members {
+			if m.SaidAt.Before(before) {
+				kept = append(kept, m)
+			}
+		}
+		members = kept
 	}
 	if len(members) > 0 {
 		// A thread holds what the threader put in it, including statements

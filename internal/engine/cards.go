@@ -17,7 +17,12 @@ type Cards struct {
 // LoadCards builds the card index from the knowledge layer. Rebuild it
 // after the knowledge layer changes.
 func (e *Engine) LoadCards() (*Cards, error) {
-	x, err := knowledge.BuildCardIndex(e.Store)
+	return e.LoadCardsBefore(time.Time{})
+}
+
+// LoadCardsBefore builds it from what was said before a time (zero: all).
+func (e *Engine) LoadCardsBefore(before time.Time) (*Cards, error) {
+	x, err := knowledge.BuildCardIndexBefore(e.Store, before)
 	if err != nil {
 		return nil, err
 	}

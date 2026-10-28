@@ -104,6 +104,7 @@ type Live struct {
 	scope     string
 	sug       *Suggester
 	topicIx   *engine.Cards
+	topicAsOf time.Time           // topicIx holds only what was said before it (replays)
 	spell     knowledge.Spellings // confirmed spelling aliases, applied to lines
 	topics    []shownTopic
 	dropped   []shownTopic // pushed off by newer cards, most recent first (live.keep_topics)
@@ -164,8 +165,11 @@ func (l *Live) Reload() (err error) {
 		return err
 	}
 	var cs *engine.Cards
+	l.mu.Lock()
+	asOf := l.topicAsOf
+	l.mu.Unlock()
 	if l.eng.Cfg.Live.TopicCards {
-		if cs, err = l.eng.LoadCards(); err != nil {
+		if cs, err = l.eng.LoadCardsBefore(asOf); err != nil {
 			return err
 		}
 	}
@@ -194,6 +198,30 @@ func (l *Live) Reload() (err error) {
 	l.spell = knowledge.Spellings(sp)
 	l.mu.Unlock()
 	return nil
+}
+
+// cardsAsOf gives a replayed meeting a card index of what was said before
+// it, and a live one the whole of it: topics threaded from the meeting
+// itself, or from later ones, would otherwise answer its lookups.
+func (l *Live) cardsAsOf(mode string, start time.Time) {
+	var before time.Time
+	if mode == "replay" {
+		before = start
+	}
+	l.mu.Lock()
+	same := l.topicIx == nil || l.topicAsOf.Equal(before)
+	l.mu.Unlock()
+	if same {
+		return
+	}
+	cs, err := l.eng.LoadCardsBefore(before)
+	if err != nil {
+		l.trace(0, "topic", "card index as of the meeting: "+err.Error(), 0, nil)
+		return
+	}
+	l.mu.Lock()
+	l.topicIx, l.topicAsOf = cs, before
+	l.mu.Unlock()
 }
 
 func (l *Live) Status() Status {
@@ -322,6 +350,9 @@ func (l *Live) handle(ev Event, mode string) {
 				}
 				l.clocked = nil
 			}
+			l.mu.Unlock()
+			l.cardsAsOf(mode, ev.Session.CreatedAt)
+			l.mu.Lock()
 			l.meeting = NewMeeting(*ev.Session)
 			l.mode = mode
 			l.briefed = map[string]time.Time{}

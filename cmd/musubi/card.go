@@ -31,7 +31,14 @@ func cardCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cs, err := e.LoadCards()
+			asOf, before := time.Now(), time.Time{}
+			if at != "" {
+				if asOf, err = time.ParseInLocation("2006-01-02", at, time.Local); err != nil {
+					return err
+				}
+				before = asOf
+			}
+			cs, err := e.LoadCardsBefore(before)
 			if err != nil {
 				return err
 			}
@@ -40,12 +47,6 @@ func cardCmd() *cobra.Command {
 					fmt.Printf("%-24s topic %-4d → %s\n", t.Term, t.Topic, t.Anchor.Key())
 				}
 				return nil
-			}
-			asOf := time.Now()
-			if at != "" {
-				if asOf, err = time.ParseInLocation("2006-01-02", at, time.Local); err != nil {
-					return err
-				}
 			}
 			text := strings.Join(args, " ")
 			var a knowledge.Anchor

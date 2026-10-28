@@ -2849,3 +2849,59 @@ Findings:
 Next: thin the menu by ranking the candidates together against the talk
 and attendees and showing ~5; put C's headline + raise line on cards.
 Topic choice (finding 1) is the larger, separate problem.
+
+## 2026-10-28: Topic choice: a picker over candidates
+
+Why the paper test's cards were off-topic, and a first fix measured
+offline on the same meeting.
+
+**A replay leak** (fixed, f977874). Replays and `card --at` found topics
+in the whole knowledge base, including topics threaded from the replayed
+meeting itself. The most-matched topic in the paper test's replay was
+built from that meeting: empty as of the meeting, so never shown, while
+it took the lookups from the right earlier topic. The index is now built
+from what was said before the meeting.
+
+**Per-query matching.** Each lookup (up to 3 a cycle) opens the topic of
+its nearest claims at similarity ≥ 0.66. Similarity doesn't separate good
+from bad (good 0.69–0.78, bad 0.69–0.80), and the relevance check passed
+wrong cards at 0.56–0.89: judged one at a time, and shown the very words
+that matched, almost any card looks relevant.
+
+**The test.** 45 one-minute windows (the last 3 minutes of talk each),
+with the index as of the meeting. Candidates per window: the 12 topics
+most of that stretch's lookups, trigger terms and the talk itself point
+at. Reference: an Opus labeller, blind to the picks, marked each window's
+candidates right (what the conversation is about), adjacent (worth
+raising next) or neither, calibrated on the user's paper-test notes. 42
+windows have a right candidate; 3 don't.
+
+| Method | Cards | Right | Right or adjacent | Top pick right | Silent when it shouldn't be | Shows when nothing fits | Latency (median / p90) |
+|---|---|---|---|---|---|---|---|
+| Today's rule (two most recent) | 90 | 12% | 13% | 4/42 | 0/42 | 3/3 | — |
+| Jev choice, p ≥ 0.3 | 46 | 80% | 83% | 34/42 | 2/42 | 2/3 | 0.13 s / 0.17 s |
+| Jev choice, p ≥ 0.4 | 37 | 84% | 86% | 30/42 | 8/42 | 2/3 | |
+| Jev choice, p ≥ 0.5 | 29 | 90% | 93% | 26/42 | 15/42 | 2/3 | |
+| GLM-5.3-Flash picks ≤ 2 | 78 | 69% | 79% | 32/42 | 0/42 | 2/3 | 5.3 s / 9.8 s |
+
+Jev: one choice question, the candidates (title, last discussed, status
+sentence) plus "none"; $0.004 for 45 windows. GLM: the same list, picks
+up to two and names a theme ($0.016). Today's rule is approximated
+without the relevance gate, which in the replay passed nearly
+everything.
+
+Findings:
+1. Choosing among candidates against the conversation, not matching each
+   query, is the fix: 12% → 80–90% right.
+2. Jev beats GLM on precision at a fraction of the latency; GLM nearly
+   always picks two. GLM's theme names read well ("Graph escalations &
+   SaaS CMS feedback") but are not needed to choose.
+3. The ceiling is now the candidate list: the right topic was sometimes
+   missing in windows where it was being discussed, and several subjects
+   had no topic at all. Old topics (board meetings, a roadshow) and
+   name-only matches crowd the 12.
+4. Caveats: one meeting, one labeller (a model), and only 3 windows where
+   nothing fits, so "shows when nothing fits" is barely tested.
+
+Next: a Jev picker in Live behind a config key, then the user grades a
+second meeting.

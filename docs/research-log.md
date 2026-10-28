@@ -2799,3 +2799,53 @@ Not yet done, to do before the next batch run:
 5. Serving: the slowest calls stream at about 4 tokens a second on the
    shared endpoint. Measure a dedicated deployment or another approved
    provider; a narrower reconcile (2026-10-20) is still unbuilt.
+
+## 2026-10-28: Paper test of topic card content
+
+One 45-minute 1:1 (picked at random) through a stepped replay with the
+shipped settings (focus, Jev relevance, `keep_topics`). 26 cards opened;
+12 sampled. At each, the user graded three unlabelled versions against the
+last 90 s of talk:
+
+- **A**: as shipped (the raising line + the 3 lines closest to the talk).
+- **B**: the status sentence + 3 lines on the topic that the last 5 minutes
+  had not covered, open/due items first (embedding novelty).
+- **C**: a GLM-5.3-Flash headline (where it stands, ≤18 words) + one
+  "raise" line (what to raise or ask in this meeting), one call per card
+  from its own lines. 97 cards, $0.02.
+
+And at three points, the menu of earlier cards: recency (as shipped)
+against C's raise lines ranked by a 0–3 "worth" score.
+
+| | helpful | some | no |
+|---|---|---|---|
+| A | 0 | 3 | 5 |
+| B | 0 | 2 | 5 |
+| C | 3 | 1 | 4 |
+
+(8 moments graded per version; the other 4 got notes only.)
+
+Findings:
+1. **Topic choice is the bigger problem.** 5 of 12 moments were the wrong
+   topic altogether (every version "no"): the talk was about something
+   with no card raised, or a broad theme (a product's escalations, the
+   team's workload, a reorg) that the matcher mapped to one peripheral
+   card. One was a noisy cluster. No card content fixes these.
+2. **When the topic is right, C wins**: helpful 3 of 4, A and B never.
+   Tight text preferred throughout; A's lines read as too much text.
+3. **What the user wanted instead** was situational, across topics:
+   "escalations I've heard about recently for this product", "this
+   person's current priorities as I understand them", "the proposals this
+   person has made". That is retrieval by situation (see 2026-10-1x
+   insights direction), not one topic's card.
+4. **Person cards** worked as branching structure: nearby topics worth
+   getting into with the person in the room.
+5. **Menu: the raise list won 3 of 3** ("I really like the menu",
+   especially the conceptual questions), but it is too long: 24–27 items.
+   The per-card worth score does not thin it: 52 of 77 scored 3, the rest
+   2. Scored one card at a time without the talk, everything looks worth
+   raising.
+
+Next: thin the menu by ranking the candidates together against the talk
+and attendees and showing ~5; put C's headline + raise line on cards.
+Topic choice (finding 1) is the larger, separate problem.

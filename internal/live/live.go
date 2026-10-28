@@ -134,6 +134,13 @@ type Live struct {
 
 	llmBusy sync.Mutex
 
+	// CardsOnly (stepped replays): only the work topic cards depend on.
+	// Lookups put their topics forward without searching or summarising,
+	// and the model suggests on complete lines, not drafts. A 45-minute
+	// meeting took about an hour stepped, most of it lookups and
+	// summaries that cards don't use.
+	CardsOnly bool
+
 	ctx             context.Context
 	lastModelFinals int
 	wake            chan struct{}
@@ -740,6 +747,10 @@ type sumJob struct {
 // brief searches for a suggestion and shows the passages straight away;
 // the summary follows from the summariser.
 func (l *Live) brief(ctx context.Context, cycle int, s Suggestion, exclude []string, scopeName string, lines []Segment) {
+	if l.CardsOnly {
+		l.lookupTopic(ctx, cycle, s)
+		return
+	}
 	b := Brief{Query: s.Query, Why: s.Why, Kind: s.Kind, State: "loading", At: time.Now(), SpokenAgo: -1}
 	said := evidenceAt(s.Query, lines)
 	if l.eng.Cfg.Live.Focus {

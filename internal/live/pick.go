@@ -12,6 +12,7 @@ import (
 	"github.com/anielsud/musubi/internal/engine"
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/provider"
+	"github.com/anielsud/musubi/internal/sensitivity"
 	"github.com/anielsud/musubi/internal/store"
 )
 
@@ -73,6 +74,9 @@ type pickState struct {
 	// scope ("" when the scope can't see it): candidates repeat from one
 	// pick to the next, and building their cards dominated a pick.
 	options map[string]string
+	// cards: a replay's cards, built once: what was known as of the
+	// meeting doesn't change during it.
+	cards map[string]*knowledge.Card
 	// statuses: the scope's written statuses, read once per meeting.
 	statuses      map[int64]store.ThreadStatusRow
 	statusesScope string
@@ -80,7 +84,7 @@ type pickState struct {
 
 func newPickState() pickState {
 	return pickState{at: math.Inf(-1), menuAt: math.Inf(-1), picked: map[int64]float64{},
-		briefs: map[int64]*cardBrief{}, briefing: map[int64]bool{}, menu: map[int64]int{}, options: map[string]string{}}
+		briefs: map[int64]*cardBrief{}, briefing: map[int64]bool{}, menu: map[int64]int{}, options: map[string]string{}, cards: map[string]*knowledge.Card{}}
 }
 
 // picking: live.pick is on and has its classifier.
@@ -218,7 +222,7 @@ func (l *Live) pick(cycle int) {
 		s, ok := l.pk.options[key]
 		l.mu.Unlock()
 		if !ok {
-			if c, err := cs.Card(sc, knowledge.Anchor{Topic: t}, asOf); err == nil && c != nil {
+			if c, err := l.cardOf(cs, sc, scopeName, knowledge.Anchor{Topic: t}, asOf); err == nil && c != nil {
 				s = fmt.Sprintf("%s (last discussed %s)", c.Title, c.Last.Format("2006-01-02"))
 				if sts == nil {
 					sts = l.pickStatuses(scopeName)
@@ -292,6 +296,25 @@ func (l *Live) pick(cycle int) {
 }
 
 const pickQuestion = "`conversation` is the last 3 minutes of a live meeting (speech recognition; \"You\" is the executive). The options are topics from the executive's past meetings. Which one is the conversation right now actually about, so that showing its notes would help them in this conversation? Choose \"none\" if the conversation is about something none of them covers, about small talk, or only touches one in passing (a shared word or name is not enough)."
+
+// cardOf builds a topic's card under a scope; in a replay, once.
+func (l *Live) cardOf(cs *engine.Cards, sc sensitivity.Scope, scopeName string, a knowledge.Anchor, now time.Time) (*knowledge.Card, error) {
+	l.mu.Lock()
+	replay := l.mode == "replay"
+	key := scopeName + "/" + a.Key()
+	c, ok := l.pk.cards[key]
+	l.mu.Unlock()
+	if replay && ok {
+		return c, nil
+	}
+	c, err := cs.Card(sc, a, now)
+	if err == nil && replay {
+		l.mu.Lock()
+		l.pk.cards[key] = c
+		l.mu.Unlock()
+	}
+	return c, err
+}
 
 // pickStatuses is the scope's written statuses, read once per meeting.
 func (l *Live) pickStatuses(scopeName string) map[int64]store.ThreadStatusRow {

@@ -849,7 +849,7 @@ func askCmd() *cobra.Command {
 
 func liveCmd() *cobra.Command {
 	var replay, events string
-	var stepped bool
+	var stepped, cardsOnly bool
 	var until float64
 	var speed float64
 	var duration time.Duration
@@ -909,6 +909,7 @@ func liveCmd() *cobra.Command {
 				if err := l.Reload(); err != nil {
 					return err
 				}
+				l.CardsOnly = cardsOnly
 				t0 := time.Now()
 				err := l.ReplayStepped(ctx, replay, until)
 				fmt.Fprintf(os.Stderr, "stepped replay: %s\n", time.Since(t0).Round(time.Second))
@@ -931,6 +932,7 @@ func liveCmd() *cobra.Command {
 	c.Flags().StringVar(&events, "events", "", "write every panel event, in full, to this file (JSON lines)")
 	c.Flags().BoolVar(&stepped, "stepped", false, "with --replay: line by line on the meeting's clock, each line's work done before the next (speed-independent; --speed ignored)")
 	c.Flags().Float64Var(&until, "until", 0, "with --stepped: stop at this many seconds into the meeting")
+	c.Flags().BoolVar(&cardsOnly, "cards-only", false, "with --stepped: only what topic cards need (lookups put topics forward without searching or summarising; suggestions on complete lines only)")
 	c.Flags().DurationVar(&duration, "for", 2*time.Minute, "how long to run")
 	return c
 }

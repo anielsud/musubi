@@ -217,7 +217,7 @@ func (l *Live) emitTopics(cycle int) {
 		if sc, err := l.eng.Scope(scopeName); err == nil {
 			sts, _ := l.eng.Store.ThreadStatuses(sc)
 			build := func(t shownTopic) *TopicCard {
-				c, err := cs.Card(sc, t.id, now)
+				c, err := l.cardOf(cs, sc, scopeName, t.id, now)
 				if err != nil || c == nil {
 					return nil
 				}

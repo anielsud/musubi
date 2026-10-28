@@ -86,7 +86,7 @@ func (l *Live) ReplayStepped(ctx context.Context, sessionID string, until float6
 		l.mu.Lock()
 		m, sug := l.meeting, l.sug
 		run := m != nil && sug != nil && m.Version() != l.lastModelVer &&
-			(m.Finals() != lastFinals || e.At-lastRun >= draftRerun.Seconds()) &&
+			(m.Finals() != lastFinals || !l.CardsOnly && e.At-lastRun >= draftRerun.Seconds()) &&
 			(gap <= 0 || e.At-lastRun >= gap)
 		var recent, scopeName string
 		var lines []Segment

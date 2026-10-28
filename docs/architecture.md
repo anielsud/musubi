@@ -198,7 +198,8 @@ cold lane like any other source.
   term, or a lookup's nearest claims are on a topic, the panel shows that
   topic's card (see "Topic cards" below), rebuilt under the current scope
   whenever the scope changes. A replay sees only what was known when the
-  replayed meeting happened.
+  replayed meeting happened: its card index is built from what was said
+  before it.
 - **Focus** (`live.focus`): each card is cut to the three lines closest
   to the last 90 s (embedding similarity), with the line of the
   conversation that raised it; lookups quote theirs too. Subjects last
@@ -218,6 +219,20 @@ cold lane like any other source.
   is shown keeps its place until a newcomer fits clearly better (0.15) or
   it stops fitting (judged again every 20 s); nothing under the bar
   (`min_p`, 0.5) is shown.
+- **Picking** (`[live.pick]`, with focus and relevance's classifier):
+  lookups, trigger terms and the talk itself put topics forward instead
+  of opening cards. Each lookup votes for its 3 nearest topics, a term
+  said for its topic, and the last 3 minutes for their 5 nearest; every
+  20 s of meeting the classifier reads those 3 minutes and chooses among
+  the 12 strongest candidates (plus "none"), and the up to two above
+  `min_p` (0.4) open. Topic cards replace relevance's places; lookups
+  keep them. `[live.pick.brief]` (a chat model) writes each picked card
+  a headline and what to raise about it in this meeting, shown in place
+  of its lines, and, once more than five cards are kept from earlier,
+  ranks them by what is most worth raising: the menu shows those five,
+  the rest a click away. Briefs are kept per scope, so one written in
+  private doesn't show on a shared screen. Research log 2026-10-28:
+  80–90% of cards on topic against 12%.
 - **Stepped replay** (`musubi live --replay ID --stepped`): the meeting
   line by line on its own clock, each line's work (lookups, cards,
   suggestions, summaries) done before the next, so the result doesn't

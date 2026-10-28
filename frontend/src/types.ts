@@ -118,6 +118,11 @@ export interface TopicCard {
   mentionedAgo?: number;
   // Pushed off the panel by newer cards, kept collapsed for the meeting.
   kept?: boolean;
+  // live.pick.brief: where it stands, what to raise about it in this
+  // meeting; for a kept card, its place among those most worth raising.
+  headline?: string;
+  raise?: string;
+  rank?: number;
   now?: string;
   title: string;
   terms?: string[] | null;

@@ -114,10 +114,14 @@ type Live struct {
 	topicsAt time.Time
 	// rel judges what fits the conversation (relevance.go); places holds
 	// what competes for the panel's places.
-	rel     provider.Classifier
-	places  map[string]*place
-	briefed map[string]time.Time
-	onSaved func()
+	rel    provider.Classifier
+	places map[string]*place
+	// pk is the picker's state for the meeting (live.pick, pick.go);
+	// briefLLM writes the picked cards' briefs.
+	pk       pickState
+	briefLLM provider.LLM
+	briefed  map[string]time.Time
+	onSaved  func()
 
 	// Replays: timed (a timer at some speed) or clocked (an audio player).
 	replay      context.CancelFunc
@@ -147,7 +151,7 @@ type Live struct {
 
 func New(eng *engine.Engine, emit Emit, onSaved func()) *Live {
 	return &Live{eng: eng, emit: emit, mode: "idle", scope: "owner", briefed: map[string]time.Time{}, onSaved: onSaved,
-		ctx: context.Background(), wake: make(chan struct{}, 1), sumQ: make(chan sumJob, 16)}
+		ctx: context.Background(), wake: make(chan struct{}, 1), sumQ: make(chan sumJob, 16), pk: newPickState()}
 }
 
 // Reload rebuilds the suggester from the store (after an update). It runs
@@ -191,7 +195,17 @@ func (l *Live) Reload() (err error) {
 			return err
 		}
 	}
+	var brief provider.LLM
+	if b := l.eng.Cfg.Live.Pick.Brief; b.Provider != "" && l.eng.Cfg.Live.Pick.Enabled {
+		if brief, err = provider.NewLLM(b); err != nil {
+			return err
+		}
+		if !brief.Local() && !l.eng.Cfg.Knowledge.AllowHosted {
+			return fmt.Errorf("live.pick.brief: a hosted model reads the meeting, so it needs knowledge.allow_hosted")
+		}
+	}
 	l.mu.Lock()
+	l.briefLLM = brief
 	l.rel = rel
 	l.sug = s
 	l.topicIx = cs
@@ -359,6 +373,7 @@ func (l *Live) handle(ev Event, mode string) {
 			l.chips = nil
 			l.topics = nil
 			l.dropped = nil
+			l.pk = newPickState()
 			l.places = nil
 			l.lastModelVer = 0
 			l.mu.Unlock()

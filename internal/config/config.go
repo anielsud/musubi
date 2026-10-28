@@ -401,6 +401,24 @@ type Live struct {
 	// it showed 2.45 helpful items a moment against 1.0. Empty provider:
 	// the newest, as before.
 	Relevance Classifier `toml:"relevance"`
+	// Pick, with focus and relevance's classifier, chooses the topic cards
+	// from candidates: what the lookups, trigger terms and the talk itself
+	// put forward over the last 3 minutes. The classifier picks at most two
+	// that the conversation is about, or none, instead of each lookup
+	// opening its nearest topic (research log 2026-10-28: 80–90% of cards
+	// on topic against 12%).
+	Pick Pick `toml:"pick"`
+}
+
+type Pick struct {
+	Enabled bool `toml:"enabled"`
+	// MinP is the bar for a pick (0: 0.4).
+	MinP float64 `toml:"min_p"`
+	// Brief writes each picked card a headline (where it stands) and what
+	// to raise about it in this meeting, and ranks the cards kept from
+	// earlier by what is most worth raising. Provider "": the card's lines.
+	// Hosted, it reads the meeting: needs knowledge.allow_hosted.
+	Brief LLM `toml:"brief"`
 }
 
 type Sensitivity struct {

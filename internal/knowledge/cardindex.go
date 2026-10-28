@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -485,6 +486,61 @@ func (x *CardIndex) TopicNear(q []float32, k int, minSim float64) (int64, float6
 	}
 	return best, hs[0].sim
 }
+
+// TopicsNear ranks the topics of the claims nearest a query vector, best
+// first, at most n: each of the nearest claims at least minSim similar
+// votes for its topic, weighted to favour the closest. A candidate list
+// for the live picker, not a choice (research log 2026-10-28).
+func (x *CardIndex) TopicsNear(q []float32, n int, minSim float64) []int64 {
+	ix, err := x.st.ClaimIndex()
+	if err != nil {
+		return nil
+	}
+	cents, err := x.st.ClaimCentroidsOf(ix.Nearest(q, 400))
+	if err != nil {
+		return nil
+	}
+	type hit struct {
+		topic int64
+		sim   float64
+	}
+	var hs []hit
+	for id, c := range cents {
+		if t := x.claimTopic[id]; t != 0 && len(c) == len(q) {
+			hs = append(hs, hit{t, cos(q, c)})
+		}
+	}
+	sort.Slice(hs, func(i, j int) bool { return hs[i].sim > hs[j].sim })
+	if len(hs) > nearVoters {
+		hs = hs[:nearVoters]
+	}
+	votes := map[int64]float64{}
+	for _, h := range hs {
+		if h.sim < minSim {
+			break
+		}
+		if t := x.Host(h.topic); !x.diffuse[t] {
+			votes[t] += math.Pow(h.sim, 4)
+		}
+	}
+	out := make([]int64, 0, len(votes))
+	for t := range votes {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if votes[out[i]] != votes[out[j]] {
+			return votes[out[i]] > votes[out[j]]
+		}
+		return out[i] < out[j]
+	})
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+// nearVoters: the nearest claims that vote in TopicsNear.
+const nearVoters = 40
 
 // AllTerms lists every trigger term with the topic it opens, for checking
 // what the index learned.

@@ -23,6 +23,7 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
   const [showSearches, setShowSearches] = useState(false);
   // Earlier cards and lookups opened by a click (focus).
   const [opened, setOpened] = useState<Set<string>>(new Set());
+  const [allEarlier, setAllEarlier] = useState(false);
   const [err, setErr] = useState('');
   const [audioRef, setAudioRef] = useState<string | null>(null);
   const tail = useRef<HTMLDivElement>(null);
@@ -82,6 +83,11 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
   // newest); the rest one line each under "Earlier in this meeting".
   const openTopics = focus ? topics.filter((t) => t.active || opened.has(topicKey(t))) : topics;
   const earlierTopics = focus ? topics.filter((t) => !t.active && !opened.has(topicKey(t))) : [];
+  // When the server has ranked them (live.pick.brief), the menu shows the
+  // few most worth raising; the rest are a click away.
+  const ranked = earlierTopics.filter((t) => t.rank).sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
+  const menuTopics = ranked.length > 0 && !allEarlier ? ranked : earlierTopics;
+  const moreEarlier = earlierTopics.length - menuTopics.length;
   // With relevance on, the server gives lookups their places (b.open);
   // those it never showed stay off the panel. Without, the newest two.
   const rel = focus && !!status?.relevance;
@@ -172,8 +178,11 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
           <div className="section-head"><span>Earlier in this meeting</span></div>
           {earlierTopics.length > 0 && (
             <div className="topic-stubs">
-              {earlierTopics.map((t) => <TopicStub key={topicKey(t)} card={t} onOpen={() => toggleOpened(topicKey(t))} onTopic={onTopic} />)}
+              {menuTopics.map((t) => <TopicStub key={topicKey(t)} card={t} onOpen={() => toggleOpened(topicKey(t))} onTopic={onTopic} />)}
             </div>
+          )}
+          {(moreEarlier > 0 || allEarlier) && ranked.length > 0 && (
+            <button className="link small" onClick={() => setAllEarlier(!allEarlier)}>{allEarlier ? 'only the most worth raising' : `${moreEarlier} more`}</button>
           )}
           <div className="chips">
             {earlierTopics.map((t) => (
@@ -368,7 +377,7 @@ function TopicStub({ card, onOpen, onTopic }: { card: TopicCard; onOpen: () => v
           <button className="link" onClick={(e) => { e.stopPropagation(); onTopic(card.topicId); }} title="Open the topic's page">page →</button>
         )}
       </header>
-      {card.quote && <div className="card-quote">“{card.quote}”</div>}
+      {card.raise ? <div className="card-raise">{card.raise}</div> : card.quote && <div className="card-quote">“{card.quote}”</div>}
       <div className="brief-why">
         {card.stale && <span className="old">old · </span>}last discussed {fmtDate(card.last)} · {card.meetings} meeting{card.meetings === 1 ? '' : 's'}
       </div>
@@ -391,17 +400,21 @@ function FocusCardView({ card, onTopic, onClose }: { card: TopicCard; onTopic: (
         {card.topicId > 0 && <button className="link" onClick={() => onTopic(card.topicId)} title="Open the topic's page">page →</button>}
         {onClose && <button className="link" onClick={onClose} title="Collapse it again">×</button>}
       </header>
-      {card.quote && <div className="card-quote">“{card.quote}”</div>}
+      {!card.headline && card.quote && <div className="card-quote">“{card.quote}”</div>}
       <div className="brief-why">
         {card.stale && <span className="old">old · </span>}last discussed {fmtDate(card.last)} · {card.meetings} meeting{card.meetings === 1 ? '' : 's'}
       </div>
-      {!more && lines.map((l) => (
+      {/* With a brief, the headline and what to raise stand for the lines,
+          which read as peripheral when the topic is right. */}
+      {!more && card.headline && <p className="card-now">{card.headline}</p>}
+      {!more && card.raise && <div className="card-raise">{card.raise}</div>}
+      {!more && !card.headline && lines.map((l) => (
         <div key={l.claimId} className="focus-line">
           {['Due', 'Yours', 'Open', 'Watch'].includes(l.section) && <span className="focus-sec">{sectionLabel[l.section] ?? l.section}</span>}
           <TopicLineView line={l} />
         </div>
       ))}
-      {!more && lines.length === 0 && card.now && <p className="card-now">{card.now}</p>}
+      {!more && !card.headline && lines.length === 0 && card.now && <p className="card-now">{card.now}</p>}
       {more && <CardBody card={card} />}
       <button className="link small" onClick={() => setMore(!more)}>{more ? 'less' : 'more'}</button>
     </article>

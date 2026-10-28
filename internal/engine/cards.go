@@ -45,6 +45,23 @@ func (c *Cards) Find(ctx context.Context, text string, termsOnly bool) (a knowle
 	return c.Index.Find(text, embed)
 }
 
+// Near ranks the topics nearest a text, best first, at most n (Find's
+// claims, with no choice made: candidates for the live picker).
+func (c *Cards) Near(ctx context.Context, text string, n int) []int64 {
+	if c.eng.Embedder == nil {
+		return nil
+	}
+	vs, err := c.eng.Embedder.Embed(ctx, []string{text}, true)
+	if err != nil || len(vs) == 0 || vs[0] == nil {
+		return nil
+	}
+	return c.Index.TopicsNear(vs[0], n, nearMinSim)
+}
+
+// nearMinSim: claims less similar than this don't vote in Near (unrelated
+// statements sit around 0.59 with nomic-embed-text).
+const nearMinSim = 0.6
+
 // Card builds a topic's card under a scope, from what was said by now;
 // nil when nothing is visible.
 func (c *Cards) Card(sc sensitivity.Scope, a knowledge.Anchor, now time.Time) (*knowledge.Card, error) {

@@ -1,6 +1,7 @@
 package live
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -39,6 +40,12 @@ type TopicCard struct {
 	// Kept: pushed off the panel by newer cards, kept collapsed
 	// (live.keep_topics); not ranked against the conversation.
 	Kept bool `json:"kept,omitempty"`
+	// live.pick.brief: Headline says where the topic stands, Raise what to
+	// raise about it in this meeting; Rank, for a kept card, its place
+	// among those most worth raising (0: not among them).
+	Headline string `json:"headline,omitempty"`
+	Raise    string `json:"raise,omitempty"`
+	Rank     int    `json:"rank,omitempty"`
 }
 
 // FocusLine is a card line chosen for the conversation, with its section.
@@ -79,7 +86,12 @@ func (l *Live) termTopics(cycle int, text string, lines []Segment) {
 	if cs == nil {
 		return
 	}
+	pick := l.picking()
 	for _, h := range cs.Index.TermsIn(text) {
+		if pick {
+			l.candidate(cmp.Or(h.Anchor.Topic, h.Topic), pickTerm, "says "+h.Term)
+			continue
+		}
 		said := evidenceAt(h.Term, lines)
 		ago := -1.0
 		if said >= 0 {
@@ -93,8 +105,11 @@ func (l *Live) termTopics(cycle int, text string, lines []Segment) {
 	due := l.eng.Cfg.Live.Focus && (len(l.topics) > 0 || len(l.places) > 0) && l.since(l.topicsAt) >= focusRefresh
 	rel := l.rel != nil
 	l.mu.Unlock()
+	if pick {
+		l.maybePick(cycle)
+	}
 	if due {
-		if rel {
+		if rel && !pick {
 			// What is shown is judged again as the talk moves on; a lookup
 			// that no longer fits gives up its place.
 			l.rescore(cycle)
@@ -110,6 +125,10 @@ func (l *Live) lookupTopic(ctx context.Context, cycle int, s Suggestion) {
 	cs := l.topicIx
 	l.mu.Unlock()
 	if cs == nil || s.Kind == "entity" {
+		return
+	}
+	if l.picking() {
+		l.lookupCandidates(ctx, cycle, cs, s)
 		return
 	}
 	t0 := time.Now()
@@ -235,7 +254,11 @@ func (l *Live) emitTopics(cycle int) {
 			}
 		}
 	}
-	if focus {
+	pick := focus && l.picking()
+	switch {
+	case pick:
+		l.pickedCards(out, window)
+	case focus:
 		l.focusCards(out, window)
 	}
 	// With relevance, cards hold places by how well they fit, competing
@@ -244,7 +267,7 @@ func (l *Live) emitTopics(cycle int) {
 	rel := l.rel
 	l.mu.Unlock()
 	var resend []Brief
-	if focus && rel != nil {
+	if focus && rel != nil && !pick {
 		var q []float32
 		if strings.TrimSpace(window) != "" {
 			q = l.eng.Embed(l.ctxOrBackground(), window)
@@ -265,6 +288,17 @@ func (l *Live) emitTopics(cycle int) {
 			}
 			return out[a].Fit > out[b].Fit
 		})
+	}
+	if pick {
+		l.mu.Lock()
+		for i := range kept {
+			if b := l.pk.briefs[kept[i].TopicID]; b != nil && b.scope == scopeName {
+				kept[i].Headline, kept[i].Raise = b.Headline, b.Raise
+			}
+			kept[i].Rank = l.pk.menu[kept[i].TopicID]
+		}
+		l.mu.Unlock()
+		l.briefCards(cycle, out, kept)
 	}
 	out = append(out, kept...)
 	var titles []string

@@ -88,3 +88,17 @@ func speakerName(s string) string {
 	}
 	return s
 }
+
+// Speakers are the people heard so far, other than "You", in order of
+// first speaking.
+func (m *Meeting) Speakers() []string {
+	seen := map[string]bool{"You": true}
+	var out []string
+	for _, s := range m.Lines() {
+		if n := speakerName(s.Speaker); n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	return out
+}

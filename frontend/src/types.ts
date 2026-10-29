@@ -304,6 +304,24 @@ export interface ThreadStatus {
   people: string[] | null;
 }
 
+// A to-do: something someone said would or should happen, and what came
+// of it (knowledge.ToDo).
+export interface ToDo extends Statement {
+  status?: string;
+  who?: string[] | null;
+  owners: string[] | null;
+  mine?: boolean;
+  state: 'open' | 'quiet' | 'proposed' | 'done' | 'changed';
+  due?: string;
+  dueAt?: string;
+  overdue?: boolean;
+  topic?: number;
+  raised: number;
+  lastRaised: string;
+  outcome?: Statement & { rel: string };
+  repeats?: Statement[] | null;
+}
+
 export interface ThreadItem extends Statement {
   status?: string;
   who?: string[] | null;

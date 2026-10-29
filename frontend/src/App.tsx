@@ -4,13 +4,14 @@ import type { AppStatus, Hit, LiveStatus } from './types';
 import { LiveView } from './components/LiveView';
 import { AskView } from './components/AskView';
 import { PrepView } from './components/PrepView';
+import { ToDoView } from './components/ToDoView';
 import { ExploreView } from './components/ExploreView';
 import { StatusView } from './components/StatusView';
 import { SourceDrawer, type SourceRef } from './components/SourceDrawer';
 import { DiagPanel } from './components/DiagPanel';
 import { SelectionMenu, type Picked } from './components/SelectionMenu';
 
-type View = 'live' | 'ask' | 'prep' | 'explore' | 'status';
+type View = 'live' | 'ask' | 'prep' | 'to-do' | 'explore' | 'status';
 
 export function App() {
   const [view, setView] = useState<View>('live');
@@ -91,7 +92,7 @@ export function App() {
       </header>
 
       <nav className="tabs" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
-        {(['live', 'ask', 'prep', 'explore', 'status'] as View[]).map((v) => (
+        {(['live', 'ask', 'prep', 'to-do', 'explore', 'status'] as View[]).map((v) => (
           <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
             {v === 'live' && live?.mode === 'live' && <span className="pulse" />}
             {v}
@@ -103,6 +104,7 @@ export function App() {
         <div hidden={view !== 'live'}><LiveView status={live} onOpen={openHit} onEntity={openEntity} onTopic={openTopic} /></div>
         <div hidden={view !== 'ask'}><AskView onOpen={openHit} scope={scope} onTopic={openTopic} prefill={askReq} /></div>
         <div hidden={view !== 'prep'}><PrepView onOpen={openHit} scope={scope} onTopic={openTopic} /></div>
+        <div hidden={view !== 'to-do'}><ToDoView onOpen={openHit} scope={scope} onTopic={openTopic} /></div>
         <div hidden={view !== 'explore'}>
           <ExploreView scope={scope} focus={focus} setFocus={setFocus} onOpen={openHit} topicReq={topicReq} correctReq={correctReq}
             onOpenItem={(id, sc) => setSource({ itemId: id, scope: sc })} />

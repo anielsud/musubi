@@ -616,3 +616,17 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .topic.pick.current { border-color: var(--accent); }
 .topic.pick:not(.current) { opacity: 0.85; }
 .topic.pick .thread-status { margin-top: 6px; font-size: 13px; }
+
+/* To-do */
+.todo-filters { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
+.todo-filters input { width: 100%; }
+.chip.on { border-color: var(--accent); color: var(--accent); }
+.todo-list { list-style: none; margin: 4px 0 6px; padding: 0; display: grid; gap: 7px; font-size: 13px; }
+.todo-text { cursor: default; }
+.todo-meta { margin-top: 1px; }
+.todo-meta .badge { margin-left: 6px; }
+.todo-due { color: var(--accent); }
+.todo-outcome { margin: 2px 0 0 14px; }
+.todo-mark { margin-right: 6px; color: var(--accent); }
+.todo-quiet, .todo-done, .todo-changed { opacity: 0.75; }
+@media (max-width: 560px) { .todo-filters { grid-template-columns: 1fr; } }

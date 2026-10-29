@@ -80,3 +80,13 @@ func (a *App) TopicMap(scope string) (*knowledge.TopicMap, error) {
 	}
 	return v.Map()
 }
+
+// ToDos lists what was said would or should happen, and what came of it;
+// an open item quiet as long as prep.quiet_days is shown as gone quiet.
+func (a *App) ToDos(proposals bool, scope string) ([]knowledge.ToDo, error) {
+	v, err := a.views(scope)
+	if err != nil {
+		return nil, err
+	}
+	return v.ToDos(knowledge.ToDoRequest{Proposals: proposals, QuietAfter: a.eng.Cfg.Prep.QuietAfter()}, a.eng.Cfg.Owner.Name)
+}

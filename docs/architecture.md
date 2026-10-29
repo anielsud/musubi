@@ -299,6 +299,19 @@ cold lane like any other source.
   one other person attending, listed last (`prep.mark_private`).
   "Draft" writes talking points with the Ask model.
   `musubi prep <item> [--brief]` is the same from the command line.
+- **To-do** (`knowledge.ToDos`, `store.Commitments`): everything someone
+  said would happen (commitment statements) and, with "+ proposals", what
+  someone said should happen and nobody agreed yet (positions and
+  decisions still proposed). Nothing is stored for the list: what came of
+  each is read from the statements threading related to it later, each
+  visible in the scope on its own. One that completes (or answers) it
+  marks it done; one that supersedes it, changed; one that repeats it
+  folds the earlier saying into the later ("raised 3×"). An open item
+  with nothing said of it for `prep.quiet_days` is gone quiet; a date in
+  its text sets when it is due, and a passed one, overdue. "Mine" is the
+  items whose owners (the point's people, else its holder) include
+  `owner.name`. Sections: overdue, open (due soonest, then latest raised),
+  proposed, gone quiet, done or changed.
 - **Explore**:
   - **Topics**: the topic map in four views, picked with small buttons
     under it: Graph, Meaning, Timeline and Clusters (see "Topic map").

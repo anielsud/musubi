@@ -2905,3 +2905,148 @@ Findings:
 
 Next: a Jev picker in Live behind a config key, then the user grades a
 second meeting.
+
+## Live suggestion model: qwen3.5 vs qwen3:8b (2026-10-29, first pass)
+
+40 real suggestion prompts, evenly spread and deduplicated from the two
+replayed meetings (about 520 prompt tokens each), run one at a time through
+Ollama with thinking off, JSON mode, temperature 0.3, 300 token cap. Today's
+`suggestPrompt` as the system prompt. Streamed, so TTFT is the first token.
+Machine was not idle (Tomoe recording, load about 3). The qwen3.5 models had
+not been tried for Live before; Live's choice of qwen3:8b came from a table
+that only covered the qwen3 family.
+
+| | TTFT p50 / p90 | total p50 / p90 | decode | valid JSON | empty | queries naming the user |
+|---|---|---|---|---|---|---|
+| qwen3:8b (now) | 0.40 / 0.58 s | 0.93 / 1.09 s | 47 tok/s | 40/40 | 1 | 0 of 117 |
+| qwen3.5:9b | 0.74 / 0.90 s | 1.36 / 1.79 s | 42 tok/s | 40/40 | 1 | 4 of 117 |
+| qwen3.5:4b | 0.44 / 0.52 s | 0.85 / 0.98 s | 68 tok/s | 40/40 | 1 | 16 of 116 |
+
+- The 4B matches the 8B on speed (a better p90, 1.45x decode) but names the
+  user in 14% of its queries despite the "never look up the user" line; the
+  9B does so 3% of the time and is about 1.8x slower to first token. The 8B
+  never did. `dropOwner` removes these afterwards, but each one costs a slot
+  of the three.
+- Format held for all three. Queries differ in quality (the 3.5 models
+  tend to join a person's name to a topic); not graded yet.
+- Not tested: quality of queries against the knowledge base, briefs, loaded
+  machine, other quants and engines, Gemma 4.
+- Raw results and the sample are in the session scratchpad (live-bench/).
+
+## Statement search for Live: which kinds come back (2026-10-29)
+
+Experiment in the pipeline playground (`cmd/lab`, untracked): rank statements
+(points) by the query's embedding (nomic-embed-text, cosine) plus 0.1 × the
+share of the query's content words they contain, scoped and dated before the
+meeting. 60 queries sampled from 2,341 distinct queries the Live model wrote
+on two ELT meetings; top 5 each (300 results). Share of results by kind, against
+the share of the corpus (20,879 points):
+
+| kind | corpus | top 5 | ratio | #1 of 60 |
+|---|---|---|---|---|
+| fact | 44.7% | 52.0% | 1.16 | 30 |
+| position | 32.3% | 20.7% | 0.64 | 12 |
+| commitment | 5.6% | 10.3% | 1.84 | 4 |
+| question | 4.6% | 3.7% | 0.81 | 2 |
+| metric | 2.9% | 9.0% | 3.08 | 10 |
+| decision | 2.6% | 1.7% | 0.64 | 1 |
+| rule | 2.3% | 1.3% | 0.59 | 0 |
+| framing | 2.0% | 0.7% | 0.34 | 1 |
+| personal | 1.8% | 0.7% | 0.37 | 0 |
+| outside_fact, disagreement, sensitivity_cue | 1.3% | 0% | 0 | 0 |
+
+Search doesn't over-favour facts and positions (73% of results, 77% of the
+corpus); metrics and commitments come back well above their share, decisions,
+rules and framings below. This measures what comes back, not what helps.
+A per-kind score boost is in the playground; on one query a +0.15 decision
+boost filled the top 5 with decisions at cosine 0.56–0.60, about where
+unrelated statements sit, so boosts likely need a similarity floor.
+
+## Live lookups: statements vs passages, boosts, pooled choice (2026-10-29)
+
+Setup (playground, `cmd/lab`): 16 moments evenly spread over two ELT
+meetings (8 each), the three queries Live's model actually wrote at each (48
+queries). Candidates per query: top 15 statements (points) by similarity plus
+the top 5 under eight boost probes (kind, status, recency), and Live's top 6
+passages (hybrid search). 1,026 items judged 0/1/2 against the 90 s
+conversation by four Claude judges (shuffled, no kind/rank/score shown):
+79% 0, 17% 1, 4% 2 (39 items rated 2). One judging pass; treat as
+directional.
+
+**Statements beat passages on the same queries.** Per query, top 5:
+
+| | gain (sum of 0–2) | useful (2s) | top result useful |
+|---|---|---|---|
+| passages (Live today) | 1.48 | 0.12 | 8% |
+| statements, similarity + 0.1 × word overlap | 2.33 | 0.65 | 21% |
+
+Moments with a useful item in some query's top 5: statements 9/16,
+passages 3/16.
+
+**Boosts don't generalise.** Coordinate ascent over word weight, a similarity
+floor, recency (weight, half-life), kind and status boosts, tuned on one
+meeting: the other meeting got slightly worse both ways (gain 2.33 → 2.25 and
+2.33 → 2.21). Useful rate by kind: metric 15% (n 72), commitment 6%, fact 4%,
+position 1%, decision 0% (n 38), agreed 0% (n 72). By age: under 14 days 0%
+(n 38), 14–60 days 5%, older 2–4%: the latest news is what the room already
+knows. Ranking isn't the bottleneck: most statements rated 2 are already in
+the top 5 (29 of 62), most of the rest in the top 15.
+
+**Pooled Jev choice over statements** (all three queries, 5 statements each,
+one `choice` call, 16 calls): where a useful statement was among the options
+(9 moments), Jev's top choice was useful in 6. With Live's picker bar (p ≥ 0.4)
+only 3 were shown, because probability spreads over near-duplicate
+statements; gating on p(none) < 0.3 and showing the top choice would show a
+useful item at 6 moments, an on-topic one at 7, an off-topic one at 1, and
+nothing at 2 (both without anything useful). The same pooled choice over
+passages showed one useful item in 16 moments.
+
+**What's left is the queries.** 5 of 16 moments had nothing useful in any
+pool: small talk (correctly empty) and "who is the contact for X" questions,
+which statements rarely answer (entity cards might). Some useful statements
+sat at ranks 37–124 behind poorly worded queries ("… definition").
+
+## Live lookups end to end: statements vs passages on replay (2026-10-29)
+
+Question: does `live.lookups = "statements"` (pooled classifier choice over
+statements, shown when P(none) < 0.3) put more useful things on the panel
+than passage lookups, in the real pipeline rather than on captured moments?
+
+Method: stepped replays of the two meetings used above (about 61 and 38
+minutes), with the focus snapshot, `live.pick` on and Jev relevance.
+Baseline: the passage-lookup replays of 2026-10-21 (before the picker). Every
+lookup the panel opened was paired with the last 90 s of conversation at that
+moment; the 294 items (both sources, shuffled, source hidden) were labelled
+0/1/2 by four Claude judges on the usual rubric (2 = would help right now).
+
+Bug found first: with `live.pick` on, shown lookups were never judged again
+(the picker change skipped `rescore`), so the first four lookups held every
+place for the whole meeting: run 1 showed 5 and 4 lookups. This also affects
+passage lookups in the installed build. Fixed (`rejudge`, test
+`TestRejudgeWithPicker`); the numbers below are from run 2, after the fix.
+
+| | shown | useful (2) | 1 or 2 | noise (0) | mean |
+|---|---|---|---|---|---|
+| passages, meeting 1 | 37 | 5 (14%) | 73% | 10 | 0.86 |
+| statements, meeting 1 | 127 | 33 (26%) | 73% | 34 | 0.99 |
+| passages, meeting 2 | 68 | 11 (16%) | 44% | 38 | 0.60 |
+| statements, meeting 2 | 62 | 11 (18%) | 60% | 25 | 0.77 |
+| passages, both | 105 | 16 (15%) | 54% | 48 | 0.70 |
+| statements, both | 189 | 44 (23%) | 69% | 59 | 0.92 |
+
+- Useful items per 10 minutes: meeting 1 rose from 0.8 to 5.4; meeting 2
+  stayed at 2.9, with a third less noise (25 vs 38).
+- Latency is unchanged: median 1.9 s (meeting 1) and 3.5 s (meeting 2) from
+  the words being said to the lookup being shown, against 2.4 s and 2.9 s.
+  The statement choice takes about 80 ms; statement search about 50 ms.
+- Pools are mostly one query: 327 of 346 choices in meeting 1 had a single
+  query's five statements, because the near-repeat lock lets about one new
+  query through per cycle. Pooling across cycles is untested.
+- Still a third of what is shown is noise (rated 0). The P(none) bar (0.3)
+  and the four places are the next levers.
+
+Caveats: the baseline ran without the picker and on older code, so panel
+competition differs; two meetings; judges are one model family.
+
+Decision (owner, 2026-10-29): statements are the default for Live lookups
+when relevance is on (`live.lookups = "passages"` restores the old path).

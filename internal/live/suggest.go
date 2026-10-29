@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -214,7 +215,9 @@ Reply as JSON: {"queries":["...","..."]}`
 
 // FromLLM asks the chat model for queries. It also returns the model's raw
 // reply and the prompt it was given, for the diagnostics view.
-func (s *Suggester) FromLLM(ctx context.Context, chat *provider.Chat, owner, recent string, spotted []Spotted) ([]Suggestion, string, string, error) {
+// With ownerMode "scrub" the owner's name is replaced by "You" in the
+// conversation and the name sentence is left out; see scrubOwner.
+func (s *Suggester) FromLLM(ctx context.Context, chat *provider.Chat, owner, ownerMode, recent string, spotted []Spotted) ([]Suggestion, string, string, error) {
 	// Saying what each name is keeps the model from inventing, say, a
 	// "Reyes project" out of a person's surname.
 	var names []string
@@ -228,9 +231,13 @@ func (s *Suggester) FromLLM(ctx context.Context, chat *provider.Chat, owner, rec
 		}
 		names = append(names, e.Name+" ("+kind+")")
 	}
+	scrub := ownerMode == "scrub" && owner != ""
+	if scrub {
+		recent = scrubOwner(recent, owner)
+	}
 	user := "Conversation:\n" + recent
-	if owner != "" {
-		// Speech recognition mangles the user's own name too ("Anil"); left
+	if owner != "" && !scrub {
+		// Speech recognition mangles the user's own name too ("Marel" for "Mariel"); left
 		// unsaid, the model takes it for a third person worth looking up.
 		user += "\nThe user (\"You\") is " + owner + "; recognition may misspell the name. Never suggest looking up the user."
 	}
@@ -271,8 +278,63 @@ func (s *Suggester) FromLLM(ctx context.Context, chat *provider.Chat, owner, rec
 	return res, out, user, nil
 }
 
+// ownerMatch reports whether a word is the owner's name or a one-edit
+// misspelling of it, as recognition produces ("Marel" for "Mariel").
+func ownerMatch(w string, parts []string) bool {
+	w = strings.TrimSuffix(strings.ToLower(w), "'s")
+	for _, p := range parts {
+		if w == p || (len(p) >= 4 && len(w) >= 3 && editDistance(w, p) <= 1) {
+			return true
+		}
+	}
+	return false
+}
+
+var wordRun = regexp.MustCompile(`[\p{L}\p{N}']+`)
+
+// scrubOwner rewrites the owner's name in the conversation as "You". A small
+// model told the user's name tends to put it in the queries; one that never
+// sees it has nothing to repeat.
+func scrubOwner(text, owner string) string {
+	parts := words(owner)
+	out := wordRun.ReplaceAllStringFunc(text, func(w string) string {
+		if ownerMatch(w, parts) {
+			return "You"
+		}
+		return w
+	})
+	for strings.Contains(out, "You You") {
+		out = strings.ReplaceAll(out, "You You", "You")
+	}
+	return out
+}
+
+// cleanOwner takes the owner's name (and the "you"/"user" stand-ins) out of
+// each query rather than dropping it: the rest of the query is usually the
+// topic. A query left with under two words is dropped.
+func cleanOwner(qs []Suggestion, owner string) (keep []Suggestion, dropped []string) {
+	parts := words(owner)
+	for _, q := range qs {
+		var kept []string
+		for _, w := range strings.Fields(q.Query) {
+			bare := strings.Join(words(w), "")
+			if ownerMatch(bare, parts) || bare == "you" || bare == "user" || bare == "your" {
+				continue
+			}
+			kept = append(kept, w)
+		}
+		if len(kept) < 2 {
+			dropped = append(dropped, q.Query)
+			continue
+		}
+		q.Query = strings.Join(kept, " ")
+		keep = append(keep, q)
+	}
+	return keep, dropped
+}
+
 // dropOwner removes queries about the owner. Recognition misspells their
-// name ("Anil" for "Aniel"), so a word within one edit of a name part of
+// name ("Marel" for "Mariel"), so a word within one edit of a name part of
 // four or more letters counts, as does an exact match of a shorter part.
 func dropOwner(qs []Suggestion, owner string) (keep []Suggestion, dropped []string) {
 	parts := words(owner)
@@ -282,11 +344,8 @@ func dropOwner(qs []Suggestion, owner string) (keep []Suggestion, dropped []stri
 	for _, q := range qs {
 		hit := false
 		for _, w := range words(q.Query) {
-			w = strings.TrimSuffix(w, "'s")
-			for _, p := range parts {
-				if w == p || (len(p) >= 4 && len(w) >= 3 && editDistance(w, p) <= 1) {
-					hit = true
-				}
+			if ownerMatch(w, parts) {
+				hit = true
 			}
 		}
 		if hit {

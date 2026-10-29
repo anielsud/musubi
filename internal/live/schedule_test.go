@@ -33,9 +33,24 @@ func TestScheduleDraftsThenFinalAfterGap(t *testing.T) {
 }
 
 func TestDropOwner(t *testing.T) {
-	qs := []Suggestion{{Query: "anil sud meeting schedule"}, {Query: "Aniel's notes"}, {Query: "patch deadline for the bank"}, {Query: "Sudan trip"}}
-	keep, dropped := dropOwner(qs, "Aniel Sud")
-	if len(keep) != 2 || keep[0].Query != "patch deadline for the bank" || keep[1].Query != "Sudan trip" {
+	qs := []Suggestion{{Query: "marel lund meeting schedule"}, {Query: "Mariel's notes"}, {Query: "patch deadline for the bank"}, {Query: "Lundgren trip"}}
+	keep, dropped := dropOwner(qs, "Mariel Lund")
+	if len(keep) != 2 || keep[0].Query != "patch deadline for the bank" || keep[1].Query != "Lundgren trip" {
+		t.Errorf("keep = %v, dropped = %v", keep, dropped)
+	}
+}
+
+func TestScrubOwner(t *testing.T) {
+	got := scrubOwner("Marel Lund, what about the patch? Lundgren trip is fine.", "Mariel Lund")
+	if got != "You, what about the patch? Lundgren trip is fine." {
+		t.Errorf("scrubOwner = %q", got)
+	}
+}
+
+func TestCleanOwner(t *testing.T) {
+	qs := []Suggestion{{Query: "Mariel's notes"}, {Query: "you patch deadline bank"}, {Query: "marel lund"}}
+	keep, dropped := cleanOwner(qs, "Mariel Lund")
+	if len(keep) != 1 || keep[0].Query != "patch deadline bank" || len(dropped) != 2 {
 		t.Errorf("keep = %v, dropped = %v", keep, dropped)
 	}
 }

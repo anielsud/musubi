@@ -10,6 +10,16 @@ sources, and serves that knowledge two ways:
 - **Explore:** a graph, timeline, topic map and trend view across time, people,
   business area, customer and topic.
 
+**Atoms first.** Features read the knowledge layer (statements, claims,
+threads and their statuses) and show passages as the evidence behind it,
+not as the answer. Measured each time it was compared: claims beat passages
+as lookup results (on-subject 85% against 69%, 2026-10-14); Ask from threads
+beat passages 22–5 (2026-10-17); for live lookups statements were rated
+useful five times as often as passages, and on replay showed 23% useful
+against 15% (2026-10-29), so they are now Live's default. Where a feature
+still starts from passages (the Search tab and `musubi search`, Ask's extra
+passages, the retrieval eval), that is a gap to close, not the design.
+
 Status (2026-10-21; the summary is in [overview.md](overview.md)):
 - **Built since 2026-10-16:** thread statuses; Ask from threads; meeting
   prep; insert, forget and correct as local operations on the thread
@@ -150,8 +160,8 @@ review.
 
 Reads derived data; never edits it.
 
-- **Topics:** cluster passage vectors, label clusters, and track topic identity
-  across runs so a topic keeps its ID as it drifts.
+- **Topics:** cluster claims (see "Knowledge layer"), label clusters, and track
+  topic identity across runs so a topic keeps its ID as it drifts.
 - **Trends:** weekly counts per entity and topic; burst detection; newly
   appearing entities.
 - **Signals:** overdue commitments, customers going quiet or spiking, topics
@@ -194,6 +204,12 @@ cold lane like any other source.
   aren't about the topic and the brief is dropped. The title comes from the
   calendar event under way. When Tomoe saves the meeting, Musubi ingests it.
   A replay mode plays a saved meeting through the same path for testing.
+  With relevance on, lookups search statements (`live.lookups`, default;
+  `"passages"` restores the passage path above): every query finds its
+  nearest statements (claim code index, then exact similarity, scoped),
+  the relevance classifier chooses one among all of them or none (shown
+  while P(none) < `live.lookup_max_none`, 0.3), and the statement is shown
+  with its passage as the source; no summary is written.
 - **Topic cards** (`live.topic_cards`): when a line says a topic's trigger
   term, or a lookup's nearest claims are on a topic, the panel shows that
   topic's card (see "Topic cards" below), rebuilt under the current scope
@@ -217,8 +233,8 @@ cold lane like any other source.
   places by how well they fit the last 90 s, asked of a classifier (Jev,
   or the chat model's yes/no) as one question, about 100 ms a call. What
   is shown keeps its place until a newcomer fits clearly better (0.15) or
-  it stops fitting (judged again every 20 s); nothing under the bar
-  (`min_p`, 0.5) is shown.
+  it stops fitting (judged again every 20 s, with the picker too); nothing
+  under the bar (`min_p`, 0.5) is shown.
 - **Picking** (`[live.pick]`, with focus and relevance's classifier):
   lookups, trigger terms and the talk itself put topics forward instead
   of opening cards. Each lookup votes for its 3 nearest topics, a term
@@ -305,7 +321,8 @@ cold lane like any other source.
 
 ## Knowledge layer
 
-Passages are what was said; knowledge is what it amounts to. Each source
+Passages are what was said; knowledge is what it amounts to, and what the
+features read (see "Atoms first" above). Each source
 mixes facts, opinions, hypotheses, decisions and commitments, held by
 different people, with different authority, and they change over time:
 reinforced, clarified, superseded, disproven, or simply going stale.

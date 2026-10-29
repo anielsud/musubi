@@ -683,10 +683,14 @@ func (l *Live) modelCycle(ctx context.Context, sug *Suggester, recent string, li
 		l.llmBusy.Lock()
 		waited := time.Since(t1)
 		t2 := time.Now()
-		qs, raw, prompt, err := sug.FromLLM(ctx, l.eng.Chat, l.eng.Cfg.Owner.Name, recent, nil)
+		qs, raw, prompt, err := sug.FromLLM(ctx, l.eng.Chat, l.eng.Cfg.Owner.Name, l.eng.Cfg.Live.OwnerMode, recent, nil)
 		l.llmBusy.Unlock()
 		var aboutOwner []string
-		qs, aboutOwner = dropOwner(qs, l.eng.Cfg.Owner.Name)
+		if l.eng.Cfg.Live.OwnerMode == "scrub" {
+			qs, aboutOwner = cleanOwner(qs, l.eng.Cfg.Owner.Name)
+		} else {
+			qs, aboutOwner = dropOwner(qs, l.eng.Cfg.Owner.Name)
+		}
 		detail := map[string]any{"model": l.eng.Chat.Model, "prompt": prompt, "raw": raw, "waitedForModelMs": waited.Milliseconds(), "droppedAboutOwner": aboutOwner}
 		if err != nil {
 			detail["error"] = err.Error()
@@ -706,11 +710,18 @@ func (l *Live) modelCycle(ctx context.Context, sug *Suggester, recent string, li
 	}
 	var decisions []decision
 	var todo []Suggestion
+	// Statement lookups search every query: the choice among their results
+	// ranks them, not the order the model wrote them in.
+	limit := l.eng.Cfg.Live.AutoBrief
+	pooled := l.statementLookups()
+	if pooled {
+		limit = len(out)
+	}
 	l.mu.Lock()
 	for _, s := range out {
 		d := decision{Query: s.Query, Kind: s.Kind, Score: s.Score, SaidAt: evidenceAt(s.Query, lines)}
-		if len(todo) >= l.eng.Cfg.Live.AutoBrief {
-			d.Decision = fmt.Sprintf("shown, not looked up (below the top %d)", l.eng.Cfg.Live.AutoBrief)
+		if len(todo) >= limit {
+			d.Decision = fmt.Sprintf("shown, not looked up (below the top %d)", limit)
 		} else if ok, like := l.claimLocked(s.Query); !ok {
 			d.Decision = "skipped: like “" + like + "”, looked up recently"
 		} else {
@@ -724,6 +735,12 @@ func (l *Live) modelCycle(ctx context.Context, sug *Suggester, recent string, li
 		l.addChips(out...)
 	}
 	l.trace(id, "rank", fmt.Sprintf("%d suggestions, %d to look up", len(out), len(todo)), 0, decisions)
+	if pooled {
+		if len(todo) > 0 {
+			l.spawn(func() { l.statementLookup(ctx, id, todo, exclude, scopeName, lines) })
+		}
+		return
+	}
 	for _, s := range todo {
 		s := s
 		l.spawn(func() { l.brief(ctx, id, s, exclude, scopeName, lines) })
@@ -889,6 +906,12 @@ func (l *Live) summarise(ctx context.Context, job sumJob) {
 }
 
 func (l *Live) finishBrief(cycle int, b Brief, said float64, outcome, stage string) {
+	l.finishBriefScored(cycle, b, said, outcome, stage, -1)
+}
+
+// finishBriefScored is finishBrief with the fit already known (score ≥ 0),
+// so it isn't judged again.
+func (l *Live) finishBriefScored(cycle int, b Brief, said float64, outcome, stage string, score float64) {
 	now := l.clock()
 	if said >= 0 {
 		b.SpokenAgo = now - said
@@ -898,7 +921,11 @@ func (l *Live) finishBrief(cycle int, b Brief, said float64, outcome, stage stri
 	l.mu.Unlock()
 	if rel != nil && b.State == "done" {
 		key := briefKey(b.Query)
-		l.offer(cycle, key, briefText(b), &b)
+		if score >= 0 {
+			l.offerScored(key, briefText(b), &b, score)
+		} else {
+			l.offer(cycle, key, briefText(b), &b)
+		}
 		b.Rated = true
 		b.Open, b.WasOpen, b.Fit = l.placeOf(key)
 		resend, cards := l.choose()

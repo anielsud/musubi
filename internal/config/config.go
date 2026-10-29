@@ -374,6 +374,24 @@ type Live struct {
 	Window int `toml:"window"`
 	// AutoBrief is how many top suggestions are looked up automatically.
 	AutoBrief int `toml:"auto_brief"`
+	// OwnerMode is how the model's queries are kept from naming the user.
+	// "" or "drop": the prompt says who the user is and queries naming them
+	// are dropped. "scrub": the user's name is rewritten as "You" in the
+	// conversation, the sentence is left out, and the name is stripped from
+	// any query that still has it.
+	OwnerMode string `toml:"owner_mode"`
+	// Lookups is what the model's queries search. "" or "statements":
+	// every query finds its nearest statements and the relevance
+	// classifier chooses one among all of them, or none; no summary. On
+	// replays of two meetings it showed 23% useful against 15%, and 5.4
+	// useful items per 10 minutes against 0.8 on one (research log
+	// 2026-10-29). It needs live.relevance; without it, passages.
+	// "passages": the first auto_brief queries each search passages, then
+	// summary and gate, as before.
+	Lookups string `toml:"lookups"`
+	// LookupMaxNone: with lookups = "statements", the choice is shown only
+	// while the classifier's probability of "none" is below this (0: 0.3).
+	LookupMaxNone float64 `toml:"lookup_max_none"`
 	// LLMSuggestions turns the chat model's query suggestions on; off leaves
 	// names and key phrases only, with no model load during meetings.
 	LLMSuggestions bool `toml:"llm_suggestions"`

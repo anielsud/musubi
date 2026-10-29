@@ -51,8 +51,9 @@ type candHit struct {
 
 // cardBrief is what the brief model wrote for a picked card.
 type cardBrief struct {
-	Headline string `json:"headline"`
-	Raise    string `json:"raise"`
+	Headline string
+	Raise    string   // the best thing to raise
+	More     []string // others, best first
 	at       float64
 	// scope the card was read under: a brief written in private is not
 	// shown on a shared screen.
@@ -352,7 +353,7 @@ func (l *Live) pickedCards(cards []TopicCard, window string) {
 		p, ok := picked[cards[i].TopicID]
 		cards[i].Active, cards[i].Fit = ok, p
 		if b, ok := briefs[cards[i].TopicID]; ok {
-			cards[i].Headline, cards[i].Raise = b.Headline, b.Raise
+			cards[i].Headline, cards[i].Raise, cards[i].RaiseMore = b.Headline, b.Raise, b.More
 		}
 		if ok {
 			if q == nil && strings.TrimSpace(window) != "" {
@@ -423,10 +424,11 @@ func (l *Live) briefCards(cycle int, open, kept []TopicCard) {
 }
 
 const cardBriefPrompt = `You help an executive during a live meeting. A topic from their notes on past meetings has come up. Using only the notes below, write:
-- headline: where it stands, at most 18 words, concrete (names, numbers, dates)
-- raise: the one thing worth raising or asking about it in THIS meeting, with these people, at most 18 words; empty if nothing. Don't suggest what the conversation has just covered.
+- headline: where it stands, at most 18 words, concrete (names, numbers, dates). Say something the conversation hasn't just said: a reader who heard the last 3 minutes should learn something.
+- raise: up to 3 things worth raising or asking about it in THIS meeting, with these people, best first, each at most 18 words; none if nothing. Not what the conversation has just covered.
+If the notes plan or commit to a conversation or meeting that this one is (same people, same subject, due about now), don't suggest holding it: say in the headline that this is it, and raise what it was meant to settle.
 
-Meeting: %s
+Meeting now: %s, %s
 People speaking: %s
 The last 3 minutes (speech recognition; "You" is the executive):
 %s
@@ -437,10 +439,13 @@ Status as written: %s
 The notes (section, date, who: statement):
 %s
 
-Reply as JSON only: {"headline": "...", "raise": "..."}`
+Reply as JSON only: {"headline": "...", "raise": ["...", "..."]}`
 
 func (l *Live) writeBrief(cycle int, llm provider.LLM, c TopicCard, scopeName, title, people, window string) {
 	t0 := time.Now()
+	l.mu.Lock()
+	day := l.knownAtLocked().Format("Monday 2 January 2006")
+	l.mu.Unlock()
 	var lines []string
 	for _, s := range c.Sections {
 		for _, ln := range s.Lines {
@@ -455,12 +460,12 @@ func (l *Live) writeBrief(cycle int, llm provider.LLM, c TopicCard, scopeName, t
 	if now == "" {
 		now = "(none)"
 	}
-	prompt := fmt.Sprintf(cardBriefPrompt, title, people, window, c.Title, c.Last.Format("2006-01-02"), c.Meetings, now, strings.Join(lines, "\n"))
+	prompt := fmt.Sprintf(cardBriefPrompt, title, day, people, window, c.Title, c.Last.Format("2006-01-02"), c.Meetings, now, strings.Join(lines, "\n"))
 	out, err := llm.Complete(l.ctxOrBackground(), []provider.Message{{Role: "user", Content: prompt}},
 		provider.ChatOptions{JSON: true, Temperature: 0.3, MaxTokens: 4000}, nil)
 	var b cardBrief
 	if err == nil {
-		err = json.Unmarshal([]byte(jsonObject(out)), &b)
+		b, err = parseBrief(out)
 	}
 	l.mu.Lock()
 	delete(l.pk.briefing, c.TopicID)
@@ -473,7 +478,7 @@ func (l *Live) writeBrief(cycle int, llm provider.LLM, c TopicCard, scopeName, t
 		l.trace(cycle, "topic", "brief failed: "+c.Title, time.Since(t0).Milliseconds(), err.Error())
 		return
 	}
-	l.trace(cycle, "topic", "brief: "+c.Title, time.Since(t0).Milliseconds(), map[string]any{"headline": b.Headline, "raise": b.Raise})
+	l.trace(cycle, "topic", "brief: "+c.Title, time.Since(t0).Milliseconds(), map[string]any{"headline": b.Headline, "raise": append([]string{b.Raise}, b.More...)})
 	l.emitTopics(cycle)
 }
 
@@ -527,6 +532,35 @@ func (l *Live) rankMenu(cycle int, llm provider.LLM, menu []TopicCard, key, titl
 	l.mu.Unlock()
 	l.trace(cycle, "topic", fmt.Sprintf("menu: %d of %d worth raising", len(rank), len(menu)), time.Since(t0).Milliseconds(), r.Top)
 	l.emitTopics(cycle)
+}
+
+// parseBrief reads a brief; "raise" may come as one string or a list.
+func parseBrief(out string) (cardBrief, error) {
+	var r struct {
+		Headline string          `json:"headline"`
+		Raise    json.RawMessage `json:"raise"`
+	}
+	if err := json.Unmarshal([]byte(jsonObject(out)), &r); err != nil {
+		return cardBrief{}, err
+	}
+	var rs []string
+	if json.Unmarshal(r.Raise, &rs) != nil {
+		var one string
+		json.Unmarshal(r.Raise, &one)
+		rs = []string{one}
+	}
+	b := cardBrief{Headline: strings.TrimSpace(r.Headline)}
+	for _, x := range rs {
+		if x = strings.TrimSpace(x); x == "" {
+			continue
+		}
+		if b.Raise == "" {
+			b.Raise = x
+		} else if len(b.More) < 2 {
+			b.More = append(b.More, x)
+		}
+	}
+	return b, nil
 }
 
 // jsonObject is the outermost {...} of a model's reply.

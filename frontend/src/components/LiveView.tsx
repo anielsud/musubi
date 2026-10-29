@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, fmtDate, on, speakerName } from '../api';
 import type { Brief, Card, Hit, LiveStatus, MeetingRef, Segment, Session, Suggestion, TopicCard, TopicLine } from '../types';
 import { CitedText, Empty, HitRow, Spinner } from './common';
+import { StatusView } from './Knowledge';
+import type { ThreadDetail } from '../types';
 
 const kindGlyph: Record<string, string> = { llm: '✦', entity: '◉', phrase: '¶', typed: '›' };
 
@@ -81,8 +83,11 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
   const toggleOpened = (k: string) => setOpened((o) => { const n = new Set(o); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   // Focus: two cards open (the server picks them), two lookups open (the
   // newest); the rest one line each under "Earlier in this meeting".
-  const openTopics = focus ? topics.filter((t) => t.active || opened.has(topicKey(t))) : topics;
-  const earlierTopics = focus ? topics.filter((t) => !t.active && !opened.has(topicKey(t))) : [];
+  // Picking: a card is three lines, so the recent picks all stay up, the
+  // current one marked; only cards pushed off go to the menu.
+  const pick = focus && !!status?.pick;
+  const openTopics = !focus ? topics : topics.filter((t) => (pick ? !t.kept : t.active) || opened.has(topicKey(t)));
+  const earlierTopics = focus ? topics.filter((t) => !openTopics.includes(t)) : [];
   // When the server has ranked them (live.pick.brief), the menu shows the
   // few most worth raising; the rest are a click away.
   const ranked = earlierTopics.filter((t) => t.rank).sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
@@ -158,8 +163,13 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
       {openTopics.length > 0 && (
         <section className="topics">
           {openTopics.map((t) => (
+            pick ? (
+              <PickCardView key={topicKey(t)} card={t} scope={scope} onTopic={onTopic} onSource={(itemId, chunkId) => onOpen({ itemId, chunkId } as Hit, scope)}
+                onClose={opened.has(topicKey(t)) && t.kept ? () => toggleOpened(topicKey(t)) : undefined} />
+            ) : (
             <TopicCardView key={topicKey(t)} card={t} onTopic={onTopic}
               onClose={focus && opened.has(topicKey(t)) && !t.active ? () => toggleOpened(topicKey(t)) : undefined} />
+            )
           ))}
         </section>
       )}
@@ -363,6 +373,34 @@ const sectionLabel: Record<string, string> = {
 function TopicCardView({ card, onTopic, onClose }: { card: TopicCard; onTopic: (id: number) => void; onClose?: () => void }) {
   if (card.focus && !card.collapsed) return <FocusCardView card={card} onTopic={onTopic} onClose={onClose} />;
   return <FullCardView card={card} onTopic={onTopic} />;
+}
+
+// PickCardView is a picked topic in short: where it stands and what to
+// raise. Opened, it shows the other things worth raising and the topic's
+// written status, each point citing the statements it rests on.
+function PickCardView({ card, scope, onTopic, onSource, onClose }: { card: TopicCard; scope: string; onTopic: (id: number) => void; onSource: (itemId: string, chunkId: number) => void; onClose?: () => void }) {
+  const [more, setMore] = useState(false);
+  const [detail, setDetail] = useState<ThreadDetail | null | undefined>(undefined);
+  const sensitive = card.label.level === 'restricted' || card.label.level === 'confidential';
+  useEffect(() => {
+    if (!more || detail !== undefined || card.topicId <= 0) return;
+    api.topic(card.topicId, scope).then((t) => setDetail(t?.thread ?? null), () => setDetail(null));
+  }, [more, detail, card.topicId, scope]);
+  return (
+    <article className={'topic pick' + (card.active ? ' current' : '') + (card.stale ? ' stale' : '')}>
+      <header>
+        <span className="topic-title">{card.title}</span>
+        {sensitive && <span className={'sens-dot lvl-' + card.label.level} title={card.label.level} />}
+        {card.topicId > 0 && <button className="link" onClick={() => onTopic(card.topicId)} title="Open the topic's page">page →</button>}
+        {onClose && <button className="link" onClick={onClose} title="Collapse it again">×</button>}
+      </header>
+      {card.headline ? <p className="card-now">{card.headline}</p> : card.now && <p className="card-now">{card.now}</p>}
+      {card.raise && <div className="card-raise">{card.raise}</div>}
+      {more && (card.raiseMore ?? []).map((r, i) => <div key={i} className="card-raise">{r}</div>)}
+      {more && (detail === undefined ? <Spinner /> : detail?.status ? <StatusView d={detail} onSource={onSource} /> : <div className="dim small">No written status for this topic yet.</div>)}
+      <button className="link small" onClick={() => setMore(!more)}>{more ? 'less' : 'more'}</button>
+    </article>
+  );
 }
 
 // TopicStub is a card that has left the panel, collapsed to what it is

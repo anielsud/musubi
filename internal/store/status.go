@@ -126,8 +126,32 @@ func (s *Store) ThreadStatuses(sc sensitivity.Scope) (map[int64]ThreadStatusRow,
 		}
 		out[r.Topic] = r
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// The owner's rules that hold everywhere read into the written prose
+	// too, as into statements: a status written before a rule keeps the
+	// old spelling until it is rewritten. Its JSON keys are left alone.
+	if s.ReadWithRules {
+		sp, err := s.ConfirmedSpellings()
+		if err != nil {
+			return nil, err
+		}
+		for _, k := range statusKeys {
+			delete(sp, k)
+		}
+		if len(sp) > 0 {
+			for t, r := range out {
+				r.Body = Spellings(sp).Canonical(r.Body)
+				out[t] = r
+			}
+		}
+	}
+	return out, nil
 }
+
+// statusKeys are the written status's JSON keys, never respelled.
+var statusKeys = []string{"now", "now_ids", "changed", "open", "people", "text", "ids", "date", "who", "due"}
 
 // ClearThreadStatus removes every status (statuses are rewritten after a
 // rethread).

@@ -36,3 +36,16 @@ func TestPickedCards(t *testing.T) {
 		t.Fatalf("briefs: %q, %q", cards[0].Raise, cards[1].Headline)
 	}
 }
+
+// A brief's raise lines come as a list (best first, at most three) or, from
+// a model that ignores the format, one string.
+func TestParseBrief(t *testing.T) {
+	b, err := parseBrief("ok: {\"headline\": \" Launch slipped to May \", \"raise\": [\"Who owns the fix?\", \"\", \"Is the budget agreed?\", \"Any risk to Q3?\", \"A fourth\"]}")
+	if err != nil || b.Headline != "Launch slipped to May" || b.Raise != "Who owns the fix?" || len(b.More) != 2 || b.More[1] != "Any risk to Q3?" {
+		t.Fatalf("list: %+v %v", b, err)
+	}
+	b, err = parseBrief(`{"headline": "h", "raise": "One thing"}`)
+	if err != nil || b.Raise != "One thing" || len(b.More) != 0 {
+		t.Fatalf("string: %+v %v", b, err)
+	}
+}

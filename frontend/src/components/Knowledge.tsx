@@ -208,28 +208,7 @@ function ThreadSection({ d, onSource, owner, onChanged, picked, onPick }: { d: T
   return (
     <>
       {st ? (
-        <section className="thread-status">
-          <div className="section-head">
-            <span>Where it stands</span>
-            <span className="dim">as of {fmtDate(d.asOf)}{d.partial ? ' · from what this view may show' : ''}</span>
-          </div>
-          <p className="status-now">
-            <Cited text={st.now} byId={byId} onSource={onSource} />
-            <Refs ids={st.now_ids} byId={byId} onSource={onSource} />
-          </p>
-          {(st.changed?.length ?? 0) > 0 && (
-            <>
-              <div className="status-head">Changed recently</div>
-              <ul className="status-list">{st.changed!.map((p, i) => <PointRow key={i} p={p} byId={byId} onSource={onSource} lead={p.date} />)}</ul>
-            </>
-          )}
-          {(st.open?.length ?? 0) > 0 && (
-            <>
-              <div className="status-head">Open</div>
-              <ul className="status-list">{st.open!.map((p, i) => <PointRow key={i} p={p} byId={byId} onSource={onSource} tail={[p.who, p.due && 'due ' + p.due].filter(Boolean).join(' · ')} />)}</ul>
-            </>
-          )}
-        </section>
+        <StatusView d={d} onSource={onSource} />
       ) : (
         <div className="dim small">No written status yet: run <code>musubi knowledge</code> to write one.</div>
       )}
@@ -246,6 +225,38 @@ function ThreadSection({ d, onSource, owner, onChanged, picked, onPick }: { d: T
         </>
       )}
     </>
+  );
+}
+
+// StatusView is a thread's written status, its citations opening the
+// sources: the topic page's, and a live card's when opened.
+export function StatusView({ d, onSource }: { d: ThreadDetail; onSource: (itemId: string, chunkId: number) => void }) {
+  const st = d.status;
+  if (!st) return null;
+  const byId = new Map([...(d.current ?? []), ...(d.retired ?? [])].map((it) => [it.id, it]));
+  return (
+    <section className="thread-status">
+      <div className="section-head">
+        <span>Where it stands</span>
+        <span className="dim">as of {fmtDate(d.asOf)}{d.partial ? ' · from what this view may show' : ''}</span>
+      </div>
+      <p className="status-now">
+        <Cited text={st.now} byId={byId} onSource={onSource} />
+        <Refs ids={st.now_ids} byId={byId} onSource={onSource} />
+      </p>
+      {(st.changed?.length ?? 0) > 0 && (
+        <>
+          <div className="status-head">Changed recently</div>
+          <ul className="status-list">{st.changed!.map((p, i) => <PointRow key={i} p={p} byId={byId} onSource={onSource} lead={p.date} />)}</ul>
+        </>
+      )}
+      {(st.open?.length ?? 0) > 0 && (
+        <>
+          <div className="status-head">Open</div>
+          <ul className="status-list">{st.open!.map((p, i) => <PointRow key={i} p={p} byId={byId} onSource={onSource} tail={[p.who, p.due && 'due ' + p.due].filter(Boolean).join(' · ')} />)}</ul>
+        </>
+      )}
+    </section>
   );
 }
 

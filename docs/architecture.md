@@ -227,10 +227,15 @@ cold lane like any other source.
   the 12 strongest candidates (plus "none"), and the up to two above
   `min_p` (0.4) open. Topic cards replace relevance's places; lookups
   keep them. `[live.pick.brief]` (a chat model) writes each picked card
-  a headline and what to raise about it in this meeting, shown in place
-  of its lines, and, once more than five cards are kept from earlier,
-  ranks them by what is most worth raising: the menu shows those five,
-  the rest a click away. Briefs are kept per scope, so one written in
+  a headline (something the last 3 minutes didn't say) and up to three
+  things to raise in this meeting; when the notes planned this very
+  conversation, the headline says so. A picked card is its title,
+  headline and best raise line, so the panel keeps the recent picks up
+  (the current one marked), not only the open ones; opened, a card shows
+  its other raise lines and the topic's written status, each point's
+  citations opening the statements it rests on. Once more than five
+  cards are pushed off, they are ranked by what is most worth raising:
+  the menu shows those five, the rest a click away. Briefs are kept per scope, so one written in
   private doesn't show on a shared screen. Research log 2026-10-28:
   80–90% of cards on topic against 12%.
 - **Stepped replay** (`musubi live --replay ID --stepped`): the meeting

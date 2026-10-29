@@ -35,6 +35,9 @@ type Status struct {
 	// Relevance, that what fits best takes the places (live.relevance).
 	Focus     bool `json:"focus"`
 	Relevance bool `json:"relevance"`
+	// Pick: topic cards are picked (live.pick); the panel shows the
+	// recent picks in short.
+	Pick bool `json:"pick"`
 }
 
 // Brief is what was found for one suggestion.
@@ -248,7 +251,7 @@ func (l *Live) cardsAsOf(mode string, start time.Time) {
 func (l *Live) Status() Status {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	st := Status{Connected: l.connected, Mode: l.mode, Scope: l.scope, Clock: l.clockLocked(), Focus: l.eng.Cfg.Live.Focus, Relevance: l.rel != nil}
+	st := Status{Connected: l.connected, Mode: l.mode, Scope: l.scope, Clock: l.clockLocked(), Focus: l.eng.Cfg.Live.Focus, Relevance: l.rel != nil, Pick: l.pickingLocked()}
 	if l.meeting != nil {
 		s := l.meeting.Session
 		st.Session = &s
@@ -410,6 +413,13 @@ func (l *Live) handle(ev Event, mode string) {
 			l.meeting = NewMeeting(Session{ID: ev.SessionID})
 			l.mode = mode
 		}
+		// The owner's spelling rules read into the line as it arrives, so
+		// what is shown, suggested from and picked against says the kept
+		// form (recognition hears "DACA" for "Dhaka"). Word timings keep
+		// what was heard.
+		seg := *ev.Segment
+		seg.Text = l.spell.Canonical(seg.Text)
+		ev.Segment = &seg
 		l.meeting.Apply(*ev.Segment)
 		clk := l.clockLocked()
 		l.mu.Unlock()
@@ -490,8 +500,6 @@ func (l *Live) nextCycle() int {
 func (l *Live) fastLane(seg Segment) {
 	t0 := time.Now()
 	l.mu.Lock()
-	// A misheard name, once its alias is confirmed, reads as itself.
-	seg.Text = l.spell.Canonical(seg.Text)
 	sug, m, scopeName, ctx, topics := l.sug, l.meeting, l.scope, l.ctx, l.topicIx != nil
 	var recentLines []Segment
 	if m != nil && topics {

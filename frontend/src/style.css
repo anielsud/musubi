@@ -611,3 +611,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .warn { color: #c8963e; margin: 4px 0 8px; }
 .confirm-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .confirm-row .small { flex: 1 1 100%; }
+/* live.pick: the recent picks in short; the current one marked. */
+.topic.pick { padding-top: 8px; padding-bottom: 6px; }
+.topic.pick.current { border-color: var(--accent); }
+.topic.pick:not(.current) { opacity: 0.85; }
+.topic.pick .thread-status { margin-top: 6px; font-size: 13px; }

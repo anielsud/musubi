@@ -45,7 +45,9 @@ type TopicCard struct {
 	// among those most worth raising (0: not among them).
 	Headline string `json:"headline,omitempty"`
 	Raise    string `json:"raise,omitempty"`
-	Rank     int    `json:"rank,omitempty"`
+	// RaiseMore: other things worth raising, shown when the card is opened.
+	RaiseMore []string `json:"raiseMore,omitempty"`
+	Rank      int      `json:"rank,omitempty"`
 }
 
 // FocusLine is a card line chosen for the conversation, with its section.
@@ -293,7 +295,7 @@ func (l *Live) emitTopics(cycle int) {
 		l.mu.Lock()
 		for i := range kept {
 			if b := l.pk.briefs[kept[i].TopicID]; b != nil && b.scope == scopeName {
-				kept[i].Headline, kept[i].Raise = b.Headline, b.Raise
+				kept[i].Headline, kept[i].Raise, kept[i].RaiseMore = b.Headline, b.Raise, b.More
 			}
 			kept[i].Rank = l.pk.menu[kept[i].TopicID]
 		}

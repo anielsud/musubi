@@ -44,6 +44,8 @@ export interface LiveStatus {
   scope: string;
   lines: number;
   // The panel shows what fits the conversation (live.focus); relevance:
+  // Topic cards are picked (live.pick): the recent picks show in short.
+  pick?: boolean;
   // what fits best takes the places (live.relevance).
   focus?: boolean;
   relevance?: boolean;
@@ -122,6 +124,8 @@ export interface TopicCard {
   // meeting; for a kept card, its place among those most worth raising.
   headline?: string;
   raise?: string;
+  // Other things worth raising, shown when the card is opened.
+  raiseMore?: string[] | null;
   rank?: number;
   now?: string;
   title: string;

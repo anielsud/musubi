@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/anielsud/musubi/internal/item"
+	"github.com/anielsud/musubi/internal/sensitivity"
 )
 
 func TestLearnedAliases(t *testing.T) {
@@ -191,5 +192,40 @@ func TestThreadedSince(t *testing.T) {
 	s.UnmarkThreaded("m:1")
 	if got, _ := s.ThreadedSince(time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)); len(got) != 1 || got[0].ID != "m:2" {
 		t.Errorf("after unmark: %+v", got)
+	}
+}
+
+// A rule that holds everywhere reads into written statuses, which keep the
+// spelling they were written with. A rule for one of its JSON keys is
+// left out of statuses altogether.
+func TestStatusReadsWithRules(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.db.Exec(`INSERT INTO topics(id, label, summary, label_level, size) VALUES (1, 'Office move', '', 0, 1)`); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"now":"Hiring in Lahor is paused; now reviewed weekly.","now_ids":[],"changed":[],"open":[],"people":[]}`
+	if err := s.SetThreadStatus(ThreadStatusRow{Topic: 1, Variant: "full", Body: body, AsOf: time.Unix(0, 0)}); err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []string{"Lahor", "now"} {
+		id, err := s.AddAlias(v, map[string]string{"Lahor": "Lahore", "now": "Now"}[v], "owner")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetAliasRule(id, RuleAlways, nil, nil, "owner"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sts, err := s.ThreadStatuses(sensitivity.Owner())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"now":"Hiring in Lahore is paused; now reviewed weekly.","now_ids":[],"changed":[],"open":[],"people":[]}`
+	if got := sts[1].Body; got != want {
+		t.Fatalf("body\n got %s\nwant %s", got, want)
 	}
 }

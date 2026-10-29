@@ -1,10 +1,12 @@
 package live
 
 import (
+	"context"
 	"testing"
 
 	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/engine"
+	"github.com/anielsud/musubi/internal/provider"
 )
 
 // What fits takes the places; what is shown keeps its place against a
@@ -65,5 +67,41 @@ func TestChoosePlaces(t *testing.T) {
 	}
 	if p := l.places["a"]; p == nil || p.open || !p.wasOpen {
 		t.Errorf("an old item once shown: %+v", p)
+	}
+}
+
+type fitsClassifier float64
+
+func (f fitsClassifier) Classify(context.Context, any, map[string]provider.Question) (map[string]provider.Answer, error) {
+	return map[string]provider.Answer{"helps": {Noul: float64(f)}}, nil
+}
+func (fitsClassifier) Name() string { return "fits" }
+
+// With the picker on, a shown lookup is still judged again, and gives up its
+// place when it stops fitting (it used to keep it for the whole meeting).
+func TestRejudgeWithPicker(t *testing.T) {
+	var sent []Brief
+	l := &Live{eng: &engine.Engine{Cfg: config.DefaultConfig()}, rel: fitsClassifier(0.1),
+		emit: func(ev string, v any) {
+			if b, ok := v.(Brief); ok && ev == "live:brief" {
+				sent = append(sent, b)
+			}
+		}}
+	l.stepped.Store(true)
+	l.setStepClock(0)
+	l.offerScored(briefKey("q3 numbers"), "LOOKUP: q3 numbers", &Brief{Query: "q3 numbers"}, 0.9)
+	l.choose()
+	if open, _, _ := l.placeOf(briefKey("q3 numbers")); !open {
+		t.Fatal("not shown")
+	}
+	l.setStepClock(rescoreAfter + 1)
+	l.meeting = NewMeeting(Session{})
+	l.meeting.Apply(Segment{ID: "1", Text: "something else entirely", Start: rescoreAfter, End: rescoreAfter + 1})
+	l.rejudge(1, true)
+	if open, wasOpen, _ := l.placeOf(briefKey("q3 numbers")); open || !wasOpen {
+		t.Fatalf("open %v wasOpen %v after it stopped fitting", open, wasOpen)
+	}
+	if len(sent) != 1 || sent[0].Open {
+		t.Fatalf("closing not sent: %+v", sent)
 	}
 }

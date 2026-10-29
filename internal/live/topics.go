@@ -111,12 +111,25 @@ func (l *Live) termTopics(cycle int, text string, lines []Segment) {
 		l.maybePick(cycle)
 	}
 	if due {
-		if rel && !pick {
-			// What is shown is judged again as the talk moves on; a lookup
-			// that no longer fits gives up its place.
-			l.rescore(cycle)
+		if rel {
+			l.rejudge(cycle, pick)
 		}
 		l.emitTopics(cycle)
+	}
+}
+
+// rejudge judges what is shown again as the talk moves on; a lookup that no
+// longer fits gives up its place. With the picker the places hold only
+// lookups and emitTopics doesn't choose, so the choice is made here.
+func (l *Live) rejudge(cycle int, pick bool) {
+	l.rescore(cycle)
+	if !pick {
+		return
+	}
+	resend, _ := l.choose()
+	for _, o := range resend {
+		o.Rated = true
+		l.emit("live:brief", o)
 	}
 }
 

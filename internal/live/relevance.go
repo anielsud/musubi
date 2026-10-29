@@ -113,6 +113,26 @@ func (l *Live) offer(cycle int, key, text string, b *Brief) {
 	}
 }
 
+// offerScored puts something up for a place with its fit already judged.
+func (l *Live) offerScored(key, text string, b *Brief, score float64) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.places == nil {
+		l.places = map[string]*place{}
+	}
+	now := l.clockLocked()
+	p := l.places[key]
+	if p == nil {
+		p = &place{key: key}
+		l.places[key] = p
+	}
+	p.text, p.offered, p.score, p.scoredAt = text, now, score, now
+	if b != nil {
+		bb := *b
+		p.brief = &bb
+	}
+}
+
 // rescore judges again what is shown or still in the running, as the
 // conversation moves.
 func (l *Live) rescore(cycle int) {

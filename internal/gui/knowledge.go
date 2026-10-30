@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/anielsud/musubi/internal/knowledge"
@@ -89,4 +90,23 @@ func (a *App) ToDos(proposals bool, scope string) ([]knowledge.ToDo, error) {
 		return nil, err
 	}
 	return v.ToDos(knowledge.ToDoRequest{Proposals: proposals, QuietAfter: a.eng.Cfg.Prep.QuietAfter()}, a.eng.Cfg.Owner.Name)
+}
+
+// LinkToDo records the owner's word on a to-do: a link to another (same,
+// replaces, part) or a mark (done, dropped, not, due; other 0), with a
+// note (for due, the date as 2006-01-02, empty for none). The owner's view
+// only.
+func (a *App) LinkToDo(id int64, rel string, other int64, note string) (int64, error) {
+	if a.eng == nil {
+		return 0, fmt.Errorf("not ready")
+	}
+	return a.eng.Store.LinkStatements(id, rel, other, strings.TrimSpace(note), "owner")
+}
+
+// UndoToDoLink undoes one of the owner's links or marks.
+func (a *App) UndoToDoLink(id int64) error {
+	if a.eng == nil {
+		return fmt.Errorf("not ready")
+	}
+	return a.eng.Store.UndoOwnerLink(id)
 }

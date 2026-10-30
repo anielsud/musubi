@@ -17,9 +17,12 @@ type Commitment struct {
 }
 
 // Follow is a later statement and how it relates to an earlier one
-// (completes, supersedes, repeats, answers, pending, contradicts).
+// (completes, supersedes, repeats, answers, pending, contradicts). Owner
+// is set when the owner said it (a mark or a link): their word over the
+// threader's.
 type Follow struct {
-	Rel string `json:"rel"`
+	Rel   string `json:"rel"`
+	Owner bool   `json:"owner,omitempty"`
 	Statement
 }
 

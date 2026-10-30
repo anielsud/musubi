@@ -629,4 +629,19 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .todo-outcome { margin: 2px 0 0 14px; }
 .todo-mark { margin-right: 6px; color: var(--accent); }
 .todo-quiet, .todo-done, .todo-changed { opacity: 0.75; }
+.todo-sep { display: inline-block; width: 10px; }
+.todo-group { margin: 10px 0 4px; }
+.todo-group-head { font-size: 13px; font-weight: 600; }
+.todo-group .todo-list { margin-left: 10px; padding-left: 8px; border-left: 2px solid var(--line); }
+.todo-steps { margin: 4px 0 0 14px; padding-left: 8px; border-left: 2px dotted var(--line); }
+.todo-open { margin: 4px 0 2px 14px; display: grid; gap: 4px; }
+.todo-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.todo-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.todo-form input { flex: 1 1 200px; min-width: 0; }
+.todo-marks { list-style: none; margin: 0; padding: 0; }
+.todo-linking { position: sticky; top: 0; z-index: 2; padding: 6px 8px; margin-bottom: 6px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--accent); }
+.todo-linking .link { margin-left: 8px; }
+.todo-from { outline: 1px dashed var(--accent); outline-offset: 3px; border-radius: 4px; }
+.todo-pick { margin-right: 6px; padding: 0 6px; }
+.todo-not { opacity: 0.6; }
 @media (max-width: 560px) { .todo-filters { grid-template-columns: 1fr; } }

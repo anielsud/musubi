@@ -311,15 +311,32 @@ export interface ToDo extends Statement {
   who?: string[] | null;
   owners: string[] | null;
   mine?: boolean;
-  state: 'open' | 'quiet' | 'proposed' | 'done' | 'changed';
+  state: 'open' | 'quiet' | 'proposed' | 'done' | 'changed' | 'not';
   due?: string;
   dueAt?: string;
   overdue?: boolean;
   topic?: number;
   raised: number;
   lastRaised: string;
-  outcome?: Statement & { rel: string };
+  // owner: the owner said it (a mark), not a statement from a source.
+  outcome?: Statement & { rel: string; owner?: boolean };
   repeats?: Statement[] | null;
+  topicLabel?: string;
+  parent?: number;
+  steps?: number;
+  stepsDone?: number;
+  marks?: OwnerLink[] | null;
+}
+
+// OwnerLink is the owner's word on a to-do: a link (same, replaces, part)
+// from statement to other, or a mark on statement (done, dropped, not, due).
+export interface OwnerLink {
+  id: number;
+  statement: { item: string; text: string };
+  rel: 'same' | 'replaces' | 'part' | 'done' | 'dropped' | 'not' | 'due';
+  other: { item: string; text: string };
+  note?: string;
+  at: string;
 }
 
 export interface ThreadItem extends Statement {

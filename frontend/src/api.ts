@@ -58,6 +58,8 @@ export const api = {
   threadEdits: (): Promise<ThreadEditView[] | null> => app().ThreadEdits(),
   prepTargets: (): Promise<PrepTarget[] | null> => app().PrepTargets(),
   toDos: (proposals: boolean, scope: string): Promise<ToDo[] | null> => app().ToDos(proposals, scope),
+  linkToDo: (id: number, rel: string, other: number, note = ''): Promise<number> => app().LinkToDo(id, rel, other, note),
+  undoToDoLink: (id: number): Promise<void> => app().UndoToDoLink(id),
   prep: (req: PrepRequest, scope: string): Promise<PrepView> => app().Prep(req, scope),
   prepBrief: (id: string, req: PrepRequest, scope: string): Promise<void> => app().PrepBrief(id, req, scope),
 };

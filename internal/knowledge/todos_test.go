@@ -136,4 +136,66 @@ func TestToDos(t *testing.T) {
 	if got["Robin Vale will send the plan by 20 March"].State != "quiet" || got["Kai Moreno will draft the memo this week"].State != "open" {
 		t.Errorf("quiet: %s, %s", got["Robin Vale will send the plan by 20 March"].State, got["Kai Moreno will draft the memo this week"].State)
 	}
+
+	// The owner's word: links and marks, over what threading said.
+	link := func(a, rel, b, note string) int64 {
+		var other int64
+		if b != "" {
+			other = ids[b]
+		}
+		id, err := s.LinkStatements(ids[a], rel, other, note, "owner")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	link("Robin Vale will send the plan by 20 March", "done", "", "sent by email")
+	link("Kai Moreno will fix the build", "same", "Kai Moreno will draft the memo", "")
+	link("Kai Moreno will book the venue", "dropped", "", "")
+	link("Robin Vale will review the salaries", "part", "Robin Vale will send the plan by 20 March", "")
+	not := link("Kai Moreno will draft the memo this week", "not", "", "")
+	link("Robin Vale will review the salaries", "due", "", "2026-03-08")
+	got = list(sensitivity.Owner(), ToDoRequest{})
+	if x := got["Robin Vale will send the plan by 20 March"]; x.State != "done" || x.Outcome == nil || !x.Outcome.Owner || x.Outcome.Text != "sent by email" {
+		t.Errorf("owner's done: %+v", x)
+	}
+	// The owner's word outranks the threader's (the venue was booked).
+	if x := got["Kai Moreno will book the venue"]; x.State != "changed" || !x.Outcome.Owner {
+		t.Errorf("owner's dropped: %+v", x)
+	}
+	// Said the same: the earlier folds into the later, with what came of it.
+	if x, ok := got["Kai Moreno will fix the build"]; ok {
+		t.Errorf("the build folded into the memo, but listed: %+v", x.State)
+	}
+	if x := got["Kai Moreno will draft the memo this week"]; x.Raised != 3 || x.State != "not" || len(x.Marks) != 2 {
+		t.Errorf("memo: raised %d, state %s, marks %d", x.Raised, x.State, len(x.Marks))
+	}
+	if x := got["Robin Vale will review the salaries"]; x.Parent != ids["Robin Vale will send the plan by 20 March"] {
+		t.Errorf("step: parent %d", x.Parent)
+	}
+	if x := got["Robin Vale will send the plan by 20 March"]; x.Steps != 1 || x.StepsDone != 0 {
+		t.Errorf("parent: %d steps, %d done", x.Steps, x.StepsDone)
+	}
+	// On a shared screen the confidential step is unseen, and so is the
+	// link to it.
+	got = list(sensitivity.SharedScreen(), ToDoRequest{})
+	if x := got["Robin Vale will send the plan by 20 March"]; x.Steps != 0 {
+		t.Errorf("shared screen counts a confidential step")
+	}
+	// The date set stands over the one read from the text.
+	if x := list(sensitivity.Owner(), ToDoRequest{})["Robin Vale will review the salaries"]; x.Due != "was due 8 Mar" || !x.Overdue {
+		t.Errorf("due set: %q", x.Due)
+	}
+	// Undone, "not" no longer holds: the memo is done, as the build it is
+	// the same as was.
+	if err := s.UndoOwnerLink(not); err != nil {
+		t.Fatal(err)
+	}
+	got = list(sensitivity.Owner(), ToDoRequest{})
+	if x := got["Kai Moreno will draft the memo this week"]; x.State != "done" || x.Outcome == nil || x.Outcome.Text != "The build is fixed" {
+		t.Errorf("after undo: %s", x.State)
+	}
+	if _, err := s.LinkStatements(ids["Kai Moreno will book the venue"], "same", 0, "", "owner"); err == nil {
+		t.Error("a link with no other statement")
+	}
 }

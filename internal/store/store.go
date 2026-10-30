@@ -32,7 +32,7 @@ const schemaVersion = 4
 // kept survive a schema upgrade: they are not derived from raw. The
 // owner's corrections, decided aliases and thread edits are among them:
 // they are kept to the side and applied again to whatever is rebuilt.
-var kept = map[string]bool{"forgotten": true, "audit": true, "judgments": true, "corrections": true, "learned_aliases": true, "thread_edits": true}
+var kept = map[string]bool{"forgotten": true, "audit": true, "judgments": true, "corrections": true, "learned_aliases": true, "thread_edits": true, "owner_links": true}
 
 type Store struct {
 	db    *sql.DB

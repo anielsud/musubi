@@ -310,8 +310,24 @@ cold lane like any other source.
   with nothing said of it for `prep.quiet_days` is gone quiet; a date in
   its text sets when it is due, and a passed one, overdue. "Mine" is the
   items whose owners (the point's people, else its holder) include
-  `owner.name`. Sections: overdue, open (due soonest, then latest raised),
-  proposed, gone quiet, done or changed.
+  `owner.name`. Grouped by the thread each is on (the most pressing thread
+  first; a thread's name only where the scope may see it), or by state:
+  overdue, open (due soonest, then latest raised), proposed, gone quiet,
+  done or changed.
+
+  The owner's word (`owner_links`, kept across rebuilds and named by
+  statement as thread edits are) is read the same way and outranks the
+  threader's. It is of two kinds. What happened in the world is evidence:
+  "done" and "dropped" (with an optional note) are statements of the
+  owner's that complete or replace the item, shown as "you, 30 Oct". How
+  items relate is a link: "same as" folds the earlier into the later as a
+  repeat does, "replaces" changes the other, "step of" nests it under a
+  parent that counts its steps. A misreading is fixed, not answered: "not
+  a to-do" sets it aside, "due" sets the date, and "correct" is the thread
+  view's correction of the text or whose it is. A link or mark names
+  statements the scope reads on its own, so one touching an item the
+  screen can't see is left out. Each is undone from the item. The owner's
+  marks are read by the To-do view only; Ask and Live don't see them yet.
 - **Explore**:
   - **Topics**: the topic map in four views, picked with small buttons
     under it: Graph, Meaning, Timeline and Clusters (see "Topic map").
@@ -981,7 +997,7 @@ sqlite-vec, with the 1-bit codes above in front past 2,000.
 | Entities | `entities`, `entity_aliases`, `item_entities`, `mentions` |
 | Knowledge | `statements`, `statement_vecs`, `claims`, `claim_codes`, `statement_claims`, `claim_relations`, `statement_relations` |
 | Topics and threads | `topics`, `topic_relations`, `topic_entities`, `topic_events`, `thread_items`, `thread_runs`, `thread_status` |
-| Owner's decisions (kept across rebuilds) | `corrections`, `learned_aliases`, `thread_edits`, `forgotten`, `audit`, `judgments` |
+| Owner's decisions (kept across rebuilds) | `corrections`, `learned_aliases`, `thread_edits`, `owner_links`, `forgotten`, `audit`, `judgments` |
 | Stage bookkeeping | `stage_runs`, `global_runs` |
 
 **Size, measured (the "All" dataset, 2026-10-21):** 268 MB for 165

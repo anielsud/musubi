@@ -424,3 +424,22 @@ CREATE TABLE IF NOT EXISTS thread_edits (
 	at         INTEGER NOT NULL,
 	undone     INTEGER NOT NULL DEFAULT 0
 );
+
+-- The owner's word on to-dos, kept to the side like thread edits and named
+-- by statement (item and text as extracted). Links say how two relate (the
+-- statement is the same as, replaces, or is a step of the other); marks
+-- are the owner's evidence (done, dropped, with a note) or a reading fixed
+-- (not a to-do; due on a date, in the note). Read with the statements they
+-- name, under the same scope; undone ones are kept for the record.
+CREATE TABLE IF NOT EXISTS owner_links (
+	id         INTEGER PRIMARY KEY,
+	item_id    TEXT NOT NULL,
+	text       TEXT NOT NULL,
+	rel        TEXT NOT NULL,      -- same, replaces, part; done, dropped, not, due
+	other_item TEXT NOT NULL DEFAULT '',
+	other_text TEXT NOT NULL DEFAULT '',
+	note       TEXT NOT NULL DEFAULT '',
+	by         TEXT NOT NULL,
+	at         INTEGER NOT NULL,
+	undone     INTEGER NOT NULL DEFAULT 0
+);

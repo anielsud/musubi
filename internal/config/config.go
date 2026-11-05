@@ -171,6 +171,14 @@ type Knowledge struct {
 	// what is open) after threading, for the topic page, Ask and meeting
 	// prep (knowledge.WriteStatus).
 	Status Status `toml:"status"`
+	// SkipFailedItems: an item whose every passage failed extraction (with
+	// "statements") is logged, left unstamped so the next run tries it again,
+	// and the run goes on to embedding, linking and threads for the rest.
+	// The run still fails when no item in it extracted, since that is a
+	// broken model or cache rather than a few bad replies. false: one such
+	// item fails the run after extraction, as before, so nothing is linked
+	// or threaded until it extracts (research-log.md, 2026-11-05).
+	SkipFailedItems bool `toml:"skip_failed_items"`
 	// AllowHosted lets points, threads and labels use a hosted model (the
 	// owner's policy since 2026-10-16 allows the approved endpoints to read
 	// meeting text). false keeps them local.

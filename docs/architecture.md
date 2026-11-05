@@ -384,6 +384,14 @@ statement has:
 Small talk and procedure are skipped. The stage is versioned by model and
 prompt like any other, so improving the prompt means re-running it.
 
+A reply that isn't valid JSON (e.g. cut off at the token limit) skips that
+passage only. An item whose every passage fails fails the run after
+extraction, so embedding, linking and threads don't run; with
+`knowledge.skip_failed_items` such an item is logged, left unstamped (tried
+again next run) and counted in the summary, and the run goes on. A run in
+which no item extracts still fails: that is a broken model or cache, not
+nothing worth extracting (research-log.md, 2026-11-05).
+
 Checks after extraction, all cheap and stored with the statement:
 - **quote and grounding**: the statement carries the words it came from;
   code checks the quote is in the cited line, its figures are in the

@@ -279,6 +279,44 @@ Repeats are now recorded as a `repeats` relation, and lapse is a rule on
 dates. With both, "current" can be derived, and the next threading run
 can check that derived and stored agree.
 
+## Subject shape: themes and accounts (2026-11-05)
+
+Live card briefs that mixed up customers (research log, "Why some card
+briefs mixed up accounts") traced two of their four causes to how
+threads are shaped, not to the brief model:
+- **A theme thread named or summed up after one account.** A thread
+  titled for one partner account (128 current statements) is really the
+  CMS–CMP integration theme: 17 of its statements mention that account,
+  49 are about the integration in general. Another theme thread (customer
+  onboarding and adoption, 144 statements) has a status line entirely
+  about one customer. Read as that account's card, it attaches the
+  theme's facts to it, or the one account's facts to whatever else is
+  discussed under the theme.
+- **One account split between a theme thread and its own.** A customer
+  has its own thread (138 statements); 57 more about it sit in the theme
+  thread above, and the two share none. Neither card has the whole story.
+
+What this asks of the graph:
+- **Title and status follow the members.** A thread's title and status
+  are views over who and what its statements are about (statement →
+  entity edges): a theme thread is titled as the theme, and a status
+  point about one account says which account. Retitling is a local
+  operation when the members drift from the title.
+- **A statement about an account is in that account's thread.** When a
+  statement belongs to a theme and is about a specific account that has
+  its own thread, it is in both (membership is by statement, so this is
+  an edge, not a move), or the account's statements gather in its thread
+  and the theme links to it.
+- **Card fit by entity.** Live should be able to tell from entity edges
+  that the account under discussion appears nowhere in a card's
+  statements. The brief model's fit check (`live.pick.keep_unfit` off)
+  does this from the text for now.
+
+Measure first, offline and free: per thread, the share of current
+statements that name the entity in its title, and its top entity's share;
+per account with its own thread, how many of its statements sit only in
+theme threads.
+
 ## Order
 
 1. **Check whether stored relations already explain "current".** On the
@@ -292,3 +330,9 @@ can check that derived and stored agree.
 4. **The work queue,** replacing `knowledge` runs in the app.
 5. **The vocabulary and alias layer,** with corrections on top.
 6. **Two kinds of time.**
+7. **Subject shape** (above): measure theme threads carrying one
+   account's title or status, and accounts split across threads; then
+   titles and statuses from entity edges, and co-membership for account
+   statements in theme threads. Its measurement needs only the stored
+   threads and can run any time; the fixes build on the entity layer
+   (5).

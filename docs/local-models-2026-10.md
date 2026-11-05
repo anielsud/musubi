@@ -73,3 +73,30 @@ Listed: DeepSeek V4 Pro/Flash/V4.1 Flash(+Fast), GLM 5.2 (+Fast), GLM 5.3 (+Fast
 3. Add DFlash2 drafter in llama.cpp (`--spec-type draft-dflash`, GGUF drafter ~1-2 GB, n-max 5-7), replacing or compared with MTP; likely helps most at 1-4 streams and little at 8; measure on Metal before adopting.
 
 Key sources: stared/benching-local-llms-on-apple-silicon (GitHub); github.com/lmstudio-ai/lmstudio-bug-tracker/issues/2040; github.com/ggml-org/llama.cpp/discussions/24711; github.com/lukaLLM/DFlash2_Qwen3.8_3.6_27B_LlamaCPP; huggingface.co/z-lab/Qwen3.8-27B-DFlash2; runaihome.com DFlash2 guide; docs.vllm.ai/projects/vllm-metal/en/latest/speculative_decoding; omlx.ai; arxiv.org/abs/2601.19139; docs.baseten.co/inference/model-apis/overview; codersera.com (Qwen3.8 lineup, GLM-5.3-Flash); toolhalla.ai GLM-5.3-Flash local; unsloth.ai/docs nemotron-3.5; aireiter.com Nemotron guide; sudoall.com Gemma 4 guide; contextstudios.ai Qwen3.8 hardware guide.
+
+## Addendum 2026-11-05: Qwen3.6-35B-A3B variants for Live
+
+Desk research, not measured here; figures are uploader- or community-reported. Question: is there a faster or lighter build of qwen3.6:35b-a3b for Live suggestions (installed today: Ollama Q4_K_M, 22 GB, llama.cpp engine)? It has never been tested for Live; only for extraction (research log, 2026-10-11).
+
+What matters for Live: a call is ~520 tokens in and a short reply out, so time to first token (prefill) matters more than decode speed. Speculative add-ons (MTP, DFlash) mostly help long outputs.
+
+| Variant | Size | Engine | Claim |
+|---|---|---|---|
+| Ollama `qwen3.6:35b-a3b-nvfp4` / `qwen3.6:35b-mlx` | 23 GB | Ollama MLX engine | Ollama reported 58 → 112 tok/s decode for the similar Qwen3.5-35B-A3B; reportedly text-only on this engine |
+| mlx-community 4-bit / 4-bit DWQ, unsloth UD-MLX-4bit | 20–22 GB | MLX | oMLX community runs on M5 Pro: ~70–77 tok/s decode, ~2,100 tok/s prefill |
+| `Jundot/Qwen3.6-35B-A3B-oQ4e-mtp` | 22 GB | oMLX | Sensitivity-based mixed precision plus MTP head; re-quantized 2026-10-29 |
+| MTPLX-optimized 4-bit | ~21 GB | MLX | ~98–102 tok/s decode on M5 Pro (MTPLX gained nothing on our 27B) |
+| **`mlx-community/Qwen3.6-35B-A3B-OptiQ-4bit-REAP-19B`** | 13.8 GB (11.6 GB peak) | MLX / mlx-optiq | Half the experts pruned (REAP); decode 54.7 vs 47; IFEval +4.3, MMLU −21.4 |
+| `unsloth/Qwen3.6-35B-A3B-UD-MLX-3bit` | 17.4 GB | MLX | Unsloth dynamic 3-bit |
+| `mudler/Qwen3.6-35B-A3B-APEX-GGUF` I-Compact / I-Mini | 17 / 14 GB | llama.cpp | Per-expert mixed precision; I-Compact KL ≈ UD-Q3_K_M |
+| `byteshape/Qwen3.6-35B-A3B-GGUF` IQ3_S / IQ2_S | 13 / 9.4 GB | llama.cpp | Learned per-tensor datatypes; benchmarked on NVIDIA only |
+| `chtisgit/Qwen3.6-35B-A3B-2Bit-GSQ-hybrid-GGUF` | 12.2 GB | llama.cpp (Q2_0, recent builds) | DASLab GSQ 2-bit experts; Metal support not stated |
+| Drafters: `z-lab/...-DFlash`, `mlx-community/...-DFlash2-4bit`, `RedHatAI/...-speculator.dspark` | 0.5–2 GB | MLX / llama.cpp | DFlash on MLX ~2.2x at 1k context, ~1.3x at 8k; others report 1.05x on chat |
+
+Ruled out: Escha-W2 (NVIDIA/Linux only); a pruned GGUF repo that bundles prebuilt llama.cpp binaries from an unknown uploader; a 50%-pruned build calibrated on code; uncensored/abliterated and distilled fine-tunes (change behaviour). MTP heads via Ollama were slower in one Metal test (34.6 vs 46.2 tok/s).
+
+Shortlist for the 40-prompt Live test (vs qwen3:8b and the installed Q4_K_M): Ollama nvfp4 (no code change), OptiQ REAP-19B (lighter and faster; check the knowledge loss on query quality), unsloth UD-MLX-3bit. The MLX builds need a separate server (mlx-lm or optiq), not Ollama.
+
+Network note: Hugging Face downloads work through the corporate proxy (~7.7 MB/s on 2026-11-05) but range requests are ignored, so interrupted downloads restart.
+
+Sources: ollama.com/library/qwen3.6/tags; omlx.ai community benchmarks; huggingface.co model cards for each repo named above; levelup.gitconnected.com (Ollama MLX 58 → 112 tok/s); huggingface.co/datasets/RaynarDM/apple-silicon-llm-benchmarks (MTP on Metal); github.com/bstnxbt/dflash-mlx.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -35,6 +36,13 @@ const (
 	// brief; after longer the conversation has moved, and it is written
 	// again.
 	pickAgain = 600.0
+	// briefLead: how far before a card's subject was first put forward
+	// its brief counts the conversation as about it: a lookup comes about
+	// 11 s after the words that prompted it (median; replays 2026-10-29).
+	// Earlier talk is still shown, marked as before the topic came up.
+	briefLead = 15.0
+	// briefAsked: lookups that put a topic forward, shown with its brief.
+	briefAsked = 5
 	// menuOpen: cards kept from earlier that the menu shows by default,
 	// most worth raising first; menuEvery, how often it is ranked again.
 	menuOpen  = 5
@@ -54,7 +62,10 @@ type cardBrief struct {
 	Headline string
 	Raise    string   // the best thing to raise
 	More     []string // others, best first
-	at       float64
+	// Off: the notes don't cover what the conversation is about; the card
+	// was taken down and isn't picked again within pickAgain.
+	Off bool
+	at  float64
 	// scope the card was read under: a brief written in private is not
 	// shown on a shared screen.
 	scope string
@@ -67,6 +78,11 @@ type pickState struct {
 	picked   map[int64]float64 // the latest pick: topic → probability
 	briefs   map[int64]*cardBrief
 	briefing map[int64]bool
+	// firstAt: when each picked topic was first put forward within the
+	// span; its brief reads from there. asked: the lookups that put it
+	// forward, which name the account when the last 3 minutes don't.
+	firstAt  map[int64]float64
+	asked    map[int64][]string
 	menu     map[int64]int // kept cards: rank, 1 = most worth raising
 	menuKey  string
 	menuAt   float64
@@ -85,7 +101,7 @@ type pickState struct {
 
 func newPickState() pickState {
 	return pickState{at: math.Inf(-1), menuAt: math.Inf(-1), picked: map[int64]float64{},
-		briefs: map[int64]*cardBrief{}, briefing: map[int64]bool{}, menu: map[int64]int{}, options: map[string]string{}, cards: map[string]*knowledge.Card{}}
+		briefs: map[int64]*cardBrief{}, briefing: map[int64]bool{}, firstAt: map[int64]float64{}, asked: map[int64][]string{}, menu: map[int64]int{}, options: map[string]string{}, cards: map[string]*knowledge.Card{}}
 }
 
 // picking: live.pick is on and has its classifier.
@@ -178,7 +194,7 @@ func (l *Live) pick(cycle int) {
 	if cs == nil || rel == nil || strings.TrimSpace(window) == "" {
 		return
 	}
-	score, why := map[int64]float64{}, map[int64]string{}
+	score, why, first, asked := map[int64]float64{}, map[int64]string{}, map[int64]float64{}, map[int64][]string{}
 	add := func(t int64, w float64, r string) {
 		score[t] += w
 		if why[t] == "" {
@@ -188,6 +204,12 @@ func (l *Live) pick(cycle int) {
 	for _, h := range hits {
 		if now-h.at <= pickSpan {
 			add(h.topic, h.w, h.why)
+			if f, ok := first[h.topic]; !ok || h.at < f {
+				first[h.topic] = h.at
+			}
+			if q := asked[h.topic]; len(q) < briefAsked && !slices.Contains(q, h.why) {
+				asked[h.topic] = append(q, h.why)
+			}
 		}
 	}
 	tNear := time.Now()
@@ -221,7 +243,12 @@ func (l *Live) pick(cycle int) {
 		key := fmt.Sprintf("%s/%d", scopeName, t)
 		l.mu.Lock()
 		s, ok := l.pk.options[key]
+		b := l.pk.briefs[t]
+		off := b != nil && b.Off && b.scope == scopeName && now-b.at < pickAgain
 		l.mu.Unlock()
+		if off {
+			continue
+		}
 		if !ok {
 			if c, err := l.cardOf(cs, sc, scopeName, knowledge.Anchor{Topic: t}, asOf); err == nil && c != nil {
 				s = fmt.Sprintf("%s (last discussed %s)", c.Title, c.Last.Format("2006-01-02"))
@@ -286,6 +313,14 @@ func (l *Live) pick(cycle int) {
 		map[string]any{"none": probs["none"], "candidates": cands, "nearMs": nearMs, "optionsMs": optsMs, "classifyMs": time.Since(tJev).Milliseconds()})
 	l.mu.Lock()
 	l.pk.picked = picked
+	for t := range picked {
+		// Put forward by the talk alone: it came up just now.
+		f, ok := first[t]
+		if !ok {
+			f = now
+		}
+		l.pk.firstAt[t], l.pk.asked[t] = f, asked[t]
+	}
 	l.mu.Unlock()
 	// The best last, so it ends up first.
 	for i := len(ranked) - 1; i >= 0; i-- {
@@ -392,6 +427,14 @@ func (l *Live) briefCards(cycle int, open, kept []TopicCard) {
 		l.pk.briefing[c.TopicID] = true
 		todo = append(todo, c)
 	}
+	type talk struct{ before, since, asked string }
+	talks := map[int64]talk{}
+	if l.meeting != nil {
+		for _, c := range todo {
+			b, s := l.meeting.RecentSplit(pickSpan, l.briefSpanLocked(c.TopicID, now))
+			talks[c.TopicID] = talk{b, s, strings.Join(l.pk.asked[c.TopicID], "; ")}
+		}
+	}
 	var menu []TopicCard
 	var keys []string
 	for _, c := range kept {
@@ -415,22 +458,40 @@ func (l *Live) briefCards(cycle int, open, kept []TopicCard) {
 	}
 	l.mu.Unlock()
 	for _, c := range todo {
-		c := c
-		l.spawn(func() { l.writeBrief(cycle, llm, c, scopeName, title, people, window) })
+		c, t := c, talks[c.TopicID]
+		l.spawn(func() { l.writeBrief(cycle, llm, c, scopeName, title, people, t.asked, t.before, t.since) })
 	}
 	if rank {
 		l.spawn(func() { l.rankMenu(cycle, llm, menu, key, title, people, window) })
 	}
 }
 
-const cardBriefPrompt = `You help an executive during a live meeting. A topic from their notes on past meetings has come up. Using only the notes below, write:
-- headline: where it stands, at most 18 words, concrete (names, numbers, dates). Say something the conversation hasn't just said: a reader who heard the last 3 minutes should learn something.
+// briefSpanLocked is how much of the conversation a card's brief takes as
+// about it: from briefLead before its subject was first put forward,
+// within pickSpan. When the meeting moves from one account to the next,
+// the last 3 minutes still hold the previous one, and briefs gave its
+// sponsor to the next (research log 2026-11-05).
+func (l *Live) briefSpanLocked(topic int64, now float64) float64 {
+	f, ok := l.pk.firstAt[topic]
+	if l.eng.Cfg.Live.Pick.FullWindow || !ok {
+		return pickSpan
+	}
+	return math.Min(pickSpan, math.Max(0, now-f)+briefLead)
+}
+
+const cardBriefPrompt = `You help an executive during a live meeting. A topic from their notes on past meetings has come up. First decide:
+- fits: false if the conversation is about a particular customer, partner, person or project that the notes never mention. The notes are then about something else, even when they share a product, a theme or a kind of problem; leave headline and raise empty.
+Otherwise, using only the notes below, write:
+- headline: where it stands, at most 18 words, concrete (names, numbers, dates). Say something the conversation hasn't just said: a reader who heard it should learn something.
 - raise: up to 3 things worth raising or asking about it in THIS meeting, with these people, best first, each at most 18 words; none if nothing. Not what the conversation has just covered.
 If the notes plan or commit to a conversation or meeting that this one is (same people, same subject, due about now), don't suggest holding it: say in the headline that this is it, and raise what it was meant to settle.
 
 Meeting now: %s, %s
 People speaking: %s
-The last 3 minutes (speech recognition; "You" is the executive):
+Lookups that brought this topic up: %s
+The last 3 minutes (speech recognition; "You" is the executive), before this topic came up. It may be about something else: take nothing from it for this topic unless it names it.
+%s
+Since this topic came up:
 %s
 
 Topic: %s
@@ -439,13 +500,10 @@ Status as written: %s
 The notes (section, date, who: statement):
 %s
 
-Reply as JSON only: {"headline": "...", "raise": ["...", "..."]}`
+Reply as JSON only: {"fits": true, "headline": "...", "raise": ["...", "..."]}`
 
-func (l *Live) writeBrief(cycle int, llm provider.LLM, c TopicCard, scopeName, title, people, window string) {
-	t0 := time.Now()
-	l.mu.Lock()
-	day := l.knownAtLocked().Format("Monday 2 January 2006")
-	l.mu.Unlock()
+// cardBriefText fills a card brief prompt; empty parts read "(none)".
+func cardBriefText(tmpl string, c *knowledge.Card, status, title, day, people, asked, before, since string) string {
 	var lines []string
 	for _, s := range c.Sections {
 		for _, ln := range s.Lines {
@@ -456,11 +514,21 @@ func (l *Live) writeBrief(cycle int, llm provider.LLM, c TopicCard, scopeName, t
 			lines = append(lines, fmt.Sprintf("[%s] %s %s: %s%s", s.Name, ln.Said.Format("2006-01-02"), ln.Who, ln.Text, due))
 		}
 	}
-	now := c.Now
-	if now == "" {
-		now = "(none)"
+	none := func(s string) string {
+		if strings.TrimSpace(s) == "" {
+			return "(none)"
+		}
+		return s
 	}
-	prompt := fmt.Sprintf(cardBriefPrompt, title, day, people, window, c.Title, c.Last.Format("2006-01-02"), c.Meetings, now, strings.Join(lines, "\n"))
+	return fmt.Sprintf(tmpl, title, day, people, none(asked), none(before), none(since), c.Title, c.Last.Format("2006-01-02"), c.Meetings, none(status), strings.Join(lines, "\n"))
+}
+
+func (l *Live) writeBrief(cycle int, llm provider.LLM, c TopicCard, scopeName, title, people, asked, before, since string) {
+	t0 := time.Now()
+	l.mu.Lock()
+	day := l.knownAtLocked().Format("Monday 2 January 2006")
+	l.mu.Unlock()
+	prompt := cardBriefText(cardBriefPrompt, c.Card, c.Now, title, day, people, asked, before, since)
 	out, err := llm.Complete(l.ctxOrBackground(), []provider.Message{{Role: "user", Content: prompt}},
 		provider.ChatOptions{JSON: true, Temperature: 0.3, MaxTokens: 4000}, nil)
 	var b cardBrief
@@ -469,17 +537,42 @@ func (l *Live) writeBrief(cycle int, llm provider.LLM, c TopicCard, scopeName, t
 	}
 	l.mu.Lock()
 	delete(l.pk.briefing, c.TopicID)
+	off := err == nil && b.Off && !l.eng.Cfg.Live.Pick.KeepUnfit
 	if err == nil {
 		b.at, b.scope = l.clockLocked(), scopeName
 		l.pk.briefs[c.TopicID] = &b
+	}
+	if off {
+		l.takeDownLocked(c.Anchor)
 	}
 	l.mu.Unlock()
 	if err != nil {
 		l.trace(cycle, "topic", "brief failed: "+c.Title, time.Since(t0).Milliseconds(), err.Error())
 		return
 	}
+	if off {
+		l.trace(cycle, "topic", "brief: not this conversation, taken down: "+c.Title, time.Since(t0).Milliseconds(), nil)
+		l.emitTopics(cycle)
+		return
+	}
 	l.trace(cycle, "topic", "brief: "+c.Title, time.Since(t0).Milliseconds(), map[string]any{"headline": b.Headline, "raise": append([]string{b.Raise}, b.More...)})
 	l.emitTopics(cycle)
+}
+
+// takeDownLocked removes a card the notes don't fit: no longer picked, off
+// the panel and off the kept cards.
+func (l *Live) takeDownLocked(a knowledge.Anchor) {
+	delete(l.pk.picked, a.Topic)
+	keep := func(ts []shownTopic) []shownTopic {
+		out := ts[:0:0]
+		for _, t := range ts {
+			if t.id.Key() != a.Key() {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	l.topics, l.dropped = keep(l.topics), keep(l.dropped)
 }
 
 const menuPrompt = `You help an executive during a live meeting. Below are topics that came up earlier in it, each with something they could raise. Which are most worth raising before the meeting ends, with these people, given where the conversation is now? Choose at most %d, best first; leave out what has been settled in the conversation or isn't worth their time.
@@ -534,9 +627,11 @@ func (l *Live) rankMenu(cycle int, llm provider.LLM, menu []TopicCard, key, titl
 	l.emitTopics(cycle)
 }
 
-// parseBrief reads a brief; "raise" may come as one string or a list.
+// parseBrief reads a brief; "raise" may come as one string or a list, and
+// a reply without "fits" fits.
 func parseBrief(out string) (cardBrief, error) {
 	var r struct {
+		Fits     *bool           `json:"fits"`
 		Headline string          `json:"headline"`
 		Raise    json.RawMessage `json:"raise"`
 	}
@@ -549,7 +644,7 @@ func parseBrief(out string) (cardBrief, error) {
 		json.Unmarshal(r.Raise, &one)
 		rs = []string{one}
 	}
-	b := cardBrief{Headline: strings.TrimSpace(r.Headline)}
+	b := cardBrief{Headline: strings.TrimSpace(r.Headline), Off: r.Fits != nil && !*r.Fits}
 	for _, x := range rs {
 		if x = strings.TrimSpace(x); x == "" {
 			continue

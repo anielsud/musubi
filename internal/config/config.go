@@ -464,6 +464,17 @@ type Pick struct {
 	// earlier by what is most worth raising. Provider "": the card's lines.
 	// Hosted, it reads the meeting: needs knowledge.allow_hosted.
 	Brief LLM `toml:"brief"`
+	// KeepUnfit keeps a picked card the brief model finds the notes don't
+	// cover (the conversation is about a customer, person or project they
+	// never mention). Off, the card is taken down: a card for another
+	// account had its brief written with this one's facts (research log
+	// 2026-11-05).
+	KeepUnfit bool `toml:"keep_unfit"`
+	// FullWindow gives the brief the last 3 minutes as one. Off, they are
+	// split where the card's subject was first put forward (less 15 s),
+	// the earlier part marked as possibly another subject, so what was
+	// said about the previous account isn't written into this card.
+	FullWindow bool `toml:"full_window"`
 }
 
 type Sensitivity struct {

@@ -3148,3 +3148,167 @@ the ledger).
 - Re-running the same prompt on a meeting does not give the same list: the
   stage is stamped so it runs once per meeting, and a rerun is by
   `--redo digest`.
+
+## Live suggestion model: qwen3.6-35B-A3B builds (2026-11-05)
+
+Same 40 prompts and `suggestPrompt` as the 2026-10-29 run; thinking off,
+temperature 0.3, 300-token cap, one model loaded at a time, Tomoe idle (checked
+before every prompt). Ollama runs used JSON mode, except nvfp4: Ollama's MLX
+engine rejects `format` ("structured output is unavailable"). The two MLX
+builds ran on mlx_lm.server 0.32.2 (OpenAI-compatible, no JSON mode). Memory is
+the server process's physical footprint, so it reads higher than `ollama ps`.
+qwen3:8b was re-run as today's baseline; its TTFT is slower than on 10-29.
+
+| model | TTFT p50 / p90 | total p50 / p90 | decode | valid JSON | queries naming the user | memory |
+|---|---|---|---|---|---|---|
+| qwen3:8b (Live today) | 0.67 / 0.93 s | 1.18 / 1.49 s | 47 tok/s | 40/40 | 0 of 117 | 11 GB |
+| qwen3.6:35b-a3b Q4_K_M (Ollama, llama.cpp) | 0.68 / 1.31 s | 1.56 / 3.68 s | 46 tok/s | 40/40 | 0 of 117 | 30 GB |
+| qwen3.6:35b-a3b-nvfp4 (Ollama MLX engine) | 0.46 / 0.60 s | 0.79 / 1.04 s | 92 tok/s | 39/40 | 0 of 122 | 29 GB |
+| OptiQ-4bit-REAP-19B (mlx-lm; half the experts pruned) | 0.26 / 0.31 s | 0.77 / 0.86 s | 64 tok/s | 39/40 | 0 of 117 | 13 GB |
+| unsloth UD-MLX-3bit (mlx-lm) | 0.28 / 0.34 s | 0.83 / 0.94 s | 67 tok/s | 39/40 | 0 of 117 | 17 GB |
+
+- The engine matters more than the model: on MLX the 35B-A3B reaches first
+  token in about 0.3 s, against 0.67 s for qwen3:8b on llama.cpp. Prefill is
+  where it wins, which is what Live needs.
+- None of the qwen3.6 builds named the user (qwen3.5:4b did in 14%).
+- Without JSON mode, format still held: the only miss in each MLX run was a
+  bare `[]` on the near-empty first prompt.
+- REAP-19B is the lightest (13 GB, about qwen3:8b plus 2 GB) but drops 21
+  points on MMLU per its card; UD-MLX-3bit keeps every expert for 4 GB more.
+- Not measured: query quality (ungraded), behaviour under meeting load, cold
+  load time. Adopting either MLX build needs Live's chat client to accept an
+  OpenAI-compatible server (it is Ollama-only today) and a JSON fallback.
+- Scripts and raw results: session scratchpad `bench/` (bench2.py, run-all.sh,
+  analyse.py, results2.json).
+
+### Query quality, blind (2026-11-05)
+
+The three light candidates' queries from the run above (qwen3:8b, OptiQ
+REAP-19B, UD-MLX-3bit; 351 queries), graded blind by two independent Claude
+graders with separately shuffled set order: 2 = useful, 1 = okay/generic,
+0 = not useful (off-topic, small talk, ungrounded, or the user). Per-query
+agreement between graders 76%.
+
+| model | useful, grader 1 / 2 | not useful, 1 / 2 | prompts with a useful query, 1 / 2 | best set, 1 / 2 |
+|---|---|---|---|---|
+| qwen3:8b | 36% / 28% | 7% / 8% | 25 / 21 of 40 | 6 / 5 |
+| OptiQ REAP-19B | 46% / 37% | 11% / 9% | 30 / 25 of 40 | 4 / 5 |
+| UD-MLX-3bit | 50% / 35% | 10% / 11% | 30 / 25 of 40 | 10 / 4 |
+
+- Both qwen3.6 builds give more useful queries than qwen3:8b under both
+  graders (+7 to +14 points) and a useful query on 4-5 more prompts of 40,
+  with slightly more misses (+2-4 points of 0s).
+- Pruning half the experts cost nothing measurable here: REAP-19B and
+  UD-MLX-3bit are within grader noise of each other.
+- "Best set" votes are mostly ties and don't separate the models.
+- Same failure in all three: queries on small talk (one prompt where all
+  sets should have been empty). Small sample (40 prompts); usefulness here
+  is judged from the conversation alone, not from what the search returns.
+
+## Live card brief: GLM vs local qwen3.6 (2026-11-05)
+
+Can a local model replace GLM-5.3-Flash for `live.pick.brief` (card headline
++ up to 3 things to raise)? 32 distinct cards from the two 2026-10-29
+stepped replays. Prompts rebuilt with the playground's `/brief` (exact
+`cardBriefPrompt`, card and status as of meeting start; window = segments in
+the last 180 s before the brief, speakers so far), so all three systems got
+identical prompts. GLM was called fresh through `/brief`; the local builds
+ran on mlx_lm.server, thinking off, temperature 0.3. Two independent blind
+Claude graders, set order shuffled separately; errors = statements not
+supported by the notes or conversation (invented, wrong number/date/person,
+overstated status).
+
+| system | latency p50 / p90 | briefs with an error (g1 / g2) | errors | headline mean (0-2) | raise mean (0-2) | best brief (of 32) |
+|---|---|---|---|---|---|---|
+| GLM-5.3-Flash (Baseten) | 8.0 / 20.6 s | 11 / 12 | 16 / 15 | 1.59 / 1.62 | 1.74 / 1.41 | 30 / 29 |
+| UD-MLX-3bit (local) | 2.7 / 3.7 s | 24 / 25 | 34 / 37 | 0.44 / 0.59 | 0.90 / 0.81 | 1 / 2 |
+| OptiQ REAP-19B (local) | 3.7 / 6.4 s | 25 / 24 | 33 / 31 | 0.59 / 0.53 | 1.09 / 0.89 | 1 / 1 |
+
+- GLM stays. Both local builds put an error in about three briefs of four
+  (GLM: one in three) and lose "best brief" 29-30 of 32 under both graders.
+  Typical local errors: invented deadlines, statuses overstated ("resolved",
+  "finalized"), numbers from one account attached to another.
+- Local is 3-5x faster and has no long tail; GLM's p90 of ~21 s is the real
+  Live problem, but this doesn't solve it without a quality loss (see
+  "no quality trade-offs").
+- Some errors are in the input, not the model: on one card all three systems
+  attached another account's sponsor and go-live to the topic, and several
+  local errors conflate two accounts that share a card. Worth checking card
+  grouping for mixed accounts.
+- Even GLM errs on about a third of briefs; error types: misdated stances,
+  figures from adjacent months, "opportunities" called "accounts".
+- Data: session scratchpad `brief/` (briefs.json with prompts and outputs,
+  grade packets, keys, grades, score.py).
+
+### Why some card briefs mixed up accounts (2026-11-05)
+
+Follow-up on the brief comparison above: the graders flagged three cards
+where every system attached one customer's facts to another. Checked the
+cards, the picker's trace and the threads in the playground database. The
+model is not the main cause; four separate problems:
+
+1. **Picker accepts the nearest card when the account has none.** A
+   customer discussed for the first time (zero prior statements) got a
+   CMS integration card for a different customer, at p = 0.48 (min_p 0.4).
+   The picker's own queries named the right customer; the chosen card
+   never mentions it. Every system then wrote the new customer's sponsor and
+   ARR into the other customer's brief.
+2. **The 3-minute window spans a change of subject.** When the meeting moved
+   to the next customer, the window still held the previous customer's
+   sponsor discussion, and the briefs attributed it to the new one.
+3. **Theme threads carry one account's name or status.** The card titled
+   for one partner account (128 current statements) is really the CMS–CMP
+   integration theme: 17 statements mention that account, 49 are about the
+   integration in general. Another theme card ("customer onboarding &
+   adoption", 144 statements) has a status line entirely about one
+   customer.
+4. **One account's statements are split between a theme thread and its own
+   thread.** That customer has its own card (138 statements), and 57 more
+   about it sit in the theme card above; the two share none. So neither card
+   has the whole story, and the theme card reads as that account's card.
+
+Problems 1-2 are Live (picker, brief window); 3-4 are threading and
+labelling. Not yet measured: how many cards have problems 3-4.
+
+### Card fit check and split window: results (2026-11-05)
+
+Fixes for problems 1-2 above (`internal/live/pick.go`):
+- **Fit check.** The brief model first answers `fits`: false when the
+  conversation is about a customer, partner, person or project the notes
+  never mention. The card is then taken down and not picked again for
+  10 minutes (`live.pick.keep_unfit = true` keeps it). The brief also sees
+  the lookups that put the card forward: in the worst case the other
+  account was named 182 s before the pick, outside the 3 minutes, and
+  only a lookup ("<account> PaaS CMS onboarding") still carried its name.
+- **Split window.** The 3 minutes are split where the card was first put
+  forward, less 15 s, and the earlier part is marked as possibly another
+  subject (`live.pick.full_window = true` restores one window). Lookups
+  trail the words that prompted them by 11 s median, 29 s p75, 57 s p90
+  (464 lookups, both replays). A 60 s lead still reached the previous
+  account's sponsor discussion; 15 s did not.
+
+Same 32 cards, GLM-5.3-Flash, one run; old vs new graded blind by two
+Claude graders (order shuffled separately), who also judged each card's
+fit without seeing either system's verdict:
+
+| | grader 1 | grader 2 |
+|---|---|---|
+| cards graded fit yes / partly / no | 11 / 13 / 8 | 11 / 13 / 8 |
+| taken down by the new brief | 8 | 8 |
+| take-downs judged right | 8 of 8 | 8 of 8 |
+| errors, old briefs (cards with one) | 35 (26 of 32) | 31 (22 of 32) |
+| errors, new briefs (cards with one) | 16 (14 of 24) | 12 (12 of 24) |
+| better: new / old / tie | 18 / 2 / 12 | 19 / 3 / 10 |
+
+- No useful card was taken down. Both mixed-up account cards from above
+  are now taken down; the third (the next account, after the subject
+  changed) keeps its card and no longer borrows the previous account's
+  sponsor.
+- Three cards both graders call unfit still pass: the conversation is on
+  a different subject (support numbers against an adoption card, a
+  support roadmap against an engineering staffing card), not an
+  unmentioned account. The check is worded for accounts, people and
+  projects; widening it to subjects is the picker's job and untested.
+- Theme cards still carry one account's slant (problem 3): a card kept
+  as fitting the general subject still headlines that account. That
+  belongs to threading (`docs/incremental-design.md`, "Subject shape").

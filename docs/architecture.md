@@ -245,7 +245,13 @@ cold lane like any other source.
   keep them. `[live.pick.brief]` (a chat model) writes each picked card
   a headline (something the last 3 minutes didn't say) and up to three
   things to raise in this meeting; when the notes planned this very
-  conversation, the headline says so. A picked card is its title,
+  conversation, the headline says so. The brief reads the lookups that
+  put the card forward and the 3 minutes split where the card was first
+  put forward (less 15 s), the earlier part marked as possibly another
+  subject (`full_window` restores one undivided window). It first says
+  whether the notes fit: when the conversation is about a customer,
+  person or project the notes never mention, the card is taken down and
+  not picked again for 10 minutes (`keep_unfit` keeps it). A picked card is its title,
   headline and best raise line, so the panel keeps the recent picks up
   (the current one marked), not only the open ones; opened, a card shows
   its other raise lines and the topic's written status, each point's

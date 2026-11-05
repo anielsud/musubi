@@ -76,6 +76,10 @@ price_in = 0.15            # $ per million tokens, for the spend ledger
 price_out = 0.502
 
 [knowledge.status.model]   # thread statuses: same fields as above
+[knowledge.digest]         # meeting summaries and to-dos (one whole-meeting read each)
+enabled = true
+todos = true               # the To-do tab reads them instead of commitment statements
+[knowledge.digest.model]   # same fields as above; omitted: the threads model
 [ask.model]                # Ask and prep talking points: same fields
 [ask.fallback]             # when the hosted model fails
 provider = "ollama"

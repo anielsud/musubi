@@ -443,3 +443,57 @@ CREATE TABLE IF NOT EXISTS owner_links (
 	at         INTEGER NOT NULL,
 	undone     INTEGER NOT NULL DEFAULT 0
 );
+
+-- Meeting digests (knowledge.digest): a sectioned summary of a meeting and
+-- the to-dos said in it, each from one whole-meeting read (docs/research-log.md,
+-- 2026-11-02). Derived: rebuilt from the item's chunks, stamped like the
+-- other stages, deleted with the item. Every row carries its own label,
+-- worked out in code from the passages it cites and combined with the
+-- item's on every read; the model's say-so can only add to it. A to-do
+-- links to the statement that says the same thing (statement_id), which is
+-- where its state (done, changed, repeated) and its thread come from; the
+-- link is made again, with no model call, when the item is re-extracted.
+CREATE TABLE IF NOT EXISTS meeting_digests (
+	item_id    TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+	version    TEXT NOT NULL,
+	overview   TEXT NOT NULL,
+	level      INTEGER NOT NULL DEFAULT 0,
+	categories INTEGER NOT NULL DEFAULT 0,
+	made_at    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS meeting_sections (
+	item_id    TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	n          INTEGER NOT NULL,
+	subject    TEXT NOT NULL,
+	text       TEXT NOT NULL,
+	people     TEXT NOT NULL DEFAULT '[]',
+	spans      TEXT NOT NULL DEFAULT '[]',   -- [{fromChunk, fromLine, toChunk, toLine}]
+	level      INTEGER NOT NULL DEFAULT 0,
+	categories INTEGER NOT NULL DEFAULT 0,
+	grounded   INTEGER NOT NULL DEFAULT 1,
+	issues     TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (item_id, n)
+);
+
+CREATE TABLE IF NOT EXISTS meeting_todos (
+	id           INTEGER PRIMARY KEY,
+	item_id      TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	n            INTEGER NOT NULL,
+	text         TEXT NOT NULL,
+	owners       TEXT NOT NULL DEFAULT '[]',
+	requester    TEXT NOT NULL DEFAULT '',
+	agreed       TEXT NOT NULL,              -- agreed, asked, floated, declined
+	due_text     TEXT NOT NULL DEFAULT '',   -- the timing words as said
+	due_date     TEXT NOT NULL DEFAULT '',   -- 2006-01-02, or empty
+	evidence     TEXT NOT NULL DEFAULT '[]', -- [{chunkId, line, quote}]
+	said_at      INTEGER NOT NULL,
+	statement_id INTEGER REFERENCES statements(id) ON DELETE SET NULL,
+	link_score   REAL NOT NULL DEFAULT 0,
+	level        INTEGER NOT NULL DEFAULT 0,
+	categories   INTEGER NOT NULL DEFAULT 0,
+	grounded     INTEGER NOT NULL DEFAULT 1,
+	issues       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS meeting_todos_item ON meeting_todos(item_id);
+CREATE INDEX IF NOT EXISTS meeting_todos_statement ON meeting_todos(statement_id);

@@ -186,3 +186,10 @@ func (l *Live) statementLookup(ctx context.Context, cycle int, qs []Suggestion, 
 	// relevance gate's score; the panel rescores it as the talk moves.
 	l.finishBriefScored(cycle, b, evidenceAt(q, lines), "statement shown", "statements", 1-none)
 }
+
+// spellExpand applies the spelling rules to a query as brief does.
+func (l *Live) spellExpand(q string) string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.spell.Expand(q)
+}

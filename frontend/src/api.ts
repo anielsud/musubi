@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { AliasUsage, AliasView, AppStatus, ClaimView, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
+import type { AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -58,6 +58,8 @@ export const api = {
   threadEdits: (): Promise<ThreadEditView[] | null> => app().ThreadEdits(),
   prepTargets: (): Promise<PrepTarget[] | null> => app().PrepTargets(),
   toDos: (proposals: boolean, scope: string): Promise<ToDo[] | null> => app().ToDos(proposals, scope),
+  meetingList: (scope: string, limit = 200): Promise<MeetingListItem[] | null> => app().MeetingList(scope, limit),
+  meetingPage: (id: string, scope: string): Promise<MeetingPage | null> => app().MeetingPage(id, scope),
   linkToDo: (id: number, rel: string, other: number, note = ''): Promise<number> => app().LinkToDo(id, rel, other, note),
   undoToDoLink: (id: number): Promise<void> => app().UndoToDoLink(id),
   prep: (req: PrepRequest, scope: string): Promise<PrepView> => app().Prep(req, scope),

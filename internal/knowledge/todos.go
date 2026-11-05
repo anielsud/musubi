@@ -50,18 +50,32 @@ type ToDo struct {
 	// Marks are the owner's links and marks on it (or on what was folded
 	// into it), for undoing.
 	Marks []store.OwnerLink `json:"marks,omitempty"`
+	// From a meeting digest (ToDoRequest.Source "digest"): who asked for
+	// it, and the digest to-do's id. A negative ID means no statement says
+	// the same, so it has no thread and the owner can't mark it yet.
+	Requester string `json:"requester,omitempty"`
+	Digest    int64  `json:"digest,omitempty"`
+	// givenDue is the due date the digest read, 2006-01-02.
+	givenDue string
 }
 
 // ToDoRequest says what to list.
 type ToDoRequest struct {
 	Proposals  bool          `json:"proposals"`
 	QuietAfter time.Duration `json:"quietAfter,omitempty"`
+	// Source is "digest" to list the to-dos of meeting digests; anything
+	// else lists commitment statements.
+	Source string `json:"source,omitempty"`
 }
 
 // ToDos lists what was said would or should happen, open first (overdue,
 // then due soonest, then most recently raised), then quiet, then closed.
 func (v Views) ToDos(req ToDoRequest, ownerName string) ([]ToDo, error) {
-	cs, err := v.Store.Commitments(v.Scope, req.Proposals)
+	read := v.Store.Commitments
+	if req.Source == "digest" {
+		read = v.Store.DigestCommitments
+	}
+	cs, err := read(v.Scope, req.Proposals)
 	if err != nil {
 		return nil, err
 	}
@@ -84,6 +98,7 @@ func (v Views) ToDos(req ToDoRequest, ownerName string) ([]ToDo, error) {
 	for i, c := range cs {
 		t := &todos[i]
 		t.Statement, t.Topic = c.Statement, c.Topic
+		t.Requester, t.Digest, t.givenDue = c.Requester, c.Digest, c.DueDate
 		t.Raised, t.LastRaised = t.Raised+1, c.SaidAt
 		t.Marks = append(t.Marks, own[i].marks...)
 		for _, f := range c.Later {
@@ -164,9 +179,16 @@ func (v Views) ToDos(req ToDoRequest, ownerName string) ([]ToDo, error) {
 			t.State = "open"
 		}
 		if t.State == "open" || t.State == "quiet" || t.State == "proposed" {
-			if own[i].dueSet {
+			switch {
+			case own[i].dueSet:
 				t.DueAt, t.Due = dueOn(own[i].due, v.Now)
-			} else {
+			case t.givenDue != "":
+				t.DueAt, t.Due = dueOn(t.givenDue, v.Now)
+			case t.Digest != 0:
+				// The digest read the timing with the meeting's date: no
+				// date there means none was said, not one to guess from
+				// the words.
+			default:
 				t.DueAt, t.Due = due(t.Text, t.SaidAt, v.Now)
 			}
 			t.Overdue = strings.HasPrefix(t.Due, "was")

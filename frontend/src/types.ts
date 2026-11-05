@@ -326,6 +326,11 @@ export interface ToDo extends Statement {
   steps?: number;
   stepsDone?: number;
   marks?: OwnerLink[] | null;
+  // From a meeting summary (knowledge.digest): who asked for it, and the
+  // summary to-do's id. A negative id means no statement says the same, so
+  // it has no thread and can't be marked yet.
+  requester?: string;
+  digest?: number;
 }
 
 // OwnerLink is the owner's word on a to-do: a link (same, replaces, part)
@@ -515,3 +520,52 @@ export interface QueueView {
   spent: number;
   ledger: string;
 }
+
+// A meeting summary (knowledge.digest): the meeting in sections, its to-dos
+// and how they stand, and the threads its statements are in.
+export interface MeetingSpan { fromChunk: number; fromLine: number; toChunk: number; toLine: number }
+
+export interface MeetingSection {
+  n: number;
+  subject: string;
+  text: string;
+  people?: string[] | null;
+  spans?: MeetingSpan[] | null;
+  // grounded is false when a name or figure isn't in the meeting; issues says which.
+  grounded: boolean;
+  issues?: string;
+}
+
+export interface MeetingToDo {
+  id: number;
+  text: string;
+  owners?: string[] | null;
+  requester?: string;
+  agreed: 'agreed' | 'asked' | 'floated' | 'declined';
+  dueText?: string;
+  dueDate?: string;
+  evidence?: { chunkId: number; line: number; quote: string }[] | null;
+  saidAt: string;
+  grounded: boolean;
+  issues?: string;
+  // State as the to-do view reads it; "repeated" when a later meeting said
+  // it again, "declined" when this meeting turned it down.
+  state: 'open' | 'quiet' | 'proposed' | 'done' | 'changed' | 'not' | 'repeated' | 'declined';
+  due?: string;
+  topic?: number;
+  topicLabel?: string;
+}
+
+export interface MeetingTopic { id: number; label: string; statements: number; size: number }
+
+export interface MeetingPage {
+  itemId: string;
+  title: string;
+  start: string;
+  overview: string;
+  sections: MeetingSection[] | null;
+  todos: MeetingToDo[] | null;
+  topics: MeetingTopic[] | null;
+}
+
+export interface MeetingListItem { itemId: string; title: string; start: string; overview: string; sections: number; todos: number }

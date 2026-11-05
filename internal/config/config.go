@@ -171,6 +171,9 @@ type Knowledge struct {
 	// what is open) after threading, for the topic page, Ask and meeting
 	// prep (knowledge.WriteStatus).
 	Status Status `toml:"status"`
+	// Digest reads each meeting whole into a sectioned summary and its
+	// to-dos (knowledge.Digester).
+	Digest Digest `toml:"digest"`
 	// AllowHosted lets points, threads and labels use a hosted model (the
 	// owner's policy since 2026-10-16 allows the approved endpoints to read
 	// meeting text). false keeps them local.
@@ -187,6 +190,30 @@ type Status struct {
 	Model LLM `toml:"model"`
 	// Parallel is how many statuses are written at once.
 	Parallel int `toml:"parallel"`
+}
+
+// Digest configures meeting digests: a sectioned summary of each meeting
+// and the to-dos said in it, from one whole-meeting read (research log,
+// 2026-11-02).
+type Digest struct {
+	// Enabled: false makes none, and the to-do view reads commitment
+	// statements, as before.
+	Enabled bool `toml:"enabled"`
+	// Model reads the meeting; provider "" uses the threads model. It reads
+	// meeting text, so it must be local unless knowledge.allow_hosted. A
+	// long meeting needs a long context (about 30k tokens for two hours).
+	Model LLM `toml:"model"`
+	// Parallel is how many meetings are read at once.
+	Parallel int `toml:"parallel"`
+	// ToDos makes the to-do view read the digest's to-dos (with their
+	// owners, agreed-or-floated state and dates) instead of commitment
+	// statements. Meetings without a digest then have no to-dos listed.
+	ToDos bool `toml:"todos"`
+	// MinTopicStatements is how many of a meeting's statements a thread
+	// must hold to be listed as one of its topics (a thread holding fewer
+	// is mostly not about the meeting: 1 statement, "not here" in the
+	// measure; 3 to 5 split the rest).
+	MinTopicStatements int `toml:"min_topic_statements"`
 }
 
 // Label configures statement sensitivity labelling.
@@ -476,7 +503,7 @@ func DefaultConfig() Config {
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
+		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

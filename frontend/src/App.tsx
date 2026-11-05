@@ -5,13 +5,14 @@ import { LiveView } from './components/LiveView';
 import { AskView } from './components/AskView';
 import { PrepView } from './components/PrepView';
 import { ToDoView } from './components/ToDoView';
+import { MeetingsView } from './components/MeetingsView';
 import { ExploreView } from './components/ExploreView';
 import { StatusView } from './components/StatusView';
 import { SourceDrawer, type SourceRef } from './components/SourceDrawer';
 import { DiagPanel } from './components/DiagPanel';
 import { SelectionMenu, type Picked } from './components/SelectionMenu';
 
-type View = 'live' | 'ask' | 'prep' | 'to-do' | 'explore' | 'status';
+type View = 'live' | 'ask' | 'prep' | 'to-do' | 'meetings' | 'explore' | 'status';
 
 export function App() {
   const [view, setView] = useState<View>('live');
@@ -57,6 +58,8 @@ export function App() {
   const openHit = (h: Hit, sc: string) => setSource({ itemId: h.itemId, chunkId: h.chunkId, scope: sc });
   const openEntity = (id: string) => { setFocus(id); setView('explore'); };
   const [topicReq, setTopicReq] = useState<{ id: number; n: number } | null>(null);
+  const [meetingReq, setMeetingReq] = useState<{ id: string; n: number } | null>(null);
+  const openMeeting = (id: string) => { setMeetingReq({ id, n: Date.now() }); setView('meetings'); };
   const openTopic = (id: number) => { setFocus(null); setTopicReq({ id, n: Date.now() }); setView('explore'); };
   // From a text selection: a question to ask, or a word to correct.
   const [askReq, setAskReq] = useState<{ text: string; n: number } | null>(null);
@@ -92,7 +95,7 @@ export function App() {
       </header>
 
       <nav className="tabs" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
-        {(['live', 'ask', 'prep', 'to-do', 'explore', 'status'] as View[]).map((v) => (
+        {(['live', 'ask', 'prep', 'to-do', 'meetings', 'explore', 'status'] as View[]).map((v) => (
           <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
             {v === 'live' && live?.mode === 'live' && <span className="pulse" />}
             {v}
@@ -104,7 +107,8 @@ export function App() {
         <div hidden={view !== 'live'}><LiveView status={live} onOpen={openHit} onEntity={openEntity} onTopic={openTopic} /></div>
         <div hidden={view !== 'ask'}><AskView onOpen={openHit} scope={scope} onTopic={openTopic} prefill={askReq} /></div>
         <div hidden={view !== 'prep'}><PrepView onOpen={openHit} scope={scope} onTopic={openTopic} /></div>
-        <div hidden={view !== 'to-do'}><ToDoView onOpen={openHit} scope={scope} onTopic={openTopic} /></div>
+        <div hidden={view !== 'to-do'}><ToDoView onOpen={openHit} scope={scope} onTopic={openTopic} onMeeting={openMeeting} /></div>
+        <div hidden={view !== 'meetings'}><MeetingsView onOpen={openHit} scope={scope} onTopic={openTopic} req={meetingReq} /></div>
         <div hidden={view !== 'explore'}>
           <ExploreView scope={scope} focus={focus} setFocus={setFocus} onOpen={openHit} topicReq={topicReq} correctReq={correctReq}
             onOpenItem={(id, sc) => setSource({ itemId: id, scope: sc })} />

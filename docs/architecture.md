@@ -299,7 +299,7 @@ cold lane like any other source.
   one other person attending, listed last (`prep.mark_private`).
   "Draft" writes talking points with the Ask model.
   `musubi prep <item> [--brief]` is the same from the command line.
-- **To-do** (`knowledge.ToDos`, `store.Commitments`): everything someone
+- **To-do** (`knowledge.ToDos`, `store.Commitments`, or the digest's to-dos, see Meeting digests): everything someone
   said would happen (commitment statements) and, with "+ proposals", what
   someone said should happen and nobody agreed yet (positions and
   decisions still proposed). Nothing is stored for the list: what came of
@@ -766,6 +766,72 @@ the best. With `ask.find_newer` (off by default) it adds one more within 0.12
 when that thread's latest item is later than every thread found: a
 subject's latest turn is sometimes threaded on its own (research log
 2026-10-20).
+
+### Meeting digests (`knowledge.digest`)
+
+A meeting's summary and its to-dos, each from one whole-meeting read, apart
+from statement extraction (which keeps its 50-line excerpts: handing it the
+whole transcript found fewer, research log 2026-10-16; a narrow task over
+the whole meeting does better, 2026-11-02). Two calls per meeting
+(`knowledge.Digester`), the transcript fenced as data between markers with
+the task after it:
+
+- **A sectioned summary**: an overview and one section per subject (title,
+  2 to 4 sentences, people, the line ranges it rests on, sensitive
+  categories). Against a plain paragraph, graders preferred it 10 of 10; it
+  covered every major subject (85% for the paragraph), about 2% errors per
+  claim, mostly who-said-what swaps in a back-and-forth.
+- **To-dos**: each with owner, who asked, agreed / asked / floated /
+  declined, the timing words and a date worked out from the meeting's day,
+  and the lines and quote it rests on. Against to-dos read from statements:
+  88% good (68%), 4% duplicates (17%), owner right 96% (87%).
+
+Stored in `meeting_digests`, `meeting_sections` and `meeting_todos`
+(created by `schema.sql`, no schema-version bump, so nothing extracted is
+dropped). Stamped stage `digest` (version `DigestVersion`, input hash of the
+passages, labels and facts; a new version waits for `--redo digest` as
+extraction does), deleted with the item.
+
+- **Checks in code.** Replies are schema-constrained and validated: counts
+  and lengths capped, line numbers kept only inside the meeting, dates only
+  real dates from the meeting's day to three years on, states and
+  categories from fixed lists. Names and figures are checked against the
+  meeting as points are (`Meeting.Check`); a failing row is kept and shown
+  as "check wording". A long meeting answered with no to-dos, or with most
+  to-dos citing no line, is asked once more (the model does both sometimes)
+  and the reading that cites more is kept.
+- **Sensitivity.** Each row's label is worked out in code from the passages
+  it cites (all the meeting's, when it cites none that exist), the text
+  rules and the model's flags (personal, hr, legal, financial), which only
+  ever add. Every read combines it with the item's, as statements do; the
+  overview is as sensitive as the most sensitive section. 93% of flags were
+  right, 7% over-flagged, none missed.
+- **To-dos and statements.** A to-do is matched with the statement that
+  says the same (cited lines within two of its own plus shared words, or
+  many shared words; one to-do per statement). The statement carries what
+  the to-do view needs: its thread and the later statements related to it,
+  so done, changed and repeated are read as before, and the owner's
+  marks (named by statement) still apply. The match is made again, with no
+  model call, when the item is re-extracted (`digest-link` stamp). A to-do
+  no statement matches stands alone with a negative id: no thread, and the
+  owner can't mark it yet.
+- **The To-do view** reads digest to-dos when `knowledge.digest.todos` is
+  on (`DigestCommitments`): the statement's id and relations, the to-do's
+  own words, owners, state and date over it. A digest date replaces the
+  guess from the words (`due()`), and none means none was said; floated
+  ones are proposals; a declined one is closed by the meeting.
+- **Meetings tab** (`Views.MeetingPage`, `MeetingList`): the summary in
+  sections, each linked to where it was said; the meeting's to-dos with
+  their current state; and its topics, the threads holding at least
+  `knowledge.digest.min_topic_statements` (3) of its statements, derived
+  when read from the statements' memberships so they follow rethreading,
+  merges and splits (a thread holding one statement was judged "not here";
+  weight predicts relevance). A summary is what was said in that meeting; it
+  is never shown as where a subject stands now, and Ask doesn't read it
+  (untested).
+- **Run**: in the normal knowledge run after labels, or alone with
+  `musubi knowledge --digest-only [--plan]`; model `knowledge.digest.model`
+  (else the threads model); hosted needs `knowledge.allow_hosted`.
 
 ### Topic map (`Views.Map`, computed when read)
 

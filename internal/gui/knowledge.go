@@ -89,7 +89,32 @@ func (a *App) ToDos(proposals bool, scope string) ([]knowledge.ToDo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return v.ToDos(knowledge.ToDoRequest{Proposals: proposals, QuietAfter: a.eng.Cfg.Prep.QuietAfter()}, a.eng.Cfg.Owner.Name)
+	req := knowledge.ToDoRequest{Proposals: proposals, QuietAfter: a.eng.Cfg.Prep.QuietAfter()}
+	if a.eng.Cfg.Knowledge.Digest.ToDos {
+		req.Source = "digest"
+	}
+	return v.ToDos(req, a.eng.Cfg.Owner.Name)
+}
+
+// MeetingList lists the meetings with a summary, newest first, as far as
+// the scope may see them (knowledge.digest).
+func (a *App) MeetingList(scope string, limit int) ([]store.DigestedItem, error) {
+	v, err := a.views(scope)
+	if err != nil {
+		return nil, err
+	}
+	return v.MeetingList(limit)
+}
+
+// MeetingPage is one meeting: its summary in sections, its to-dos and how
+// they stand, and the threads its statements are in. Nil when the meeting
+// has no summary, or the scope can't see it.
+func (a *App) MeetingPage(itemID, scope string) (*knowledge.MeetingPage, error) {
+	v, err := a.views(scope)
+	if err != nil {
+		return nil, err
+	}
+	return v.MeetingPage(itemID, a.eng.Cfg.Knowledge.Digest.MinTopicStatements, a.eng.Cfg.Prep.QuietAfter(), a.eng.Cfg.Owner.Name)
 }
 
 // LinkToDo records the owner's word on a to-do: a link to another (same,
@@ -99,6 +124,11 @@ func (a *App) ToDos(proposals bool, scope string) ([]knowledge.ToDo, error) {
 func (a *App) LinkToDo(id int64, rel string, other int64, note string) (int64, error) {
 	if a.eng == nil {
 		return 0, fmt.Errorf("not ready")
+	}
+	if id <= 0 {
+		// A to-do from a meeting summary that no statement matches has no
+		// thread or source statement to hang the owner's word on yet.
+		return 0, fmt.Errorf("this to-do isn't matched with a statement yet, so it can't be marked")
 	}
 	return a.eng.Store.LinkStatements(id, rel, other, strings.TrimSpace(note), "owner")
 }

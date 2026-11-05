@@ -3050,3 +3050,101 @@ competition differs; two meetings; judges are one model family.
 
 Decision (owner, 2026-10-29): statements are the default for Live lookups
 when relevance is on (`live.lookups = "passages"` restores the old path).
+
+## 2026-11-02: To-dos from a whole-meeting pass vs from statements (side by side)
+
+Question: does one narrow whole-meeting call that returns only to-dos give a
+better list than the to-do view's source today (extracted statements of kind
+commitment, plus proposals)? Five all-t4 meetings (42 to 142 chunks; one
+Bluedot with 241 speakerless lines), prompt tuned once on one meeting (the
+only change: resolve a range or approximate timing to its later or last day).
+B = GLM-5.3-Flash, whole transcript in one call, low reasoning, structured
+fields (owner, requester, agreed/asked/floated/declined, due text and date,
+quoted evidence). Reference lists written blind by Opus from the transcript
+alone; two Opus graders judged both lists blind (sides randomised and
+unlabelled) against the transcript. Owner marks in owner_links were not used
+(all three were undone beforehand; backup in the dataset folder).
+
+| Mean of two graders (131 A items, 104 B items) | A: statements | B: whole-meeting pass |
+|---|---|---|
+| Good, stated correctly | 68% | 88% |
+| Flawed (wrong owner, figure or state) | 18% | 8% |
+| Not a to-do | 13% | 3% |
+| Duplicates within the meeting | 17% | 4% |
+| Owner right | 87% | 96% |
+| Agreed/floated state right | 90% | 98% |
+| Reference to-dos found | 57-64% | 68-71% |
+| Cost per meeting | n/a (already extracted) | 0.2-1.1¢ (2 h meeting: 1.1¢) |
+
+- Largest gap on the longest meeting (142 chunks): B found about 80% of the
+  reference against about 48% for A.
+- Due dates (B only; A has no field): of 100 matched items, 79 equal the
+  reference, 13 differ or are missing on one side, mostly the last-day
+  convention for approximate periods; one real error ("for January" dated 31
+  December).
+- Caveats: A's duplicates are partly folded by the view's repeat relations;
+  A includes proposals, which the view hides by default and the graders
+  often judged not to-dos; B's prompt and the reference share my definition
+  of a to-do; the link from B's items to existing statements (state from
+  relations) is not measured yet; one prompt tuning step, no variance runs.
+- Spend: GLM about $0.03 in total; graders and references were Opus
+  subagents.
+
+## 2026-11-02: Meeting summaries: sectioned with citations vs plain paragraph
+
+Question: should a meeting summary be stored, and in what form? Same five
+meetings, GLM-5.3-Flash, one whole-transcript call per summary, low
+reasoning. Arm S: an overview plus one section per subject (title, 2-4
+sentences, people, cited line ranges, sensitive categories). Arm P: one or
+two paragraphs, at most 250 words. Two Opus graders judged blind (sides
+randomised) against the transcript. Topic links were read from existing data:
+the threads of the meeting's current statements, weighted by statement count.
+
+| Two graders together | S: sectioned | P: plain |
+|---|---|---|
+| Preferred (10 judgements) | 10 | 0 |
+| Major subjects covered (93) | 100% | 85% |
+| Errors per claim (approximate counts) | 2.2% (20 / 898) | 3.4% (12 / 354) |
+| Main error type | wrong attribution, 13 of 20 | overstated certainty, 6 of 12 |
+| Cost per meeting | 0.25-0.67¢ | 0.14-0.23¢ |
+
+- Section citations contained what the section said in 97% of cases (146 of
+  150), but the ranges are wide (e.g. lines 14-92), so they are loose
+  evidence, not tight.
+- Sensitive flags: 93% right, 7% over-flagged, none missed (err on the
+  safe side).
+- Topic links from statement membership (126 judgements): 58% belong, 31%
+  partly, 11% not here. Weight predicts it: median statements from the
+  meeting 9 (belongs), 3-4 (partly), 1 (not here). A minimum weight of
+  about 3 to 5 would drop most of the weak links. 3 to 6 major subjects in
+  all five meetings had no matching topic.
+- Caveats: claim counts are approximate and error counts small; one
+  Bluedot meeting has unreliable speaker labels (graders went by labels as
+  written); sensitive flags not yet compared with the statements' own
+  labels; no test of whether summaries help Ask.
+- Spend: GLM about $0.03; graders were Opus subagents.
+
+## 2026-11-02: Meeting digests on the whole dataset
+
+Built as stages (`knowledge.digest`, docs/architecture.md "Meeting digests")
+and run over every meeting in all-t4 (335, the 84 recorded twice counted
+once): 56 minutes, 4 at a time, GLM-5.3-Flash, none failed; about half a
+cent a meeting by token counts (the Go provider doesn't log these calls to
+the ledger).
+
+- Stored: 2,727 sections, 3,081 to-dos (2,360 agreed, 418 asked, 299
+  floated, 4 declined), 768 with a date. 94.7% of to-dos matched a
+  statement (2,916); all cite at least one line; 29 meetings have none (one
+  of 60 or more passages).
+- The code's own check (names and figures against the meeting) marks 20% of
+  sections and 5% of to-dos "check wording". The blind graders found about
+  2% wrong per claim, so most flags are misheard or misspelt names and
+  acronyms: a prompt to look at, not an error count.
+- Two model habits found on real meetings, both now asked again once (long
+  meetings only): an empty to-do list for a 470-line meeting with a dozen
+  commitments (the first run; a rerun found 13, all matched), and to-dos
+  with the evidence field left empty (a 650-line meeting; also seen in the
+  five-meeting test). A reply is kept only if it cites more.
+- Re-running the same prompt on a meeting does not give the same list: the
+  stage is stamped so it runs once per meeting, and a rerun is by
+  `--redo digest`.

@@ -58,6 +58,12 @@ type KnowledgeOptions struct {
 	// StatusLLM writes thread statuses; nil builds it from
 	// knowledge.status.model, else uses the threads model.
 	StatusLLM provider.LLM
+	// DigestOnly runs only the meeting digests: no extraction, linking or
+	// threading.
+	DigestOnly bool
+	// DigestLLM reads meetings into digests; nil builds it from
+	// knowledge.digest.model, else uses the threads model.
+	DigestLLM provider.LLM
 	// Auto is the update that follows new data (knowledge.on_update): it
 	// takes only items newer than everything threaded, at most
 	// knowledge.auto_max of them, and leaves the rest for a run someone
@@ -85,6 +91,7 @@ type Outdated struct {
 	Extract int  // items extracted under an earlier version
 	Links   bool // claims built under earlier linking rules
 	Threads int  // items threaded under earlier rules
+	Digest  int  // meetings digested under an earlier digest version
 	// Backfilled: items threaded after newer ones (older meetings added
 	// later); --redo threads puts everything in time order.
 	Backfilled int
@@ -107,6 +114,7 @@ type Planned struct {
 	RebuildLinks   bool // claims to rebuild from stored statements
 	Thread         int  // items to thread
 	RebuildThreads bool // every thread cleared first
+	Digest         int  // meetings to read into digests
 }
 
 type KnowledgeStats struct {
@@ -120,6 +128,7 @@ type KnowledgeStats struct {
 	Pending                     int // items still to extract (when limited)
 	Labelled, Checked           int // statements labelled sensitive; checked by the labeller
 	Statuses, StatusFailed      int // thread statuses written; failed (tried again next run)
+	Digested, DigestFailed      int // meetings read into digests; failed (tried again next run)
 	Threads                     knowledge.ThreadStats
 	Outdated                    Outdated
 	Held                        Held
@@ -236,6 +245,12 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 			}
 		}
 		return out
+	}
+	if o.DigestOnly {
+		if !r.Cfg.Knowledge.Digest.Enabled {
+			return ks, fmt.Errorf("knowledge.digest is off: set enabled = true under [knowledge.digest]")
+		}
+		return ks, r.digestMeetings(ctx, o, items, wanted, links, byID, invitees, &ks)
 	}
 	// 1. Extract, for items whose chunks changed since they were extracted.
 	type job struct {
@@ -546,6 +561,14 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	// 2b. Label statements that reveal sensitive things about people.
 	if kc.Label.Enabled {
 		if err := r.labelStatements(ctx, o, &ks); err != nil {
+			return ks, err
+		}
+	}
+
+	// 2c. Meeting digests: a sectioned summary and the to-dos of each
+	// meeting, from one whole-meeting read.
+	if kc.Digest.Enabled {
+		if err := r.digestMeetings(ctx, o, items, wanted, links, byID, invitees, &ks); err != nil {
 			return ks, err
 		}
 	}

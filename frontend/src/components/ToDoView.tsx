@@ -28,7 +28,7 @@ const markWords: Record<string, string> = {
 // Linking picks the to-do that the one being linked relates to.
 type Linking = { from: ToDo; rel: 'same' | 'replaces' | 'part' };
 
-export function ToDoView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void }) {
+export function ToDoView({ scope, onOpen, onTopic, onMeeting }: { scope: string; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void; onMeeting?: (itemId: string) => void }) {
   const [all, setAll] = useState<ToDo[] | null | undefined>(undefined);
   const [err, setErr] = useState('');
   const [mine, setMine] = useState(true);
@@ -66,7 +66,7 @@ export function ToDoView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h
 
   const row = (t: ToDo) => (
     <ToDoRow key={t.id} t={t} scope={scope} owner={owner} steps={steps.get(t.id) ?? []} linking={linking} setLinking={setLinking}
-      act={act} onOpen={onOpen} onTopic={onTopic} showThread={!byThread} />
+      act={act} onOpen={onOpen} onTopic={onTopic} showThread={!byThread} onMeeting={onMeeting} />
   );
   const more = (key: string, n: number, total: number) => total > n &&
     <button className="link small" onClick={() => setShown({ ...shown, [key]: n + pageSize })}>show {Math.min(pageSize, total - n)} more</button>;
@@ -184,9 +184,9 @@ function SetAside({ items, row }: { items: ToDo[]; row: (t: ToDo) => JSX.Element
   );
 }
 
-function ToDoRow({ t, scope, owner, steps, linking, setLinking, act, onOpen, onTopic, showThread }: {
+function ToDoRow({ t, scope, owner, steps, linking, setLinking, act, onOpen, onTopic, onMeeting, showThread }: {
   t: ToDo; scope: string; owner: boolean; steps: ToDo[]; linking: Linking | null; setLinking: (l: Linking | null) => void;
-  act: (p: Promise<unknown>) => void; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void; showThread: boolean;
+  act: (p: Promise<unknown>) => void; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void; onMeeting?: (itemId: string) => void; showThread: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<'' | 'done' | 'dropped' | 'due' | 'correct'>('');
@@ -205,6 +205,7 @@ function ToDoRow({ t, scope, owner, steps, linking, setLinking, act, onOpen, onT
         {(t.owners ?? []).join(', ')}
         {t.due && <span className={'badge' + (t.overdue ? ' prep-overdue' : ' todo-due')}>{t.due}</span>}
         {' · '}<button className="link" onClick={() => src(t)}>{fmtDate(t.saidAt)}, {t.itemTitle || 'source'}</button>
+        {!!t.digest && onMeeting && <> · <button className="link" onClick={() => onMeeting(t.itemId)} title="The meeting's summary and all its to-dos">meeting</button></>}
         {t.raised > 1 && <span> · raised {t.raised}×, last {fmtDate(t.lastRaised)}</span>}
         {!!t.steps && <span> · {t.stepsDone ?? 0} of {t.steps} steps done</span>}
         {!!t.topic && showThread && <> · <button className="link" onClick={() => onTopic(t.topic!)}>{t.topicLabel || 'thread'}</button></>}
@@ -221,7 +222,8 @@ function ToDoRow({ t, scope, owner, steps, linking, setLinking, act, onOpen, onT
       )}
       {open && (
         <div className="todo-open small">
-          {owner && edit === '' && (
+          {owner && edit === '' && t.id <= 0 && <div className="dim">No statement says this yet, so it can't be marked or linked; the meeting's summary has it.</div>}
+          {owner && edit === '' && t.id > 0 && (
             <div className="todo-actions">
               {!closed(t) && <button className="chip" onClick={() => setEdit('done')} title="Say it happened">done</button>}
               {!closed(t) && <button className="chip" onClick={() => setEdit('dropped')} title="Say it won't happen">dropped</button>}
@@ -259,7 +261,7 @@ function ToDoRow({ t, scope, owner, steps, linking, setLinking, act, onOpen, onT
       )}
       {steps.length > 0 && (
         <ul className="todo-list todo-steps">
-          {steps.map((s) => <ToDoRow key={s.id} t={s} scope={scope} owner={owner} steps={[]} linking={linking} setLinking={setLinking} act={act} onOpen={onOpen} onTopic={onTopic} showThread={false} />)}
+          {steps.map((s) => <ToDoRow key={s.id} t={s} scope={scope} owner={owner} steps={[]} linking={linking} setLinking={setLinking} act={act} onOpen={onOpen} onTopic={onTopic} onMeeting={onMeeting} showThread={false} />)}
         </ul>
       )}
     </li>

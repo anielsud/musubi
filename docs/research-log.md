@@ -3313,6 +3313,32 @@ fit without seeing either system's verdict:
   as fitting the general subject still headlines that account. That
   belongs to threading (`docs/incremental-design.md`, "Subject shape").
 
+## 2026-11-06: MCP server, first run on all-t4
+
+`musubi mcp` (docs/mcp-design.md) driven over stdio against all-t4, reads
+only. Latency per call: meeting 0.03 s, thread 0.8 s, threads list 0.6 s,
+gather 0.3 s (30–50k characters of context), search 0.05 s.
+
+Two labelling faults found and fixed before use:
+
+- **Digest to-dos read as public.** `DigestCommitments` gave each to-do the
+  digest's words but not its label; ten of the owner's open to-dos came back
+  `public`. Each now carries its digest row's and item's label (all ten
+  became party-only), and the server combines every result with its item's
+  own label as a second guard.
+- **Owner-only was too common.** With restricted rated owner-only, 27 of the
+  40 latest meeting overviews and 36 of 50 thread statuses were owner-only,
+  nearly all for HR or financial material rather than personal details, and
+  the verdict disagreed with `fits` for attendees. Rated as the reply rule
+  rates it (restricted may go to those party to it), owner-only is 5 of 40
+  overviews, 4 of 167 sections (20 meetings), 12 of 50 statuses and 31 of
+  856 current items (20 threads); the rest is party-only but 4 internal
+  items.
+
+Nearly everything in all-t4 is party-only: it is leadership meetings, which
+default to confidential. A consumer writing for anyone outside a meeting
+will find little that fits, which is the point.
+
 ## 2026-11-09: Microsoft 365 connection, first calendar sync on all-t4
 
 - Signed in with `musubi m365 connect`, the Graph Command Line Tools client.

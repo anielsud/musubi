@@ -168,6 +168,11 @@ func TestDigestCommitments(t *testing.T) {
 	if declined.ID >= 0 || len(declined.Later) != 1 || declined.Later[0].Rel != "supersedes" {
 		t.Errorf("declined to-do: id %d later %+v", declined.ID, declined.Later)
 	}
+	// Each carries its effective label (item and digest row), matched or
+	// not: an unset label would read as public.
+	if plan.Label.Level != sensitivity.Internal || declined.Label.Level != sensitivity.Restricted || declined.Label.Categories != sensitivity.Compensation {
+		t.Errorf("labels: plan %+v, declined %+v", plan.Label, declined.Label)
+	}
 	got, _ = s.DigestCommitments(sensitivity.Owner(), true)
 	if len(got) != 3 {
 		t.Errorf("with proposals: %d", len(got))

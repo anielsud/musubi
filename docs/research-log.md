@@ -3356,3 +3356,47 @@ fit without seeing either system's verdict:
 - Labels changed on 2 passages of 3,958.
 - Processing the 74 new items (chunks, labels, local embeddings) took 7 min
   at background priority.
+
+## 2026-11-09: incident — retitling deleted statements; fixed and recovered
+
+What happened:
+- Linking meetings to their calendar events (first calendar sync, #9)
+  changed their passages' title. The title is part of the chunk hash, so
+  280 meetings were re-chunked.
+- `ReplaceChunks` deleted and re-inserted every passage, and the delete
+  cascades: statements went from 34,970 to 26,313 and thread items from
+  34,224 to 25,468. The Musubi app's automatic updates repeated it as more
+  meetings linked.
+- Raw data and the inbox were untouched. No owner edits had been made
+  since the backup taken just before the sync.
+
+Fix (#9):
+- `ReplaceChunks` updates titles in place when the passages are otherwise
+  identical (sequence, segments, times, speakers, text hash). A real
+  change of text still replaces them.
+- The FTS table gets the AFTER UPDATE trigger it lacked; without it an
+  in-place update corrupted the index.
+
+Recovery:
+- Restored the 10:51 backup and re-ran `update` with the fix. Calendar,
+  Teams and directory data were re-ingested from the inbox.
+- Statements are back at 34,970 and thread items at 34,224, with 106 links.
+  `integrity_check` and the FTS integrity check pass.
+- Knowledge runs made in between (a few hundred statements for new Teams
+  copies, a few digests) are redone by the next automatic run.
+
+## 2026-11-09: names for meetings with no calendar event
+
+- 182 Tomoe recordings: 78 linked to a calendar event. 104 had a generic
+  title and no event; 95 of those had a digest.
+- `musubi name-meetings` (GLM-5.3-Flash, the threads model) named 99 in
+  two runs (60 + 39), about 1 minute each, from the digest's overview and
+  section subjects, or the first 4,000 characters without one. 5 had too
+  little text.
+- Names are stored in `item_titles`. Every title shown now uses one rule:
+  the calendar event's subject, else the given name, else the item's own
+  title.
+- Passage titles follow it in place: the next update retitled 99 meetings
+  (2,286 passages) and statements stayed at 34,970.
+- `title.json` is written next to the 99 Tomoe recordings (Tomoe #86 shows
+  it).

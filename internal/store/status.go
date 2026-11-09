@@ -25,7 +25,7 @@ type ThreadStatement struct {
 func (s *Store) ThreadStatements(topic int64) ([]ThreadStatement, error) {
 	rows, err := s.db.Query(`SELECT st.id, st.kind, st.status, st.who, st.holder, st.text, st.said_at,
 		max(st.level, coalesce(l.level, 0), coalesce(il.level, 0)), st.categories | coalesce(l.categories, 0) | coalesce(il.categories, 0),
-		ti.current, i.id, i.title
+		ti.current, i.id, `+displayTitle("i")+`
 		FROM thread_items ti JOIN statements st ON st.id = ti.statement_id
 		JOIN items i ON i.id = st.item_id
 		JOIN chunks c ON c.id = st.chunk_id
@@ -234,7 +234,7 @@ func (s *Store) VisibleThreadItems(sc sensitivity.Scope, topics []int64) (map[in
 	}
 	args = append(args, vargs...)
 	rows, err := s.db.Query(`SELECT ti.topic_id, ti.current, st.id, st.item_id, st.chunk_id, c.seq, st.line, st.kind, st.text, st.holder,
-		st.said_at, st.quote, coalesce(sc.claim_id, 0), i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END,
+		st.said_at, st.quote, coalesce(sc.claim_id, 0), i.kind, `+displayTitle("i")+`,
 		`+stLevel+`, `+stCats+`, st.status, st.who, st.evidence
 		FROM thread_items ti JOIN statements st ON st.id = ti.statement_id JOIN chunks c ON c.id = st.chunk_id
 		JOIN items i ON i.id = st.item_id LEFT JOIN statement_claims sc ON sc.statement_id = st.id`+chunkVisJoin+`

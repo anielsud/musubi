@@ -503,3 +503,14 @@ CREATE TABLE IF NOT EXISTS meeting_todos (
 );
 CREATE INDEX IF NOT EXISTS meeting_todos_item ON meeting_todos(item_id);
 CREATE INDEX IF NOT EXISTS meeting_todos_statement ON meeting_todos(statement_id);
+
+-- A name Musubi gave a meeting that has no calendar event and only a
+-- generic title (pipeline.nameMeetings). Shown where the title is shown;
+-- a linked event's subject still wins.
+CREATE TABLE IF NOT EXISTS item_titles (
+	item_id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+	title   TEXT NOT NULL,
+	source  TEXT NOT NULL,
+	input   TEXT NOT NULL,
+	made_at INTEGER NOT NULL
+);

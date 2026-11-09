@@ -162,7 +162,7 @@ func (s *Store) DigestTodos(itemID string) ([]DigestTodo, error) {
 	return s.scanDigestTodos(`WHERE x.item_id = ? ORDER BY x.n`, []any{itemID})
 }
 
-const digestTodoCols = `x.id, x.item_id, i.title, x.n, x.text, x.owners, x.requester, x.agreed, x.due_text, x.due_date, x.evidence, x.said_at,
+var digestTodoCols = `x.id, x.item_id, ` + displayTitle("i") + `, x.n, x.text, x.owners, x.requester, x.agreed, x.due_text, x.due_date, x.evidence, x.said_at,
 	coalesce(x.statement_id, 0), x.link_score, x.level, x.categories, x.grounded, x.issues`
 
 func (s *Store) scanDigestTodos(where string, args []any) ([]DigestTodo, error) {
@@ -207,7 +207,7 @@ func (s *Store) MeetingDigest(sc sensitivity.Scope, itemID string) (*Digest, err
 	vis, vargs := digestVis(sc)
 	d := &Digest{ItemID: itemID}
 	var made, start int64
-	err := s.db.QueryRow(`SELECT i.title, i.occurred_at, x.version, x.overview, x.made_at FROM meeting_digests x JOIN items i ON i.id = x.item_id`+digestVisJoin+
+	err := s.db.QueryRow(`SELECT `+displayTitle("i")+`, i.occurred_at, x.version, x.overview, x.made_at FROM meeting_digests x JOIN items i ON i.id = x.item_id`+digestVisJoin+
 		`WHERE x.item_id = ? AND `+vis, append([]any{itemID}, vargs...)...).Scan(&d.ItemTitle, &start, &d.Version, &d.Overview, &made)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -278,7 +278,7 @@ func (s *Store) DigestedItems(sc sensitivity.Scope, limit int) ([]DigestedItem, 
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT x.item_id, i.title, i.occurred_at, x.overview,
+	rows, err := s.db.Query(`SELECT x.item_id, `+displayTitle("i")+`, i.occurred_at, x.overview,
 		(SELECT count(*) FROM meeting_sections WHERE item_id = x.item_id), (SELECT count(*) FROM meeting_todos WHERE item_id = x.item_id)
 		FROM meeting_digests x JOIN items i ON i.id = x.item_id`+digestVisJoin+`WHERE `+vis+` ORDER BY i.occurred_at DESC LIMIT ?`,
 		append(vargs, limit)...)

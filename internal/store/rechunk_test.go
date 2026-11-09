@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/sensitivity"
 )
 
@@ -65,5 +66,37 @@ func TestRetitleIsSearchable(t *testing.T) {
 	}
 	if err := s.ReplaceChunks(id, "v", "h3", nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A meeting is shown under its calendar event's subject, else the name
+// Musubi gave it, else its own title.
+func TestDisplayTitle(t *testing.T) {
+	s, id, _ := digestStore(t, sensitivity.Internal)
+	title := func() string {
+		got, err := s.ItemTitles(sensitivity.Owner(), []string{id})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got[id].Title
+	}
+	if got := title(); got != "Planning sync" {
+		t.Fatalf("own title %q", got)
+	}
+	if err := s.SetItemTitle(id, "Plan hand-off", "generated", "h"); err != nil {
+		t.Fatal(err)
+	}
+	if got := title(); got != "Plan hand-off" {
+		t.Errorf("given name %q", got)
+	}
+	ev := item.Item{ID: "m365-calendar:e1", Source: "m365-calendar", Ref: "e1", Kind: item.KindEvent, Title: "Weekly planning", OccurredAt: time.Date(2026, 3, 2, 10, 0, 0, 0, time.UTC), EndedAt: time.Date(2026, 3, 2, 11, 0, 0, 0, time.UTC)}
+	if _, err := s.UpsertItem(ev); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceLinks("occurred_as", []Link{{ItemID: id, Rel: "occurred_as", OtherID: ev.ID, Score: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := title(); got != "Weekly planning" {
+		t.Errorf("linked event %q", got)
 	}
 }

@@ -228,7 +228,7 @@ func (s *Store) ids(query string, args ...any) ([]int64, error) {
 // the title of the calendar event it was linked to.
 func (s *Store) hit(sc sensitivity.Scope, chunkID int64) (*Hit, error) {
 	vis, vargs := visSQL(sc, "il", "cl", "c.item_id")
-	q := `SELECT c.id, c.item_id, i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END, i.occurred_at, c.seq, c.start_s, c.end_s, c.speakers, c.text,
+	q := `SELECT c.id, c.item_id, i.kind, ` + displayTitle("i") + `, i.occurred_at, c.seq, c.start_s, c.end_s, c.speakers, c.text,
 		max(il.level, coalesce(cl.level, 0)), (il.categories | coalesce(cl.categories, 0)), coalesce(cl.reason, il.reason)
 		FROM chunks c JOIN items i ON i.id = c.item_id
 		LEFT JOIN item_links lk ON lk.item_id = i.id AND lk.rel = 'occurred_as'
@@ -363,7 +363,7 @@ func (s *Store) entityItems(sc sensitivity.Scope, entityID string, limit int) ([
 	), u AS (
 		SELECT item_id FROM m UNION SELECT item_id FROM p
 	)
-	SELECT i.id, i.kind, coalesce(e.title, i.title), i.occurred_at, coalesce(m.n, 0), p.item_id IS NOT NULL, il.level, il.categories
+	SELECT i.id, i.kind, ` + displayTitle("i") + `, i.occurred_at, coalesce(m.n, 0), p.item_id IS NOT NULL, il.level, il.categories
 	FROM u JOIN items i ON i.id = u.item_id
 	JOIN labels il ON il.item_id = i.id AND il.chunk_seq = -1
 	LEFT JOIN m ON m.item_id = i.id LEFT JOIN p ON p.item_id = i.id
@@ -605,7 +605,7 @@ func (s *Store) ItemTitles(sc sensitivity.Scope, ids []string) (map[string]ItemR
 	for i := 0; i < len(ids); i += 400 {
 		part := ids[i:min(i+400, len(ids))]
 		vis, vargs := visSQL(sc, "il", "", "i.id")
-		q := `SELECT i.id, i.kind, coalesce(e.title, i.title), i.occurred_at FROM items i
+		q := `SELECT i.id, i.kind, ` + displayTitle("i") + `, i.occurred_at FROM items i
 			JOIN labels il ON il.item_id = i.id AND il.chunk_seq = -1
 			LEFT JOIN item_links lk ON lk.item_id = i.id AND lk.rel = 'occurred_as' LEFT JOIN items e ON e.id = lk.other_id
 			WHERE i.id IN (?` + strings.Repeat(",?", len(part)-1) + `) AND ` + vis

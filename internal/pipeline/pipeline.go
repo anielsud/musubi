@@ -166,6 +166,10 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 		chunks []store.Chunk
 	}
 	var jobs []embedJob
+	given, err := r.Store.GivenTitles()
+	if err != nil {
+		return err
+	}
 	for i := range items {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -175,6 +179,8 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 		title := it.Title
 		if l := linked(it.ID); l != nil {
 			title = l.Title
+		} else if g := given[it.ID].Title; g != "" {
+			title = g
 		}
 		chunkHash := hashOf("chunk", stages.ChunkVersion, ch, title)
 		chunks, err := r.ensure("chunk", it.ID, stages.ChunkVersion, chunkHash, st, func() error {

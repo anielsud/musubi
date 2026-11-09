@@ -55,6 +55,7 @@ func TestDigestStage(t *testing.T) {
 	r, st := build(t)
 	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate, r.Cfg.Knowledge.Updates = "statements", 0, "explicit"
 	r.Cfg.Knowledge.Digest.Enabled = true
+	r.Cfg.Knowledge.NameMeetings = false // names use the digest model too; counted in names_test
 	fake := &digestScript{}
 	run := func(extractor string, redo ...string) KnowledgeStats {
 		return knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{extractor}, DigestLLM: fake, Redo: redo})

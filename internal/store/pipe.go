@@ -617,7 +617,7 @@ type MeetingRef struct {
 // Meetings lists Tomoe recordings with their linked titles, newest first,
 // for the owner's replay picker.
 func (s *Store) Meetings(limit int) ([]MeetingRef, error) {
-	rows, err := s.db.Query(`SELECT i.id, i.ref, coalesce(e.title, i.title), i.occurred_at, (SELECT count(*) FROM chunks c WHERE c.item_id = i.id)
+	rows, err := s.db.Query(`SELECT i.id, i.ref, `+displayTitle("i")+`, i.occurred_at, (SELECT count(*) FROM chunks c WHERE c.item_id = i.id)
 		FROM items i LEFT JOIN item_links l ON l.item_id = i.id AND l.rel = 'occurred_as' LEFT JOIN items e ON e.id = l.other_id
 		WHERE i.kind = 'meeting' ORDER BY i.occurred_at DESC LIMIT ?`, limit)
 	if err != nil {
@@ -673,4 +673,42 @@ func (s *Store) EventAt(t time.Time) (string, error) {
 func textHash(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:12])
+}
+
+// ItemTitle is a name Musubi gave an item, with the hash of what it was
+// made from.
+type ItemTitle struct{ Title, Source, Input string }
+
+// GivenTitles returns the names Musubi gave items, by item.
+func (s *Store) GivenTitles() (map[string]ItemTitle, error) {
+	rows, err := s.db.Query(`SELECT item_id, title, source, input FROM item_titles`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]ItemTitle{}
+	for rows.Next() {
+		var id string
+		var t ItemTitle
+		if err := rows.Scan(&id, &t.Title, &t.Source, &t.Input); err != nil {
+			return nil, err
+		}
+		out[id] = t
+	}
+	return out, rows.Err()
+}
+
+// SetItemTitle records a name for an item.
+func (s *Store) SetItemTitle(itemID, title, source, input string) error {
+	_, err := s.db.Exec(`INSERT INTO item_titles(item_id, title, source, input, made_at) VALUES (?,?,?,?,?)
+		ON CONFLICT(item_id) DO UPDATE SET title = excluded.title, source = excluded.source, input = excluded.input, made_at = excluded.made_at`,
+		itemID, title, source, input, time.Now().Unix())
+	return err
+}
+
+// displayTitle is the SQL for item alias a's title as shown everywhere: the
+// subject of the calendar event it was linked to, else a name Musubi gave
+// it, else its own title.
+func displayTitle(a string) string {
+	return `coalesce((SELECT de.title FROM item_links dl JOIN items de ON de.id = dl.other_id WHERE dl.item_id = ` + a + `.id AND dl.rel = 'occurred_as'), (SELECT dt.title FROM item_titles dt WHERE dt.item_id = ` + a + `.id), ` + a + `.title)`
 }

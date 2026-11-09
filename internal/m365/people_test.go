@@ -7,18 +7,24 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
-type fakeDirectory struct{ hits map[string]int }
+type fakeDirectory struct {
+	mu   sync.Mutex
+	hits map[string]int
+}
 
 func (f *fakeDirectory) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	p := r.URL.Path
+	f.mu.Lock()
 	if f.hits == nil {
 		f.hits = map[string]int{}
 	}
-	p := r.URL.Path
 	f.hits[p]++
+	f.mu.Unlock()
 	users := map[string]map[string]any{
 		"kai.moreno@corp.example":  {"displayName": "Kai Moreno", "givenName": "Kai", "surname": "Moreno", "jobTitle": "Engineer", "department": "Platform", "officeLocation": "Remote", "accountEnabled": true},
 		"robin.vale@corp.example":  {"displayName": "Vale, Robin", "givenName": "Robin", "surname": "Vale", "jobTitle": "VP Engineering", "accountEnabled": true},

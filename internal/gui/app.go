@@ -190,6 +190,9 @@ func (a *App) Update() {
 		a.lastUpdate = time.Now()
 		a.mu.Unlock()
 		msg := fmt.Sprintf("%d new or changed", st.Changed)
+		if st.M365 != "" {
+			msg = st.M365 + "; " + msg
+		}
 		if err != nil {
 			msg = err.Error()
 		} else if a.eng.Cfg.Knowledge.OnUpdate {

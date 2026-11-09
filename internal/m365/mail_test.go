@@ -25,7 +25,7 @@ func (f *fakeMailChat) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return map[string]any{"id": id, "conversationId": "conv-1", "subject": "Plan " + id, "inferenceClassification": cls, "isDraft": draft,
 				"sentDateTime": "2026-03-02T10:00:00Z", "from": map[string]any{"emailAddress": map[string]any{"name": "Robin Vale", "address": "Robin.Vale@corp.example"}},
 				"toRecipients": []any{map[string]any{"emailAddress": map[string]any{"name": "Owner Name", "address": "owner@corp.example"}}},
-				"body": map[string]any{"content": "Here is the plan.\n\nOn Monday Owner wrote:\n> earlier"}}
+				"body":         map[string]any{"content": "Here is the plan.\n\nOn Monday Owner wrote:\n> earlier"}}
 		}
 		json.NewEncoder(w).Encode(map[string]any{"value": []any{msg("m1", "focused", false), msg("m2", "other", false), msg("m3", "focused", true)}})
 	case p == "/v1.0/me/chats":

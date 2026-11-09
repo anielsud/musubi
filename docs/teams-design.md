@@ -229,10 +229,13 @@ small; an unchanged event costs nothing (its file isn't rewritten).
    - A test asserts the allow-list.
 2. **The token.**
    - Only the refresh token and the account name are kept: one generic
-     password in the login Keychain (`Musubi.M365`), written through the
-     Security framework.
-   - It is readable only after the Mac's first unlock, on this device only,
-     and never passes through a command line.
+     password in the login Keychain (`Musubi.M365.v2`).
+   - It is written and read through Apple's `security` tool, the way
+     Musubi's other keys are kept, so the item's access list names that
+     tool and the app and CLI read it without a prompt across rebuilds.
+   - The first build wrote it through the Security framework. The item
+     then named the creating binary, and the locally signed app was asked
+     on every launch.
    - Access tokens stay in memory.
    - A Graph token and a SharePoint token are minted from the same refresh
      token, so the SharePoint step needs no second sign-in.

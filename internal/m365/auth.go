@@ -83,7 +83,7 @@ type Auth struct {
 
 // NewAuth signs in against Entra and keeps the sign-in in the Keychain.
 func NewAuth() *Auth {
-	return &Auth{Authority: "https://login.microsoftonline.com", Secrets: Keychain{Service: "Musubi.M365", Account: "default"}, HTTP: &http.Client{Timeout: 60 * time.Second}, OpenBrowser: openBrowser}
+	return &Auth{Authority: "https://login.microsoftonline.com", Secrets: Keychain{Service: "Musubi.M365.v2", Account: "default"}, HTTP: &http.Client{Timeout: 60 * time.Second}, OpenBrowser: openBrowser}
 }
 
 func (a *Auth) load() (*stored, error) {

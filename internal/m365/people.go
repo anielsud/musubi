@@ -136,25 +136,63 @@ func SyncPeople(ctx context.Context, c *Client, path string, emails []string, re
 			_, _ = WriteJSONIfChanged(path, d)
 		}
 	}()
-	for _, t := range todo {
-		if ctx.Err() != nil {
+	// A few lookups at once: each is two small requests, and one at a time
+	// a first run took minutes.
+	type result struct {
+		email string
+		p     *Person
+		err   error
+	}
+	jobs := make(chan string)
+	results := make(chan result)
+	const workers = 6
+	for w := 0; w < workers; w++ {
+		go func() {
+			for e := range jobs {
+				p, err := lookUp(ctx, c, e)
+				select {
+				case results <- result{e, p, err}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for _, t := range todo {
+			select {
+			case jobs <- t.email:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	var firstErr error
+	for range todo {
+		var r result
+		select {
+		case r = <-results:
+		case <-ctx.Done():
 			return rep, ctx.Err()
 		}
-		rep.Looked++
-		p, err := lookUp(ctx, c, t.email)
-		if err != nil {
-			return rep, err
+		if r.err != nil {
+			if firstErr == nil {
+				firstErr = r.err
+			}
+			continue
 		}
-		p.FetchedAt = now
-		if p.Missing {
+		rep.Looked++
+		r.p.FetchedAt = now
+		if r.p.Missing {
 			rep.Missing++
 		} else {
 			rep.Found++
 		}
-		d.People[t.email] = p
+		d.People[r.email] = r.p
 		dirty = true
 	}
-	return rep, nil
+	return rep, firstErr
 }
 
 func lookUp(ctx context.Context, c *Client, email string) (*Person, error) {

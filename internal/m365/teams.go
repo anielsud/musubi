@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -55,14 +57,29 @@ func SyncTeams(ctx context.Context, c *Client, dir string, events []Event, o Tea
 	if err := os.MkdirAll(out, 0o700); err != nil {
 		return rep, err
 	}
+	// What is passed over or settled depends on what is wanted: when the
+	// options change (unattended or chat turned on), start over.
+	opts := fmt.Sprintf("unattended=%v chat=%v", o.Unattended, o.Chat)
+	if b, _ := os.ReadFile(filepath.Join(out, ".options")); string(b) != opts {
+		_ = os.Remove(filepath.Join(out, ".skipped"))
+		_ = os.Remove(filepath.Join(out, ".settled"))
+		_ = os.WriteFile(filepath.Join(out, ".options"), []byte(opts), 0o600)
+	}
 	skip := loadSkip(out)
 	defer skip.save()
+	// Occurrences checked a day or more after they ended won't gain a
+	// transcript or chat: they are settled and not read again.
+	settled := loadSet(filepath.Join(out, ".settled"))
+	defer settled.save()
 	listed := map[string][]transcriptMeta{} // per meeting id: a series lists all occurrences
 	for _, ev := range events {
-		if ev.Cancelled || ev.JoinURL == "" || ev.End.After(now) || ev.Response == "declined" {
+		if ev.Cancelled || ev.JoinURL == "" || ev.End.After(now) || ev.Response == "declined" || settled.has(ev.ID) {
 			continue
 		}
 		rep.Meetings++
+		if now.After(ev.End.Add(24 * time.Hour)) {
+			defer settled.add(ev.ID) // marked only when the whole sync gets this far
+		}
 		m, err := findMeeting(ctx, c, ev.JoinURL)
 		if err != nil && !IsNotFound(err) {
 			return rep, err
@@ -461,13 +478,23 @@ func (m chatMessage) CallStart(ev Event) time.Time {
 // oldest message is well before from.
 func chatMessages(ctx context.Context, c *Client, thread string, from, to time.Time) ([]chatMessage, error) {
 	var out []chatMessage
-	path := "/v1.0/chats/" + url.PathEscape(thread) + "/messages?$top=50"
+	// Newest first and only before the window's end, so a long-running
+	// chat isn't paged through from today back to the meeting.
+	q := url.Values{"$top": {"50"}, "$orderby": {"createdDateTime desc"}, "$filter": {"createdDateTime lt " + to.UTC().Format(time.RFC3339)}}
+	path := "/v1.0/chats/" + url.PathEscape(thread) + "/messages?" + q.Encode()
+	plain := false
 	for pages := 0; path != "" && pages < 40; pages++ {
 		var page struct {
 			Value []chatMessage `json:"value"`
 			Next  string        `json:"@odata.nextLink"`
 		}
 		if err := c.GetJSON(ctx, path, &page); err != nil {
+			var ge *Error
+			if !plain && pages == 0 && errors.As(err, &ge) && ge.Status == http.StatusBadRequest {
+				// The service refused the filter: page plainly.
+				plain, path, pages = true, "/v1.0/chats/"+url.PathEscape(thread)+"/messages?$top=50", -1
+				continue
+			}
 			return nil, err
 		}
 		oldest := time.Time{}
@@ -480,7 +507,7 @@ func chatMessages(ctx context.Context, c *Client, thread string, from, to time.T
 				out = append(out, m)
 			}
 		}
-		if !oldest.IsZero() && oldest.Before(from.Add(-48*time.Hour)) {
+		if !oldest.IsZero() && (oldest.Before(from.Add(-48*time.Hour)) || !plain && oldest.Before(from)) {
 			break
 		}
 		path = page.Next
@@ -551,8 +578,10 @@ type skipList struct {
 	dirty bool
 }
 
-func loadSkip(dir string) *skipList {
-	s := &skipList{path: filepath.Join(dir, ".skipped"), ids: map[string]bool{}}
+func loadSkip(dir string) *skipList { return loadSet(filepath.Join(dir, ".skipped")) }
+
+func loadSet(path string) *skipList {
+	s := &skipList{path: path, ids: map[string]bool{}}
 	if b, err := os.ReadFile(s.path); err == nil {
 		var ids []string
 		if json.Unmarshal(b, &ids) == nil {
@@ -581,12 +610,14 @@ func (s *skipList) save() {
 	}
 }
 
-// ClearSkipped forgets which transcripts were passed over, so the next sync
-// reads them again (after turning unattended on).
+// ClearSkipped forgets which transcripts were passed over and which
+// occurrences are settled, so the next sync reads them again. (Changing
+// the options does this by itself.)
 func ClearSkipped(dir string) error {
-	err := os.Remove(filepath.Join(dir, TeamsSource, ".skipped"))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	for _, f := range []string{".skipped", ".settled"} {
+		if err := os.Remove(filepath.Join(dir, TeamsSource, f)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
-	return err
+	return nil
 }

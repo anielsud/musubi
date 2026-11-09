@@ -569,3 +569,14 @@ export interface MeetingPage {
 }
 
 export interface MeetingListItem { itemId: string; title: string; start: string; overview: string; sections: number; todos: number }
+
+export interface M365View {
+  enabled: boolean;
+  connected: boolean;
+  account?: { username: string; name: string; tenantId: string; connectedAt: string };
+  needsSignIn: boolean;
+  lastSync: string;
+  lastError?: string;
+  lastReport?: string;
+  connecting: boolean;
+}

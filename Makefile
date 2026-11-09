@@ -52,6 +52,12 @@ build-gui: frontend
 
 # Builds /Applications/Musubi.app and adds it to the Dock. Musubi needs no
 # camera, microphone or screen permissions, so an ad-hoc signature is enough.
+# A stable local signing identity keeps the Keychain's "Always Allow" for the
+# Microsoft 365 sign-in across rebuilds; an ad-hoc signature changes every
+# build, so macOS would ask again each time. Tomoe's `make dev-cert-mac`
+# creates this identity; without it the app is signed ad hoc as before.
+CODESIGN_IDENTITY ?= $(shell security find-identity -p codesigning 2>/dev/null | grep -q '"Tomoe Dev Signing"' && echo 'Tomoe Dev Signing' || echo '-')
+
 install-gui-mac: build build-gui
 	rm -rf $(APP_BUNDLE)
 	mkdir -p $(APP_BUNDLE)/Contents/MacOS $(APP_BUNDLE)/Contents/Resources build/icon.iconset
@@ -63,7 +69,7 @@ install-gui-mac: build build-gui
 	done
 	iconutil -c icns build/icon.iconset -o $(APP_BUNDLE)/Contents/Resources/Musubi.icns
 	sed 's/__VERSION__/$(VERSION)/g' packaging/macos/Info.plist.template > $(APP_BUNDLE)/Contents/Info.plist
-	codesign --sign - --force --deep $(APP_BUNDLE)
+	codesign --sign "$(CODESIGN_IDENTITY)" --force --deep $(APP_BUNDLE)
 	# Replace the contents, not the folder: an account without admin rights
 	# can't delete entries in /Applications, but owns the app folder it made.
 	rm -rf /Applications/Musubi.app/Contents

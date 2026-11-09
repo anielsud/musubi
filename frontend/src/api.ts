@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
+import type { M365View, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -64,6 +64,9 @@ export const api = {
   undoToDoLink: (id: number): Promise<void> => app().UndoToDoLink(id),
   prep: (req: PrepRequest, scope: string): Promise<PrepView> => app().Prep(req, scope),
   prepBrief: (id: string, req: PrepRequest, scope: string): Promise<void> => app().PrepBrief(id, req, scope),
+  m365: (): Promise<M365View> => app().M365(),
+  m365Connect: (): Promise<void> => app().M365Connect(),
+  m365SignOut: (): Promise<void> => app().M365SignOut(),
 };
 
 export function on<T>(event: string, fn: (data: T) => void): () => void {

@@ -32,3 +32,23 @@ func TestDropMeeting(t *testing.T) {
 		t.Error("a meeting without a start time must be rejected")
 	}
 }
+
+// The m365 calendar sync adds the join link, iCalendar id and the owner's
+// response; they're kept as native fields.
+func TestDropEventKeepsSyncFields(t *testing.T) {
+	b := []byte(`{"kind":"event","source":"m365-calendar","ref":"e1","record":{"subject":"Planning","organizer":{"name":"Robin Vale","email":"robin.vale@corp.example"},
+		"attendees":[{"name":"Kai Moreno","email":"kai.moreno@corp.example","response":"accepted"}],
+		"start":{"dateTime":"2026-03-02T15:00:00.0000000","timeZone":"UTC"},"end":{"dateTime":"2026-03-02T16:00:00.0000000","timeZone":"UTC"},
+		"joinUrl":"https://teams.example/l/meetup-join/x","iCalUId":"ical-1","response":"organizer"}}`)
+	its, err := fromDrop(b)
+	if err != nil || len(its) != 1 {
+		t.Fatal(err)
+	}
+	n := its[0].Native
+	if n["joinUrl"] == "" || n["iCalUId"] != "ical-1" || n["response"] != "organizer" {
+		t.Errorf("native %v", n)
+	}
+	if len(its[0].Participants) != 2 || its[0].Participants[1].Email != "kai.moreno@corp.example" {
+		t.Errorf("participants %+v", its[0].Participants)
+	}
+}

@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
+	github.com/keybase/go-keychain v0.0.1
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/spf13/cobra v1.10.2

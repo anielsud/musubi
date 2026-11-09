@@ -10,10 +10,10 @@ import (
 
 // Record shapes accepted in inbox envelopes.
 //
-// event (Graph calendar event as the M365 connector returns it):
+// event (Graph calendar event as the M365 connector or internal/m365 writes it):
 //
 //	{subject, summary, organizer, attendees: ["email", ...], start: {dateTime, timeZone},
-//	 end: {...}, isCancelled, showAs, sensitivity}
+//	 end: {...}, isCancelled, showAs, sensitivity, joinUrl?, iCalUId?, response?}
 //
 // email:
 //
@@ -101,6 +101,12 @@ func dropEvent(b []byte) ([]Item, error) {
 		ShowAs      string    `json:"showAs"`
 		Sensitivity string    `json:"sensitivity"`
 		Location    string    `json:"location"`
+		// From the m365 calendar sync: the Teams join link, the event's
+		// iCalendar id, and the owner's response (accepted, tentativelyAccepted,
+		// declined, notResponded, organizer).
+		JoinURL  string `json:"joinUrl"`
+		ICalUID  string `json:"iCalUId"`
+		Response string `json:"response"`
 	}
 	if err := json.Unmarshal(b, &e); err != nil {
 		return nil, err
@@ -118,6 +124,11 @@ func dropEvent(b []byte) ([]Item, error) {
 	}}
 	if e.IsCancelled {
 		it.Native["cancelled"] = "true"
+	}
+	for k, v := range map[string]string{"joinUrl": e.JoinURL, "iCalUId": e.ICalUID, "response": e.Response} {
+		if v != "" {
+			it.Native[k] = v
+		}
 	}
 	if e.IsAllDay {
 		it.Native["allDay"] = "true"

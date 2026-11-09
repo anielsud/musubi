@@ -172,7 +172,7 @@ type AliasUsage struct {
 func (s *Store) UsagesOf(a LearnedAlias, limit int) ([]AliasUsage, error) {
 	vre := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(a.Variant) + `\b`)
 	kre := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(a.Keep) + `\b`)
-	rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, i.title, st.said_at, st.text, coalesce(t.label, ''), coalesce(t.id, 0), coalesce(ti.current, 0)
+	rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, `+displayTitle("i")+`, st.said_at, st.text, coalesce(t.label, ''), coalesce(t.id, 0), coalesce(ti.current, 0)
 		FROM statements st JOIN items i ON i.id = st.item_id
 		LEFT JOIN thread_items ti ON ti.statement_id = st.id LEFT JOIN topics t ON t.id = ti.topic_id
 		WHERE st.text LIKE ? ORDER BY st.said_at DESC`, "%"+a.Variant+"%")

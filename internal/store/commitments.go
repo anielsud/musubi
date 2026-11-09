@@ -33,8 +33,8 @@ type Follow struct {
 	Statement
 }
 
-const commitmentCols = `st.id, st.item_id, st.chunk_id, c.seq, st.line, st.kind, st.text, st.holder, st.said_at, st.quote,
-	i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END, ` + stLevel + `, ` + stCats + `, st.status, st.who, st.evidence`
+var commitmentCols = `st.id, st.item_id, st.chunk_id, c.seq, st.line, st.kind, st.text, st.holder, st.said_at, st.quote,
+	i.kind, ` + displayTitle("i") + `, ` + stLevel + `, ` + stCats + `, st.status, st.who, st.evidence`
 
 func scanCommitmentCols(sc interface{ Scan(...any) error }, st *Statement, extra ...any) error {
 	var said int64

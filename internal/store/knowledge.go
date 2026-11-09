@@ -625,7 +625,7 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 		args = append(args, vargs...)
 		rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, c.text_hash, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
 			st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, st.quote, st.grounded, st.issues,
-			sc.claim_id, i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END,
+			sc.claim_id, i.kind, `+displayTitle("i")+`,
 			`+stLevel+`, `+stCats+`, st.status, st.who, st.evidence
 			FROM statement_claims sc JOIN statements st ON st.id = sc.statement_id JOIN chunks c ON c.id = st.chunk_id
 			JOIN items i ON i.id = st.item_id`+chunkVisJoin+`WHERE `+in+vis+` ORDER BY st.said_at, st.id`, args...)

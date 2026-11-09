@@ -119,20 +119,22 @@ type Planned struct {
 
 type KnowledgeStats struct {
 	Items, Statements, Embedded int
-	Chunks                      int
-	Gated                       int // passages the gate skipped
-	Scored, Unworthy            int // statements scored for worth; below MinWorth
-	ExtractTime, LinkTime       time.Duration
-	Link                        knowledge.LinkStats
-	Topics                      int
-	Pending                     int // items still to extract (when limited)
-	Labelled, Checked           int // statements labelled sensitive; checked by the labeller
-	Statuses, StatusFailed      int // thread statuses written; failed (tried again next run)
-	Digested, DigestFailed      int // meetings read into digests; failed (tried again next run)
-	Threads                     knowledge.ThreadStats
-	Outdated                    Outdated
-	Held                        Held
-	Planned                     Planned
+	// Named counts meetings given a name (no calendar event, generic title).
+	Named                  int
+	Chunks                 int
+	Gated                  int // passages the gate skipped
+	Scored, Unworthy       int // statements scored for worth; below MinWorth
+	ExtractTime, LinkTime  time.Duration
+	Link                   knowledge.LinkStats
+	Topics                 int
+	Pending                int // items still to extract (when limited)
+	Labelled, Checked      int // statements labelled sensitive; checked by the labeller
+	Statuses, StatusFailed int // thread statuses written; failed (tried again next run)
+	Digested, DigestFailed int // meetings read into digests; failed (tried again next run)
+	Threads                knowledge.ThreadStats
+	Outdated               Outdated
+	Held                   Held
+	Planned                Planned
 }
 
 // Knowledge runs the knowledge layer: extract statements from items whose
@@ -569,6 +571,13 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	// meeting, from one whole-meeting read.
 	if kc.Digest.Enabled {
 		if err := r.digestMeetings(ctx, o, items, wanted, links, byID, invitees, &ks); err != nil {
+			return ks, err
+		}
+	}
+	// 2d. Names for meetings with no calendar event and a generic title,
+	// from their digests.
+	if kc.NameMeetings {
+		if err := r.nameMeetings(ctx, o, items, links, &ks); err != nil {
 			return ks, err
 		}
 	}

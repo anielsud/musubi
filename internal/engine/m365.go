@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/m365"
+	"github.com/anielsud/musubi/internal/pipeline"
 	"github.com/anielsud/musubi/internal/sensitivity"
 )
 
@@ -175,6 +177,10 @@ func (e *Engine) WriteTomoeContext() (int, error) {
 			teamsByEvent[links[t.ID]] = append(teamsByEvent[links[t.ID]], t)
 		}
 	}
+	given, err := e.Store.GivenTitles()
+	if err != nil {
+		return 0, err
+	}
 	changed := 0
 	for i := range items {
 		m := &items[i]
@@ -187,12 +193,21 @@ func (e *Engine) WriteTomoeContext() (int, error) {
 		}
 		path := filepath.Join(dir, "calendar.json")
 		ev := byID[links[m.ID]]
+		// title.json: the name Musubi gave a recording with no calendar
+		// event, for Tomoe to show (calendar.json's subject wins there).
+		titlePath := filepath.Join(dir, "title.json")
+		if g := given[m.ID]; ev == nil && g.Title != "" {
+			if wrote, err := m365.WriteJSONIfChanged(titlePath, map[string]string{"writer": "musubi", "title": g.Title, "source": g.Source}); err != nil {
+				return changed, err
+			} else if wrote {
+				changed++
+			}
+		} else if removeOurs(titlePath) {
+			changed++
+		}
 		if ev == nil {
-			// Only remove a file Musubi wrote.
-			if b, err := os.ReadFile(path); err == nil && strings.Contains(string(b), `"writer": "musubi"`) {
-				if os.Remove(path) == nil {
-					changed++
-				}
+			if removeOurs(path) {
+				changed++
 			}
 			continue
 		}
@@ -216,12 +231,8 @@ func (e *Engine) WriteTomoeContext() (int, error) {
 		if t != nil && wordAgreement(m, t) < 0.6 {
 			t = nil // same slot, different conversation (another meeting that day)
 		}
-		if t == nil {
-			if b, err := os.ReadFile(tpath); err == nil && strings.Contains(string(b), `"writer": "musubi"`) {
-				if os.Remove(tpath) == nil {
-					changed++
-				}
-			}
+		if t == nil && removeOurs(tpath) {
+			changed++
 		}
 		if t != nil {
 			tc := teamsContext{Writer: "musubi", Source: "teams", Subject: t.Title, Start: t.OccurredAt, End: t.EndedAt}
@@ -410,4 +421,23 @@ func (e *Engine) PersonProfile(entityID string) (*PersonProfile, error) {
 		}
 	}
 	return pp, nil
+}
+
+// NameMeetings names meetings with no calendar event and a generic title,
+// with the digest model (`musubi name-meetings`; topic runs do it too).
+func (e *Engine) NameMeetings(ctx context.Context, log io.Writer) (int, error) {
+	if e.Chat == nil {
+		return 0, fmt.Errorf("naming meetings needs [llm] configured")
+	}
+	r, err := e.Runner(nil, log)
+	if err != nil {
+		return 0, err
+	}
+	return r.NameMeetings(ctx, pipeline.KnowledgeOptions{LLM: e.Chat})
+}
+
+// removeOurs removes a sidecar file only if Musubi wrote it.
+func removeOurs(path string) bool {
+	b, err := os.ReadFile(path)
+	return err == nil && strings.Contains(string(b), `"writer": "musubi"`) && os.Remove(path) == nil
 }

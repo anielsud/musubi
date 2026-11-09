@@ -90,3 +90,20 @@ func m365Cmd() *cobra.Command {
 	})
 	return c
 }
+
+func nameMeetingsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "name-meetings",
+		Short: "Name meetings that have no calendar event and only a generic title, from their digests (digest model; up to 60 per run)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			n, err := e.NameMeetings(cmd.Context(), os.Stderr)
+			fmt.Printf("%d meetings named\n", n)
+			return err
+		},
+	}
+}

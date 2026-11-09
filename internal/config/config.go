@@ -127,6 +127,11 @@ type Ask struct {
 
 // Knowledge configures statement extraction.
 type Knowledge struct {
+	// NameMeetings names meetings that have no calendar event and only a
+	// generic title ("Teams Meeting 2026-11-06 10:02") from their digest,
+	// with the digest model; the name is shown wherever titles are. false:
+	// such meetings keep their generic titles, as before.
+	NameMeetings bool `toml:"name_meetings"`
 	// Gate skips passages whose probability of holding knowledge (one
 	// yes/no forward pass) is below this. 0 extracts every passage, the
 	// previous behaviour, and keeps existing extractions valid.
@@ -562,7 +567,7 @@ func DefaultConfig() Config {
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true},
 		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
+		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

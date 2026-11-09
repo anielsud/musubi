@@ -398,8 +398,8 @@ func preference(m, e item.Item) float64 {
 }
 
 // genericTitle is the name Tomoe gives a recording when it saw no meeting
-// window title ("Teams Meeting 2026-11-06 10:02").
-var genericTitle = regexp.MustCompile(`^(\w+ )?Meeting \d{4}-\d\d-\d\d \d\d:\d\d$`)
+// window title ("Teams Meeting 2026-11-06 10:02", "Session 2026-11-06 10:02").
+var genericTitle = regexp.MustCompile(`^((\w+ )?Meeting|Session) \d{4}-\d\d-\d\d \d\d:\d\d$`)
 
 func normTitle(s string) string {
 	return strings.Join(strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {

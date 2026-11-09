@@ -173,6 +173,7 @@ func TestLinkPrefersTitleThenResponse(t *testing.T) {
 		rec("tomoe:a", "Microsoft Teams — Company All-Hands"),
 		rec("tomoe:b", "Teams Meeting 2026-03-04 10:02"),
 		rec("tomoe:c", "Microsoft Teams — Kai Moreno"), // an ad-hoc call during the events
+		rec("tomoe:d", "Session 2026-03-04 10:02"),     // Tomoe's default with no meeting app
 	}
 	_, links := linkMeetings(items)
 	if links["tomoe:a"].id != "calendar:all-hands" {
@@ -180,6 +181,9 @@ func TestLinkPrefersTitleThenResponse(t *testing.T) {
 	}
 	if links["tomoe:b"].id != "calendar:roadmap" {
 		t.Errorf("untitled recording linked to %q, want the accepted event", links["tomoe:b"].id)
+	}
+	if links["tomoe:d"].id != "calendar:roadmap" {
+		t.Errorf("default-titled session linked to %q", links["tomoe:d"].id)
 	}
 	if l, ok := links["tomoe:c"]; ok {
 		t.Errorf("ad-hoc call titled for someone else linked to %q", l.id)

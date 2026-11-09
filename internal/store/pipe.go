@@ -135,6 +135,19 @@ type Chunk struct {
 // hashes include the chunk stage's.
 func (s *Store) ReplaceChunks(itemID, version, hash string, chunks []Chunk) error {
 	return s.tx(func(tx *sql.Tx) error {
+		// The same passages under a new title (the meeting was linked to its
+		// calendar event, or renamed) keep their rows: deleting them would
+		// cascade to the statements, digests and vectors that point at them.
+		if same, err := sameChunks(tx, itemID, chunks); err != nil {
+			return err
+		} else if same {
+			for _, c := range chunks {
+				if _, err := tx.Exec(`UPDATE chunks SET title = ? WHERE item_id = ? AND seq = ?`, c.Title, itemID, c.Seq); err != nil {
+					return err
+				}
+			}
+			return stamp(tx, "chunk", itemID, version, hash)
+		}
 		if _, err := tx.Exec(`DELETE FROM chunks WHERE item_id = ?`, itemID); err != nil {
 			return err
 		}
@@ -146,6 +159,33 @@ func (s *Store) ReplaceChunks(itemID, version, hash string, chunks []Chunk) erro
 		}
 		return stamp(tx, "chunk", itemID, version, hash)
 	})
+}
+
+// sameChunks reports whether the item's stored passages are exactly these
+// (sequence, segment range, times, speakers, text), whatever their titles.
+func sameChunks(tx *sql.Tx, itemID string, chunks []Chunk) (bool, error) {
+	rows, err := tx.Query(`SELECT seq, seg_from, seg_to, start_s, end_s, speakers, text_hash FROM chunks WHERE item_id = ? ORDER BY seq`, itemID)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	i := 0
+	for rows.Next() {
+		var c Chunk
+		var th string
+		if err := rows.Scan(&c.Seq, &c.SegFrom, &c.SegTo, &c.Start, &c.End, &c.Speakers, &th); err != nil {
+			return false, err
+		}
+		if i >= len(chunks) {
+			return false, nil
+		}
+		n := chunks[i]
+		if c.Seq != n.Seq || c.SegFrom != n.SegFrom || c.SegTo != n.SegTo || c.Start != n.Start || c.End != n.End || c.Speakers != n.Speakers || th != textHash(n.Text) {
+			return false, nil
+		}
+		i++
+	}
+	return i == len(chunks) && i > 0, rows.Err()
 }
 
 func (s *Store) Chunks(itemID string) ([]Chunk, error) {

@@ -80,6 +80,12 @@ END;
 CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
 	INSERT INTO chunks_fts(chunks_fts, rowid, text, speakers, title) VALUES ('delete', old.id, old.text, old.speakers, old.title);
 END;
+-- A passage retitled in place (ReplaceChunks keeps rows whose text is
+-- unchanged) must be re-indexed under its new title.
+CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
+	INSERT INTO chunks_fts(chunks_fts, rowid, text, speakers, title) VALUES ('delete', old.id, old.text, old.speakers, old.title);
+	INSERT INTO chunks_fts(rowid, text, speakers, title) VALUES (new.id, new.text, new.speakers, new.title);
+END;
 
 -- Vectors for several models can coexist, so models can be compared on the
 -- same data. Search is exact (brute force) over the scope-filtered rows: at

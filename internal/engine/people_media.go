@@ -34,18 +34,25 @@ type faceCandidate struct {
 	thumb      string  // looks/<id>.jpg
 	x, y, w, h float64 // the tile, as a share of the window
 	area       float64 // the tile's size in window pixels
+	// direct: the name was read under the highlight in this look (not
+	// carried over from an earlier read of the tile's position).
+	direct bool
 }
 
 type faceIndex struct {
 	mu   sync.Mutex
 	sig  string
-	best map[string][]faceCandidate // by normalised name read, largest first (up to faceKeep)
+	best map[string][]faceCandidate // by normalised name read, direct reads then largest first (up to faceKeep)
+	// shots caches chosen headshots by person, for this sig.
+	shots map[string]string
 }
 
-// faceKeep is how many of a person's tiles are kept to choose from: the
-// largest is often a camera-off tile (a profile picture on a plain
-// background).
-const faceKeep = 6
+// faceKeep bounds how many of a person's tiles the index keeps; faceSample
+// is how many of them face detection looks at, spread evenly across tile
+// sizes. Taking only the largest tiles fails: those are full-screen views,
+// often of a camera-off profile picture, while live video sits in smaller
+// gallery tiles.
+var faceKeep, faceSample = 4000, 60
 
 var paren = regexp.MustCompile(`\s*\([^)]*\)`)
 
@@ -95,6 +102,8 @@ func (e *Engine) faces() map[string][]faceCandidate {
 				ID      int    `json:"id"`
 				ThumbOf int    `json:"thumb_of"`
 				Name    string `json:"name"`
+				Window  string `json:"window"`
+				Detail  string `json:"detail"`
 				Width   float64
 				Height  float64
 				Shapes  []struct {
@@ -104,6 +113,16 @@ func (e *Engine) faces() map[string][]faceCandidate {
 			}
 			if json.Unmarshal(sc.Bytes(), &l) != nil || l.Name == "" || l.Width == 0 || l.Height == 0 {
 				continue
+			}
+			// In a one-to-one call the name is the window title, whoever is
+			// highlighted (often the owner): not evidence of whose tile it is.
+			if win := l.Window; win != "" {
+				if i := strings.Index(win, " — "); i >= 0 {
+					win = win[i+len(" — "):]
+				}
+				if speakerName(win) == speakerName(l.Name) {
+					continue
+				}
 			}
 			var ring *struct{ X, Y, Width, Height float64 }
 			rings := 0
@@ -123,20 +142,53 @@ func (e *Engine) faces() map[string][]faceCandidate {
 			thumb := filepath.Join(sd, "looks", fmt.Sprintf("%d.jpg", id))
 			n := speakerName(l.Name)
 			area := ring.Width * ring.Height
-			if cs := best[n]; n == "" || len(cs) == faceKeep && area <= cs[faceKeep-1].area {
+			if n == "" {
 				continue
 			}
-			if _, err := os.Stat(thumb); err != nil {
-				continue
-			}
-			cs := append(best[n], faceCandidate{thumb: thumb, x: ring.X / l.Width, y: ring.Y / l.Height, w: ring.Width / l.Width, h: ring.Height / l.Height, area: area})
-			sort.Slice(cs, func(a, b int) bool { return cs[a].area > cs[b].area })
-			best[n] = cs[:min(len(cs), faceKeep)]
+			cs := append(best[n], faceCandidate{thumb: thumb, x: ring.X / l.Width, y: ring.Y / l.Height, w: ring.Width / l.Width, h: ring.Height / l.Height, area: area,
+				direct: strings.HasPrefix(l.Detail, "read ")})
+			best[n] = cs
 		}
 		f.Close()
 	}
-	e.fi.sig, e.fi.best = sig, best
+	for n, cs := range best {
+		sortCandidates(cs)
+		best[n] = cs[:min(len(cs), faceKeep)]
+	}
+	e.fi.sig, e.fi.best, e.fi.shots = sig, best, map[string]string{}
 	return best
+}
+
+// sample takes n candidates spread evenly across the list (direct reads
+// only when there are enough of them), keeping the order.
+func sample(cs []faceCandidate, n int) []faceCandidate {
+	var direct []faceCandidate
+	for _, c := range cs {
+		if c.direct {
+			direct = append(direct, c)
+		}
+	}
+	if len(direct) >= n/2 {
+		cs = direct
+	}
+	if len(cs) <= n {
+		return cs
+	}
+	out := make([]faceCandidate, 0, n)
+	for i := 0; i < n; i++ {
+		out = append(out, cs[i*len(cs)/n])
+	}
+	return out
+}
+
+// sortCandidates puts direct reads first, then larger tiles.
+func sortCandidates(cs []faceCandidate) {
+	sort.SliceStable(cs, func(a, b int) bool {
+		if cs[a].direct != cs[b].direct {
+			return cs[a].direct
+		}
+		return cs[a].area > cs[b].area
+	})
 }
 
 // headshot is the person's clearest meeting tile as a JPEG data URL, or
@@ -146,12 +198,53 @@ func (e *Engine) headshot(p *person) string {
 	if e.Cfg.TomoeSessions == "" {
 		return ""
 	}
+	e.fi.mu.Lock()
+	cached, ok := e.fi.shots[p.id]
+	e.fi.mu.Unlock()
+	if ok {
+		return cached
+	}
+	// Choosing takes a few seconds (face detection over a sample of tiles),
+	// so a choice is kept on disk for a week.
+	h := sha1.Sum([]byte(p.id))
+	disk := filepath.Join(e.Cfg.DataDir, "headshots", hex.EncodeToString(h[:10])+".txt")
+	if st, err := os.Stat(disk); err == nil && time.Since(st.ModTime()) < 7*24*time.Hour {
+		if b, err := os.ReadFile(disk); err == nil {
+			e.fi.mu.Lock()
+			if e.fi.shots != nil {
+				e.fi.shots[p.id] = string(b)
+			}
+			e.fi.mu.Unlock()
+			return string(b)
+		}
+	}
 	fs := e.faces()
 	var cs []faceCandidate
 	for n := range p.names {
 		cs = append(cs, fs[n]...)
 	}
-	sort.Slice(cs, func(a, b int) bool { return cs[a].area > cs[b].area })
+	sortCandidates(cs)
+	shot := ""
+	if haveVision {
+		shot = faceHeadshot(sample(cs, faceSample))
+	}
+	if shot == "" {
+		shot = tileHeadshot(cs)
+	}
+	e.fi.mu.Lock()
+	if e.fi.shots != nil {
+		e.fi.shots[p.id] = shot
+	}
+	e.fi.mu.Unlock()
+	if e.Cfg.DataDir != "" && os.MkdirAll(filepath.Dir(disk), 0o700) == nil {
+		_ = os.WriteFile(disk, []byte(shot), 0o600)
+	}
+	return shot
+}
+
+// tileHeadshot is the fallback without face detection: a camera-on tile,
+// else the middle of a camera-off one.
+func tileHeadshot(cs []faceCandidate) string {
 	var off *image.Image
 	for _, c := range cs {
 		img, err := crop(c)
@@ -169,6 +262,122 @@ func (e *Engine) headshot(p *person) string {
 		return ""
 	}
 	return dataURL(centre(*off, 0.5))
+}
+
+// faceShot is one candidate's face, as Vision saw it.
+type faceShot struct {
+	img     image.Image // the face, framed with some room around it
+	size    float64     // face height as a share of the tile
+	quality float64
+	print   []float32
+}
+
+// faceHeadshot picks the person's face among their tiles with macOS
+// Vision: it finds the faces, compares them (feature prints), and takes
+// the face that recurs most (so a slide, or someone else shown under the
+// name, loses), preferring live video (a large face) to a profile
+// picture (a small one in a circle), then the best capture quality. ""
+// when no tile has a face.
+func faceHeadshot(cs []faceCandidate) string {
+	var shots []faceShot
+	for _, c := range cs {
+		tile, err := crop(c)
+		if err != nil {
+			continue
+		}
+		var best *visionFace
+		for _, f := range detectFaces(jpegBytes(tile)) {
+			if best == nil || f.h > best.h {
+				f := f
+				best = &f
+			}
+		}
+		if best == nil || best.quality < 0.1 {
+			continue
+		}
+		face := frame(tile, *best, 1.9)
+		fp := featurePrint(jpegBytes(face))
+		if fp == nil {
+			continue
+		}
+		shots = append(shots, faceShot{img: face, size: best.h, quality: best.quality, print: fp})
+	}
+	if len(shots) == 0 {
+		return ""
+	}
+	var live []faceShot
+	for _, s := range shots {
+		if s.size >= 0.28 {
+			live = append(live, s)
+		}
+	}
+	pool := shots
+	if len(live) >= 2 {
+		pool = live
+	}
+	// The medoid: the face closest, on average, to the others.
+	m, bestMean := 0, -1.0
+	for i := range pool {
+		sum := 0.0
+		for j := range pool {
+			if i != j {
+				sum += dist(pool[i].print, pool[j].print)
+			}
+		}
+		if mean := sum / float64(max(1, len(pool)-1)); bestMean < 0 || mean < bestMean {
+			m, bestMean = i, mean
+		}
+	}
+	// Among the faces like the medoid (no farther than the median distance
+	// to it), the clearest.
+	ds := make([]float64, len(pool))
+	for i := range pool {
+		ds[i] = dist(pool[i].print, pool[m].print)
+	}
+	sorted := append([]float64(nil), ds...)
+	sort.Float64s(sorted)
+	median := sorted[len(sorted)/2]
+	score := func(s faceShot) float64 { return s.quality * min(1, s.size/0.4) }
+	pick := m
+	for i := range pool {
+		if ds[i] <= median && score(pool[i]) > score(pool[pick]) {
+			pick = i
+		}
+	}
+	return dataURL(pool[pick].img)
+}
+
+func dist(a, b []float32) float64 {
+	n := min(len(a), len(b))
+	s := 0.0
+	for i := 0; i < n; i++ {
+		d := float64(a[i] - b[i])
+		s += d * d
+	}
+	return s
+}
+
+// frame crops a square around a face, room times its size, within img.
+func frame(img image.Image, f visionFace, room float64) image.Image {
+	b := img.Bounds()
+	cx := b.Min.X + int((f.x+f.w/2)*float64(b.Dx()))
+	cy := b.Min.Y + int((f.y+f.h/2)*float64(b.Dy()))
+	side := int(room * max(f.w*float64(b.Dx()), f.h*float64(b.Dy())))
+	r := image.Rect(cx-side/2, cy-side/2, cx+side/2, cy+side/2).Intersect(b)
+	if s, ok := img.(interface {
+		SubImage(image.Rectangle) image.Image
+	}); ok && !r.Empty() {
+		return s.SubImage(r)
+	}
+	return img
+}
+
+func jpegBytes(img image.Image) []byte {
+	var buf bytes.Buffer
+	if jpeg.Encode(&buf, img, &jpeg.Options{Quality: 92}) != nil {
+		return nil
+	}
+	return buf.Bytes()
 }
 
 func dataURL(img image.Image) string {

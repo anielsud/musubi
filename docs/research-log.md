@@ -3429,3 +3429,24 @@ Recovery:
 - Names across the app are links when they mean exactly one person
   (`PeopleNames`): speakers in transcripts, digest people and owners, to-do
   owners, prep attendees, statement holders.
+- **Faces (later the same day).** Shaf's headshot was a profile picture
+  that wasn't his face. Two causes:
+  - The 6 largest tiles were all full-screen camera-off views. Of his 1,421
+    tiles, Vision finds a face in 1,286, and 856 are live video (face height
+    ≥ 28% of the tile), all in smaller gallery tiles.
+  - The camera-on check also passed shared slides.
+- Now:
+  - Up to 60 tiles are taken, spread evenly across tile sizes, preferring
+    direct name reads ("read … under the ring") over carried-over ones.
+  - One-to-one calls are skipped: there the name is the window title,
+    whoever is highlighted.
+  - macOS Vision finds faces (`VNDetectFaceCaptureQualityRequest`) and
+    compares them (`VNGenerateImageFeaturePrintRequest`). Live faces are
+    preferred when there are two or more. The face nearest the others on
+    average (the one that recurs) wins over slides or someone else shown
+    under the name; among faces as close as the median, the best capture
+    quality.
+  - The headshot is framed around the face at 1.9× its size.
+- The choice takes about 4 s per person and is kept on disk for a week
+  (`data/headshots`); a cached page opens in 0.6 s. Without Vision (not on
+  macOS) the tile heuristic is kept.

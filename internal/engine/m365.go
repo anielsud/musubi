@@ -13,6 +13,7 @@ import (
 
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/m365"
+	"github.com/anielsud/musubi/internal/sensitivity"
 )
 
 // M365State is what Settings shows about the Microsoft 365 connection.
@@ -98,6 +99,11 @@ func (e *Engine) SyncM365(ctx context.Context) (string, error) {
 			}, now)
 			parts = append(parts, fmt.Sprintf("teams: %d meetings, %d transcripts, %d chats, %d passed over", tr.Meetings, tr.Transcripts, tr.Chats, tr.Skipped))
 		}
+	}
+	if err == nil && e.Cfg.M365.People {
+		var pr m365.PeopleReport
+		pr, err = m365.SyncPeople(ctx, c, e.Cfg.DirectoryPath(), e.internalPeople(), 14*24*time.Hour, 300, time.Now())
+		parts = append(parts, fmt.Sprintf("directory: %d looked up (%d found, %d not there), %d left for later", pr.Looked, pr.Found, pr.Missing, pr.Left))
 	}
 	report := strings.Join(parts, "; ")
 	e.ms.mu.Lock()
@@ -218,4 +224,76 @@ func (e *Engine) tomoeRecorded() func(start, end time.Time) bool {
 		}
 		return false
 	}
+}
+
+// internalPeople are the colleagues' addresses among participants: the
+// owner's domains, first.last addresses (not lists or rooms).
+func (e *Engine) internalPeople() []string {
+	items, err := e.Store.AllItems()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, it := range items {
+		for _, p := range it.Participants {
+			em := strings.ToLower(p.Email)
+			at := strings.LastIndexByte(em, '@')
+			if at < 1 || seen[em] || !strings.Contains(em[:at], ".") || !sensitivity.InternalDomain(em[at+1:], e.Cfg.Owner.InternalDomains) {
+				continue
+			}
+			seen[em] = true
+			out = append(out, em)
+		}
+	}
+	return out
+}
+
+// PersonProfile is what the person views show from the directory and the
+// owner's own records.
+type PersonProfile struct {
+	*m365.Person
+	Chain   []*m365.Person `json:"chain"`   // managers, nearest first
+	Reports []*m365.Person `json:"reports"` // direct reports
+	// Together counts the meetings and events both the owner and this
+	// person were part of; LastTogether is the latest.
+	Together     int       `json:"together"`
+	LastTogether time.Time `json:"lastTogether"`
+}
+
+// PersonProfile looks a person entity ("person:<email>") up in the
+// directory file; nil when it isn't there.
+func (e *Engine) PersonProfile(entityID string) (*PersonProfile, error) {
+	email := strings.TrimPrefix(entityID, "person:")
+	if email == entityID || !strings.Contains(email, "@") {
+		return nil, nil
+	}
+	dir, err := m365.LoadDirectory(e.Cfg.DirectoryPath())
+	if err != nil {
+		return nil, err
+	}
+	p := dir.People[strings.ToLower(email)]
+	if p == nil || p.Missing {
+		return nil, nil
+	}
+	pp := &PersonProfile{Person: p, Chain: dir.Chain(email), Reports: dir.Reports(email)}
+	items, err := e.Store.AllItems()
+	if err != nil {
+		return nil, err
+	}
+	for _, it := range items {
+		if it.Kind != item.KindMeeting && it.Kind != item.KindEvent {
+			continue
+		}
+		for _, q := range it.Participants {
+			if strings.EqualFold(q.Email, email) {
+				pp.Together++
+				if it.OccurredAt.After(pp.LastTogether) && it.OccurredAt.Before(time.Now()) {
+					pp.LastTogether = it.OccurredAt
+				}
+				break
+			}
+		}
+	}
+	return pp, nil
 }

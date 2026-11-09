@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDate, kindIcon } from '../api';
-import type { EntityRef, Graph, Hit } from '../types';
+import type { PersonProfile, DirectoryPerson, EntityRef, Graph, Hit } from '../types';
 import { Empty, HitRow, LabelBadge, Spinner } from './common';
 import { GraphView } from './GraphView';
 import { ClaimResults, TopicsPane } from './Knowledge';
@@ -113,6 +113,7 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
                 </div>
                 <button className="icon-btn" onClick={() => setFocus(null)} title="Close">✕</button>
               </div>
+              {graph.entity.type === 'person' && <PersonCard id={graph.entity.id} scope={scope} onPick={setFocus} />}
               {(graph.neighbors?.length ?? 0) > 0 ? (
                 <GraphView graph={graph} onPick={(n) => setFocus(n.id)} />
               ) : (
@@ -149,6 +150,28 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
         <Empty>Search your meetings, or name a person or customer to see who and what they connect to.</Empty>
       )}
       </>}
+    </div>
+  );
+}
+
+// PersonCard shows who someone is in the organisation, from the Microsoft
+// 365 directory, and how often the owner meets them.
+function PersonCard({ id, scope, onPick }: { id: string; scope: string; onPick: (id: string) => void }) {
+  const [p, setP] = useState<PersonProfile | null>(null);
+  useEffect(() => {
+    setP(null);
+    api.personProfile(id, scope).then(setP, () => setP(null));
+  }, [id, scope]);
+  if (!p) return null;
+  const who = (x: DirectoryPerson) => (
+    <button key={x.email} className="link" onClick={() => onPick('person:' + x.email)}>{x.name || x.email}</button>
+  );
+  return (
+    <div className="person-card">
+      <div>{[p.title, p.department, p.office].filter(Boolean).join(' · ') || p.email}</div>
+      {(p.chain?.length ?? 0) > 0 && <div className="dim small">reports to {p.chain!.slice(0, 3).map((m, i) => <span key={m.email}>{i > 0 && ' → '}{who(m)}</span>)}</div>}
+      {(p.reports?.length ?? 0) > 0 && <div className="dim small">{p.reports!.length} direct report{p.reports!.length > 1 ? 's' : ''}: {p.reports!.slice(0, 8).map((r, i) => <span key={r.email}>{i > 0 && ', '}{who(r)}</span>)}{p.reports!.length > 8 && ' …'}</div>}
+      {p.together > 0 && <div className="dim small">in {p.together} of your meetings{p.lastTogether && !p.lastTogether.startsWith('0001') ? `, last ${fmtDate(p.lastTogether)}` : ''}</div>}
     </div>
   );
 }

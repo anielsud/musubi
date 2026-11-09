@@ -4,8 +4,8 @@ Status: **approved by the owner and being built** (2026-11-09).
 - Built:
   - the connection (Settings, CLI), the calendar, and meeting context for
     Tomoe;
-  - Teams transcripts (both routes) and meeting chats (internal/m365).
-- Next: people profiles.
+  - Teams transcripts (both routes) and meeting chats;
+  - people profiles from the directory (internal/m365).
 
 The probe described below was run once by hand.
 
@@ -199,6 +199,7 @@ So a Teams transcript fills a gap and otherwise stays the second copy.
 | `calendar` | true | calendar events as `event` drops |
 | `past_days`, `future_days` | 30, 14 | the calendar window |
 | `reconnect` | true | open the sign-in again when it lapses |
+| `people` | true | directory lookups of colleagues seen in meetings (`data/directory.json`) |
 | `tomoe_context` | true | `calendar.json` next to linked Tomoe recordings |
 | `transcripts` | true | Teams transcripts of the owner's past meetings in the window |
 | `unattended` | false | also meetings the owner did not join (else read once and passed over) |
@@ -317,6 +318,30 @@ First run on all-t4 (2026-11-09), 30 days back:
   gaps). The other 23 are second copies with every speaker named, input
   for the speaker work.
 
+### People
+
+Colleagues are the owner's-domain first.last addresses among participants.
+Each is looked up in the directory: display name, given name and surname,
+job title, department, office and manager. Disabled accounts and unknown
+addresses are marked as not there.
+- Results go to `data/directory.json`, one file Musubi owns. It isn't a
+  database table and isn't raw data, so it is re-fetched rather than
+  rebuilt.
+- An entry is refreshed after 14 days. At most 300 lookups run per update,
+  oldest first, so a first run over a large address book spreads out.
+- **The registry reads the file** after `registry.toml` and before
+  participants:
+  - the directory's display name beats a name guessed from an address;
+  - "Given Surname" becomes an alias when it differs, for mentions and
+    Tomoe speakers;
+  - an address the directory knows counts as a person even when it isn't
+    first.last.
+  - Only names feed the registry hash, so a refresh that changes nothing
+    doesn't re-resolve.
+- **Explore's person view** (owner scope) shows title, department and
+  office, the management chain, direct reports, and how many of the owner's
+  meetings the person was in, with the last one.
+
 ## Tests
 
 - VTT → turns: merged cues, multi-line cues, speaker-less cues (unknown).
@@ -343,5 +368,9 @@ First run on all-t4 (2026-11-09), 30 days back:
     `unattended`, then the recording's transcript;
   - meeting chat: messages during the meeting only, HTML stripped
     (built).
+- People: lookups capped per run and resumed; manager, disabled and unknown
+  accounts; chain and reports; refresh window. Registry: the directory's
+  name wins, "Given Surname" alias, a hash stable across a refresh that
+  changes nothing (built).
 - Keychain round trip of a 10 KB value (`-tags keychain`, writes to the real
   Keychain; built).

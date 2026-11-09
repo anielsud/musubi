@@ -580,3 +580,20 @@ export interface M365View {
   lastReport?: string;
   connecting: boolean;
 }
+
+export interface DirectoryPerson {
+  email: string;
+  name: string;
+  title?: string;
+  department?: string;
+  office?: string;
+  managerEmail?: string;
+  managerName?: string;
+}
+
+export interface PersonProfile extends DirectoryPerson {
+  chain: DirectoryPerson[] | null;
+  reports: DirectoryPerson[] | null;
+  together: number;
+  lastTogether: string;
+}

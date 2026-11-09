@@ -155,6 +155,15 @@ func (e *Engine) WriteTomoeContext() (int, error) {
 	for i := range items {
 		byID[items[i].ID] = &items[i]
 	}
+	// Teams copies by the event they're linked to: the same meeting as a
+	// Tomoe recording linked there.
+	teamsByEvent := map[string][]*item.Item{}
+	for i := range items {
+		t := &items[i]
+		if t.Source == "teams" && t.Kind == item.KindMeeting && strings.HasPrefix(t.Ref, "teams-") && links[t.ID] != "" {
+			teamsByEvent[links[t.ID]] = append(teamsByEvent[links[t.ID]], t)
+		}
+	}
 	changed := 0
 	for i := range items {
 		m := &items[i]
@@ -191,8 +200,58 @@ func (e *Engine) WriteTomoeContext() (int, error) {
 		} else if wrote {
 			changed++
 		}
+		if t := overlapping(m, teamsByEvent[ev.ID]); t != nil {
+			tc := teamsContext{Writer: "musubi", Source: "teams", Subject: t.Title, Start: t.OccurredAt, End: t.EndedAt}
+			for _, sg := range t.Segments {
+				tc.Turns = append(tc.Turns, teamsTurn{Speaker: sg.Speaker, Offset: sg.Start, Text: sg.Text})
+			}
+			if wrote, err := m365.WriteJSONIfChanged(filepath.Join(dir, "teams.json"), tc); err != nil {
+				return changed, err
+			} else if wrote {
+				changed++
+			}
+		}
 	}
 	return changed, nil
+}
+
+// teamsContext is the Teams transcript of a Tomoe recording's meeting
+// (teams.json in the session folder): Teams names every speaker, which
+// Tomoe can line up with its own speakers by time. Offsets are seconds
+// from Start.
+type teamsContext struct {
+	Writer  string      `json:"writer"`
+	Source  string      `json:"source"`
+	Subject string      `json:"subject"`
+	Start   time.Time   `json:"start"`
+	End     time.Time   `json:"end"`
+	Turns   []teamsTurn `json:"turns"`
+}
+
+type teamsTurn struct {
+	Speaker string  `json:"speaker"`
+	Offset  float64 `json:"offset"`
+	Text    string  `json:"text"`
+}
+
+// overlapping is the Teams copy that shares the most time with m (at least
+// a quarter of the recording), or nil.
+func overlapping(m *item.Item, ts []*item.Item) *item.Item {
+	var best *item.Item
+	var bestD time.Duration
+	for _, t := range ts {
+		lo, hi := m.OccurredAt, m.EndedAt
+		if t.OccurredAt.After(lo) {
+			lo = t.OccurredAt
+		}
+		if t.EndedAt.Before(hi) {
+			hi = t.EndedAt
+		}
+		if d := hi.Sub(lo); d > bestD && d >= m.EndedAt.Sub(m.OccurredAt)/4 {
+			best, bestD = t, d
+		}
+	}
+	return best
 }
 
 // tomoeRecorded reports whether a Tomoe recording covers at least five

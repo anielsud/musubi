@@ -190,6 +190,14 @@ So a Teams transcript fills a gap and otherwise stays the second copy.
   organizer, invitees). Tomoe reads it to show the meeting's name (Tomoe
   PR), and later to know who could be speaking. Musubi removes only files
   it wrote, and never touches Tomoe's own files.
+- With a Teams copy of the same meeting (linked to the same event, sharing
+  at least a quarter of the recording's time), `teams.json` goes next to
+  `calendar.json`: subject, start and end, and turns `{speaker, offset,
+  text}`. Teams names every speaker, and Tomoe lines the turns up with its
+  own speakers (Tomoe PR, dry run first). First run: 25 recordings.
+- **Live's title** comes from the event under way, as before. Among
+  overlapping invitations it now passes over one the owner declined and
+  prefers one they organized or accepted, then tentative ones.
 
 ### 2. What is fetched
 

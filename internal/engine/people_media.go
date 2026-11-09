@@ -37,6 +37,11 @@ type faceCandidate struct {
 	// direct: the name was read under the highlight in this look (not
 	// carried over from an earlier read of the tile's position).
 	direct bool
+	// sharp: 2 for a Tomoe portrait (looks/<id>-portrait.jpg, up to 640
+	// px), 1 for its small tile crop (<id>-tile.jpg, 192 px), 0 for a crop
+	// of the 320-pixel thumbnail. A portrait or tile file is the tile
+	// already, so x, y, w, h are the whole image.
+	sharp int
 }
 
 type faceIndex struct {
@@ -99,14 +104,16 @@ func (e *Engine) faces() map[string][]faceCandidate {
 		sc.Buffer(make([]byte, 1<<20), 1<<22)
 		for sc.Scan() {
 			var l struct {
-				ID      int    `json:"id"`
-				ThumbOf int    `json:"thumb_of"`
-				Name    string `json:"name"`
-				Window  string `json:"window"`
-				Detail  string `json:"detail"`
-				Width   float64
-				Height  float64
-				Shapes  []struct {
+				ID       int    `json:"id"`
+				ThumbOf  int    `json:"thumb_of"`
+				Name     string `json:"name"`
+				Window   string `json:"window"`
+				Detail   string `json:"detail"`
+				Tile     bool   `json:"tile"`
+				Portrait bool   `json:"portrait"`
+				Width    float64
+				Height   float64
+				Shapes   []struct {
 					Box  struct{ X, Y, Width, Height float64 }
 					Ring bool `json:"ring"`
 				} `json:"shapes"`
@@ -145,8 +152,15 @@ func (e *Engine) faces() map[string][]faceCandidate {
 			if n == "" {
 				continue
 			}
-			cs := append(best[n], faceCandidate{thumb: thumb, x: ring.X / l.Width, y: ring.Y / l.Height, w: ring.Width / l.Width, h: ring.Height / l.Height, area: area,
-				direct: strings.HasPrefix(l.Detail, "read ")})
+			c := faceCandidate{thumb: thumb, x: ring.X / l.Width, y: ring.Y / l.Height, w: ring.Width / l.Width, h: ring.Height / l.Height, area: area,
+				direct: strings.HasPrefix(l.Detail, "read ")}
+			switch {
+			case l.Portrait:
+				c.thumb, c.x, c.y, c.w, c.h, c.sharp = filepath.Join(sd, "looks", fmt.Sprintf("%d-portrait.jpg", l.ID)), 0, 0, 1, 1, 2
+			case l.Tile:
+				c.thumb, c.x, c.y, c.w, c.h, c.sharp = filepath.Join(sd, "looks", fmt.Sprintf("%d-tile.jpg", l.ID)), 0, 0, 1, 1, 1
+			}
+			cs := append(best[n], c)
 			best[n] = cs
 		}
 		f.Close()
@@ -159,9 +173,23 @@ func (e *Engine) faces() map[string][]faceCandidate {
 	return best
 }
 
-// sample takes n candidates spread evenly across the list (direct reads
-// only when there are enough of them), keeping the order.
+// sample takes n candidates, the sharpest kinds first (portraits, then
+// tile crops, then thumbnail crops, adding a kind only while there are
+// fewer than n/2), direct reads only when there are enough of them, spread
+// evenly across the rest, keeping the order.
 func sample(cs []faceCandidate, n int) []faceCandidate {
+	for _, min := range []int{2, 1, 0} {
+		var sharp []faceCandidate
+		for _, c := range cs {
+			if c.sharp >= min {
+				sharp = append(sharp, c)
+			}
+		}
+		if len(sharp) >= n/2 || min == 0 {
+			cs = sharp
+			break
+		}
+	}
 	var direct []faceCandidate
 	for _, c := range cs {
 		if c.direct {
@@ -207,7 +235,7 @@ func (e *Engine) headshot(p *person) string {
 	// Choosing takes a few seconds (face detection over a sample of tiles),
 	// so a choice is kept on disk for a week.
 	h := sha1.Sum([]byte(p.id))
-	disk := filepath.Join(e.Cfg.DataDir, "headshots", hex.EncodeToString(h[:10])+".txt")
+	disk := filepath.Join(e.Cfg.DataDir, "headshots", "v2-"+hex.EncodeToString(h[:10])+".txt")
 	if st, err := os.Stat(disk); err == nil && time.Since(st.ModTime()) < 7*24*time.Hour {
 		if b, err := os.ReadFile(disk); err == nil {
 			e.fi.mu.Lock()
@@ -268,6 +296,7 @@ func tileHeadshot(cs []faceCandidate) string {
 type faceShot struct {
 	img     image.Image // the face, framed with some room around it
 	size    float64     // face height as a share of the tile
+	px      float64     // face height in pixels: how sharp it can look
 	quality float64
 	print   []float32
 }
@@ -300,7 +329,7 @@ func faceHeadshot(cs []faceCandidate) string {
 		if fp == nil {
 			continue
 		}
-		shots = append(shots, faceShot{img: face, size: best.h, quality: best.quality, print: fp})
+		shots = append(shots, faceShot{img: face, size: best.h, px: best.h * float64(tile.Bounds().Dy()), quality: best.quality, print: fp})
 	}
 	if len(shots) == 0 {
 		return ""
@@ -329,7 +358,7 @@ func faceHeadshot(cs []faceCandidate) string {
 		}
 	}
 	// Among the faces like the medoid (no farther than the median distance
-	// to it), the clearest.
+	// to it), the clearest and sharpest.
 	ds := make([]float64, len(pool))
 	for i := range pool {
 		ds[i] = dist(pool[i].print, pool[m].print)
@@ -337,7 +366,9 @@ func faceHeadshot(cs []faceCandidate) string {
 	sorted := append([]float64(nil), ds...)
 	sort.Float64s(sorted)
 	median := sorted[len(sorted)/2]
-	score := func(s faceShot) float64 { return s.quality * min(1, s.size/0.4) }
+	// Clear and sharp: capture quality times how many pixels the face has
+	// (a portrait's face beats the same face in a thumbnail).
+	score := func(s faceShot) float64 { return s.quality * min(1, s.px/120) }
 	pick := m
 	for i := range pool {
 		if ds[i] <= median && score(pool[i]) > score(pool[pick]) {

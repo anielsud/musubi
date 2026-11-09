@@ -5,7 +5,8 @@ Status: **approved by the owner and being built** (2026-11-09).
   - the connection (Settings, CLI), the calendar, and meeting context for
     Tomoe;
   - Teams transcripts (both routes) and meeting chats;
-  - people profiles from the directory (internal/m365).
+  - people profiles from the directory;
+  - mail and Teams chats, off by default (internal/m365).
 
 The probe described below was run once by hand.
 
@@ -214,6 +215,7 @@ So a Teams transcript fills a gap and otherwise stays the second copy.
 | `past_days`, `future_days` | 30, 14 | the calendar window |
 | `reconnect` | true | open the sign-in again when it lapses |
 | `people` | true | directory lookups of colleagues seen in meetings (`data/directory.json`) |
+| `mail`, `chats` | false | the owner's email and Teams chats (`mail_days`, `chat_days` 14; `mail_focused_only` true) |
 | `tomoe_context` | true | `calendar.json` next to linked Tomoe recordings |
 | `transcripts` | true | Teams transcripts of the owner's past meetings in the window |
 | `unattended` | false | also meetings the owner did not join (else read once and passed over) |
@@ -224,9 +226,18 @@ often large, and of mixed value. When turned on, they come in labelled by
 their invitee list like any meeting, and the digest and thread stages treat
 them like any other meeting.
 
-Mail and chat are in the same token (`Mail.Read`, `Chat.Read`). They unblock
-the email and chat pilot in the backfill queue, but are not part of this
-design.
+**Mail and chats** come from the same sign-in (`Mail.Read`, `Chat.Read`) and
+are **off by default** (`mail`, `chats`). Turning them on is the owner's
+decision: there's a lot of it, and written messages haven't been piloted
+through extraction (see the backfill queue).
+- **Mail:** from `mail_days` back on the first sync (14), then from where
+  the last stopped (`.since` in the inbox folder). Drafts are left out, and
+  with `mail_focused_only` so is what Outlook files as "Other". Bodies are
+  plain text. Written as `email` drops; quoted history is stripped on
+  ingest.
+- **Chats:** one-to-one and group chats active since the last sync (not
+  meeting chats, which go with their meeting). Written as one `chat` drop
+  per chat and day; a later sync of the same day merges into it.
 
 ### 3. When it runs
 
@@ -386,5 +397,8 @@ addresses are marked as not there.
   accounts; chain and reports; refresh window. Registry: the directory's
   name wins, "Given Surname" alias, a hash stable across a refresh that
   changes nothing (built).
+- Mail and chats: drafts and "Other" left out, the second sync resumes from
+  the first's end, meeting and stale chats left out, one item per chat and
+  day (built).
 - Keychain round trip of a 10 KB value (`-tags keychain`, writes to the real
   Keychain; built).

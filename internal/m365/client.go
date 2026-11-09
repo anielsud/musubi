@@ -26,6 +26,9 @@ var allowed = []*regexp.Regexp{
 	regexp.MustCompile(`^/v1\.0/me/onlineMeetings/[^/]+/transcripts$`),
 	regexp.MustCompile(`^/v1\.0/me/onlineMeetings/[^/]+/transcripts/[^/]+/content$`),
 	regexp.MustCompile(`^/v1\.0/chats/[^/]+/messages$`),
+	// Mail and chats, read only when [m365] mail / chats are on.
+	regexp.MustCompile(`^/v1\.0/me/messages$`),
+	regexp.MustCompile(`^/v1\.0/me/chats$`),
 	regexp.MustCompile(`^/v1\.0/shares/[^/]+/driveItem$`),
 	regexp.MustCompile(`^/v1\.0/users/[^/]+$`),
 	regexp.MustCompile(`^/v1\.0/users/[^/]+/manager$`),

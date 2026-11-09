@@ -168,7 +168,9 @@ func TestOnlyAllowListedGets(t *testing.T) {
 		"https://corp-my.sharepoint.com/_api/v2.1/drives/d/items/i/media/transcripts/t/streamContent": true,
 		g + "/v1.0/me/sendMail":                                                                       false,
 		g + "/v1.0/users":                                                                             false, // the whole directory
-		g + "/v1.0/me/messages":                                                                       false, // mail: not this design
+		g + "/v1.0/me/messages?$top=50":                                                               true,
+		g + "/v1.0/me/messages/abc/send":                                                              false,
+		g + "/v1.0/me/chats/abc/sendActivityNotification":                                             false,
 		g + "/beta/me/calendarView":                                                                   false,
 		g + "/v1.0/me/calendarView/../sendMail":                                                       false,
 		"https://evil.example/v1.0/me":                                                                false,

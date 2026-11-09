@@ -37,7 +37,7 @@ const graphResource = "https://graph.microsoft.com"
 // which is why the client refuses anything but GET on an allow-list.
 var graphScopes = []string{
 	"Calendars.Read", "OnlineMeetings.Read", "OnlineMeetingTranscript.Read.All",
-	"Chat.Read", "Files.Read.All", "Sites.Read.All", "User.Read", "User.ReadBasic.All", "User.Read.All", "People.Read",
+	"Chat.Read", "Mail.Read", "Files.Read.All", "Sites.Read.All", "User.Read", "User.ReadBasic.All", "User.Read.All", "People.Read",
 }
 
 var (

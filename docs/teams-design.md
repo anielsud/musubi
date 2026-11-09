@@ -1,9 +1,11 @@
 # Teams transcripts and calendar through Microsoft Graph
 
 Status: **approved by the owner and being built** (2026-11-09).
-- Built: the connection (Settings, CLI), the calendar, and meeting context for
-  Tomoe (internal/m365).
-- Next: Teams transcripts, then people profiles, as separate changes.
+- Built:
+  - the connection (Settings, CLI), the calendar, and meeting context for
+    Tomoe;
+  - Teams transcripts (both routes) and meeting chats (internal/m365).
+- Next: people profiles.
 
 The probe described below was run once by hand.
 
@@ -127,8 +129,8 @@ The drop format already exists (`internal/item/drop.go`), as does its reader
 - Calendar events: `inbox/m365-calendar/<hash of event id>.json`, kind
   `event`. Besides subject, organizer, invitees and times, they carry
   `joinUrl`, `iCalUId` and the owner's `response`.
-- Transcripts (next change): `inbox/teams/<transcript id>.json`, kind
-  `meeting`:
+- Transcripts: `inbox/teams/t-<hash of transcript id>.json`, kind `meeting`,
+  source `teams`, ref `teams-<hash>`:
 
 ```json
 {"kind": "meeting", "source": "teams", "ref": "<transcript id>",
@@ -198,8 +200,9 @@ So a Teams transcript fills a gap and otherwise stays the second copy.
 | `past_days`, `future_days` | 30, 14 | the calendar window |
 | `reconnect` | true | open the sign-in again when it lapses |
 | `tomoe_context` | true | `calendar.json` next to linked Tomoe recordings |
-| `transcripts` (next) | true | transcripts of meetings with no complete Tomoe copy |
-| `unattended` (next) | false | also meetings the owner did not join |
+| `transcripts` | true | Teams transcripts of the owner's past meetings in the window |
+| `unattended` | false | also meetings the owner did not join (else read once and passed over) |
+| `meeting_chat` | true | what was written in a meeting's chat during it, as a chat drop |
 
 `unattended` is off by default (the data is reachable: see above). Meetings the owner skipped are many,
 often large, and of mixed value. When turned on, they come in labelled by
@@ -277,6 +280,43 @@ even when connected.
    to correct its own speaker labels after the meeting. That is Tomoe's
    job, and a later design.
 
+### Transcripts: how a meeting is read
+
+For each past, not-cancelled, not-declined calendar occurrence with a join
+link:
+
+1. **Look the meeting up** by its join link
+   (`/me/onlineMeetings?$filter=JoinWebUrl eq …`).
+   - If Graph refuses, build the meeting id from the link:
+     `base64("1*<organizer>*0**<thread>")`.
+   - A series lists the transcripts of all its occurrences once. Each
+     occurrence takes those that started from an hour before it to three
+     hours after.
+2. **Read each new transcript** as VTT and turn it into speaker turns.
+   - Keep it if the owner attended: a Tomoe recording covers five minutes
+     of it, or the owner is among the speakers.
+   - Otherwise keep it only with `unattended`. A transcript passed over is
+     put on `inbox/teams/.skipped` (not a `.json` file, so the inbox reader
+     ignores it) and isn't fetched again. `m365.ClearSkipped` resets the
+     list after turning `unattended` on.
+3. **Invited through a list:** when Graph refuses both lookups and the owner
+   attended (or `unattended`):
+   - the meeting chat's recording event names the recording;
+   - `/shares/…/driveItem` opens it;
+   - SharePoint's `media/transcripts` → `streamContent?format=json` gives
+     the entries with speaker names.
+4. **Meeting chat** (`meeting_chat`): the chat's messages from an hour
+   before to an hour after, people's messages only, HTML stripped. They're
+   written as one chat drop per occurrence. Read only for meetings the
+   owner attended, or with `unattended`.
+
+First run on all-t4 (2026-11-09), 30 days back:
+- 97 meetings: 28 transcripts kept, 3 passed over (not attended), 45
+  meeting chats.
+- Of the 28: 2 meetings had no Tomoe copy and 3 had a shorter one (the
+  gaps). The other 23 are second copies with every speaker named, input
+  for the speaker work.
+
 ## Tests
 
 - VTT → turns: merged cues, multi-line cues, speaker-less cues (unknown).
@@ -293,5 +333,15 @@ even when connected.
   not rewritten, deleted occurrences cancelled, files 0600 (built).
 - Linking: title first, then the owner's response; an ad-hoc call titled
   for someone else isn't linked (built).
+- Transcripts:
+  - VTT → turns (merged cues, multi-line cues, speaker-less cues);
+  - SharePoint JSON → turns;
+  - join link parts;
+  - invited by name: attended kept, unattended passed over and not
+    refetched, kept once `unattended` is on;
+  - invited through a list: nothing read from SharePoint unless attended or
+    `unattended`, then the recording's transcript;
+  - meeting chat: messages during the meeting only, HTML stripped
+    (built).
 - Keychain round trip of a 10 KB value (`-tags keychain`, writes to the real
   Keychain; built).

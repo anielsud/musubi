@@ -107,7 +107,7 @@ export function App() {
       <main>
         <div hidden={view !== 'live'}><LiveView status={live} onOpen={openHit} onEntity={openEntity} onTopic={openTopic} scope={scope} prefill={askReq} /></div>
         <div hidden={view !== 'to-do'}><ToDoView onOpen={openHit} scope={scope} onTopic={openTopic} onMeeting={openMeeting} /></div>
-        <div hidden={view !== 'meetings'}><MeetingsView onOpen={openHit} scope={scope} onTopic={openTopic} req={meetingReq} /></div>
+        <div hidden={view !== 'meetings'}><MeetingsView onOpen={openHit} scope={scope} onTopic={openTopic} req={meetingReq} active={view === 'meetings'} /></div>
         <div hidden={view !== 'explore'}>
           <ExploreView scope={scope} focus={focus} setFocus={setFocus} onOpen={openHit} topicReq={topicReq} correctReq={correctReq}
             onOpenItem={(id, sc) => setSource({ itemId: id, scope: sc })} />

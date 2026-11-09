@@ -55,8 +55,11 @@ type Sel = { kind: 'recap'; id: string } | { kind: 'prep'; req: PrepRequest; id?
 // calendar and list are on the left and the box and the open meeting on
 // the right (the next meeting open to start); narrow, a meeting opens in
 // place of the list.
-export function MeetingsView({ scope, onOpen, onTopic, req }: {
+export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
   scope: string; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void; req: { id: string; n: number } | null;
+  // active: the tab is showing. The app mounts every tab hidden, and a
+  // hidden list can't be scrolled, so centring on now waits for it.
+  active: boolean;
 }) {
   const [list, setList] = useState<MeetingListItem[] | null | undefined>(undefined);
   const [targets, setTargets] = useState<PrepTarget[]>([]);
@@ -124,15 +127,15 @@ export function MeetingsView({ scope, onOpen, onTopic, req }: {
       if (near) listEl.current?.querySelector(`[data-day="${near}"]`)?.scrollIntoView({ block: 'start', behavior: smooth });
     }
     setPending(null);
+    placed.current = true;
   }, [pending, byDay]);
   // Opened, the list is centred on now. Wide, the next meeting (else the
   // latest) is open to start.
   const placed = useRef(false);
   useEffect(() => {
-    if (placed.current || rows.length === 0 || (!wide && sel)) return;
+    if (placed.current || !active || rows.length === 0 || (!wide && sel)) return;
     setPending(dayKey(new Date()));
-    setTimeout(() => { placed.current = true; }, 0);
-  }, [rows, wide, sel]);
+  }, [rows, wide, sel, active]);
   useEffect(() => {
     if (!wide || sel || rows.length === 0) return;
     const now = Date.now();

@@ -137,6 +137,34 @@ func (c Categories) MarshalJSON() ([]byte, error) {
 	return json.Marshal(names)
 }
 
+// UnmarshalJSON reads a level's name; an unknown one fails.
+func (l *Level) UnmarshalJSON(b []byte) error {
+	var name string
+	if err := json.Unmarshal(b, &name); err != nil {
+		return err
+	}
+	v, err := ParseLevel(name)
+	if err != nil {
+		return err
+	}
+	*l = v
+	return nil
+}
+
+// UnmarshalJSON reads category names; an unknown one fails.
+func (c *Categories) UnmarshalJSON(b []byte) error {
+	var names []string
+	if err := json.Unmarshal(b, &names); err != nil {
+		return err
+	}
+	v, err := ParseCategories(names)
+	if err != nil {
+		return err
+	}
+	*c = v
+	return nil
+}
+
 // Combine returns the narrower of two labels: the higher level and the union
 // of categories. Used for a chunk's effective label (item label + chunk
 // escalation) and for anything derived from several inputs.

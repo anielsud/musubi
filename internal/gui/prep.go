@@ -2,7 +2,11 @@ package gui
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -10,6 +14,8 @@ import (
 	"github.com/anielsud/musubi/internal/ask"
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/knowledge"
+	"github.com/anielsud/musubi/internal/sensitivity"
+	"github.com/anielsud/musubi/internal/store"
 )
 
 // PrepTarget is a meeting to prepare for: an upcoming calendar event, or
@@ -131,4 +137,93 @@ func (a *App) PrepBrief(id string, req knowledge.PrepRequest, scope string) erro
 		a.emit("prep:done", res)
 	}()
 	return nil
+}
+
+// SavedPrepBrief is the talking points drafted ahead of an event
+// (prep.auto_brief), nil when there are none or the scope may not see them.
+func (a *App) SavedPrepBrief(itemID, scope string) (*store.PrepBrief, error) {
+	if a.eng == nil {
+		return nil, nil
+	}
+	sc, err := a.eng.Scope(scope)
+	if err != nil {
+		return nil, err
+	}
+	return a.eng.Store.PrepBriefFor(sc, itemID)
+}
+
+// briefEvery is how often drafted talking points are checked against what
+// they rest on; a change is drafted again at most this often.
+const briefEvery = 15 * time.Minute
+
+// draftBriefs keeps talking points drafted for the owner's meetings in the
+// rest of the week: every briefEvery, each event whose prep has changed
+// since its draft (or has none) is drafted again, one at a time, and
+// "prep:brief" names it. Nothing is drafted while a meeting is live, so no
+// model runs then (a hosted one can fall back to a local one).
+func (a *App) draftBriefs(ctx context.Context) {
+	first := time.NewTimer(2 * time.Minute)
+	defer first.Stop()
+	select {
+	case <-ctx.Done():
+		return
+	case <-first.C:
+	}
+	t := time.NewTicker(briefEvery)
+	defer t.Stop()
+	for {
+		a.draftBriefsOnce(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
+func (a *App) draftBriefsOnce(ctx context.Context) {
+	e := a.eng
+	if e == nil || a.live == nil || a.live.Status().Mode == "live" {
+		return
+	}
+	targets, err := a.PrepTargets()
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	// The rest of the week: to the end of Sunday.
+	y, m, d := now.Date()
+	end := time.Date(y, m, d, 0, 0, 0, 0, now.Location()).AddDate(0, 0, 8-int(now.Weekday()+6)%7-1)
+	owner := sensitivity.Owner()
+	for _, t := range targets {
+		if ctx.Err() != nil || a.live.Status().Mode == "live" {
+			return
+		}
+		if !t.Upcoming || !t.At.After(now) || !t.At.Before(end) {
+			continue
+		}
+		v, err := a.Prep(knowledge.PrepRequest{Template: t.ItemID}, owner.Name)
+		if err != nil || v == nil || len(v.Subjects)+len(v.Open)+len(v.Share) == 0 {
+			continue
+		}
+		vb, _ := json.Marshal(v)
+		h := sha256.Sum256(append([]byte(e.AskLLM.ModelName()+"\n"), vb...))
+		input := hex.EncodeToString(h[:12])
+		if have, err := e.Store.PrepBriefFor(owner, t.ItemID); err != nil || have != nil && have.Input == input {
+			continue
+		}
+		ans, err := ask.PrepBrief(ctx, e, v, nil)
+		if err != nil || ans == nil || ans.Text == "" {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "prep brief %s: %v\n", t.ItemID, err)
+			}
+			continue
+		}
+		th, _ := json.Marshal(ans.Threads)
+		if err := e.Store.SavePrepBrief(store.PrepBrief{ItemID: t.ItemID, Input: input, Model: e.AskLLM.ModelName(), Text: ans.Text,
+			Sources: ans.Sources, Threads: th, MadeAt: time.Now()}); err != nil {
+			return
+		}
+		a.emit("prep:brief", map[string]string{"id": t.ItemID})
+	}
 }

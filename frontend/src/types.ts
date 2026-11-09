@@ -419,6 +419,16 @@ export interface PrepTarget {
   people: number;
 }
 
+// SavedBrief is talking points drafted ahead of a meeting (prep.auto_brief).
+export interface SavedBrief {
+  itemId: string;
+  model: string;
+  text: string;
+  sources: Hit[] | null;
+  threads: ThreadRef[] | null;
+  madeAt: string;
+}
+
 export interface PrepRequest {
   template?: string;
   people?: string[];

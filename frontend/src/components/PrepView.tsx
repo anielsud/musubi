@@ -16,7 +16,17 @@ export function PrepPage({ req, scope, onBack, onOpen, onTopic }: {
 }) {
   const [view, setView] = useState<Prep | null | undefined>(null);
   const [err, setErr] = useState('');
-  const [brief, setBrief] = useState<{ id: string; text: string; sources: Hit[]; threads: ThreadRef[]; done: boolean; error?: string } | null>(null);
+  const [brief, setBrief] = useState<{ id: string; text: string; sources: Hit[]; threads: ThreadRef[]; done: boolean; error?: string; madeAt?: string } | null>(null);
+  // Talking points drafted ahead (prep.auto_brief) show until redrafted
+  // here, and are replaced when a newer draft lands.
+  const ev = req.template;
+  const loadSaved = () => {
+    if (!ev) return;
+    api.savedPrepBrief(ev, scope).then((b) => {
+      if (b) setBrief((cur) => (cur && !cur.madeAt ? cur : { id: 'saved', text: b.text, sources: b.sources ?? [], threads: b.threads ?? [], done: true, madeAt: b.madeAt }));
+    }, () => {});
+  };
+  useEffect(() => on<{ id: string }>('prep:brief', ({ id }) => { if (id === ev) loadSaved(); }), [ev, scope]);
   const src = (itemId: string, chunkId: number) => onOpen({ itemId, chunkId } as unknown as Hit, scope);
 
   useEffect(() => {
@@ -34,6 +44,7 @@ export function PrepPage({ req, scope, onBack, onOpen, onTopic }: {
     setBrief(null);
     setErr('');
     api.prep(req, scope).then(setView, (e) => { setErr(String(e)); setView(null); });
+    loadSaved();
   }, [req, scope]);
 
   const draft = () => {
@@ -60,6 +71,7 @@ export function PrepPage({ req, scope, onBack, onOpen, onTopic }: {
               {!brief || brief.done ? <button className="link" onClick={draft}>{brief ? 'redraft' : 'draft'}</button> : <span><Spinner /> <button className="link" onClick={() => api.stopAsk()}>stop</button></span>}
             </div>
             {!brief && <div className="dim small">A model drafts what to raise, from everything below.</div>}
+            {brief?.madeAt && <div className="dim small">Drafted {fmtDate(brief.madeAt)}; drafted again as new information comes in.</div>}
             {brief?.text && <Answer text={brief.text} hits={brief.sources} onCite={(h) => onOpen(h, scope)} />}
             {brief?.error && <div className="error small">{brief.error}</div>}
           </section>

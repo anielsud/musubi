@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
+import type { M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -62,6 +62,7 @@ export const api = {
   meetingPage: (id: string, scope: string): Promise<MeetingPage | null> => app().MeetingPage(id, scope),
   linkToDo: (id: number, rel: string, other: number, note = ''): Promise<number> => app().LinkToDo(id, rel, other, note),
   undoToDoLink: (id: number): Promise<void> => app().UndoToDoLink(id),
+  savedPrepBrief: (itemId: string, scope: string): Promise<SavedBrief | null> => app().SavedPrepBrief(itemId, scope),
   prep: (req: PrepRequest, scope: string): Promise<PrepView> => app().Prep(req, scope),
   prepBrief: (id: string, req: PrepRequest, scope: string): Promise<void> => app().PrepBrief(id, req, scope),
   m365: (): Promise<M365View> => app().M365(),

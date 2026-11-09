@@ -92,6 +92,9 @@ func (a *App) openConfig(path string) error {
 		a.emit("app:status", a.Status())
 	}()
 	go a.live.Run(lctx)
+	if e.Cfg.Prep.AutoBrief && e.AskLLM != nil {
+		go a.draftBriefs(lctx)
+	}
 	if n := e.Cfg.Live.UpdateEvery; n > 0 {
 		go func() {
 			t := time.NewTicker(time.Duration(n) * time.Minute)

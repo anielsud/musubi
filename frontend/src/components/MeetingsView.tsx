@@ -48,9 +48,9 @@ function useWide() {
 
 type Sel = { kind: 'recap'; id: string } | { kind: 'prep'; req: PrepRequest; id?: string };
 
-// MeetingsView: past meetings and the ones coming up, by day (newest
-// first, the next two weeks above today), with a month calendar to jump
-// in the list. A past meeting opens its recap; an upcoming one its prep.
+// MeetingsView: past meetings and the ones coming up, by day in the order
+// they happen, from a week back to a week ahead (earlier ones a click or a
+// calendar day away), with a line at now, which the list opens centred on. A past meeting opens its recap; an upcoming one its prep.
 // One box filters the list, or names people to prep for. Wide, the
 // calendar and list are on the left and the box and the open meeting on
 // the right (the next meeting open to start); narrow, a meeting opens in
@@ -65,6 +65,9 @@ export function MeetingsView({ scope, onOpen, onTopic, req }: {
   const [q, setQ] = useState('');
   const [month, setMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const [day, setDay] = useState<string | null>(null);
+  // from: the earliest day the list shows; a week back to start.
+  const [from, setFrom] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - 7); return d; });
+  const [pending, setPending] = useState<string | null>(null);
   const listEl = useRef<HTMLUListElement>(null);
   const wide = useWide();
 
@@ -81,10 +84,13 @@ export function MeetingsView({ scope, onOpen, onTopic, req }: {
   const rows = useMemo(() => {
     const up: Row[] = targets.filter((t) => t.upcoming).map((t) => ({ id: t.itemId, title: t.title, at: new Date(t.at), upcoming: true, people: t.people }));
     const past: Row[] = (list ?? []).map((m) => ({ id: m.itemId, title: m.title || m.itemId, at: new Date(m.start), upcoming: false, m }));
-    return [...up, ...past].sort((x, y) => y.at.getTime() - x.at.getTime());
+    return [...up, ...past].sort((x, y) => x.at.getTime() - y.at.getTime());
   }, [list, targets]);
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const shown = rows.filter((r) => words.every((w) => (r.title + ' ' + (r.m?.overview ?? '')).toLowerCase().includes(w)));
+  // A filter searches every meeting; otherwise the list keeps to its days.
+  const ahead = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 8); return d; }, []);
+  const shown = rows.filter((r) => words.length ? words.every((w) => (r.title + ' ' + (r.m?.overview ?? '')).toLowerCase().includes(w)) : r.at >= from && r.at < ahead);
+  const earlier = words.length === 0 && rows.some((r) => r.at < from);
   const group = (rs: Row[]) => {
     const g = new Map<string, Row[]>();
     for (const r of rs) {
@@ -98,26 +104,39 @@ export function MeetingsView({ scope, onOpen, onTopic, req }: {
   const byDay = useMemo(() => group(shown), [shown]);
   const allByDay = useMemo(() => group(rows), [rows]);
 
-  // jump scrolls the list to a day, or the nearest day with meetings.
-  const jump = (k: string, smooth = true) => {
+  // jump moves the list to a day (the nearest with meetings), taking in
+  // earlier days first when it's before the list's first; today centres
+  // the line at now.
+  const jump = (k: string) => {
     setDay(k);
-    const keys = [...byDay.keys()];
-    if (!keys.length) return;
-    const near = keys.reduce((best, x) => (Math.abs(Date.parse(x) - Date.parse(k)) < Math.abs(Date.parse(best) - Date.parse(k)) ? x : best));
-    listEl.current?.querySelector(`[data-day="${near}"]`)?.scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' });
+    const d = new Date(k + 'T00:00');
+    if (d < from) setFrom(d);
+    setPending(k);
   };
-  // Opened, the list starts at today: above are the coming two weeks.
-  // Wide, the next meeting (else the latest) is open to start.
+  useEffect(() => {
+    if (!pending) return;
+    const smooth = placed.current ? 'smooth' : 'auto';
+    if (pending === dayKey(new Date())) {
+      listEl.current?.querySelector('.now-line')?.scrollIntoView({ block: 'center', behavior: smooth });
+    } else {
+      const keys = [...byDay.keys()];
+      const near = keys.length ? keys.reduce((best, x) => (Math.abs(Date.parse(x) - Date.parse(pending)) < Math.abs(Date.parse(best) - Date.parse(pending)) ? x : best)) : '';
+      if (near) listEl.current?.querySelector(`[data-day="${near}"]`)?.scrollIntoView({ block: 'start', behavior: smooth });
+    }
+    setPending(null);
+  }, [pending, byDay]);
+  // Opened, the list is centred on now. Wide, the next meeting (else the
+  // latest) is open to start.
   const placed = useRef(false);
   useEffect(() => {
     if (placed.current || rows.length === 0 || (!wide && sel)) return;
-    placed.current = true;
-    setTimeout(() => jump(dayKey(new Date()), false), 0);
+    setPending(dayKey(new Date()));
+    setTimeout(() => { placed.current = true; }, 0);
   }, [rows, wide, sel]);
   useEffect(() => {
     if (!wide || sel || rows.length === 0) return;
     const now = Date.now();
-    const next = [...rows].reverse().find((r) => r.upcoming && r.at.getTime() >= now - 3600e3) ?? rows.find((r) => !r.upcoming);
+    const next = rows.find((r) => r.upcoming && r.at.getTime() >= now - 3600e3) ?? [...rows].reverse().find((r) => !r.upcoming);
     if (next) setSel(next.upcoming ? { kind: 'prep', req: { template: next.id }, id: next.id } : { kind: 'recap', id: next.id });
   }, [rows, wide, sel]);
 
@@ -155,18 +174,16 @@ export function MeetingsView({ scope, onOpen, onTopic, req }: {
   const picker = (
     <>
       <MonthGrid month={month} setMonth={setMonth} byDay={allByDay} day={day} onDay={(k) => jump(k)} />
+      <div className="mt-list">
       {err && <div className="error small">{err}</div>}
       {list === undefined && <div className="empty"><Spinner /></div>}
       {list && rows.length === 0 && <Empty>No meetings yet. Summaries are written when knowledge.digest is on; upcoming meetings come from the calendar.</Empty>}
       {rows.length > 0 && shown.length === 0 && <div className="dim small">No meeting matches “{q}”.</div>}
       <ul className="meeting-list" ref={listEl}>
-        {[...byDay.entries()].map(([k, rs]) => (
-          <Fragment key={k}>
-            <li className={'day-head' + (k === dayKey(new Date()) ? ' today' : '')} data-day={k}>{dayWords(rs[0].at)}</li>
-            {rs.map(rowView)}
-          </Fragment>
-        ))}
+        {earlier && <li><button className="link small" onClick={() => setFrom(new Date(from.getTime() - 7 * 864e5))}>earlier meetings</button></li>}
+        {withNow(byDay, rowView)}
       </ul>
+      </div>
     </>
   );
 
@@ -183,6 +200,31 @@ export function MeetingsView({ scope, onOpen, onTopic, req }: {
       </div>
     </div>
   );
+}
+
+// withNow renders the days and their meetings with a line at now: before
+// the first meeting still to come (today's heading shows even with none
+// left, so the line has a place).
+function withNow(byDay: Map<string, Row[]>, rowView: (r: Row) => JSX.Element) {
+  const now = Date.now();
+  const today = dayKey(new Date());
+  const days = [...byDay.entries()];
+  if (!byDay.has(today) && days.length) {
+    const i = days.findIndex(([k]) => k > today);
+    days.splice(i < 0 ? days.length : i, 0, [today, []]);
+  }
+  let drawn = false;
+  const line = () => {
+    drawn = true;
+    return <li key="now" className="now-line"><span>now · {timeWords(new Date())}</span></li>;
+  };
+  return days.map(([k, rs]) => (
+    <Fragment key={k}>
+      <li className={'day-head' + (k === today ? ' today' : '')} data-day={k}>{dayWords(rs[0]?.at ?? new Date())}</li>
+      {rs.map((r) => (!drawn && r.at.getTime() > now ? [line(), rowView(r)] : rowView(r)))}
+      {k === today && !drawn && line()}
+    </Fragment>
+  ));
 }
 
 // MonthGrid is the month calendar the list is browsed by, Monday first:

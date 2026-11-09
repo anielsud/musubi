@@ -31,6 +31,29 @@ type Config struct {
 	Knowledge   Knowledge   `toml:"knowledge"`
 	Ask         Ask         `toml:"ask"`
 	Prep        Prep        `toml:"prep"`
+	M365        M365        `toml:"m365"`
+}
+
+// M365 reads the owner's Microsoft 365 data through Microsoft Graph
+// (internal/m365) once the owner has connected from Settings or
+// `musubi m365 connect`. Until then nothing changes.
+type M365 struct {
+	// Enabled false never syncs, even when connected: the earlier behaviour.
+	Enabled bool `toml:"enabled"`
+	// Calendar writes the owner's events as inbox drops, so recordings get
+	// their meeting's title and invitees and prep sees what's coming.
+	Calendar bool `toml:"calendar"`
+	// PastDays and FutureDays bound the calendar window each sync reads.
+	PastDays   int `toml:"past_days"`
+	FutureDays int `toml:"future_days"`
+	// Reconnect opens the sign-in page again when a sync finds the sign-in
+	// no longer works (not while Tomoe is recording). false: the app only
+	// says so.
+	Reconnect bool `toml:"reconnect"`
+	// TomoeContext writes calendar.json next to each Tomoe recording linked
+	// to a calendar event (title, times, invitees), for Tomoe to show the
+	// meeting's name and to know who could be speaking.
+	TomoeContext bool `toml:"tomoe_context"`
 }
 
 // Prep configures meeting preparation.
@@ -514,6 +537,7 @@ func DefaultConfig() Config {
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true},
+		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, Reconnect: true, TomoeContext: true},
 		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{

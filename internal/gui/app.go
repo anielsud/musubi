@@ -43,6 +43,10 @@ type App struct {
 	askCancel  context.CancelFunc
 	// spellMu runs one refresh after a spelling rule at a time.
 	spellMu sync.Mutex
+	// m365Connecting: a sign-in is open in the browser; m365AutoAt: when
+	// the app last opened one by itself.
+	m365Connecting bool
+	m365AutoAt     time.Time
 }
 
 func NewApp() *App { return &App{} }
@@ -201,6 +205,7 @@ func (a *App) Update() {
 		if err == nil {
 			a.live.Reload()
 		}
+		a.maybeReconnectM365()
 		a.emit("update:done", msg)
 		a.emit("app:status", a.Status())
 		a.emit("queue:changed", nil)

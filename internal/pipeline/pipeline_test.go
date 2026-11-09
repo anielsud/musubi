@@ -5,8 +5,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/anielsud/musubi/internal/config"
+	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/raw"
 	"github.com/anielsud/musubi/internal/sensitivity"
@@ -151,5 +153,39 @@ func TestAllDayBlocksAreNotLinked(t *testing.T) {
 	}
 	if links["tomoe:11111111-0000-4000-8000-000000000004"] != "" {
 		t.Error("ad-hoc call inside an all-day block got linked")
+	}
+}
+
+// Overlapping invitations: the recording goes to the event its title names,
+// and failing that to the one the owner accepted over one left unanswered.
+func TestLinkPrefersTitleThenResponse(t *testing.T) {
+	at := time.Date(2026, 3, 4, 15, 0, 0, 0, time.UTC)
+	ev := func(id, title, resp string) item.Item {
+		return item.Item{ID: id, Kind: item.KindEvent, Title: title, OccurredAt: at, EndedAt: at.Add(time.Hour), Native: map[string]string{"response": resp}}
+	}
+	rec := func(id, title string) item.Item {
+		return item.Item{ID: id, Kind: item.KindMeeting, Title: title, OccurredAt: at.Add(2 * time.Minute), EndedAt: at.Add(50 * time.Minute)}
+	}
+	items := []item.Item{
+		ev("calendar:all-hands", "Company All-Hands", "notResponded"),
+		ev("calendar:roadmap", "Roadmap Review", "accepted"),
+		ev("calendar:vendor", "Vendor Call", "declined"),
+		rec("tomoe:a", "Microsoft Teams — Company All-Hands"),
+		rec("tomoe:b", "Teams Meeting 2026-03-04 10:02"),
+		rec("tomoe:c", "Microsoft Teams — Kai Moreno"), // an ad-hoc call during the events
+		rec("tomoe:d", "Session 2026-03-04 10:02"),     // Tomoe's default with no meeting app
+	}
+	_, links := linkMeetings(items)
+	if links["tomoe:a"].id != "calendar:all-hands" {
+		t.Errorf("titled recording linked to %q", links["tomoe:a"].id)
+	}
+	if links["tomoe:b"].id != "calendar:roadmap" {
+		t.Errorf("untitled recording linked to %q, want the accepted event", links["tomoe:b"].id)
+	}
+	if links["tomoe:d"].id != "calendar:roadmap" {
+		t.Errorf("default-titled session linked to %q", links["tomoe:d"].id)
+	}
+	if l, ok := links["tomoe:c"]; ok {
+		t.Errorf("ad-hoc call titled for someone else linked to %q", l.id)
 	}
 }

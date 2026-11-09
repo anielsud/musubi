@@ -92,7 +92,7 @@ Planned connectors, in order:
 | `tomoe` | reads `~/.local/share/tomoe/sessions/*/session.json` |
 | `calendar` | ICS or Graph; gives meetings their titles and attendees |
 | `mcpdrop` | an inbox directory that scheduled Claude Code jobs fill from the approved M365 / Salesforce / Zoom connectors, as JSON |
-| `graph` | direct Microsoft Graph (mail, chat), once an Entra app registration is approved; until then Teams transcripts and calendar can come through Microsoft's own Graph PowerShell tool into the inbox (proposed: docs/teams-design.md) |
+| `graph` | direct Microsoft Graph (mail, chat), once an Entra app registration is approved; until then `internal/m365` signs in as Microsoft's already-consented Graph Command Line Tools client and writes calendar events (and, next, Teams transcripts) into the inbox: docs/teams-design.md |
 
 ### 2. Items
 

@@ -8,11 +8,12 @@ import { ToDoView } from './components/ToDoView';
 import { MeetingsView } from './components/MeetingsView';
 import { ExploreView } from './components/ExploreView';
 import { StatusView } from './components/StatusView';
+import { SettingsView } from './components/SettingsView';
 import { SourceDrawer, type SourceRef } from './components/SourceDrawer';
 import { DiagPanel } from './components/DiagPanel';
 import { SelectionMenu, type Picked } from './components/SelectionMenu';
 
-type View = 'live' | 'ask' | 'prep' | 'to-do' | 'meetings' | 'explore' | 'status';
+type View = 'live' | 'ask' | 'prep' | 'to-do' | 'meetings' | 'explore' | 'status' | 'settings';
 
 export function App() {
   const [view, setView] = useState<View>('live');
@@ -95,7 +96,7 @@ export function App() {
       </header>
 
       <nav className="tabs" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
-        {(['live', 'ask', 'prep', 'to-do', 'meetings', 'explore', 'status'] as View[]).map((v) => (
+        {(['live', 'ask', 'prep', 'to-do', 'meetings', 'explore', 'status', 'settings'] as View[]).map((v) => (
           <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
             {v === 'live' && live?.mode === 'live' && <span className="pulse" />}
             {v}
@@ -114,6 +115,7 @@ export function App() {
             onOpenItem={(id, sc) => setSource({ itemId: id, scope: sc })} />
         </div>
         <div hidden={view !== 'status'}><StatusView status={status} /></div>
+        <div hidden={view !== 'settings'}><SettingsView /></div>
       </main>
 
       {source && <SourceDrawer src={source} onClose={() => setSource(null)} />}

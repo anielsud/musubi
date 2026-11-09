@@ -1,7 +1,11 @@
 # Teams transcripts and calendar through Microsoft Graph
 
-Status: **proposed** (2026-11-09). Nothing is built. The probe described
-below was run once by hand.
+Status: **approved by the owner and being built** (2026-11-09).
+- Built: the connection (Settings, CLI), the calendar, and meeting context for
+  Tomoe (internal/m365).
+- Next: Teams transcripts, then people profiles, as separate changes.
+
+The probe described below was run once by hand.
 
 ## Why
 
@@ -98,17 +102,33 @@ powerful credential, even though Musubi only needs to read.
 
 ## Approach
 
-### 1. Fetch with Microsoft's tool; Musubi reads the inbox
+### 1. Musubi signs in; what it reads goes through the inbox
 
-A PowerShell script, `tools/teams/teams-pull.ps1`, uses the Graph module to:
+Musubi signs in itself (`internal/m365`). It uses the standard browser flow
+(authorization code with PKCE and a loopback redirect) with the Graph
+Command Line Tools client id, the same flow the PowerShell module runs.
+There is nothing to install. Entra records the sign-in exactly as it
+records one from the module.
 
-- list calendar events since the last run;
-- for each Teams meeting, find its transcripts;
-- write each new transcript as one inbox drop,
-  `<inbox>/teams/<transcript id>.json`.
+The probe's first plan was a PowerShell script around Microsoft's module.
+The owner asked for a Connect button that installs whatever it needs, and
+for an automatic sign-in again when a sign-in lapses. Signing in natively
+does both without installing PowerShell and the module, and keeps one
+Keychain entry under Musubi's control.
 
-The drop format already exists (`internal/item/drop.go`, `dropMeeting`), as
-does its reader (`internal/source/mcpdrop`):
+The cost: Musubi's own code presents Microsoft's client id. Entra can't
+tell the two apart, and IT consented to that client. If IT wants only
+Microsoft's own module to use it, the fallback is the module route, with
+the same inbox files. (Owner's decision, 2026-11-09.)
+
+Everything read is written as inbox drops and ingested as any other drop.
+The drop format already exists (`internal/item/drop.go`), as does its reader
+(`internal/source/mcpdrop`).
+- Calendar events: `inbox/m365-calendar/<hash of event id>.json`, kind
+  `event`. Besides subject, organizer, invitees and times, they carry
+  `joinUrl`, `iCalUId` and the owner's `response`.
+- Transcripts (next change): `inbox/teams/<transcript id>.json`, kind
+  `meeting`:
 
 ```json
 {"kind": "meeting", "source": "teams", "ref": "<transcript id>",
@@ -125,35 +145,63 @@ does its reader (`internal/source/mcpdrop`):
 - `ref` is the transcript id, which is stable. A file already in the inbox
   or in raw is never fetched again.
 
-Musubi ingests the drop as it does any other. Duplicates follow the existing
-rules:
-
+Duplicates follow the existing rules:
 - `prefer_source = ["tomoe", "bluedot", "teams"]`;
 - a Tomoe copy with less than 80% of the other copy's words gives way to
   it.
 
 So a Teams transcript fills a gap and otherwise stays the second copy.
 
-Why a script around Microsoft's module rather than Musubi signing in itself
-with the same app id:
+### Connect, sign out, sign in again
 
-- The tool is what IT consented to. Musubi presenting Microsoft's client id
-  from its own code would pass Entra's checks too, but it would be
-  impersonating Microsoft's tool.
-- If IT later approves an app registration of Musubi's own, the script is
-  replaced by the planned `graph` connector. Nothing else changes.
+- **Settings → Microsoft 365** shows who is connected, the last sync and
+  what it read, with these buttons:
+  - **Connect to Microsoft 365**, which opens the sign-in in the browser;
+  - **Sync now**;
+  - **Sign out**, which deletes the Keychain entry. What was read stays.
+- The CLI has the same: `musubi m365 connect|status|sync|signout`.
+- **Every update syncs first** (calendar, then later transcripts), then
+  ingests.
+- **When a sync finds the sign-in lapsed** (Entra answers `invalid_grant`
+  or `interaction_required`), Settings says so. With `m365.reconnect`,
+  the app opens the sign-in page again by itself:
+  - never while Tomoe is recording;
+  - at most every six hours unless the owner presses the button.
+- **How often a sign-in is needed** is set by the tenant's policy, not by
+  Musubi. The refresh token rotates on each use and is kept, so an active
+  connection stays signed in as long as the policy allows (Entra's default
+  is 90 days of inactivity).
+
+### Calendar linking and meeting names
+
+- Each update reads the calendar from 30 days back to 14 days ahead.
+- An occurrence deleted since the last read is rewritten as cancelled, so
+  its link is dropped.
+- When invitations overlap, linking now breaks ties:
+  1. the event the recording's own title names;
+  2. otherwise the one the owner organized or accepted over one left
+     unanswered (or declined).
+- A recording whose title names a different meeting (an ad-hoc call during
+  a large event) isn't linked to that event.
+- `m365.tomoe_context` writes `calendar.json` into the Tomoe session folder
+  of every linked recording (writer `musubi`, subject, times, join link,
+  organizer, invitees). Tomoe reads it to show the meeting's name (Tomoe
+  PR), and later to know who could be speaking. Musubi removes only files
+  it wrote, and never touches Tomoe's own files.
 
 ### 2. What is fetched
 
-| Setting | Default | Fetches |
+| Setting (`[m365]`) | Default | Does |
 |---|---|---|
-| `teams.enabled` | false | nothing until turned on |
-| `teams.gaps` | true | transcripts of meetings with no complete Tomoe copy |
-| `teams.unattended` | false | also meetings the owner did not join |
-| `teams.calendar` | true | calendar events as `event` drops (titles, attendees) for calendar linking |
-| `teams.since` | 14 days | how far back the first run looks |
+| `enabled` | true | sync once connected; false never syncs, even when connected |
+| `calendar` | true | calendar events as `event` drops |
+| `past_days`, `future_days` | 30, 14 | the calendar window |
+| `reconnect` | true | open the sign-in again when it lapses |
+| `tomoe_context` | true | `calendar.json` next to linked Tomoe recordings |
+| `transcripts` (next) | true | transcripts of meetings with no complete Tomoe copy |
+| `unattended` (next) | false | also meetings the owner did not join |
 
-`teams.unattended` is off by default (the data is reachable: see above). Meetings the owner skipped are many,
+`unattended` is off by default (the data is reachable: see above). Meetings the owner skipped are many,
 often large, and of mixed value. When turned on, they come in labelled by
 their invitee list like any meeting, and the digest and thread stages treat
 them like any other meeting.
@@ -164,32 +212,39 @@ design.
 
 ### 3. When it runs
 
-- Every 30 minutes on weekdays, from a launch agent, while the Mac is awake.
-  A transcript appears a few minutes after a meeting ends.
-- After Musubi has been idle, never while Tomoe records (the same check the
-  installers use).
-- It runs in the background at low priority. It is network-bound, and
-  transcripts are small.
+On every update: the app's update every 30 minutes, the update after Tomoe
+saves a meeting, Sync now, and `musubi update`. It is network-bound and
+small; an unchanged event costs nothing (its file isn't rewritten).
 
 ## Security
 
 1. **Read only.**
-   - The script calls only `GET` on an allow-list of paths: `/me/calendarView`,
-     `/me/onlineMeetings`, `…/transcripts`, `…/content`.
+   - The client (`m365.Allowed`) makes only `GET`s, on an allow-list:
+     - `/me`, `/me/calendarView`, `/me/onlineMeetings`, `…/transcripts`,
+       `…/content`;
+     - a meeting chat's messages, a shared item's driveItem, and one user,
+       their manager or their photo;
+     - SharePoint's `media/transcripts` on a recording.
    - Anything else is refused before the request is made.
    - A test asserts the allow-list.
 2. **The token.**
-   - The Graph module keeps its MSAL cache under the user account. Where and
-     how it is protected on macOS (Keychain or a file) has to be verified
-     before this is turned on.
-   - If it is a file, the script runs with `-ContextScope Process` and a
-     Keychain-held refresh token instead, or the design stops here.
-   - The owner can revoke it at any time with `Disconnect-MgGraph` or from
-     the account's sign-in sessions.
-3. **No secrets in Musubi.** Musubi never sees a token, only the files the
-   script writes.
-4. **Logging.** The script logs counts and errors, never text. Its inbox
-   files are raw data, under the same rules as other raw.
+   - Only the refresh token and the account name are kept: one generic
+     password in the login Keychain (`Musubi.M365.v2`).
+   - It is written and read through Apple's `security` tool, the way
+     Musubi's other keys are kept, so the item's access list names that
+     tool and the app and CLI read it without a prompt across rebuilds.
+   - The first build wrote it through the Security framework. The item
+     then named the creating binary, and the locally signed app was asked
+     on every launch.
+   - Access tokens stay in memory.
+   - A Graph token and a SharePoint token are minted from the same refresh
+     token, so the SharePoint step needs no second sign-in.
+   - Sign out deletes the entry. The owner's Microsoft account sign-in
+     sessions page ends the session at Microsoft's end.
+3. **No secrets elsewhere.** No token is logged, written to the inbox, or
+   shown in the app.
+4. **Logging.** The sync reports counts and errors, never text. Inbox files
+   are written 0600 and are raw data, under the same rules as other raw.
 5. **Visibility.** Sign-ins show in Entra as "Microsoft Graph Command Line
    Tools" from the owner's account. A note to IT that this is how it is
    used is worth sending; the owner's call.
@@ -197,24 +252,23 @@ design.
 ## Config
 
 ```toml
-[teams]
-enabled    = false
-gaps       = true
-unattended = false
-calendar   = true
-since      = "336h"
+[m365]
+enabled       = true
+calendar      = true
+past_days     = 30
+future_days   = 14
+reconnect     = true
+tomoe_context = true
 ```
 
-Turning `enabled` off restores today's behaviour exactly: the script isn't
-run, and drops already ingested stay.
+Until the owner connects, nothing changes. `enabled = false` never syncs,
+even when connected.
 
 ## Open questions
 
-1. Where the Graph module's token cache lives on macOS, and whether it is
-   protected (blocks turning it on). The SharePoint token for
-   distribution-list meetings needs the same treatment. In the probe it
-   wasn't cached, which meant a sign-in for every call. The tool must
-   keep one cache, in the Keychain.
+1. ~~Where the token is cached.~~ Resolved: Musubi keeps it in the Keychain
+   (see "Security"). One refresh token mints both Graph and SharePoint
+   tokens, so there is one sign-in, not one per call.
 2. Whether the SharePoint step (distribution-list meetings) is worth its
    second token, or those meetings wait for the recording fallback.
 3. Whether `teams.unattended` should start on for a small set (named
@@ -223,11 +277,21 @@ run, and drops already ingested stay.
    to correct its own speaker labels after the meeting. That is Tomoe's
    job, and a later design.
 
-## Tests (when built)
+## Tests
 
 - VTT → turns: merged cues, multi-line cues, speaker-less cues (unknown).
 - Recurring series: each transcript becomes its own drop, dated by its own
   times.
 - Duplicate with a complete Tomoe copy: Tomoe is kept, and Teams is
   retired. With a partial Tomoe copy (< 80%), Teams is kept.
-- The allow-list refuses any non-GET call and any path outside it.
+- The allow-list refuses any non-GET call and any path outside it, before
+  sending (built).
+- Sign-in with PKCE against a fake Entra, survival across restarts, refresh
+  token rotation, SharePoint token from the same sign-in, sign out, and a
+  lapsed sign-in reported as ErrAuthRequired (built).
+- Calendar: two pages, rooms left out, emails lower-cased, unchanged events
+  not rewritten, deleted occurrences cancelled, files 0600 (built).
+- Linking: title first, then the owner's response; an ad-hoc call titled
+  for someone else isn't linked (built).
+- Keychain round trip of a 10 KB value (`-tags keychain`, writes to the real
+  Keychain; built).

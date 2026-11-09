@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -23,6 +24,7 @@ import (
 	"github.com/anielsud/musubi/internal/eval"
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/live"
+	"github.com/anielsud/musubi/internal/m365"
 	"github.com/anielsud/musubi/internal/pipeline"
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/raw"
@@ -51,7 +53,7 @@ func root() *cobra.Command {
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
 	r.AddCommand(importItemsCmd(), extractLeanCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), aliasesCmd(), liveCmd(),
-		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd())
+		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd())
 	return r
 }
 
@@ -122,11 +124,12 @@ func updateCmd() *cobra.Command {
 		Use:   "update",
 		Short: "Fetch new data from every source and bring derived data up to date",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, st, err := load()
+			e, err := engine.Open(cfgPath)
 			if err != nil {
 				return err
 			}
-			defer st.Close()
+			defer e.Close()
+			cfg, st := e.Cfg, e.Store
 			embs, err := parseEmbedders(embed, cfg)
 			if err != nil {
 				return err
@@ -136,6 +139,14 @@ func updateCmd() *cobra.Command {
 				return err
 			}
 			start := time.Now()
+			if rep, err := e.SyncM365(cmd.Context()); err != nil {
+				fmt.Fprintf(os.Stderr, "m365: %v\n", err)
+				if errors.Is(err, m365.ErrAuthRequired) {
+					fmt.Fprintln(os.Stderr, "m365: run `musubi m365 connect` to sign in again")
+				}
+			} else if rep != "" {
+				fmt.Fprintf(os.Stderr, "m365: %s\n", rep)
+			}
 			var stats pipeline.Stats
 			if err := r.Ingest(cmd.Context(), &stats); err != nil {
 				return err
@@ -145,6 +156,11 @@ func updateCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(os.Stderr, "process: %v in %s\n", stats.Ran, time.Since(start).Round(time.Millisecond))
+			if n, err := e.WriteTomoeContext(); err != nil {
+				fmt.Fprintf(os.Stderr, "tomoe calendar context: %v\n", err)
+			} else if n > 0 {
+				fmt.Fprintf(os.Stderr, "tomoe calendar context: %d recordings updated\n", n)
+			}
 			return nil
 		},
 	}

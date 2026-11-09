@@ -3312,3 +3312,30 @@ fit without seeing either system's verdict:
 - Theme cards still carry one account's slant (problem 3): a card kept
   as fitting the general subject still headlines that account. That
   belongs to threading (`docs/incremental-design.md`, "Subject shape").
+
+## 2026-11-09: Microsoft 365 connection, first calendar sync on all-t4
+
+- Signed in with `musubi m365 connect`, the Graph Command Line Tools client.
+  The refresh token is kept in the Keychain.
+- First sync, 30 days back and 14 ahead: 201 events written. The update
+  then linked 79 Tomoe recordings to their events; before, 0 were linked,
+  because the dataset had no calendar.
+- `calendar.json` was written next to all 79 recordings. The registry grew
+  from 778 to 1,836 entities, mostly invitees.
+- Labels: 19 of 1,464 items changed, nearly all meetings now labelled from
+  their real invitee list. 17 became less restricted and 1 more. 15 of the
+  19 have digests, which the next knowledge run redoes (a few cents on
+  GLM-Flash).
+- **Link audit against Tomoe's window titles** (looks.jsonl), for the 79
+  linked recordings:
+  - 56 agree;
+  - 10 have no meeting window to compare (Zoom and other calls);
+  - 13 disagree, mostly ad-hoc calls whose window names a person, which
+    were linked to a large event under way at the same time.
+- Fix, two parts:
+  - Tomoe titles recordings from the call window (Tomoe PR);
+  - linking refuses an event when the recording's own title names another
+    meeting, and otherwise prefers the event the title names, then the ones
+    the owner organized or accepted.
+- Recordings saved before the Tomoe change keep generic titles, and so keep
+  the time-only link until they are retitled.

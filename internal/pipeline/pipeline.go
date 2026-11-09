@@ -9,10 +9,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/item"
@@ -28,7 +30,7 @@ import (
 // records get re-translated.
 const TranslatorVersion = "t3"
 
-const LinkVersion = "l2"
+const LinkVersion = "l3"
 
 type Runner struct {
 	Cfg        config.Config
@@ -47,6 +49,8 @@ type Stats struct {
 	Fetched, Changed, Skipped int
 	Ran                       map[string]int
 	Elapsed                   time.Duration
+	// M365 is the Microsoft 365 sync's report, or its error.
+	M365 string
 }
 
 func (r *Runner) logf(f string, a ...any) {
@@ -352,6 +356,9 @@ func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
 			if mDur < 5*time.Minute && overlap > 0 {
 				score = max(score, 0.5)
 			}
+			if score > 0 {
+				score += preference(m, e)
+			}
 			gap := absDur(m.OccurredAt.Sub(e.OccurredAt))
 			if score > best.score || (score == best.score && score > 0 && gap < bestGap) {
 				best, bestGap = linkTarget{e.ID, score}, gap
@@ -362,6 +369,42 @@ func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil)[:16]), out
+}
+
+// preference breaks ties between overlapping events: the one whose subject
+// the recording's title names (Tomoe titles a recording from the meeting
+// window), then the ones the owner organized or accepted over those they
+// left unanswered or declined.
+func preference(m, e item.Item) float64 {
+	p := 0.0
+	subj, title := normTitle(e.Title), normTitle(m.Title)
+	switch {
+	case len(subj) >= 4 && (strings.Contains(title, subj) || len(title) >= 4 && strings.Contains(subj, title)):
+		p += 0.5
+	case title != "" && !genericTitle.MatchString(m.Title):
+		// The recording names a different meeting (an ad-hoc call with
+		// someone, during an event the owner didn't join): not this event.
+		p -= 1
+	}
+	switch e.Native["response"] {
+	case "organizer", "accepted":
+		p += 0.1
+	case "tentativelyAccepted":
+		p += 0.05
+	case "declined":
+		p -= 0.2
+	}
+	return p
+}
+
+// genericTitle is the name Tomoe gives a recording when it saw no meeting
+// window title ("Teams Meeting 2026-11-06 10:02", "Session 2026-11-06 10:02").
+var genericTitle = regexp.MustCompile(`^((\w+ )?Meeting|Session) \d{4}-\d\d-\d\d \d\d:\d\d$`)
+
+func normTitle(s string) string {
+	return strings.Join(strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}), " ")
 }
 
 // linkable excludes calendar entries that aren't meetings: all-day or very

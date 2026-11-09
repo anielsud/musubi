@@ -40,6 +40,7 @@ type Engine struct {
 	finderSig string
 
 	updating sync.Mutex
+	ms       m365Engine
 }
 
 func Open(cfgPath string) (*Engine, error) {
@@ -123,11 +124,24 @@ func (e *Engine) Update(ctx context.Context, log io.Writer) (pipeline.Stats, err
 	if err != nil {
 		return st, err
 	}
+	// Microsoft 365 first, so what it writes to the inbox is ingested now.
+	// A failed sync (offline, sign-in lapsed) doesn't stop the update; the
+	// app reads it from M365State.
+	if rep, err := e.SyncM365(ctx); err != nil {
+		st.M365 = "m365: " + err.Error()
+	} else {
+		st.M365 = rep
+	}
 	if err := r.Ingest(ctx, &st); err != nil {
 		return st, err
 	}
-	err = r.Process(ctx, &st)
-	return st, err
+	if err = r.Process(ctx, &st); err != nil {
+		return st, err
+	}
+	if _, err := e.WriteTomoeContext(); err != nil && log != nil {
+		fmt.Fprintf(log, "tomoe calendar context: %v\n", err)
+	}
+	return st, nil
 }
 
 // Search embeds the query (if an embedder is configured) and runs a scoped

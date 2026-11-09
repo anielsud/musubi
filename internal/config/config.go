@@ -60,6 +60,10 @@ type M365 struct {
 	Unattended bool `toml:"unattended"`
 	// MeetingChat writes what was written in a meeting's chat during it.
 	MeetingChat bool `toml:"meeting_chat"`
+	// People looks up internal participants in the directory (job title,
+	// department, office, manager): names and name variants for resolving
+	// mentions, and profiles for the person views.
+	People bool `toml:"people"`
 	// TomoeContext writes calendar.json next to each Tomoe recording linked
 	// to a calendar event (title, times, invitees), for Tomoe to show the
 	// meeting's name and to know who could be speaking.
@@ -547,7 +551,7 @@ func DefaultConfig() Config {
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true},
-		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true},
+		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true, People: true},
 		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
@@ -588,3 +592,6 @@ func (c Config) DBPath() string   { return filepath.Join(c.DataDir, "musubi.db")
 func (c Config) RawDir() string   { return filepath.Join(c.DataDir, "raw") }
 func (c Config) InboxDir() string { return filepath.Join(c.DataDir, "inbox") }
 func (c Config) Registry() string { return filepath.Join(c.DataDir, "registry.toml") }
+
+// DirectoryPath is where the Microsoft 365 directory lookups are kept.
+func (c Config) DirectoryPath() string { return filepath.Join(c.DataDir, "directory.json") }

@@ -86,3 +86,13 @@ func (a *App) maybeReconnectM365() {
 	a.mu.Unlock()
 	a.M365Connect()
 }
+
+// PersonProfile is a person's directory entry with their managers, direct
+// reports and how often the owner meets them (Explore). Owner scope only:
+// who the owner meets is the owner's own business.
+func (a *App) PersonProfile(entityID, scope string) (*engine.PersonProfile, error) {
+	if a.eng == nil || scope != "owner" {
+		return nil, nil
+	}
+	return a.eng.PersonProfile(entityID)
+}

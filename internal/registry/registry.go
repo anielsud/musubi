@@ -17,6 +17,7 @@ import (
 
 	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/item"
+	"github.com/anielsud/musubi/internal/m365"
 	"github.com/anielsud/musubi/internal/sensitivity"
 	"github.com/anielsud/musubi/internal/store"
 )
@@ -145,7 +146,7 @@ func Build(cfg config.Config, curatedPath string, items []item.Item) (*Registry,
 				name = nameFromEmail(email)
 			}
 			typ := "person"
-			if origin != "registry" && !isPersonAddress(email) {
+			if origin != "registry" && origin != "m365" && !isPersonAddress(email) {
 				typ = "group"
 			}
 			e = addEnt(id, typ, name, origin)
@@ -196,6 +197,31 @@ func Build(cfg config.Config, curatedPath string, items []item.Item) (*Registry,
 	}
 	if cfg.Owner.Email != "" {
 		r.owner = person(cfg.Owner.Email, cfg.Owner.Name, "registry")
+	}
+
+	// The Microsoft 365 directory, after the curated file and before
+	// participants (an unreadable file counts as empty): its display names
+	// beat names guessed from addresses,
+	// and "Given Surname" is an alias when the display name differs. Only
+	// these fields feed the hash, so a refresh that changes nothing
+	// doesn't re-resolve everything.
+	if dir, err := m365.LoadDirectory(cfg.DirectoryPath()); err == nil {
+		emails := make([]string, 0, len(dir.People))
+		for e := range dir.People {
+			emails = append(emails, e)
+		}
+		sort.Strings(emails)
+		for _, e := range emails {
+			p := dir.People[e]
+			if p.Missing || p.Name == "" {
+				continue
+			}
+			h.Write([]byte("|m365:" + e + "|" + p.Name + "|" + p.GivenName + "|" + p.Surname))
+			id := person(e, p.Name, "m365")
+			if gs := strings.TrimSpace(p.GivenName + " " + p.Surname); gs != "" && store.NormalizeAlias(gs) != store.NormalizeAlias(p.Name) {
+				alias(gs, id, "full")
+			}
+		}
 	}
 
 	// Participants with email addresses become directory people; their

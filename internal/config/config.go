@@ -178,6 +178,15 @@ type Knowledge struct {
 	// (a Tomoe session and the meeting app's transcript, overlapping) becomes
 	// knowledge, unless one is extracted already: the first source listed.
 	PreferSource []string `toml:"prefer_source"`
+	// Stitch fills the stretches a Tomoe recording missed (joined late,
+	// left early, a recording split in two) from the meeting's Teams
+	// transcript, before the meeting is first extracted; the Teams copy is
+	// then a duplicate of the recording. StitchWaitHours holds a Teams
+	// meeting's recording back from extraction that long after it ends
+	// while its transcript hasn't arrived. Stitch false: the earlier
+	// behaviour (each copy on its own, one kept when they start together).
+	Stitch          bool    `toml:"stitch"`
+	StitchWaitHours float64 `toml:"stitch_wait_hours"`
 	// Grouping is how claims are grouped and related: "topics" (pairwise
 	// judging, then clustering; the earlier behaviour) or "threads" (a model
 	// assigns each meeting's items to specific threads, then reconciles
@@ -572,7 +581,7 @@ func DefaultConfig() Config {
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true, AutoBrief: true},
 		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
-		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
+		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

@@ -157,6 +157,21 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	if err != nil {
 		return ks, err
 	}
+	// Recordings stitched with their Teams transcript (knowledge.stitch)
+	// are read as stitched, as they were chunked.
+	stitchedItems, stitchedInto, err := r.stitches(items, false)
+	if err != nil {
+		return ks, err
+	}
+	for i := range items {
+		if s, ok := stitchedItems[items[i].ID]; ok {
+			items[i] = s
+		}
+	}
+	held := r.awaitingTranscript(items, links)
+	if len(held) > 0 {
+		r.logf("%d Teams meetings wait for their transcript before extraction (knowledge.stitch_wait_hours)", len(held))
+	}
 	byID := map[string]*item.Item{}
 	for i := range items {
 		byID[items[i].ID] = &items[i]
@@ -197,12 +212,13 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		s, _ := r.Store.StageStamp("extract", id)
 		return s != ""
 	})
+	dups = withStitches(dups, stitchedInto)
 	o.dups = dups
 	if len(dups) > 0 {
 		r.logf("%d meetings recorded twice (Tomoe and a transcript): one of each becomes knowledge", len(dups))
 	}
 	wanted := func(id string) bool {
-		if dups[id] != "" {
+		if dups[id] != "" || held[id] {
 			return false
 		}
 		if len(o.Items) == 0 {

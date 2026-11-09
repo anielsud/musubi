@@ -60,8 +60,12 @@ func Chunk(it item.Item, title string) []store.Chunk {
 			cur = &store.Chunk{ItemID: it.ID, Seq: len(out), SegFrom: i, Start: s.Start}
 		}
 		line := s.Text
+		if s.From != "" {
+			// Marked, so what's read from it knows the owner didn't hear it.
+			line = "[" + s.From + " transcript, not heard by you] " + s.Text
+		}
 		if s.Speaker != "" {
-			line = s.Speaker + ": " + s.Text
+			line = s.Speaker + ": " + line
 			if !speakers[s.Speaker] {
 				speakers[s.Speaker] = true
 				spkOrder = append(spkOrder, s.Speaker)

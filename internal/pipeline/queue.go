@@ -65,7 +65,16 @@ func (r *Runner) Queue() (Queue, error) {
 		s, _ := r.Store.StageStamp("extract", id)
 		return s != ""
 	}
-	dups := meetingDuplicates(items, kc.PreferSource, extracted)
+	stitchedItems, into, err := r.stitches(items, false)
+	if err != nil {
+		return q, err
+	}
+	for i := range items {
+		if s, ok := stitchedItems[items[i].ID]; ok {
+			items[i] = s
+		}
+	}
+	dups := withStitches(meetingDuplicates(items, kc.PreferSource, extracted), into)
 	q.Duplicates = len(dups)
 	for i := range items {
 		it := &items[i]
@@ -96,7 +105,7 @@ func (r *Runner) Queue() (Queue, error) {
 	// A rethread takes the preferred copy of a meeting recorded twice, which
 	// may not be extracted yet.
 	switching := 0
-	for id, kept := range meetingDuplicates(items, kc.PreferSource, func(string) bool { return false }) {
+	for id, kept := range withStitches(meetingDuplicates(items, kc.PreferSource, func(string) bool { return false }), into) {
 		_ = id
 		if !extracted(kept) {
 			switching++

@@ -434,7 +434,18 @@ extracted or threaded isn't a backlog: re-extracted after its content
 changed (a speaker renamed in Tomoe), it goes back into the threads in its
 place. A meeting
 recorded twice (Tomoe and a transcript overlapping) is knowledge once
-(`prefer_source`). `Runner.Queue` reports the waiting work; the Status
+(`prefer_source`). With `knowledge.stitch` (on), a Tomoe recording whose
+calendar event also has a Teams transcript (sharing at least 0.6 of its
+words, `item.WordAgreement`) takes the transcript's lines for the
+stretches it missed (joined late, left early, between two parts of a
+split recording), marked "Teams transcript, not heard by you" in its
+passages; the Teams copy is then its duplicate. The stitched copy exists
+in memory only (chunking onward; stored items are untouched), and only
+for a recording not yet extracted when first stitched (stamp
+`stitch/<id>`), so a transcript arriving late never re-chunks an extracted
+meeting. A Teams meeting's recording waits up to
+`knowledge.stitch_wait_hours` (2) after the meeting for its transcript
+before extraction. `Runner.Queue` reports the waiting work; the Status
 tab shows it and starts "catch up" and "rethread" runs under a spend
 cap.
 

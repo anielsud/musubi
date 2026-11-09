@@ -44,6 +44,7 @@ export function PersonView({ id, scope, onPick, onOpenItem, onTopic }: {
       {(p.chain?.length ?? 0) > 0 && <div className="small">reports to {p.chain!.slice(0, 4).map((m, i) => <span key={m.email}>{i > 0 && ' → '}{who(m)}</span>)}</div>}
       {(p.reports?.length ?? 0) > 0 && <div className="small dim">{p.reports!.length} direct report{p.reports!.length > 1 ? 's' : ''}: {list(p.reports, 12)}{p.reports!.length > 12 && ' …'}</div>}
       {(p.peers?.length ?? 0) > 0 && <div className="small dim">works alongside {list(p.peers, 8)}{p.peers!.length > 8 && ' …'}</div>}
+      {(p.seenWith?.length ?? 0) > 0 && <div className="small dim" title="Who shares the most meetings with them, small meetings counting for more">commonly seen with {p.seenWith!.map((q, i) => <span key={q.id}>{i > 0 && ', '}<button className="link" onClick={() => onPick(q.id)}>{q.name}</button></span>)}</div>}
 
       <div className="section-head"><span>Together</span></div>
       <div className="small">{p.together > 0 ? `In ${p.together} of your meetings${p.first && !p.first.startsWith('0001') ? ` since ${fmtDate(p.first)}` : ''}.` : 'No meetings together in the record.'}</div>

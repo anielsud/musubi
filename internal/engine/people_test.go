@@ -1,9 +1,12 @@
 package engine
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"testing"
+
+	"github.com/anielsud/musubi/internal/item"
 )
 
 func TestSpeakerName(t *testing.T) {
@@ -49,5 +52,22 @@ func TestCameraOn(t *testing.T) {
 	}
 	if b := centre(off, 0.5).Bounds(); b.Dx() < 44 || b.Dx() > 45 || b.Dx() != b.Dy() {
 		t.Errorf("centre crop %v", b)
+	}
+}
+
+// Seen with: a shared small meeting outweighs a shared big one.
+func TestSeenWith(t *testing.T) {
+	mk := func(id string) *item.Item { return &item.Item{ID: id} }
+	small, big := mk("small"), mk("big")
+	p := &person{id: "p", name: "Kai Moreno", meetings: []*item.Item{small, big}}
+	near := &person{id: "near", name: "Robin Vale", meetings: []*item.Item{small}}
+	ps := map[string]*person{"p": p, "near": near}
+	for i := 0; i < 20; i++ {
+		id := fmt.Sprintf("crowd%d", i)
+		ps[id] = &person{id: id, name: id, meetings: []*item.Item{big}}
+	}
+	got := seenWith(p, ps, 3)
+	if len(got) != 1 || got[0].ID != "near" {
+		t.Errorf("seen with %+v, want only the small meeting's other person", got)
 	}
 }

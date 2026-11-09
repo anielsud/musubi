@@ -201,6 +201,55 @@ type MeetingRef struct {
 	At     time.Time `json:"at"`
 }
 
+// PersonRef names another person.
+type PersonRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// seenWith ranks who shares meetings with p. Each shared meeting adds
+// 1/(people in it - 1), so a one-to-one or a small working session counts
+// for far more than a company-wide call; the owner isn't counted (they're
+// in all of them).
+func seenWith(p *person, ps map[string]*person, n int) []PersonRef {
+	in := map[string][]*person{} // meeting → the people in it
+	for _, q := range ps {
+		for _, m := range q.meetings {
+			in[m.ID] = append(in[m.ID], q)
+		}
+	}
+	score := map[*person]float64{}
+	for _, m := range p.meetings {
+		others := in[m.ID]
+		if len(others) < 2 {
+			continue
+		}
+		w := 1 / float64(len(others)-1)
+		for _, q := range others {
+			if q != p {
+				score[q] += w
+			}
+		}
+	}
+	var qs []*person
+	for q, sc := range score {
+		if sc >= 0.5 { // at least half a small meeting's worth
+			qs = append(qs, q)
+		}
+	}
+	sort.Slice(qs, func(a, b int) bool {
+		if score[qs[a]] != score[qs[b]] {
+			return score[qs[a]] > score[qs[b]]
+		}
+		return qs[a].name < qs[b].name
+	})
+	var out []PersonRef
+	for _, q := range qs[:min(n, len(qs))] {
+		out = append(out, PersonRef{ID: q.id, Name: q.name})
+	}
+	return out
+}
+
 // TopicRef is a thread a person comes up in.
 type TopicRef struct {
 	ID     int64  `json:"id"`
@@ -210,13 +259,16 @@ type TopicRef struct {
 
 // PersonPage is everything the person view shows.
 type PersonPage struct {
-	ID       string           `json:"id"`
-	Name     string           `json:"name"`
-	Email    string           `json:"email,omitempty"`
-	Dir      *m365.Person     `json:"directory,omitempty"`
-	Chain    []*m365.Person   `json:"chain"`
-	Reports  []*m365.Person   `json:"reports"`
-	Peers    []*m365.Person   `json:"peers"` // others with the same manager
+	ID      string         `json:"id"`
+	Name    string         `json:"name"`
+	Email   string         `json:"email,omitempty"`
+	Dir     *m365.Person   `json:"directory,omitempty"`
+	Chain   []*m365.Person `json:"chain"`
+	Reports []*m365.Person `json:"reports"`
+	Peers   []*m365.Person `json:"peers"` // others with the same manager
+	// SeenWith are the people most often in the same meetings, small
+	// meetings counting for more.
+	SeenWith []PersonRef      `json:"seenWith"`
 	Together int              `json:"together"`
 	First    time.Time        `json:"first"`
 	Recent   []MeetingRef     `json:"recent"`
@@ -298,6 +350,7 @@ func (e *Engine) PersonPage(entityID string) (*PersonPage, error) {
 		return out
 	}
 	pg.Recent, pg.Upcoming = refs(past, 10), refs(future, 5)
+	pg.SeenWith = seenWith(p, ps, 8)
 	if pg.Topics, err = e.entityTopics(p.id, pg.Names, 8); err != nil {
 		return nil, err
 	}

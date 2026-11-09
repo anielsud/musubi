@@ -625,6 +625,7 @@ export interface PersonPage {
   chain: DirectoryPerson[] | null;
   reports: DirectoryPerson[] | null;
   peers: DirectoryPerson[] | null;
+  seenWith: { id: string; name: string }[] | null;
   together: number;
   first: string;
   recent: MeetingRefP[] | null;

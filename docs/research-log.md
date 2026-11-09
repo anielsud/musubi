@@ -3339,3 +3339,20 @@ fit without seeing either system's verdict:
     the owner organized or accepted.
 - Recordings saved before the Tomoe change keep generic titles, and so keep
   the time-only link until they are retitled.
+
+## 2026-11-09: Teams transcripts and meeting chats, first run on all-t4
+
+- `update`, with `transcripts` and `meeting_chat` on and `unattended` off,
+  30 days back:
+  - 97 past Teams meetings;
+  - 28 transcripts kept and 3 passed over (the owner neither recorded nor
+    spoke);
+  - 45 meeting chats.
+- Against Tomoe (size of text):
+  - 2 transcripts are meetings Tomoe has no recording of;
+  - 3 have a Tomoe copy under 80% of the Teams copy;
+  - 23 are second copies, with named speakers.
+- Linking went from 79 to 105 meetings (the Teams copies link too).
+- Labels changed on 2 passages of 3,958.
+- Processing the 74 new items (chunks, labels, local embeddings) took 7 min
+  at background priority.

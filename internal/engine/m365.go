@@ -89,6 +89,15 @@ func (e *Engine) SyncM365(ctx context.Context) (string, error) {
 		var rep m365.CalendarReport
 		rep, err = m365.SyncCalendar(ctx, c, e.Cfg.InboxDir(), now.AddDate(0, 0, -e.Cfg.M365.PastDays), now.AddDate(0, 0, e.Cfg.M365.FutureDays))
 		parts = append(parts, fmt.Sprintf("calendar: %d events, %d new or changed, %d cancelled", rep.Seen, rep.Written, rep.Cancelled))
+		if err == nil && e.Cfg.M365.Transcripts {
+			var tr m365.TeamsReport
+			tr, err = m365.SyncTeams(ctx, c, e.Cfg.InboxDir(), rep.Events, m365.TeamsOptions{
+				Unattended: e.Cfg.M365.Unattended, Chat: e.Cfg.M365.MeetingChat,
+				OwnerName: e.Cfg.Owner.Name, OwnerEmail: e.Cfg.Owner.Email,
+				Recorded: e.tomoeRecorded(),
+			}, now)
+			parts = append(parts, fmt.Sprintf("teams: %d meetings, %d transcripts, %d chats, %d passed over", tr.Meetings, tr.Transcripts, tr.Chats, tr.Skipped))
+		}
 	}
 	report := strings.Join(parts, "; ")
 	e.ms.mu.Lock()
@@ -178,4 +187,35 @@ func (e *Engine) WriteTomoeContext() (int, error) {
 		}
 	}
 	return changed, nil
+}
+
+// tomoeRecorded reports whether a Tomoe recording covers at least five
+// minutes (or half, for a short meeting) of start..end: the owner was in
+// that meeting.
+func (e *Engine) tomoeRecorded() func(start, end time.Time) bool {
+	type span struct{ a, b time.Time }
+	var spans []span
+	if items, err := e.Store.AllItems(); err == nil {
+		for _, it := range items {
+			if it.Source == "tomoe" && it.Kind == item.KindMeeting {
+				spans = append(spans, span{it.OccurredAt, it.EndedAt})
+			}
+		}
+	}
+	return func(start, end time.Time) bool {
+		need := min(5*time.Minute, end.Sub(start)/2)
+		for _, s := range spans {
+			lo, hi := s.a, s.b
+			if start.After(lo) {
+				lo = start
+			}
+			if end.Before(hi) {
+				hi = end
+			}
+			if hi.Sub(lo) >= need && need > 0 {
+				return true
+			}
+		}
+		return false
+	}
 }

@@ -50,6 +50,16 @@ type M365 struct {
 	// no longer works (not while Tomoe is recording). false: the app only
 	// says so.
 	Reconnect bool `toml:"reconnect"`
+	// Transcripts writes the Teams transcripts of the owner's past meetings
+	// (calendar window) as inbox meeting drops: the second copy of a meeting
+	// Tomoe recorded, the only copy of one it missed. Needs Calendar.
+	Transcripts bool `toml:"transcripts"`
+	// Unattended also keeps transcripts of meetings the owner was invited to
+	// but didn't join (no Tomoe recording, not among the speakers), including
+	// ones the owner was invited to only through a distribution list.
+	Unattended bool `toml:"unattended"`
+	// MeetingChat writes what was written in a meeting's chat during it.
+	MeetingChat bool `toml:"meeting_chat"`
 	// TomoeContext writes calendar.json next to each Tomoe recording linked
 	// to a calendar event (title, times, invitees), for Tomoe to show the
 	// meeting's name and to know who could be speaking.
@@ -537,7 +547,7 @@ func DefaultConfig() Config {
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true},
-		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, Reconnect: true, TomoeContext: true},
+		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true},
 		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{

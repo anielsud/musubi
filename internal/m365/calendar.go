@@ -89,9 +89,20 @@ type envelope struct {
 	Record any    `json:"record"`
 }
 
-// CalendarReport counts what a sync wrote.
+// CalendarReport counts what a sync wrote and lists the events seen, for
+// the Teams sync to find their meetings.
 type CalendarReport struct {
 	Seen, Written, Cancelled int
+	Events                   []Event `json:"-"`
+}
+
+// Event is a calendar occurrence as the Teams sync needs it.
+type Event struct {
+	ID, Subject, JoinURL, Response string
+	Start, End                     time.Time
+	Cancelled                      bool
+	Invitees                       []person
+	Organizer                      person
 }
 
 // SyncCalendar writes the owner's calendar between from and to as inbox
@@ -124,6 +135,10 @@ func SyncCalendar(ctx context.Context, c *Client, dir string, from, to time.Time
 		name := fileName(e.ID)
 		seen[name] = true
 		d := toDrop(e)
+		if st, err1 := parseUTC(e.Start.DateTime); err1 == nil {
+			en, _ := parseUTC(e.End.DateTime)
+			rep.Events = append(rep.Events, Event{ID: e.ID, Subject: e.Subject, JoinURL: d.JoinURL, Response: d.Response, Start: st, End: en, Cancelled: e.IsCancelled, Invitees: d.Attendees, Organizer: d.Organizer})
+		}
 		wrote, err := WriteJSONIfChanged(filepath.Join(out, name), envelope{Kind: "event", Source: CalendarSource, Ref: e.ID, Record: d})
 		if wrote {
 			rep.Written++

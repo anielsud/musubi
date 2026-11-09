@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, fmtDate, on, speakerName } from '../api';
-import type { Brief, Card, Hit, LiveStatus, MeetingRef, Segment, Session, Suggestion, TopicCard, TopicLine } from '../types';
+import type { Brief, Card, Hit, LiveStatus, Segment, Session, Suggestion, TopicCard, TopicLine } from '../types';
 import { CitedText, Empty, HitRow, Spinner } from './common';
 import { StatusView } from './Knowledge';
+import { AskCard, askExamples, useAsk } from './AskView';
 import type { ThreadDetail } from '../types';
 
 const kindGlyph: Record<string, string> = { llm: '✦', entity: '◉', phrase: '¶', typed: '›' };
@@ -12,9 +13,13 @@ interface Props {
   onOpen: (h: Hit, scope: string) => void;
   onEntity: (id: string) => void;
   onTopic: (id: number) => void;
+  // scope is the panel's (the screen-safe toggle), for questions asked.
+  scope: string;
+  // prefill puts a question in the box (from a text selection) to edit or send.
+  prefill?: { text: string; n: number } | null;
 }
 
-export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
+export function LiveView({ status, onOpen, onEntity, onTopic, scope: askScope, prefill }: Props) {
   const [segs, setSegs] = useState<Segment[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [briefs, setBriefs] = useState<Brief[]>([]);
@@ -27,14 +32,14 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
   const [opened, setOpened] = useState<Set<string>>(new Set());
   const [allEarlier, setAllEarlier] = useState(false);
   const [err, setErr] = useState('');
-  const [audioRef, setAudioRef] = useState<string | null>(null);
   const tail = useRef<HTMLDivElement>(null);
-
-  // An audio replay ends when the panel leaves replay mode (stopped, or a
-  // live meeting took over).
+  const box = useRef<HTMLTextAreaElement>(null);
+  const ask = useAsk(askScope);
   useEffect(() => {
-    if (status && status.mode !== 'replay') setAudioRef(null);
-  }, [status?.mode]);
+    if (!prefill) return;
+    setTyped(prefill.text);
+    setTimeout(() => { box.current?.focus(); box.current?.select(); }, 0);
+  }, [prefill?.n]);
 
   useEffect(() => {
     const offs = [
@@ -106,15 +111,26 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
     if (!q.trim()) return;
     api.lookUp(q.trim(), why, kind);
   };
+  // What's typed is asked: the answer is a card at the top of the panel.
+  const send = () => { if (ask.send(typed)) setTyped(''); };
 
   return (
     <div className="view live">
       <div className="live-left">
       <MeetingHeader status={status} />
 
-      {audioRef && status?.mode === 'replay' && <AudioBar ref_={audioRef} />}
-
-      {!active && <ReplayPicker onAudio={setAudioRef} />}
+      {!active && (
+        <div className="idle">
+          <div className="idle-art" aria-hidden>結</div>
+          <p>When Tomoe records a meeting, the conversation streams in here and Musubi briefs you on what it recognises. Ask anything below, during a meeting or not: answers start from where each subject stands now, then the record itself, with sources.</p>
+          <p className="dim">Tomoe → Settings → Sharing → <b>Live feed</b> must be on.</p>
+          {ask.turns.length === 0 && (
+            <div className="examples">
+              {askExamples.map((e) => <button key={e} className="chip" onClick={() => ask.send(e)}>{e}</button>)}
+            </div>
+          )}
+        </div>
+      )}
 
       {active && (
         <section className="transcript">
@@ -134,8 +150,10 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
         </section>
       )}
 
-      <form className="lookup" onSubmit={(e) => { e.preventDefault(); lookUp(typed); setTyped(''); }}>
-        <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Look something up…" />
+      <form className="lookup" onSubmit={(e) => { e.preventDefault(); send(); }}>
+        <textarea ref={box} value={typed} rows={1} onChange={(e) => setTyped(e.target.value)} placeholder="Ask anything…"
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} />
+        {ask.busy && <button type="button" className="icon-btn" onClick={() => api.stopAsk()} title="Stop">■</button>}
       </form>
 
       {suggestions.length > 0 && focus && (
@@ -160,6 +178,12 @@ export function LiveView({ status, onOpen, onEntity, onTopic }: Props) {
       </div>
 
       <div className="live-right">
+      {ask.turns.length > 0 && (
+        <section className="asked">
+          {ask.turns.map((t) => <AskCard key={t.id} t={t} onOpen={onOpen} onTopic={onTopic} onClose={() => ask.dismiss(t.id)} />)}
+        </section>
+      )}
+
       {openTopics.length > 0 && (
         <section className="topics">
           {openTopics.map((t) => (
@@ -249,72 +273,6 @@ function MeetingHeader({ status }: { status: LiveStatus | null }) {
       {s && mode === 'live' && <span className="meeting-time">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>}
       {mode === 'replay' && <button className="link" onClick={() => api.stopReplay()}>stop</button>}
       {status.scope !== 'owner' && <span className="scope-pill">screen-safe</span>}
-    </div>
-  );
-}
-
-// AudioBar plays the replayed meeting's recording; its position drives what
-// the panel shows, so pausing pauses the meeting and seeking moves it.
-function AudioBar({ ref_ }: { ref_: string }) {
-  const el = useRef<HTMLAudioElement>(null);
-  const [rate, setRate] = useState(1);
-  useEffect(() => {
-    if (el.current) el.current.playbackRate = rate;
-  }, [rate]);
-  return (
-    <div className="audiobar">
-      <audio ref={el} src={'/replay-audio/' + ref_} controls autoPlay
-        onTimeUpdate={(e) => api.replayClock((e.target as HTMLAudioElement).currentTime)}
-        onSeeked={(e) => api.replayClock((e.target as HTMLAudioElement).currentTime)} />
-      <select value={rate} onChange={(e) => setRate(Number(e.target.value))} title="Playback speed">
-        {[1, 1.25, 1.5, 2].map((r) => <option key={r} value={r}>{r}×</option>)}
-      </select>
-    </div>
-  );
-}
-
-function ReplayPicker({ onAudio }: { onAudio: (ref: string) => void }) {
-  const [meetings, setMeetings] = useState<MeetingRef[]>([]);
-  const [pick, setPick] = useState('');
-  const [speed, setSpeed] = useState(8);
-  const [audio, setAudio] = useState(false);
-  useEffect(() => {
-    api.meetings().then((m) => {
-      const ok = (m ?? []).filter((x) => x.chunks >= 8);
-      setMeetings(ok);
-      if (ok[0]) setPick(ok[0].ref);
-    });
-  }, []);
-  useEffect(() => {
-    if (pick) api.hasAudio(pick).then(setAudio, () => setAudio(false));
-  }, [pick]);
-  const playAudio = () => api.replayWithAudio(pick).then(() => onAudio(pick));
-  const byDay = useMemo(() => meetings, [meetings]);
-  return (
-    <div className="idle">
-      <div className="idle-art" aria-hidden>結</div>
-      <p>When Tomoe records a meeting, the conversation streams in here and Musubi briefs you on what it recognises.</p>
-      <p className="dim">Tomoe → Settings → Sharing → <b>Live feed</b> must be on.</p>
-      <div className="replay">
-        <div className="section-head"><span>Try it on a past meeting</span></div>
-        <select value={pick} onChange={(e) => setPick(e.target.value)}>
-          {byDay.map((m) => (
-            <option key={m.ref} value={m.ref}>{fmtDate(m.occurredAt)} · {m.title}</option>
-          ))}
-        </select>
-        <div className="row">
-          <label>text replay speed
-            <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))}>
-              {[1, 2, 4, 8, 16, 32].map((n) => <option key={n} value={n}>{n}×</option>)}
-            </select>
-          </label>
-          <button className="secondary" disabled={!pick} onClick={() => api.replay(pick, speed)}>Text only</button>
-        </div>
-        <button className="primary wide" disabled={!pick || !audio} onClick={playAudio}
-          title={audio ? 'Play the recording; the panel follows it in real time' : 'No recording saved for this meeting'}>
-          ▶ Play with audio
-        </button>
-      </div>
     </div>
   );
 }

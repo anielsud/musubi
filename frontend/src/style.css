@@ -155,7 +155,8 @@ main > div { height: 100%; }
 .line.pending { color: var(--text-dim); }
 
 .lookup { display: flex; gap: 8px; align-items: center; }
-.lookup input { flex: 1; }
+.lookup input, .lookup textarea { flex: 1; }
+.lookup textarea { resize: none; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
@@ -676,3 +677,35 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .people-list .person-row .sub { color: var(--text-dim); font-size: 12px; }
 .tl-row.person-tl { grid-template-columns: 74px 1fr; }
 .person-page a { color: var(--accent); }
+
+/* Answers asked from the Live panel: cards at the top of the right column. */
+.asked { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.ask-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; }
+.ask-card .q { display: flex; gap: 6px; align-items: baseline; width: 100%; box-sizing: border-box; }
+.ask-card .q .link { margin-left: auto; font-weight: 400; }
+.idle .examples { margin-top: 10px; text-align: left; }
+
+/* Meetings: past and upcoming by day, or on a month calendar. */
+.meetings-bar { grid-template-columns: 1fr auto auto auto; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: transparent; padding: 4px 10px; color: var(--text-dim); }
+.seg button.on { background: var(--surface-2); color: var(--text); }
+.meetings-bar input[type="date"] { width: auto; }
+.prep-people { margin-bottom: 8px; }
+.prep-people input { width: 100%; }
+.day-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); padding: 8px 2px 0; scroll-margin-top: 8px; }
+.day-head.today { color: var(--accent); }
+.meeting-row.upcoming { border-style: dashed; }
+.page-nav { display: flex; justify-content: space-between; }
+.back { margin-bottom: 6px; }
+.month { margin-bottom: 10px; }
+.month-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-weight: 600; }
+.month-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; }
+.dow { text-align: center; }
+.mday { position: relative; aspect-ratio: 2; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 2px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; color: var(--text-dim); }
+.mday.has { color: var(--text); background: var(--surface); border-color: var(--line); }
+.mday.today { border-color: var(--accent); }
+.mday.on { background: var(--surface-2); }
+.mcount { font-size: 10px; color: var(--text-dim); }
+.mcount.up { color: var(--accent); }
+@media (max-width: 560px) { .meetings-bar { grid-template-columns: 1fr auto; } }

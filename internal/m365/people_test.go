@@ -87,6 +87,11 @@ func TestSyncPeople(t *testing.T) {
 	if rs := d.Reports("robin.vale@corp.example"); len(rs) != 1 || rs[0].Email != "kai.moreno@corp.example" {
 		t.Errorf("reports %+v", rs)
 	}
+	// A top executive listed as their own manager isn't their own report.
+	d.People["robin.vale@corp.example"].ManagerEmail = "robin.vale@corp.example"
+	if rs := d.Reports("robin.vale@corp.example"); len(rs) != 1 {
+		t.Errorf("self-managed reports %+v", rs)
+	}
 	// Within the refresh window: nothing looked up again.
 	before := fd.hits["/v1.0/users/kai.moreno@corp.example"]
 	SyncPeople(context.Background(), c, path, emails, 14*24*time.Hour, 3, now.Add(24*time.Hour))

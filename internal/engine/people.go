@@ -246,9 +246,16 @@ func (e *Engine) PersonPage(entityID string) (*PersonPage, error) {
 	if p.dir != nil {
 		dir, _ := m365.LoadDirectory(e.Cfg.DirectoryPath())
 		pg.Chain, pg.Reports = dir.Chain(p.email), dir.Reports(p.email)
+		// Peers: the manager's other direct reports. Someone in the chain
+		// above (a manager the directory lists as reporting to themselves,
+		// as a top executive can be) isn't a peer.
 		if p.dir.ManagerEmail != "" {
+			above := map[string]bool{}
+			for _, c := range pg.Chain {
+				above[c.Email] = true
+			}
 			for _, q := range dir.Reports(p.dir.ManagerEmail) {
-				if q.Email != p.email {
+				if q.Email != p.email && !above[q.Email] {
 					pg.Peers = append(pg.Peers, q)
 				}
 			}

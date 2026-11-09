@@ -68,7 +68,9 @@ func LoadDirectory(path string) (*Directory, error) {
 func (d *Directory) Reports(email string) []*Person {
 	var out []*Person
 	for _, p := range d.People {
-		if strings.EqualFold(p.ManagerEmail, email) && !p.Missing {
+		// Not themselves: the directory can list a top executive as their
+		// own manager.
+		if strings.EqualFold(p.ManagerEmail, email) && !p.Missing && !strings.EqualFold(p.Email, email) {
 			out = append(out, p)
 		}
 	}

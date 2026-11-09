@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/m365"
@@ -155,6 +156,15 @@ func (e *Engine) WriteTomoeContext() (int, error) {
 	for i := range items {
 		byID[items[i].ID] = &items[i]
 	}
+	// Teams copies by the event they're linked to: the same meeting as a
+	// Tomoe recording linked there.
+	teamsByEvent := map[string][]*item.Item{}
+	for i := range items {
+		t := &items[i]
+		if t.Source == "teams" && t.Kind == item.KindMeeting && strings.HasPrefix(t.Ref, "teams-") && links[t.ID] != "" {
+			teamsByEvent[links[t.ID]] = append(teamsByEvent[links[t.ID]], t)
+		}
+	}
 	changed := 0
 	for i := range items {
 		m := &items[i]
@@ -191,8 +201,102 @@ func (e *Engine) WriteTomoeContext() (int, error) {
 		} else if wrote {
 			changed++
 		}
+		tpath := filepath.Join(dir, "teams.json")
+		t := overlapping(m, teamsByEvent[ev.ID])
+		if t != nil && wordAgreement(m, t) < 0.6 {
+			t = nil // same slot, different conversation (another meeting that day)
+		}
+		if t == nil {
+			if b, err := os.ReadFile(tpath); err == nil && strings.Contains(string(b), `"writer": "musubi"`) {
+				if os.Remove(tpath) == nil {
+					changed++
+				}
+			}
+		}
+		if t != nil {
+			tc := teamsContext{Writer: "musubi", Source: "teams", Subject: t.Title, Start: t.OccurredAt, End: t.EndedAt}
+			for _, sg := range t.Segments {
+				tc.Turns = append(tc.Turns, teamsTurn{Speaker: sg.Speaker, Offset: sg.Start, Text: sg.Text})
+			}
+			if wrote, err := m365.WriteJSONIfChanged(tpath, tc); err != nil {
+				return changed, err
+			} else if wrote {
+				changed++
+			}
+		}
 	}
 	return changed, nil
+}
+
+// teamsContext is the Teams transcript of a Tomoe recording's meeting
+// (teams.json in the session folder): Teams names every speaker, which
+// Tomoe can line up with its own speakers by time. Offsets are seconds
+// from Start.
+type teamsContext struct {
+	Writer  string      `json:"writer"`
+	Source  string      `json:"source"`
+	Subject string      `json:"subject"`
+	Start   time.Time   `json:"start"`
+	End     time.Time   `json:"end"`
+	Turns   []teamsTurn `json:"turns"`
+}
+
+type teamsTurn struct {
+	Speaker string  `json:"speaker"`
+	Offset  float64 `json:"offset"`
+	Text    string  `json:"text"`
+}
+
+// wordAgreement is the share of the Teams copy's distinct longer words
+// (four letters or more), said while Tomoe was recording, that the Tomoe
+// recording also has. On all-t4 the same meeting agreed 0.89–0.98 and a
+// different conversation in the same slot 0.13–0.41 (2026-11-09).
+func wordAgreement(m, t *item.Item) float64 {
+	words := func(it *item.Item, window bool) map[string]bool {
+		w := map[string]bool{}
+		for _, sg := range it.Segments {
+			if at := it.OccurredAt.Add(time.Duration(sg.Start * float64(time.Second))); window && (at.Before(m.OccurredAt) || at.After(m.EndedAt)) {
+				continue
+			}
+			for _, f := range strings.FieldsFunc(strings.ToLower(sg.Text), func(r rune) bool { return !unicode.IsLetter(r) }) {
+				if len(f) >= 4 {
+					w[f] = true
+				}
+			}
+		}
+		return w
+	}
+	tw, mw := words(t, true), words(m, false)
+	if len(tw) == 0 {
+		return 0
+	}
+	n := 0
+	for w := range tw {
+		if mw[w] {
+			n++
+		}
+	}
+	return float64(n) / float64(len(tw))
+}
+
+// overlapping is the Teams copy that shares the most time with m (at least
+// a quarter of the recording), or nil.
+func overlapping(m *item.Item, ts []*item.Item) *item.Item {
+	var best *item.Item
+	var bestD time.Duration
+	for _, t := range ts {
+		lo, hi := m.OccurredAt, m.EndedAt
+		if t.OccurredAt.After(lo) {
+			lo = t.OccurredAt
+		}
+		if t.EndedAt.Before(hi) {
+			hi = t.EndedAt
+		}
+		if d := hi.Sub(lo); d > bestD && d >= m.EndedAt.Sub(m.OccurredAt)/4 {
+			best, bestD = t, d
+		}
+	}
+	return best
 }
 
 // tomoeRecorded reports whether a Tomoe recording covers at least five

@@ -101,6 +101,16 @@ func (e *Engine) SyncM365(ctx context.Context) (string, error) {
 			parts = append(parts, fmt.Sprintf("teams: %d meetings, %d transcripts, %d chats, %d passed over", tr.Meetings, tr.Transcripts, tr.Chats, tr.Skipped))
 		}
 	}
+	if err == nil && e.Cfg.M365.Mail {
+		var mr m365.MailReport
+		mr, err = m365.SyncMail(ctx, c, e.Cfg.InboxDir(), time.Now().AddDate(0, 0, -e.Cfg.M365.MailDays), e.Cfg.M365.MailFocusedOnly, time.Now())
+		parts = append(parts, fmt.Sprintf("mail: %d read, %d new or changed", mr.Seen, mr.Written))
+	}
+	if err == nil && e.Cfg.M365.Chats {
+		var cr m365.ChatReport
+		cr, err = m365.SyncChats(ctx, c, e.Cfg.InboxDir(), time.Now().AddDate(0, 0, -e.Cfg.M365.ChatDays), time.Now())
+		parts = append(parts, fmt.Sprintf("chats: %d chats, %d days, %d messages", cr.Chats, cr.Days, cr.Messages))
+	}
 	if err == nil && e.Cfg.M365.People {
 		var pr m365.PeopleReport
 		pr, err = m365.SyncPeople(ctx, c, e.Cfg.DirectoryPath(), e.internalPeople(), 14*24*time.Hour, 300, time.Now())

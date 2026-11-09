@@ -24,9 +24,21 @@ type Person struct {
 	Office       string    `json:"office,omitempty"`
 	ManagerEmail string    `json:"managerEmail,omitempty"`
 	ManagerName  string    `json:"managerName,omitempty"`
-	Missing      bool      `json:"missing,omitempty"` // not in the directory (left, external, a list)
+	Phones       []string  `json:"phones,omitempty"` // business phones
+	Mobile       string    `json:"mobile,omitempty"`
+	City         string    `json:"city,omitempty"`
+	Country      string    `json:"country,omitempty"`
+	HireDate     string    `json:"hireDate,omitempty"` // yyyy-mm-dd
+	Missing      bool      `json:"missing,omitempty"`  // not in the directory (left, external, a list)
 	FetchedAt    time.Time `json:"fetchedAt"`
+	// V is the lookup version: entries from an older one are looked up
+	// again (they lack fields added since).
+	V int `json:"v,omitempty"`
 }
+
+// personVersion is the current lookup version (2: phones, city, country,
+// hire date).
+const personVersion = 2
 
 // Directory is data/directory.json: the people Musubi has looked up.
 type Directory struct {
@@ -56,7 +68,9 @@ func LoadDirectory(path string) (*Directory, error) {
 func (d *Directory) Reports(email string) []*Person {
 	var out []*Person
 	for _, p := range d.People {
-		if strings.EqualFold(p.ManagerEmail, email) && !p.Missing {
+		// Not themselves: the directory can list a top executive as their
+		// own manager.
+		if strings.EqualFold(p.ManagerEmail, email) && !p.Missing && !strings.EqualFold(p.Email, email) {
 			out = append(out, p)
 		}
 	}
@@ -116,7 +130,7 @@ func SyncPeople(ctx context.Context, c *Client, path string, emails []string, re
 		p := d.People[e]
 		if p == nil {
 			todo = append(todo, due{e, time.Time{}})
-		} else if now.Sub(p.FetchedAt) > refresh {
+		} else if now.Sub(p.FetchedAt) > refresh || p.V < personVersion && !p.Missing {
 			todo = append(todo, due{e, p.FetchedAt})
 		}
 	}
@@ -183,7 +197,7 @@ func SyncPeople(ctx context.Context, c *Client, path string, emails []string, re
 			continue
 		}
 		rep.Looked++
-		r.p.FetchedAt = now
+		r.p.FetchedAt, r.p.V = now, personVersion
 		if r.p.Missing {
 			rep.Missing++
 		} else {
@@ -197,18 +211,23 @@ func SyncPeople(ctx context.Context, c *Client, path string, emails []string, re
 
 func lookUp(ctx context.Context, c *Client, email string) (*Person, error) {
 	var u struct {
-		DisplayName       string `json:"displayName"`
-		GivenName         string `json:"givenName"`
-		Surname           string `json:"surname"`
-		Mail              string `json:"mail"`
-		MailNickname      string `json:"mailNickname"`
-		UserPrincipalName string `json:"userPrincipalName"`
-		JobTitle          string `json:"jobTitle"`
-		Department        string `json:"department"`
-		OfficeLocation    string `json:"officeLocation"`
-		AccountEnabled    *bool  `json:"accountEnabled"`
+		DisplayName       string   `json:"displayName"`
+		GivenName         string   `json:"givenName"`
+		Surname           string   `json:"surname"`
+		Mail              string   `json:"mail"`
+		MailNickname      string   `json:"mailNickname"`
+		UserPrincipalName string   `json:"userPrincipalName"`
+		JobTitle          string   `json:"jobTitle"`
+		Department        string   `json:"department"`
+		OfficeLocation    string   `json:"officeLocation"`
+		AccountEnabled    *bool    `json:"accountEnabled"`
+		BusinessPhones    []string `json:"businessPhones"`
+		MobilePhone       string   `json:"mobilePhone"`
+		City              string   `json:"city"`
+		Country           string   `json:"country"`
+		EmployeeHireDate  string   `json:"employeeHireDate"`
 	}
-	q := url.Values{"$select": {"displayName,givenName,surname,mail,mailNickname,userPrincipalName,jobTitle,department,officeLocation,accountEnabled"}}
+	q := url.Values{"$select": {"displayName,givenName,surname,mail,mailNickname,userPrincipalName,jobTitle,department,officeLocation,accountEnabled,businessPhones,mobilePhone,city,country,employeeHireDate"}}
 	err := c.GetJSON(ctx, "/v1.0/users/"+url.PathEscape(email)+"?"+q.Encode(), &u)
 	if IsNotFound(err) || err == nil && u.AccountEnabled != nil && !*u.AccountEnabled {
 		return &Person{Email: email, Missing: true}, nil
@@ -217,7 +236,11 @@ func lookUp(ctx context.Context, c *Client, email string) (*Person, error) {
 		return nil, err
 	}
 	p := &Person{Email: email, Name: u.DisplayName, GivenName: u.GivenName, Surname: u.Surname, Nickname: u.MailNickname,
-		UPN: strings.ToLower(u.UserPrincipalName), Title: u.JobTitle, Department: u.Department, Office: u.OfficeLocation}
+		UPN: strings.ToLower(u.UserPrincipalName), Title: u.JobTitle, Department: u.Department, Office: u.OfficeLocation,
+		Phones: u.BusinessPhones, Mobile: u.MobilePhone, City: u.City, Country: u.Country}
+	if len(u.EmployeeHireDate) >= 10 {
+		p.HireDate = u.EmployeeHireDate[:10]
+	}
 	var m struct {
 		DisplayName string `json:"displayName"`
 		Mail        string `json:"mail"`

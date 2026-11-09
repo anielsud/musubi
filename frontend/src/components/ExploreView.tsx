@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDate, kindIcon } from '../api';
-import type { PersonProfile, DirectoryPerson, EntityRef, Graph, Hit } from '../types';
+import type { EntityRef, Graph, Hit, PersonRow } from '../types';
+import { PersonView } from './PersonView';
 import { Empty, HitRow, LabelBadge, Spinner } from './common';
 import { GraphView } from './GraphView';
 import { ClaimResults, TopicsPane } from './Knowledge';
@@ -26,7 +27,9 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [trail, setTrail] = useState<EntityRef[]>([]);
-  const [mode, setMode] = useState<'topics' | 'search' | 'corrections'>('topics');
+  const [mode, setMode] = useState<'topics' | 'search' | 'corrections' | 'people'>('topics');
+  const [topicWant, setTopicWant] = useState<{ id: number; n: number } | null>(null);
+  const openTopicHere = (id: number) => { setFocus(null); setTopicWant({ id, n: Date.now() }); setMode('topics'); };
   const [lastQ, setLastQ] = useState('');
   const openSource = (itemId: string, chunkId: number) => onOpen({ itemId, chunkId } as unknown as Hit, scope);
 
@@ -67,15 +70,25 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
     }
   };
 
-  if (focus && mode === 'topics') setMode('search');
+  if (focus && mode === 'topics') setMode(focus.startsWith('person:') && scope === 'owner' ? 'people' : 'search');
   return (
     <div className="view explore">
       <div className="segmented">
         <button className={mode === 'topics' ? 'on' : ''} onClick={() => { setMode('topics'); setFocus(null); }}>Topics</button>
+        {scope === 'owner' && <button className={mode === 'people' ? 'on' : ''} onClick={() => { setMode('people'); setFocus(null); }}>People</button>}
         <button className={mode === 'search' ? 'on' : ''} onClick={() => setMode('search')}>Search</button>
         {scope === 'owner' && <button className={mode === 'corrections' ? 'on' : ''} onClick={() => { setMode('corrections'); setFocus(null); }} title="Misheard or misspelled names and terms to confirm or reject">Corrections</button>}
       </div>
-      {mode === 'topics' && <TopicsPane scope={scope} onSource={openSource} want={topicReq} />}
+      {mode === 'topics' && <TopicsPane scope={scope} onSource={openSource} want={topicWant ?? topicReq} />}
+      {mode === 'people' && scope === 'owner' && (focus ? (
+        <section className="entity">
+          <div className="entity-head">
+            <button className="link" onClick={() => setFocus(null)}>← People</button>
+          </div>
+          {graph && <div className="entity-name">{graph.entity.name}</div>}
+          <PersonView id={focus} scope={scope} onPick={setFocus} onOpenItem={onOpenItem} onTopic={openTopicHere} />
+        </section>
+      ) : <PeoplePane onPick={setFocus} />)}
       {mode === 'corrections' && scope === 'owner' && <CorrectionsView onSource={openSource} start={correctReq} />}
       {mode === 'search' && <>
       <form className="lookup" onSubmit={(e) => { e.preventDefault(); run(q); }}>
@@ -113,7 +126,7 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
                 </div>
                 <button className="icon-btn" onClick={() => setFocus(null)} title="Close">✕</button>
               </div>
-              {graph.entity.type === 'person' && <PersonCard id={graph.entity.id} scope={scope} onPick={setFocus} />}
+              {graph.entity.type === 'person' && scope === 'owner' && <PersonView id={graph.entity.id} scope={scope} onPick={setFocus} onOpenItem={onOpenItem} onTopic={openTopicHere} />}
               {(graph.neighbors?.length ?? 0) > 0 ? (
                 <GraphView graph={graph} onPick={(n) => setFocus(n.id)} />
               ) : (
@@ -154,24 +167,27 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
   );
 }
 
-// PersonCard shows who someone is in the organisation, from the Microsoft
-// 365 directory, and how often the owner meets them.
-function PersonCard({ id, scope, onPick }: { id: string; scope: string; onPick: (id: string) => void }) {
-  const [p, setP] = useState<PersonProfile | null>(null);
-  useEffect(() => {
-    setP(null);
-    api.personProfile(id, scope).then(setP, () => setP(null));
-  }, [id, scope]);
-  if (!p) return null;
-  const who = (x: DirectoryPerson) => (
-    <button key={x.email} className="link" onClick={() => onPick('person:' + x.email)}>{x.name || x.email}</button>
-  );
+// PeoplePane lists the people the owner meets, most met first, with a
+// filter on name, title and team.
+function PeoplePane({ onPick }: { onPick: (id: string) => void }) {
+  const [rows, setRows] = useState<PersonRow[] | null>(null);
+  const [f, setF] = useState('');
+  useEffect(() => { api.people('owner').then((r) => setRows(r ?? []), () => setRows([])); }, []);
+  if (!rows) return <Spinner />;
+  const words = f.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = rows.filter((r) => words.every((w) => `${r.name} ${r.title ?? ''} ${r.department ?? ''} ${r.email ?? ''}`.toLowerCase().includes(w)));
   return (
-    <div className="person-card">
-      <div>{[p.title, p.department, p.office].filter(Boolean).join(' · ') || p.email}</div>
-      {(p.chain?.length ?? 0) > 0 && <div className="dim small">reports to {p.chain!.slice(0, 3).map((m, i) => <span key={m.email}>{i > 0 && ' → '}{who(m)}</span>)}</div>}
-      {(p.reports?.length ?? 0) > 0 && <div className="dim small">{p.reports!.length} direct report{p.reports!.length > 1 ? 's' : ''}: {p.reports!.slice(0, 8).map((r, i) => <span key={r.email}>{i > 0 && ', '}{who(r)}</span>)}{p.reports!.length > 8 && ' …'}</div>}
-      {p.together > 0 && <div className="dim small">in {p.together} of your meetings{p.lastTogether && !p.lastTogether.startsWith('0001') ? `, last ${fmtDate(p.lastTogether)}` : ''}</div>}
+    <div className="people-list">
+      <form className="lookup" onSubmit={(e) => e.preventDefault()}>
+        <input value={f} onChange={(e) => setF(e.target.value)} placeholder={`Filter ${rows.length} people by name, title or team…`} />
+      </form>
+      {shown.slice(0, 200).map((r) => (
+        <button key={r.id} className="person-row" onClick={() => onPick(r.id)}>
+          <span><span>{r.name}</span><br /><span className="sub">{[r.title, r.department].filter(Boolean).join(' · ') || r.email}</span></span>
+          <span className="sub">{r.together > 0 ? `${r.together} meetings` : ''}{r.lastTogether && !r.lastTogether.startsWith('0001') ? ` · last ${fmtDate(r.lastTogether)}` : ''}</span>
+        </button>
+      ))}
+      {shown.length > 200 && <div className="dim small">{shown.length - 200} more; filter to narrow.</div>}
     </div>
   );
 }

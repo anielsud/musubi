@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, fmtDate } from '../api';
 import type { Hit, MeetingListItem, MeetingPage, MeetingToDo } from '../types';
 import { Empty, Spinner } from './common';
+import { Names } from './people';
 
 // MeetingsView: each meeting with a summary (knowledge.digest), newest
 // first; opening one shows the summary in sections (each linked to where
@@ -95,7 +96,7 @@ function MeetingPageView({ id, scope, onBack, onOpen, onTopic }: {
               </div>
               <div className="small">{s.text}</div>
               <div className="dim small">
-                {(s.people ?? []).join(', ')}
+                <Names names={s.people ?? []} />
                 {(s.spans?.length ?? 0) > 0 && <>{(s.people?.length ?? 0) > 0 ? ' · ' : ''}<button className="link" onClick={() => src(s.spans![0].fromChunk)}>where it was said</button></>}
               </div>
             </div>
@@ -107,7 +108,7 @@ function MeetingPageView({ id, scope, onBack, onOpen, onTopic }: {
               <li key={t.id} className={'todo-' + (t.state === 'repeated' ? 'open' : t.state)}>
                 <div>{t.state === 'done' && <span className="todo-mark">✓ </span>}{t.text}</div>
                 <div className="dim small">
-                  {(t.owners ?? []).join(', ') || 'owner unclear'}
+                  {(t.owners?.length ?? 0) > 0 ? <Names names={t.owners!} /> : 'owner unclear'}
                   {t.due ? <span className="badge todo-due">{t.due}</span> : t.dueText ? <span className="dim"> · {t.dueText}</span> : null}
                   {' · '}{stateWords[t.state]}
                   {agreedWords[t.agreed] && t.state !== 'declined' && <> · {agreedWords[t.agreed]}</>}

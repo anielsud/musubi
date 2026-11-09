@@ -41,6 +41,7 @@ type Engine struct {
 
 	updating sync.Mutex
 	ms       m365Engine
+	fi       faceIndex
 }
 
 func Open(cfgPath string) (*Engine, error) {

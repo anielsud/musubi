@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -106,4 +109,53 @@ func nameMeetingsCmd() *cobra.Command {
 			return err
 		},
 	}
+}
+
+func peopleCmd() *cobra.Command {
+	c := &cobra.Command{Use: "people", Short: "People the owner meets, most met first (owner only)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			rows, err := e.People()
+			if err != nil {
+				return err
+			}
+			for _, r := range rows[:min(40, len(rows))] {
+				fmt.Printf("%4d  %-30s %-28s %s\n", r.Together, r.Name, r.Title, r.ID)
+			}
+			fmt.Printf("%d people\n", len(rows))
+			return nil
+		}}
+	var headshotOut string
+	show := &cobra.Command{Use: "show <entity id>", Args: cobra.ExactArgs(1), Short: "A person's page as JSON (the headshot shortened; --headshot saves it)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			e, err := engine.Open(cfgPath)
+			if err != nil {
+				return err
+			}
+			defer e.Close()
+			pg, err := e.PersonPage(args[0])
+			if err != nil || pg == nil {
+				return err
+			}
+			if headshotOut != "" && pg.Headshot != "" {
+				if b, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(pg.Headshot, "data:image/jpeg;base64,")); err == nil {
+					if err := os.WriteFile(headshotOut, b, 0o600); err != nil {
+						return err
+					}
+				}
+			}
+			if len(pg.Headshot) > 60 {
+				pg.Headshot = fmt.Sprintf("%s… (%d bytes)", pg.Headshot[:30], len(pg.Headshot))
+			}
+			b, _ := json.MarshalIndent(pg, "", "  ")
+			fmt.Println(string(b))
+			return nil
+		}}
+	show.Flags().StringVar(&headshotOut, "headshot", "", "write the headshot JPEG here")
+	c.AddCommand(show)
+	return c
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../api';
 import type { Hit, PrepRequest, PrepTarget, PrepView as Prep, ThreadItem, ThreadRef } from '../types';
 import { Empty, HitRow, Spelled, Spinner } from './common';
+import { Names } from './people';
 import { Answer } from './AskView';
 import { Cited, Refs, citedIn } from './Knowledge';
 
@@ -70,7 +71,7 @@ export function PrepView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h
         <>
           <div className="prep-head">
             <h2>{view.title || 'Meeting'}</h2>
-            <div className="dim small">with {(view.people ?? []).join(', ') || 'nobody found'} · since {fmtDate(view.since)} · {view.met} meetings with them in the record</div>
+            <div className="dim small">with {(view.people?.length ?? 0) > 0 ? <Names names={view.people!} /> : 'nobody found'} · since {fmtDate(view.since)} · {view.met} meetings with them in the record</div>
           </div>
 
           <section className="thread-status">

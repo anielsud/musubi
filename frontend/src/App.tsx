@@ -9,6 +9,7 @@ import { MeetingsView } from './components/MeetingsView';
 import { ExploreView } from './components/ExploreView';
 import { StatusView } from './components/StatusView';
 import { SettingsView } from './components/SettingsView';
+import { PeopleProvider } from './components/people';
 import { SourceDrawer, type SourceRef } from './components/SourceDrawer';
 import { DiagPanel } from './components/DiagPanel';
 import { SelectionMenu, type Picked } from './components/SelectionMenu';
@@ -104,6 +105,7 @@ export function App() {
         ))}
       </nav>
 
+      <PeopleProvider scope={scope} onOpen={(id) => { setSource(null); openEntity(id); }}>
       <main>
         <div hidden={view !== 'live'}><LiveView status={live} onOpen={openHit} onEntity={openEntity} onTopic={openTopic} /></div>
         <div hidden={view !== 'ask'}><AskView onOpen={openHit} scope={scope} onTopic={openTopic} prefill={askReq} /></div>
@@ -121,6 +123,7 @@ export function App() {
       {source && <SourceDrawer src={source} onClose={() => setSource(null)} />}
       {toast && <div className="toast">{toast}</div>}
       <SelectionMenu onAsk={askAbout} onCorrect={correct} onSource={(itemId, chunkId) => setSource({ itemId, chunkId, scope })} />
+      </PeopleProvider>
       </div>
       {diag && <DiagPanel />}
     </div>

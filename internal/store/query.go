@@ -632,3 +632,47 @@ func (s *Store) ItemTitles(sc sensitivity.Scope, ids []string) (map[string]ItemR
 	}
 	return out, nil
 }
+
+// TopicRefRow is a thread an entity comes up in, with how many claims.
+type TopicRefRow struct {
+	ID     int64
+	Label  string
+	Claims int
+}
+
+// EntityTopicRefs lists the threads an entity comes up in most, owner
+// scope (the person views are the owner's): the threads holding the most
+// of what they said (current items), and the topic map's entity links
+// where those exist.
+// names (lower case) also match statements whose holder was written but
+// not resolved to the entity.
+func (s *Store) EntityTopicRefs(entityID string, names []string, limit int) ([]TopicRefRow, error) {
+	in := "''"
+	args := []any{entityID}
+	if len(names) > 0 {
+		in = strings.TrimSuffix(strings.Repeat("?,", len(names)), ",")
+		for _, n := range names {
+			args = append(args, n)
+		}
+	}
+	args = append(args, entityID, limit)
+	rows, err := s.db.Query(`SELECT id, label, sum(n) FROM (
+			SELECT t.id, t.label, count(*) AS n FROM thread_items ti JOIN statements st ON st.id = ti.statement_id JOIN topics t ON t.id = ti.topic_id
+			WHERE ti.current = 1 AND (st.holder_id = ? OR lower(st.holder) IN (`+in+`)) AND t.label != '' GROUP BY t.id
+			UNION ALL
+			SELECT t.id, t.label, te.claims FROM topic_entities te JOIN topics t ON t.id = te.topic_id WHERE te.entity_id = ? AND t.label != '')
+		GROUP BY id ORDER BY 3 DESC, id DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TopicRefRow
+	for rows.Next() {
+		var r TopicRefRow
+		if err := rows.Scan(&r.ID, &r.Label, &r.Claims); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}

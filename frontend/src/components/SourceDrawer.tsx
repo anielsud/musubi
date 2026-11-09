@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, fmtDate, kindIcon } from '../api';
 import type { ItemView } from '../types';
 import { LabelBadge, Spinner } from './common';
+import { Name } from './people';
 
 export interface SourceRef {
   itemId: string;
@@ -62,7 +63,7 @@ export function SourceDrawer({ src, onClose }: { src: SourceRef; onClose: () => 
               {c.text.split('\n').map((line, i) => {
                 const m = line.match(/^([^:]{1,60}): (.*)$/);
                 return m ? (
-                  <p key={i}><span className="who">{m[1].replace(/^Person \d+ \((.+)\)$/, '$1')}</span> {m[2]}</p>
+                  <p key={i}><span className="who"><Name name={m[1].replace(/^Person \d+ \((.+)\)$/, '$1')} /></span> {m[2]}</p>
                 ) : (
                   <p key={i}>{line}</p>
                 );

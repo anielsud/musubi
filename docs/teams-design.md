@@ -51,8 +51,33 @@ For one week (2–6 Nov):
 - A recurring series lists the transcripts of all its past occurrences, as
   many as 20.
 - A sample transcript came back as WebVTT: 46k characters, 9 named speakers.
-- Which meetings return 3003 is not yet known. It may be large
-  organisation-wide calls.
+- 3003 comes from looking a meeting up by its join URL when the owner is
+  invited only through a distribution list (one case checked: a 340-invitee
+  company call).
+
+**Meetings the owner did not join (tested 2026-11-09 on three known
+cases).** Graph returns them as well; attendance doesn't matter, the
+invitation does.
+- Invited by name: `GET /me/onlineMeetings/{id}/transcripts` lists every
+  occurrence's transcript, missed ones included. Two such transcripts came
+  back whole: 416 turns and 16 speakers, and 398 turns and 11 speakers.
+  The owner speaks 5 times in the first and not at all in the second. The
+  meeting id can be built without a lookup: base64 of
+  `1*<organizer object id>*0**<chat thread id>`, both of which are in the
+  join URL.
+- Invited through a distribution list: the lookup is refused, but the
+  meeting chat is readable (`Chat.Read`).
+  - Its `callRecordingEventMessageDetail` gives the recording's sharing URL.
+    `/shares/{encoded}/driveItem` opens it (`Files.Read.All`).
+  - SharePoint's own API, with a token for the SharePoint host from the
+    same Microsoft app, lists the transcript attached to the recording:
+    `/_api/v2.1/drives/{d}/items/{i}/media/transcripts`.
+  - `…/streamContent?format=json` returns entries with
+    `speakerDisplayName`: 136 entries, 10 speakers. `format=text/vtt` is
+    refused, and the `temporaryDownloadUrl` gives the caption track
+    without speakers.
+- Fallback for a recording with no transcript: download it and transcribe
+  it locally with Tomoe. The text is complete, but there are no names.
 
 The calls:
 
@@ -128,7 +153,7 @@ with the same app id:
 | `teams.calendar` | true | calendar events as `event` drops (titles, attendees) for calendar linking |
 | `teams.since` | 14 days | how far back the first run looks |
 
-`teams.unattended` is off by default. Meetings the owner skipped are many,
+`teams.unattended` is off by default (the data is reachable: see above). Meetings the owner skipped are many,
 often large, and of mixed value. When turned on, they come in labelled by
 their invitee list like any meeting, and the digest and thread stages treat
 them like any other meeting.
@@ -186,8 +211,12 @@ run, and drops already ingested stay.
 ## Open questions
 
 1. Where the Graph module's token cache lives on macOS, and whether it is
-   protected (blocks turning it on).
-2. Which meetings return 3003, and whether they matter.
+   protected (blocks turning it on). The SharePoint token for
+   distribution-list meetings needs the same treatment. In the probe it
+   wasn't cached, which meant a sign-in for every call. The tool must
+   keep one cache, in the Keychain.
+2. Whether the SharePoint step (distribution-list meetings) is worth its
+   second token, or those meetings wait for the recording fallback.
 3. Whether `teams.unattended` should start on for a small set (named
    series) rather than all or nothing.
 4. Speaker names: Teams names every speaker. Tomoe could use a Teams copy

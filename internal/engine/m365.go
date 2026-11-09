@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/m365"
@@ -200,12 +201,24 @@ func (e *Engine) WriteTomoeContext() (int, error) {
 		} else if wrote {
 			changed++
 		}
-		if t := overlapping(m, teamsByEvent[ev.ID]); t != nil {
+		tpath := filepath.Join(dir, "teams.json")
+		t := overlapping(m, teamsByEvent[ev.ID])
+		if t != nil && wordAgreement(m, t) < 0.6 {
+			t = nil // same slot, different conversation (another meeting that day)
+		}
+		if t == nil {
+			if b, err := os.ReadFile(tpath); err == nil && strings.Contains(string(b), `"writer": "musubi"`) {
+				if os.Remove(tpath) == nil {
+					changed++
+				}
+			}
+		}
+		if t != nil {
 			tc := teamsContext{Writer: "musubi", Source: "teams", Subject: t.Title, Start: t.OccurredAt, End: t.EndedAt}
 			for _, sg := range t.Segments {
 				tc.Turns = append(tc.Turns, teamsTurn{Speaker: sg.Speaker, Offset: sg.Start, Text: sg.Text})
 			}
-			if wrote, err := m365.WriteJSONIfChanged(filepath.Join(dir, "teams.json"), tc); err != nil {
+			if wrote, err := m365.WriteJSONIfChanged(tpath, tc); err != nil {
 				return changed, err
 			} else if wrote {
 				changed++
@@ -232,6 +245,38 @@ type teamsTurn struct {
 	Speaker string  `json:"speaker"`
 	Offset  float64 `json:"offset"`
 	Text    string  `json:"text"`
+}
+
+// wordAgreement is the share of the Teams copy's distinct longer words
+// (four letters or more), said while Tomoe was recording, that the Tomoe
+// recording also has. On all-t4 the same meeting agreed 0.89–0.98 and a
+// different conversation in the same slot 0.13–0.41 (2026-11-09).
+func wordAgreement(m, t *item.Item) float64 {
+	words := func(it *item.Item, window bool) map[string]bool {
+		w := map[string]bool{}
+		for _, sg := range it.Segments {
+			if at := it.OccurredAt.Add(time.Duration(sg.Start * float64(time.Second))); window && (at.Before(m.OccurredAt) || at.After(m.EndedAt)) {
+				continue
+			}
+			for _, f := range strings.FieldsFunc(strings.ToLower(sg.Text), func(r rune) bool { return !unicode.IsLetter(r) }) {
+				if len(f) >= 4 {
+					w[f] = true
+				}
+			}
+		}
+		return w
+	}
+	tw, mw := words(t, true), words(m, false)
+	if len(tw) == 0 {
+		return 0
+	}
+	n := 0
+	for w := range tw {
+		if mw[w] {
+			n++
+		}
+	}
+	return float64(n) / float64(len(tw))
 }
 
 // overlapping is the Teams copy that shares the most time with m (at least

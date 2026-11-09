@@ -115,7 +115,9 @@ export function LiveView({ status, onOpen, onEntity, onTopic, scope: askScope, p
   const send = () => { if (ask.send(typed)) setTyped(''); };
 
   return (
-    <div className="view live">
+    // Without a meeting there is nothing for a second column: one column,
+    // centred, with the box and what was asked.
+    <div className={'view live' + (active ? '' : ' idle-mode')}>
       <div className="live-left">
       <MeetingHeader status={status} />
 

@@ -348,8 +348,8 @@ func (a *App) SetWide(on bool) {
 		return
 	}
 	w, h := a.narrowW, a.narrowH
-	if w == 0 || w >= 900 {
-		w, h = 540, 900
+	if w == 0 || w >= 1500 {
+		w, h = 1080, 900
 	}
 	wruntime.WindowSetSize(a.ctx, w, h)
 }

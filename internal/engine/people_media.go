@@ -226,26 +226,10 @@ func (e *Engine) headshot(p *person) string {
 	if e.Cfg.TomoeSessions == "" {
 		return ""
 	}
-	e.fi.mu.Lock()
-	cached, ok := e.fi.shots[p.id]
-	e.fi.mu.Unlock()
-	if ok {
-		return cached
+	if shot, ok := e.cachedHeadshot(p); ok {
+		return shot
 	}
-	// Choosing takes a few seconds (face detection over a sample of tiles),
-	// so a choice is kept on disk for a week.
-	h := sha1.Sum([]byte(p.id))
-	disk := filepath.Join(e.Cfg.DataDir, "headshots", "v2-"+hex.EncodeToString(h[:10])+".txt")
-	if st, err := os.Stat(disk); err == nil && time.Since(st.ModTime()) < 7*24*time.Hour {
-		if b, err := os.ReadFile(disk); err == nil {
-			e.fi.mu.Lock()
-			if e.fi.shots != nil {
-				e.fi.shots[p.id] = string(b)
-			}
-			e.fi.mu.Unlock()
-			return string(b)
-		}
-	}
+	disk := e.headshotFile(p)
 	fs := e.faces()
 	var cs []faceCandidate
 	for n := range p.names {
@@ -268,6 +252,58 @@ func (e *Engine) headshot(p *person) string {
 		_ = os.WriteFile(disk, []byte(shot), 0o600)
 	}
 	return shot
+}
+
+// headshotFile is where a person's chosen headshot is kept.
+func (e *Engine) headshotFile(p *person) string {
+	h := sha1.Sum([]byte(p.id))
+	return filepath.Join(e.Cfg.DataDir, "headshots", "v2-"+hex.EncodeToString(h[:10])+".txt")
+}
+
+// cachedHeadshot is a headshot already chosen, in memory or on disk.
+// Choosing takes a few seconds (face detection over a sample of tiles),
+// so a choice is kept on disk for a week.
+func (e *Engine) cachedHeadshot(p *person) (string, bool) {
+	e.fi.mu.Lock()
+	cached, ok := e.fi.shots[p.id]
+	e.fi.mu.Unlock()
+	if ok {
+		return cached, true
+	}
+	disk := e.headshotFile(p)
+	st, err := os.Stat(disk)
+	if err != nil || time.Since(st.ModTime()) >= 7*24*time.Hour {
+		return "", false
+	}
+	b, err := os.ReadFile(disk)
+	if err != nil {
+		return "", false
+	}
+	e.fi.mu.Lock()
+	if e.fi.shots != nil {
+		e.fi.shots[p.id] = string(b)
+	}
+	e.fi.mu.Unlock()
+	return string(b), true
+}
+
+// Headshot is a person's headshot for the people tiles; with choose false,
+// only one already chosen (none is chosen while a meeting is live, to keep
+// face detection off the machine then).
+func (e *Engine) Headshot(entityID string, choose bool) (string, error) {
+	ps, _, err := e.people()
+	if err != nil {
+		return "", err
+	}
+	p := ps[entityID]
+	if p == nil || e.Cfg.TomoeSessions == "" {
+		return "", nil
+	}
+	if !choose {
+		shot, _ := e.cachedHeadshot(p)
+		return shot, nil
+	}
+	return e.headshot(p), nil
 }
 
 // tileHeadshot is the fallback without face detection: a camera-on tile,

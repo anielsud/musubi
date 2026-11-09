@@ -55,6 +55,9 @@ type ToDo struct {
 	// the same, so it has no thread and the owner can't mark it yet.
 	Requester string `json:"requester,omitempty"`
 	Digest    int64  `json:"digest,omitempty"`
+	// Agreed is the summary's reading (agreed, asked, floated, declined);
+	// empty for a to-do from statements.
+	Agreed string `json:"agreed,omitempty"`
 	// givenDue is the due date the digest read, 2006-01-02.
 	givenDue string
 }
@@ -98,7 +101,7 @@ func (v Views) ToDos(req ToDoRequest, ownerName string) ([]ToDo, error) {
 	for i, c := range cs {
 		t := &todos[i]
 		t.Statement, t.Topic = c.Statement, c.Topic
-		t.Requester, t.Digest, t.givenDue = c.Requester, c.Digest, c.DueDate
+		t.Requester, t.Digest, t.givenDue, t.Agreed = c.Requester, c.Digest, c.DueDate, c.Agreed
 		t.Raised, t.LastRaised = t.Raised+1, c.SaidAt
 		t.Marks = append(t.Marks, own[i].marks...)
 		for _, f := range c.Later {
@@ -158,6 +161,14 @@ func (v Views) ToDos(req ToDoRequest, ownerName string) ([]ToDo, error) {
 		t.Owners = t.Who
 		if len(t.Owners) == 0 && t.Holder != "" {
 			t.Owners = []string{t.Holder}
+		}
+		if own[i].whoSet {
+			t.Owners = nil
+			for _, n := range strings.Split(own[i].who, ",") {
+				if n = strings.TrimSpace(n); n != "" {
+					t.Owners = append(t.Owners, n)
+				}
+			}
 		}
 		for _, o := range t.Owners {
 			if owner != "" && strings.EqualFold(strings.TrimSpace(o), owner) {
@@ -270,6 +281,8 @@ type ownerSaid struct {
 	due    string
 	dueSet bool
 	parent int // index of the to-do it is a step of; -1 for none
+	who    string
+	whoSet bool
 	marks  []store.OwnerLink
 }
 
@@ -282,6 +295,9 @@ func (o *ownerSaid) inherit(e ownerSaid) {
 	}
 	if o.parent < 0 {
 		o.parent = e.parent
+	}
+	if !o.whoSet {
+		o.who, o.whoSet = e.who, e.whoSet
 	}
 }
 
@@ -299,7 +315,22 @@ func (v Views) ownerWord(cs []store.Commitment, at map[int64]int, ownerName stri
 	if err != nil || len(links) == 0 {
 		return own, err
 	}
+	// A summary's to-do that no statement matches is keyed by its meeting
+	// and its text as written.
+	unmatched := map[store.StatementKey]int{}
+	for i, c := range cs {
+		if c.ID < 0 {
+			text := c.Text
+			if c.Original != "" {
+				text = c.Original
+			}
+			unmatched[store.StatementKey{Item: c.ItemID, Text: text}] = i
+		}
+	}
 	find := func(k store.StatementKey) (int, bool) {
+		if i, ok := unmatched[k]; ok {
+			return i, true
+		}
 		ids, err := v.Store.ResolveKeys([]store.StatementKey{k})
 		if err != nil || len(ids) == 0 {
 			return 0, false
@@ -332,6 +363,8 @@ func (v Views) ownerWord(cs []store.Commitment, at map[int64]int, ownerName stri
 			own[a].not = true
 		case "due":
 			own[a].due, own[a].dueSet = l.Note, true
+		case "who":
+			own[a].who, own[a].whoSet = l.Note, true
 		case "same":
 			// The earlier folds into the later, as a repeat does (cs is
 			// oldest first).

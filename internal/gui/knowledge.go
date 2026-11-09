@@ -118,17 +118,13 @@ func (a *App) MeetingPage(itemID, scope string) (*knowledge.MeetingPage, error) 
 }
 
 // LinkToDo records the owner's word on a to-do: a link to another (same,
-// replaces, part) or a mark (done, dropped, not, due; other 0), with a
-// note (for due, the date as 2006-01-02, empty for none). The owner's view
-// only.
+// replaces, part) or a mark (done, dropped, not, due, who; other 0), with
+// a note (for due, the date as 2006-01-02, empty for none; for who, the
+// names). A negative id is a meeting summary's to-do no statement matches.
+// The owner's view only.
 func (a *App) LinkToDo(id int64, rel string, other int64, note string) (int64, error) {
 	if a.eng == nil {
 		return 0, fmt.Errorf("not ready")
-	}
-	if id <= 0 {
-		// A to-do from a meeting summary that no statement matches has no
-		// thread or source statement to hang the owner's word on yet.
-		return 0, fmt.Errorf("this to-do isn't matched with a statement yet, so it can't be marked")
 	}
 	return a.eng.Store.LinkStatements(id, rel, other, strings.TrimSpace(note), "owner")
 }

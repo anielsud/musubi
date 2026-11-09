@@ -331,6 +331,8 @@ export interface ToDo extends Statement {
   // it has no thread and can't be marked yet.
   requester?: string;
   digest?: number;
+  // The summary's reading: agreed, asked, floated, declined (summary to-dos).
+  agreed?: 'agreed' | 'asked' | 'floated' | 'declined';
 }
 
 // OwnerLink is the owner's word on a to-do: a link (same, replaces, part)
@@ -338,7 +340,7 @@ export interface ToDo extends Statement {
 export interface OwnerLink {
   id: number;
   statement: { item: string; text: string };
-  rel: 'same' | 'replaces' | 'part' | 'done' | 'dropped' | 'not' | 'due';
+  rel: 'same' | 'replaces' | 'part' | 'done' | 'dropped' | 'not' | 'due' | 'who';
   other: { item: string; text: string };
   note?: string;
   at: string;

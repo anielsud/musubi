@@ -114,6 +114,15 @@ func (a *App) PersonPage(entityID, scope string) (*engine.PersonPage, error) {
 	return a.eng.PersonPage(entityID)
 }
 
+// Headshot is a person's headshot for the people tiles (Explore), chosen
+// now if it hasn't been, except during a live meeting. Owner scope only.
+func (a *App) Headshot(entityID, scope string) (string, error) {
+	if a.eng == nil || scope != "owner" {
+		return "", nil
+	}
+	return a.eng.Headshot(entityID, a.live.Status().Mode != "live")
+}
+
 // PeopleNames maps names (normalised) that mean exactly one person to that
 // person, so names shown anywhere can open the person. Owner scope only.
 func (a *App) PeopleNames(scope string) (map[string]string, error) {

@@ -12,7 +12,7 @@ import { Cited, Refs, citedIn } from './Knowledge';
 // Opened from the Meetings tab, for an upcoming meeting, the next one of a
 // past meeting, or named people.
 export function PrepPage({ req, scope, onBack, onOpen, onTopic }: {
-  req: PrepRequest; scope: string; onBack: () => void; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void;
+  req: PrepRequest; scope: string; onBack?: () => void; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void;
 }) {
   const [view, setView] = useState<Prep | null | undefined>(null);
   const [err, setErr] = useState('');
@@ -44,7 +44,7 @@ export function PrepPage({ req, scope, onBack, onOpen, onTopic }: {
 
   return (
     <div className="view prep">
-      <button className="link back" onClick={onBack}>← Meetings</button>
+      {onBack && <button className="link back" onClick={onBack}>← Meetings</button>}
       {err && <div className="error small">{err}</div>}
       {view === undefined && <Spinner />}
       {view && (

@@ -21,6 +21,8 @@ type Commitment struct {
 	DueDate   string `json:"dueDate,omitempty"`
 	Requester string `json:"requester,omitempty"`
 	Digest    int64  `json:"digest,omitempty"`
+	// Agreed is the summary's reading: agreed, asked, floated, declined.
+	Agreed string `json:"agreed,omitempty"`
 }
 
 // Follow is a later statement and how it relates to an earlier one

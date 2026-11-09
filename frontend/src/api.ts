@@ -69,6 +69,7 @@ export const api = {
   m365SignOut: (): Promise<void> => app().M365SignOut(),
   personProfile: (id: string, scope: string): Promise<PersonProfile | null> => app().PersonProfile(id, scope),
   people: (scope: string): Promise<PersonRow[] | null> => app().People(scope),
+  headshot: (id: string, scope: string): Promise<string> => app().Headshot(id, scope),
   personPage: (id: string, scope: string): Promise<PersonPage | null> => app().PersonPage(id, scope),
   peopleNames: (scope: string): Promise<Record<string, string> | null> => app().PeopleNames(scope),
 };

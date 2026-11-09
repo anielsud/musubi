@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -12,8 +13,9 @@ import (
 // by key, so they apply again after a re-extraction or a correction.
 
 // OwnerLinkRels are the links (statement → other) and marks (statement
-// alone) the owner can make.
-var OwnerLinkRels = map[string]bool{"same": true, "replaces": true, "part": true, "done": true, "dropped": true, "not": true, "due": true}
+// alone) the owner can make; who says whose it is (the note: names,
+// comma-separated; empty for not the owner's).
+var OwnerLinkRels = map[string]bool{"same": true, "replaces": true, "part": true, "done": true, "dropped": true, "not": true, "due": true, "who": true}
 
 // OwnerLink is one recorded link or mark.
 type OwnerLink struct {
@@ -28,12 +30,14 @@ type OwnerLink struct {
 }
 
 // LinkStatements records the owner's link from one statement to another
-// (other 0 for a mark) and returns its id.
+// (other 0 for a mark) and returns its id. A negative id names a meeting
+// summary's to-do that no statement matches (-meeting_todos.id): it is
+// keyed by its meeting and text as a statement is.
 func (s *Store) LinkStatements(id int64, rel string, other int64, note, by string) (int64, error) {
 	if !OwnerLinkRels[rel] {
 		return 0, fmt.Errorf("unknown link %q", rel)
 	}
-	mark := rel == "done" || rel == "dropped" || rel == "not" || rel == "due"
+	mark := rel == "done" || rel == "dropped" || rel == "not" || rel == "due" || rel == "who"
 	if mark != (other == 0) || id == other {
 		return 0, fmt.Errorf("%s needs %s", rel, map[bool]string{true: "no other statement", false: "another statement"}[mark])
 	}
@@ -41,7 +45,7 @@ func (s *Store) LinkStatements(id int64, rel string, other int64, note, by strin
 	if other != 0 {
 		ids = append(ids, other)
 	}
-	keys, err := s.StatementKeys(ids)
+	keys, err := s.toDoKeys(ids)
 	if err != nil {
 		return 0, err
 	}
@@ -58,6 +62,32 @@ func (s *Store) LinkStatements(id int64, rel string, other int64, note, by strin
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// toDoKeys keys statements (positive ids) and unmatched summary to-dos
+// (negative ids); those gone are left out.
+func (s *Store) toDoKeys(ids []int64) ([]StatementKey, error) {
+	var out []StatementKey
+	for _, id := range ids {
+		if id > 0 {
+			ks, err := s.StatementKeys([]int64{id})
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, ks...)
+			continue
+		}
+		var k StatementKey
+		err := s.db.QueryRow(`SELECT item_id, text FROM meeting_todos WHERE id = ?`, -id).Scan(&k.Item, &k.Text)
+		if err == sql.ErrNoRows {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, k)
+	}
+	return out, nil
 }
 
 // OwnerLinks lists the links in force, oldest first (a later mark on the

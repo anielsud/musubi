@@ -395,7 +395,7 @@ func (s *Store) DigestCommitments(sc sensitivity.Scope, proposals bool) ([]Commi
 		if len(c.Who) > 0 {
 			c.Holder = c.Who[0]
 		}
-		c.DueDate, c.Requester = t.DueDate, t.Requester
+		c.DueDate, c.Requester, c.Agreed = t.DueDate, t.Requester, t.Agreed
 		c.Status = map[string]string{"agreed": "agreed", "floated": "proposed"}[t.Agreed]
 		if c.Status == "" {
 			c.Status = "stated"

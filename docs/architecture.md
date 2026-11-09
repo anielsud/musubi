@@ -304,6 +304,12 @@ cold lane like any other source.
   over the same 15% are marked for the owner alone and, with more than
   one other person attending, listed last (`prep.mark_private`).
   "Draft" writes talking points with the Ask model.
+  With `prep.auto_brief` (on), the app drafts them ahead for the owner's
+  calendar events in the rest of the week: every 15 minutes it builds each
+  event's prep, hashes it with the model's name, and drafts again only
+  when the hash changed; drafts are kept in `prep_briefs` with the
+  combined label of the sources they cite (confidential with none), and
+  nothing runs while a meeting is live.
   `musubi prep <item> [--brief]` is the same from the command line.
 - **To-do** (`knowledge.ToDos`, `store.Commitments`, or the digest's to-dos, see Meeting digests): everything someone
   said would happen (commitment statements) and, with "+ proposals", what

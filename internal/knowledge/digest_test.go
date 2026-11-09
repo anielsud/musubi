@@ -263,6 +263,36 @@ func TestToDosFromDigest(t *testing.T) {
 		t.Error("a confidential meeting's to-do on a shared screen")
 	}
 
+	if x := got["Kai Moreno will book the venue."]; x.Agreed != "asked" {
+		t.Errorf("agreed reading: %q", x.Agreed)
+	}
+
+	// The owner's word on a to-do no statement matches: who it's for, then
+	// done; each applies by meeting and text, and undoes.
+	kai := got["Kai Moreno will book the venue."]
+	who, err := s.LinkStatements(kai.ID, "who", 0, "Robin Vale, Kai Moreno", "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x := list(sensitivity.Owner(), false)["Kai Moreno will book the venue."]; !x.Mine || len(x.Owners) != 2 || len(x.Marks) != 1 {
+		t.Errorf("after who: mine %v, owners %v, marks %d", x.Mine, x.Owners, len(x.Marks))
+	}
+	if _, err := s.LinkStatements(kai.ID, "done", 0, "booked", "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if x := list(sensitivity.Owner(), false)["Kai Moreno will book the venue."]; x.State != "done" || x.Outcome == nil || !x.Outcome.Owner {
+		t.Errorf("after done: %+v", x)
+	}
+	if err := s.UndoOwnerLink(who); err != nil {
+		t.Fatal(err)
+	}
+	if x := list(sensitivity.Owner(), false)["Kai Moreno will book the venue."]; x.Mine {
+		t.Error("who still applied after undo")
+	}
+	if _, err := s.LinkStatements(-99999, "done", 0, "", "owner"); err == nil {
+		t.Error("marked a to-do that doesn't exist")
+	}
+
 	// The meeting page: the digest, each to-do's state, and the topics.
 	page, err := Views{Store: s, Scope: sensitivity.Owner(), Now: day(10)}.MeetingPage(m1, 1, 0, "Robin Vale")
 	if err != nil || page == nil || len(page.ToDos) != 4 || page.Title != "meeting m1" {

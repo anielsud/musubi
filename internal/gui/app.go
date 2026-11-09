@@ -92,6 +92,9 @@ func (a *App) openConfig(path string) error {
 		a.emit("app:status", a.Status())
 	}()
 	go a.live.Run(lctx)
+	if e.Cfg.Prep.AutoBrief && e.AskLLM != nil {
+		go a.draftBriefs(lctx)
+	}
 	if n := e.Cfg.Live.UpdateEvery; n > 0 {
 		go func() {
 			t := time.NewTicker(time.Duration(n) * time.Minute)
@@ -348,8 +351,8 @@ func (a *App) SetWide(on bool) {
 		return
 	}
 	w, h := a.narrowW, a.narrowH
-	if w == 0 || w >= 900 {
-		w, h = 460, 900
+	if w == 0 || w >= 1500 {
+		w, h = 1080, 900
 	}
 	wruntime.WindowSetSize(a.ctx, w, h)
 }

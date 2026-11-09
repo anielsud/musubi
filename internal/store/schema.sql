@@ -514,3 +514,18 @@ CREATE TABLE IF NOT EXISTS item_titles (
 	input   TEXT NOT NULL,
 	made_at INTEGER NOT NULL
 );
+
+-- Talking points drafted ahead of a meeting (prep.auto_brief): one per
+-- upcoming event, redone when what they rest on (input) changes. Label is
+-- the combined label of the sources cited; with none, confidential.
+CREATE TABLE IF NOT EXISTS prep_briefs (
+	item_id    TEXT PRIMARY KEY,
+	input      TEXT NOT NULL,
+	model      TEXT NOT NULL,
+	text       TEXT NOT NULL,
+	sources    TEXT NOT NULL DEFAULT '[]',
+	threads    TEXT NOT NULL DEFAULT '[]',
+	level      INTEGER NOT NULL,
+	categories INTEGER NOT NULL DEFAULT 0,
+	made_at    INTEGER NOT NULL
+);

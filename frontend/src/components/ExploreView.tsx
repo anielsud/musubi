@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, fmtDate, kindIcon } from '../api';
 import type { EntityRef, Graph, Hit, PersonRow } from '../types';
-import { PersonView } from './PersonView';
+import { PersonView, initials } from './PersonView';
 import { Empty, HitRow, LabelBadge, Spinner } from './common';
 import { GraphView } from './GraphView';
 import { ClaimResults, TopicsPane } from './Knowledge';
@@ -167,8 +167,8 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
   );
 }
 
-// PeoplePane lists the people the owner meets, most met first, with a
-// filter on name, title and team.
+// PeoplePane shows the people the owner meets as tiles, most met first,
+// with a filter on name, title and team.
 function PeoplePane({ onPick }: { onPick: (id: string) => void }) {
   const [rows, setRows] = useState<PersonRow[] | null>(null);
   const [f, setF] = useState('');
@@ -181,13 +181,48 @@ function PeoplePane({ onPick }: { onPick: (id: string) => void }) {
       <form className="lookup" onSubmit={(e) => e.preventDefault()}>
         <input value={f} onChange={(e) => setF(e.target.value)} placeholder={`Filter ${rows.length} people by name, title or team…`} />
       </form>
-      {shown.slice(0, 200).map((r) => (
-        <button key={r.id} className="person-row" onClick={() => onPick(r.id)}>
-          <span><span>{r.name}</span><br /><span className="sub">{[r.title, r.department].filter(Boolean).join(' · ') || r.email}</span></span>
-          <span className="sub">{r.together > 0 ? `${r.together} meetings` : ''}{r.lastTogether && !r.lastTogether.startsWith('0001') ? ` · last ${fmtDate(r.lastTogether)}` : ''}</span>
-        </button>
-      ))}
+      <div className="person-tiles">
+        {shown.slice(0, 200).map((r) => <PersonTile key={r.id} r={r} onPick={onPick} />)}
+      </div>
       {shown.length > 200 && <div className="dim small">{shown.length - 200} more; filter to narrow.</div>}
     </div>
+  );
+}
+
+// Headshots are chosen on first ask (face detection over a person's meeting
+// tiles takes a few seconds), so tiles ask only once on screen, two at a
+// time; what came back is kept for the session.
+const shots = new Map<string, string>();
+const shotQueue: (() => Promise<void>)[] = [];
+let shotsRunning = 0;
+function nextShot() {
+  while (shotsRunning < 2 && shotQueue.length) {
+    shotsRunning++;
+    shotQueue.shift()!().finally(() => { shotsRunning--; nextShot(); });
+  }
+}
+
+function PersonTile({ r, onPick }: { r: PersonRow; onPick: (id: string) => void }) {
+  const [shot, setShot] = useState(shots.get(r.id));
+  const el = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (shots.has(r.id) || r.together === 0 || !el.current) return;
+    let gone = false;
+    const io = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) return;
+      io.disconnect();
+      shotQueue.push(() => (gone ? Promise.resolve() : api.headshot(r.id, 'owner').then((s) => { shots.set(r.id, s ?? ''); if (!gone) setShot(s ?? ''); }, () => {})));
+      nextShot();
+    });
+    io.observe(el.current);
+    return () => { gone = true; io.disconnect(); };
+  }, [r.id, r.together]);
+  return (
+    <button ref={el} className="person-tile" onClick={() => onPick(r.id)} title={r.email}>
+      {shot ? <img className="tile-shot" src={shot} alt="" /> : <div className="tile-shot none">{initials(r.name)}</div>}
+      <div className="tile-name">{r.name}</div>
+      <div className="sub">{[r.title, r.department].filter(Boolean).join(' · ') || r.email}</div>
+      <div className="sub">{r.together > 0 ? `${r.together} meetings` : ''}{r.lastTogether && !r.lastTogether.startsWith('0001') ? ` · last ${fmtDate(r.lastTogether)}` : ''}</div>
+    </button>
   );
 }

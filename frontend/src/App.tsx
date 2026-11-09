@@ -2,8 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, on } from './api';
 import type { AppStatus, Hit, LiveStatus } from './types';
 import { LiveView } from './components/LiveView';
-import { AskView } from './components/AskView';
-import { PrepView } from './components/PrepView';
 import { ToDoView } from './components/ToDoView';
 import { MeetingsView } from './components/MeetingsView';
 import { ExploreView } from './components/ExploreView';
@@ -14,7 +12,7 @@ import { SourceDrawer, type SourceRef } from './components/SourceDrawer';
 import { DiagPanel } from './components/DiagPanel';
 import { SelectionMenu, type Picked } from './components/SelectionMenu';
 
-type View = 'live' | 'ask' | 'prep' | 'to-do' | 'meetings' | 'explore' | 'status' | 'settings';
+type View = 'live' | 'meetings' | 'to-do' | 'explore' | 'status' | 'settings';
 
 export function App() {
   const [view, setView] = useState<View>('live');
@@ -69,7 +67,7 @@ export function App() {
   const askAbout = (p: Picked) => {
     const from = p.title ? ` (from ${p.title}${p.at ? ', ' + new Date(p.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''})` : '';
     setAskReq({ text: `What do we know about “${p.text}”${from}?`, n: Date.now() });
-    setView('ask');
+    setView('live');
   };
   const correct = (p: Picked) => { setFocus(null); setCorrectReq({ variant: p.text, n: Date.now() }); setView('explore'); };
 
@@ -97,7 +95,7 @@ export function App() {
       </header>
 
       <nav className="tabs" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
-        {(['live', 'ask', 'prep', 'to-do', 'meetings', 'explore', 'status', 'settings'] as View[]).map((v) => (
+        {(['live', 'meetings', 'to-do', 'explore', 'status', 'settings'] as View[]).map((v) => (
           <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>
             {v === 'live' && live?.mode === 'live' && <span className="pulse" />}
             {v}
@@ -107,11 +105,9 @@ export function App() {
 
       <PeopleProvider scope={scope} onOpen={(id) => { setSource(null); openEntity(id); }}>
       <main>
-        <div hidden={view !== 'live'}><LiveView status={live} onOpen={openHit} onEntity={openEntity} onTopic={openTopic} /></div>
-        <div hidden={view !== 'ask'}><AskView onOpen={openHit} scope={scope} onTopic={openTopic} prefill={askReq} /></div>
-        <div hidden={view !== 'prep'}><PrepView onOpen={openHit} scope={scope} onTopic={openTopic} /></div>
+        <div hidden={view !== 'live'}><LiveView status={live} onOpen={openHit} onEntity={openEntity} onTopic={openTopic} scope={scope} prefill={askReq} /></div>
         <div hidden={view !== 'to-do'}><ToDoView onOpen={openHit} scope={scope} onTopic={openTopic} onMeeting={openMeeting} /></div>
-        <div hidden={view !== 'meetings'}><MeetingsView onOpen={openHit} scope={scope} onTopic={openTopic} req={meetingReq} /></div>
+        <div hidden={view !== 'meetings'}><MeetingsView onOpen={openHit} scope={scope} onTopic={openTopic} req={meetingReq} active={view === 'meetings'} /></div>
         <div hidden={view !== 'explore'}>
           <ExploreView scope={scope} focus={focus} setFocus={setFocus} onOpen={openHit} topicReq={topicReq} correctReq={correctReq}
             onOpenItem={(id, sc) => setSource({ itemId: id, scope: sc })} />

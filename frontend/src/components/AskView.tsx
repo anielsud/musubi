@@ -1,9 +1,9 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { api, fmtDate, on } from '../api';
 import type { Hit, ThreadRef } from '../types';
 import { CitedText, HitRow, Spinner } from './common';
 
-interface Turn {
+export interface Turn {
   id: string;
   q: string;
   text: string;
@@ -15,27 +15,17 @@ interface Turn {
   scope: string;
 }
 
-const examples = [
+export const askExamples = [
   'Where do we stand on pipeline for Q4?',
   'What changed on hiring this month?',
   'What are the open questions with Microsoft?',
   'What did I agree to follow up on this week?',
 ];
 
-export function AskView({ onOpen, scope, onTopic, prefill }: {
-  onOpen: (h: Hit, scope: string) => void; scope: string; onTopic: (id: number) => void;
-  // prefill puts a question in the box (from a text selection) to edit or send.
-  prefill?: { text: string; n: number } | null;
-}) {
+// useAsk holds the questions asked and their answers as they stream in;
+// newest first, since answers sit at the top of the Live panel.
+export function useAsk(scope: string) {
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [q, setQ] = useState('');
-  const box = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    if (!prefill) return;
-    setQ(prefill.text);
-    setTimeout(() => { box.current?.focus(); box.current?.select(); }, 0);
-  }, [prefill?.n]);
-  const end = useRef<HTMLDivElement>(null);
   const busy = turns.some((t) => !t.done);
 
   useEffect(() => {
@@ -57,97 +47,69 @@ export function AskView({ onOpen, scope, onTopic, prefill }: {
     return () => offs.forEach((f) => f());
   }, []);
 
-  // Braces: scrollIntoView may return a Promise (Chrome does), which React
-  // would take for a cleanup function.
-  useEffect(() => { end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }); }, [turns]);
-
   const send = (question: string) => {
     const text = question.trim();
-    if (!text || busy) return;
+    if (!text || busy) return false;
     const id = String(Date.now());
-    setTurns((ts) => [...ts, { id, q: text, text: '', sources: [], threads: [], done: false, scope }]);
-    setQ('');
+    setTurns((ts) => [{ id, q: text, text: '', sources: [], threads: [], done: false, scope }, ...ts]);
     api.ask(id, text, scope).catch((e) =>
       setTurns((ts) => ts.map((t) => (t.id === id ? { ...t, done: true, error: String(e) } : t))),
     );
+    return true;
   };
+  const dismiss = (id: string) => setTurns((ts) => ts.filter((t) => t.id !== id));
+  return { turns, busy, send, dismiss };
+}
 
+// AskCard is one question and its answer: the subject's written status
+// while the answer is written, then the answer with its sources.
+export function AskCard({ t, onOpen, onTopic, onClose }: {
+  t: Turn; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void; onClose?: () => void;
+}) {
   return (
-    <div className="view ask">
-      <div className="turns">
-        {turns.length === 0 && (
-          <div className="ask-empty">
-            <div className="idle-art" aria-hidden>問</div>
-            <p>Ask about your meetings, people and customers. Answers start from where each subject stands now, then the record itself, with sources.</p>
-            <div className="examples">
-              {examples.map((e) => <button key={e} className="chip" onClick={() => send(e)}>{e}</button>)}
-            </div>
-          </div>
-        )}
-        {turns.map((t) => (
-          <div key={t.id} className="turn">
-            <div className="q">{t.q}{t.scope !== 'owner' && <span className="scope-pill">{t.scope}</span>}</div>
-            {t.threads.length > 0 && (t.done ? (
-              t.threads[0].status && (
-                <details className="found-done">
-                  <summary>Where {t.threads[0].name} stands, as written</summary>
-                  <StatusCard th={t.threads[0]} onTopic={onTopic} />
-                </details>
-              )
-            ) : (
-              <div className="found">
-                {t.threads[0].status && <StatusCard th={t.threads[0]} onTopic={onTopic} />}
-                {t.threads.slice(t.threads[0].status ? 1 : 0).map((th) => (
-                  <button key={th.id} className="found-row" onClick={() => onTopic(th.id)} title="Open the topic's page">
-                    <b>{th.name}</b> <span className="dim">· {fmtDate(th.asOf)}</span>
-                    {th.now && <div className="found-now">{th.now}</div>}
-                  </button>
-                ))}
-                <div className="dim small">Writing the answer…</div>
-              </div>
-            ))}
-            <div className="a">
-              {t.text ? <Answer text={t.text} hits={t.sources} onCite={(h) => onOpen(h, t.scope)} /> : !t.done && <Spinner />}
-              {!t.done && t.text && <span className="caret" />}
-              {t.stopped && <div className="dim small">stopped</div>}
-              {t.error && <div className="error small">{t.error}</div>}
-            </div>
-            {t.done && t.threads.length > 0 && (
-              <div className="subject-chips">
-                <span className="dim small">From:</span>
-                {t.threads.map((th) => (
-                  <button key={th.id} className="chip" onClick={() => onTopic(th.id)} title="Open the topic's page">
-                    {th.name} <span className="dim">· {fmtDate(th.asOf)}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {t.done && t.sources.length > 0 && <Sources t={t} onOpen={(x) => onOpen(x, t.scope)} />}
-          </div>
-        ))}
-        <div ref={end} />
+    <article className="turn ask-card">
+      <div className="q">
+        <span className="glyph k-typed">›</span> {t.q}{t.scope !== 'owner' && <span className="scope-pill">{t.scope}</span>}
+        {!t.done ? <button className="link" onClick={() => api.stopAsk()} title="Stop">stop</button>
+          : onClose && <button className="link" onClick={onClose} title="Remove">×</button>}
       </div>
-      <form className="composer" onSubmit={(e) => { e.preventDefault(); send(q); }}>
-        <textarea
-          ref={box}
-          value={q}
-          rows={2}
-          placeholder="Ask anything…"
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              send(q);
-            }
-          }}
-        />
-        {busy ? (
-          <button type="button" className="icon-btn" onClick={() => api.stopAsk()} title="Stop">■</button>
-        ) : (
-          <button type="submit" className="primary" disabled={!q.trim()}>Ask</button>
-        )}
-      </form>
-    </div>
+      {t.threads.length > 0 && (t.done ? (
+        t.threads[0].status && (
+          <details className="found-done">
+            <summary>Where {t.threads[0].name} stands, as written</summary>
+            <StatusCard th={t.threads[0]} onTopic={onTopic} />
+          </details>
+        )
+      ) : (
+        <div className="found">
+          {t.threads[0].status && <StatusCard th={t.threads[0]} onTopic={onTopic} />}
+          {t.threads.slice(t.threads[0].status ? 1 : 0).map((th) => (
+            <button key={th.id} className="found-row" onClick={() => onTopic(th.id)} title="Open the topic's page">
+              <b>{th.name}</b> <span className="dim">· {fmtDate(th.asOf)}</span>
+              {th.now && <div className="found-now">{th.now}</div>}
+            </button>
+          ))}
+          <div className="dim small">Writing the answer…</div>
+        </div>
+      ))}
+      <div className="a">
+        {t.text ? <Answer text={t.text} hits={t.sources} onCite={(h) => onOpen(h, t.scope)} /> : !t.done && <Spinner />}
+        {!t.done && t.text && <span className="caret" />}
+        {t.stopped && <div className="dim small">stopped</div>}
+        {t.error && <div className="error small">{t.error}</div>}
+      </div>
+      {t.done && t.threads.length > 0 && (
+        <div className="subject-chips">
+          <span className="dim small">From:</span>
+          {t.threads.map((th) => (
+            <button key={th.id} className="chip" onClick={() => onTopic(th.id)} title="Open the topic's page">
+              {th.name} <span className="dim">· {fmtDate(th.asOf)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {t.done && t.sources.length > 0 && <Sources t={t} onOpen={(x) => onOpen(x, t.scope)} />}
+    </article>
   );
 }
 

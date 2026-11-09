@@ -11,6 +11,11 @@ import { Names } from './people';
 // dropped), how two relate (same, replaces, a step of), or fix the reading
 // (not a to-do, the due date, the text or who); each is recorded to the
 // side and can be undone.
+//
+// It opens on what you owe: to-dos you agreed to that are still open,
+// grouped by who asked. Waiting on is the same for what others owe;
+// Everything is the full list. New to-dos of yours since you last looked
+// can be gone through one at a time.
 const sections: { key: string; title: string; note?: string; test: (t: ToDo) => boolean }[] = [
   { key: 'overdue', title: 'Overdue', test: (t) => t.state === 'open' && !!t.overdue },
   { key: 'open', title: 'Open', test: (t) => t.state === 'open' && !t.overdue },
@@ -23,8 +28,29 @@ const closed = (t: ToDo) => t.state === 'done' || t.state === 'changed';
 
 const linkWords: Record<string, string> = { same: 'the same as', replaces: 'replacing', part: 'a step of' };
 const markWords: Record<string, string> = {
-  same: 'same as', replaces: 'replaces', part: 'a step of', done: 'done', dropped: 'dropped', not: 'not a to-do', due: 'due',
+  same: 'same as', replaces: 'replaces', part: 'a step of', done: 'done', dropped: 'dropped', not: 'not a to-do', due: 'due', who: 'whose',
 };
+
+// agreed: a to-do from statements, or one a summary read as agreed (not
+// only asked, suggested or turned down).
+const agreed = (t: ToDo) => !t.agreed || t.agreed === 'agreed';
+const openAgreed = (t: ToDo) => t.state === 'open' && agreed(t);
+
+// What has been gone through in review: a watermark (said before it, done)
+// and the ids looked at since. Kept in this browser only; without it,
+// everything of the last two weeks counts as new.
+const reviewKey = 'musubi.todo.review';
+type Review = { upTo: string; seen: number[] };
+function loadReview(): Review {
+  try {
+    const r = JSON.parse(localStorage.getItem(reviewKey) ?? '');
+    if (r && typeof r.upTo === 'string' && Array.isArray(r.seen)) return r;
+  } catch { /* none kept */ }
+  return { upTo: new Date(Date.now() - 14 * 864e5).toISOString(), seen: [] };
+}
+function saveReview(r: Review) {
+  try { localStorage.setItem(reviewKey, JSON.stringify(r)); } catch { /* not kept */ }
+}
 
 // Linking picks the to-do that the one being linked relates to.
 type Linking = { from: ToDo; rel: 'same' | 'replaces' | 'part' };
@@ -32,6 +58,9 @@ type Linking = { from: ToDo; rel: 'same' | 'replaces' | 'part' };
 export function ToDoView({ scope, onOpen, onTopic, onMeeting }: { scope: string; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void; onMeeting?: (itemId: string) => void }) {
   const [all, setAll] = useState<ToDo[] | null | undefined>(undefined);
   const [err, setErr] = useState('');
+  const [mode, setMode] = useState<'owe' | 'waiting' | 'all'>('owe');
+  const [review, setReview] = useState<Review>(loadReview);
+  const [queue, setQueue] = useState<ToDo[] | null>(null);
   const [mine, setMine] = useState(true);
   const [proposals, setProposals] = useState(false);
   const [byThread, setByThread] = useState(true);
@@ -49,6 +78,19 @@ export function ToDoView({ scope, onOpen, onTopic, onMeeting }: { scope: string;
   }, [proposals, scope, reload]);
   const changed = () => setReload((n) => n + 1);
   const act = (p: Promise<unknown>) => p.then(changed, (e) => setErr(String(e)));
+
+  const fresh = useMemo(() => (all ?? []).filter((t) => t.mine && (t.state === 'open' || t.state === 'proposed') &&
+    t.saidAt > review.upTo && !review.seen.includes(t.id)).sort((a, b) => a.saidAt.localeCompare(b.saidAt)), [all, review]);
+  const endReview = (r: Review) => {
+    // All gone through: the watermark moves to the newest looked at.
+    const left = (all ?? []).some((t) => t.mine && (t.state === 'open' || t.state === 'proposed') && t.saidAt > r.upTo && !r.seen.includes(t.id));
+    const next = left ? r : { upTo: (all ?? []).reduce((m, t) => (r.seen.includes(t.id) && t.saidAt > m ? t.saidAt : m), r.upTo), seen: [] };
+    saveReview(next);
+    setReview(next);
+    setQueue(null);
+  };
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = (t: ToDo) => words.every((w) => (t.text + ' ' + (t.owners ?? []).join(' ') + ' ' + (t.requester ?? '') + ' ' + (t.itemTitle ?? '') + ' ' + (t.topicLabel ?? '')).toLowerCase().includes(w));
 
   const list = useMemo(() => {
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -72,8 +114,51 @@ export function ToDoView({ scope, onOpen, onTopic, onMeeting }: { scope: string;
   const more = (key: string, n: number, total: number) => total > n &&
     <button className="link small" onClick={() => setShown({ ...shown, [key]: n + pageSize })}>show {Math.min(pageSize, total - n)} more</button>;
 
+  if (queue) {
+    return (
+      <div className="view todo">
+        <Triage queue={queue} scope={scope} act={(p) => p.then(changed, (e) => setErr(String(e)))} onOpen={onOpen}
+          onDone={(seen) => endReview({ ...review, seen: [...review.seen, ...seen] })} />
+        {err && <div className="error small">{err}</div>}
+      </div>
+    );
+  }
+
+  const owe = mode === 'owe' ? (all ?? []).filter((t) => t.mine && openAgreed(t) && matches(t)) : [];
+  const waiting = mode === 'waiting' ? (all ?? []).filter((t) => !t.mine && openAgreed(t) && matches(t)) : [];
+  const asked = mode === 'owe' ? (all ?? []).filter((t) => t.mine && t.state === 'open' && !agreed(t)).length : 0;
+
   return (
     <div className="view todo">
+      <div className="chips todo-modes">
+        <button className={'chip' + (mode === 'owe' ? ' on' : '')} onClick={() => setMode('owe')} title="What you agreed to that is still open">You owe</button>
+        <button className={'chip' + (mode === 'waiting' ? ' on' : '')} onClick={() => setMode('waiting')} title="What others agreed to that is still open">Waiting on</button>
+        <button className={'chip' + (mode === 'all' ? ' on' : '')} onClick={() => setMode('all')} title="Every to-do, with what came of it">Everything</button>
+        {fresh.length > 0 && owner && (
+          <button className="chip todo-new" onClick={() => setQueue(fresh)} title="Go through them one at a time: keep, done, not a to-do, not yours">
+            {fresh.length} new since you last looked · review
+          </button>
+        )}
+      </div>
+      {mode !== 'all' && (
+        <>
+          <input className="todo-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter: words, a name, a meeting, a thread" />
+          {err && <div className="error small">{err}</div>}
+          {all === undefined && <Spinner />}
+          {all && (
+            <ByPerson items={mode === 'owe' ? owe : waiting} row={row} key={mode}
+              who={mode === 'owe' ? (t) => (t.requester && !(t.owners ?? []).some((o) => o.toLowerCase() === t.requester!.toLowerCase()) ? [t.requester] : [])
+                : (t) => (t.owners ?? []).slice(0, 1)}
+              head={mode === 'owe' ? (n) => <>for {n}</> : (n) => <>{n}</>}
+              none={mode === 'owe' ? 'No one else named' : 'Owner unclear'}
+              empty={mode === 'owe' ? 'Nothing open that you agreed to.' : 'Nothing open that others agreed to.'} />
+          )}
+          {mode === 'owe' && asked > 0 && (
+            <div className="dim small">Not shown: {asked} you were asked to do but didn't take on. They're under Everything.</div>
+          )}
+        </>
+      )}
+      {mode === 'all' && <>
       <div className="todo-filters">
         <div className="chips">
           <button className={'chip' + (mine ? ' on' : '')} onClick={() => setMine(true)}>Mine</button>
@@ -108,7 +193,107 @@ export function ToDoView({ scope, onOpen, onTopic, onMeeting }: { scope: string;
         );
       })}
       {all && aside.length > 0 && <SetAside items={aside} row={row} />}
+      </>}
     </div>
+  );
+}
+
+// ByPerson groups to-dos by a person each names (who asked, for what you
+// owe; whose it is, for what you wait on): the group with something
+// overdue first, then the biggest. Rows come sorted (overdue, then due
+// soonest, then latest raised).
+function ByPerson({ items, row, who, head, none, empty }: {
+  items: ToDo[]; row: (t: ToDo) => JSX.Element; who: (t: ToDo) => string[];
+  head: (name: JSX.Element) => JSX.Element; none: string; empty: string;
+}) {
+  const [n, setN] = useState(30);
+  const groups = useMemo(() => {
+    const m = new Map<string, { name: string; ts: ToDo[] }>();
+    for (const t of items) {
+      const name = who(t)[0] ?? '';
+      const k = name.toLowerCase();
+      if (!m.has(k)) m.set(k, { name, ts: [] });
+      m.get(k)!.ts.push(t);
+    }
+    const score = (g: { name: string; ts: ToDo[] }) => (g.name ? 0 : 1e6) - (g.ts.some((t) => t.overdue) ? 1e5 : 0) - g.ts.length;
+    return [...m.values()].sort((a, b) => score(a) - score(b));
+  }, [items, who]);
+  if (items.length === 0) return <Empty>{empty}</Empty>;
+  return (
+    <>
+      {groups.slice(0, n).map((g) => (
+        <section key={g.name || '-'} className="todo-group">
+          <div className="todo-group-head">
+            {g.name ? head(<Names names={[g.name]} />) : <span>{none}</span>}
+            <span className="dim small"> {g.ts.length}{g.ts.some((t) => t.overdue) ? `, ${g.ts.filter((t) => t.overdue).length} overdue` : ''}</span>
+          </div>
+          <ul className="todo-list">{g.ts.map(row)}</ul>
+        </section>
+      ))}
+      {groups.length > n && <button className="link small" onClick={() => setN(n + 30)}>{groups.length - n} more people</button>}
+    </>
+  );
+}
+
+// Triage goes through new to-dos one at a time: keep, done, not a to-do,
+// or not yours (and whose, if known). Keys: k, d, n, m.
+function Triage({ queue, scope, act, onOpen, onDone }: {
+  queue: ToDo[]; scope: string; act: (p: Promise<unknown>) => void; onOpen: (h: Hit, scope: string) => void; onDone: (seen: number[]) => void;
+}) {
+  const [i, setI] = useState(0);
+  const [seen, setSeen] = useState<number[]>([]);
+  const [whose, setWhose] = useState<string | null>(null);
+  const t = queue[i];
+  const next = () => {
+    const s = [...seen, t.id];
+    setSeen(s);
+    setWhose(null);
+    if (i + 1 >= queue.length) onDone(s);
+    else setI(i + 1);
+  };
+  const mark = (rel: string, note = '') => { act(api.linkToDo(t.id, rel, 0, note)); next(); };
+  useEffect(() => {
+    const f = (e: KeyboardEvent) => {
+      if (whose !== null || e.metaKey || e.ctrlKey || (e.target as HTMLElement).tagName === 'INPUT') return;
+      if (e.key === 'k') next();
+      else if (e.key === 'd') mark('done');
+      else if (e.key === 'n') mark('not');
+      else if (e.key === 'm') setWhose('');
+    };
+    window.addEventListener('keydown', f);
+    return () => window.removeEventListener('keydown', f);
+  });
+  if (!t) return null;
+  return (
+    <section className="triage">
+      <div className="section-head">
+        <span>New since you last looked · {i + 1} of {queue.length}</span>
+        <button className="link" onClick={() => onDone(seen)}>finish later</button>
+      </div>
+      <article className="triage-card">
+        <div className="triage-text"><Spelled s={t} /></div>
+        <div className="dim small">
+          {(t.owners?.length ?? 0) > 0 ? <Names names={t.owners!} /> : 'owner unclear'}
+          {t.requester && <> · asked by <Names names={[t.requester]} /></>}
+          {t.due && <span className={'badge' + (t.overdue ? ' prep-overdue' : ' todo-due')}>{t.due}</span>}
+          {t.state === 'proposed' && <> · suggested, not agreed</>}
+          {t.agreed === 'asked' && <> · asked, not accepted</>}
+          {' · '}<button className="link" onClick={() => onOpen({ itemId: t.itemId, chunkId: t.chunkId } as unknown as Hit, scope)}>{fmtDate(t.saidAt)}, {t.itemTitle || 'source'}</button>
+        </div>
+        {t.quote && <div className="card-quote">“{t.quote}”</div>}
+      </article>
+      {whose === null ? (
+        <div className="triage-actions">
+          <button className="chip" onClick={next}><b>k</b>eep</button>
+          <button className="chip" onClick={() => mark('done')}><b>d</b>one</button>
+          <button className="chip" onClick={() => mark('not')}><b>n</b>ot a to-do</button>
+          <button className="chip" onClick={() => setWhose('')}>not <b>m</b>ine</button>
+        </div>
+      ) : (
+        <NoteForm label="save" placeholder="whose is it? names, comma-separated (blank: not sure)" onSave={(n) => mark('who', n)} onCancel={() => setWhose(null)} />
+      )}
+      <div className="dim small">Your answers are recorded on each to-do and can be undone there.</div>
+    </section>
   );
 }
 
@@ -190,7 +375,7 @@ function ToDoRow({ t, scope, owner, steps, linking, setLinking, act, onOpen, onT
   act: (p: Promise<unknown>) => void; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void; onMeeting?: (itemId: string) => void; showThread: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [edit, setEdit] = useState<'' | 'done' | 'dropped' | 'due' | 'correct'>('');
+  const [edit, setEdit] = useState<'' | 'done' | 'dropped' | 'due' | 'correct' | 'who'>('');
   const src = (s: Statement) => onOpen({ itemId: s.itemId, chunkId: s.chunkId } as unknown as Hit, scope);
   const picking = linking && linking.from.id !== t.id;
   const pick = () => { act(api.linkToDo(linking!.from.id, linking!.rel, t.id)); setLinking(null); };
@@ -223,8 +408,7 @@ function ToDoRow({ t, scope, owner, steps, linking, setLinking, act, onOpen, onT
       )}
       {open && (
         <div className="todo-open small">
-          {owner && edit === '' && t.id <= 0 && <div className="dim">No statement says this yet, so it can't be marked or linked; the meeting's summary has it.</div>}
-          {owner && edit === '' && t.id > 0 && (
+          {owner && edit === '' && (
             <div className="todo-actions">
               {!closed(t) && <button className="chip" onClick={() => setEdit('done')} title="Say it happened">done</button>}
               {!closed(t) && <button className="chip" onClick={() => setEdit('dropped')} title="Say it won't happen">dropped</button>}
@@ -234,7 +418,8 @@ function ToDoRow({ t, scope, owner, steps, linking, setLinking, act, onOpen, onT
               ))}
               <button className="chip" onClick={() => setEdit('due')}>due…</button>
               {t.state !== 'not' && <button className="chip" onClick={() => mark('not')} title="Musubi misread this: set it aside">not a to-do</button>}
-              <button className="chip" onClick={() => setEdit('correct')} title="Correct the text or who said it">correct</button>
+              {t.id > 0 ? <button className="chip" onClick={() => setEdit('correct')} title="Correct the text or who said it">correct</button>
+                : <button className="chip" onClick={() => setEdit('who')} title="Say whose it is">whose…</button>}
             </div>
           )}
           {(edit === 'done' || edit === 'dropped') && (
@@ -246,6 +431,8 @@ function ToDoRow({ t, scope, owner, steps, linking, setLinking, act, onOpen, onT
               placeholder="" onSave={(n) => mark('due', n)} onCancel={() => setEdit('')} hint="Empty: no date." />
           )}
           {edit === 'correct' && <CorrectForm t={t} act={act} onDone={() => setEdit('')} />}
+          {edit === 'who' && <NoteForm label="save" initial={(t.owners ?? []).join(', ')} placeholder="names, comma-separated (blank: not yours, owner unclear)"
+            onSave={(n) => mark('who', n)} onCancel={() => setEdit('')} />}
           {(t.marks ?? []).length > 0 && (
             <ul className="todo-marks">
               {t.marks!.map((m) => <MarkRow key={m.id} m={m} owner={owner} act={act} />)}
@@ -274,7 +461,7 @@ function MarkRow({ m, owner, act }: { m: OwnerLink; owner: boolean; act: (p: Pro
   return (
     <li className="dim">
       You, {fmtDate(m.at)}: {m.other.item ? <>“{short(m.statement.text)}” is {markWords[m.rel]} “{short(m.other.text)}”</> :
-        <>{markWords[m.rel]}{m.note ? ': ' + m.note : m.rel === 'due' ? ': no date' : ''}</>}
+        <>{m.rel === 'who' && !m.note ? 'not yours' : markWords[m.rel]}{m.note ? ': ' + m.note : m.rel === 'due' ? ': no date' : ''}</>}
       {owner && <> · <button className="link" onClick={() => act(api.undoToDoLink(m.id))}>undo</button></>}
     </li>
   );

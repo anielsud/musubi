@@ -584,6 +584,13 @@ export interface M365View {
 export interface DirectoryPerson {
   email: string;
   name: string;
+  givenName?: string;
+  surname?: string;
+  phones?: string[];
+  mobile?: string;
+  city?: string;
+  country?: string;
+  hireDate?: string;
   title?: string;
   department?: string;
   office?: string;
@@ -596,4 +603,35 @@ export interface PersonProfile extends DirectoryPerson {
   reports: DirectoryPerson[] | null;
   together: number;
   lastTogether: string;
+}
+
+export interface PersonRow {
+  id: string;
+  name: string;
+  email?: string;
+  title?: string;
+  department?: string;
+  together: number;
+  lastTogether: string;
+}
+
+export interface MeetingRefP { itemId: string; title: string; at: string }
+
+export interface PersonPage {
+  id: string;
+  name: string;
+  email?: string;
+  directory?: DirectoryPerson;
+  chain: DirectoryPerson[] | null;
+  reports: DirectoryPerson[] | null;
+  peers: DirectoryPerson[] | null;
+  together: number;
+  first: string;
+  recent: MeetingRefP[] | null;
+  upcoming: MeetingRefP[] | null;
+  topics: { id: number; label: string; claims: number }[] | null;
+  todos: ToDo[] | null;
+  names: string[];
+  headshot?: string;
+  voice?: { session: string; start: number; end: number; title: string; at: string; text: string };
 }

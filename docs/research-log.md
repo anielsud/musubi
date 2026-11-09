@@ -3400,3 +3400,32 @@ Recovery:
   (2,286 passages) and statements stayed at 34,970.
 - `title.json` is written next to the 99 Tomoe recordings (Tomoe #86 shows
   it).
+
+## 2026-11-09: People tab and person pages
+
+- **People** (Explore, owner scope): 1,558 person entities with a meeting or
+  a directory entry, most met first. A recording linked to a calendar event
+  counts once (as the event). The list builds in under a second.
+- **Person page** for the 12 most-met people:
+  - directory details for 11 (one has no directory entry);
+  - recent and upcoming meetings, topics and open to-dos for all 12;
+  - a headshot for 11 and a voice clip (8–15 s) for 11.
+- Topics come from the threads holding the most of what the person said
+  (current items, by `holder_id` or the written holder). `topic_entities`
+  is empty in all-t4.
+- **Headshots:**
+  - the active-speaker tile of a Tomoe look whose name read is the person;
+  - one tile only, at least 120×90 in window pixels, with a thumbnail;
+  - cropped from the 320×200 thumbnail, largest tile first.
+  - A camera-off tile (a picture on a plain background: border luminance
+    standard deviation under 12) is passed over for one with video. If all
+    are camera-off, the middle square (half the tile's height) is used. On
+    3 sample people: 2 camera-on crops, 1 tight profile-picture crop.
+- **Voice clip:** the longest 5–15 s turn attributed to the person, from the
+  most recent Tomoe recording with audio. Played from `/replay-audio/`
+  between its start and end.
+- **Directory lookup v2** adds business and mobile phones, city, country and
+  hire date. Older entries are looked up again: 978 in four syncs.
+- Names across the app are links when they mean exactly one person
+  (`PeopleNames`): speakers in transcripts, digest people and owners, to-do
+  owners, prep attendees, statement holders.

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, fmtDate } from '../api';
 import type { Hit, OwnerLink, Statement, ToDo } from '../types';
 import { Empty, Spelled, Spinner } from './common';
+import { Names } from './people';
 
 // ToDoView: everything someone said would happen (commitments) or, asked
 // for, should happen (proposals), with what came of it: done or changed by
@@ -202,7 +203,7 @@ function ToDoRow({ t, scope, owner, steps, linking, setLinking, act, onOpen, onT
         <Spelled s={t} />
       </div>
       <div className="dim small todo-meta">
-        {(t.owners ?? []).join(', ')}
+        <Names names={t.owners ?? []} />
         {t.due && <span className={'badge' + (t.overdue ? ' prep-overdue' : ' todo-due')}>{t.due}</span>}
         {' · '}<button className="link" onClick={() => src(t)}>{fmtDate(t.saidAt)}, {t.itemTitle || 'source'}</button>
         {!!t.digest && onMeeting && <> · <button className="link" onClick={() => onMeeting(t.itemId)} title="The meeting's summary and all its to-dos">meeting</button></>}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, fmtDate } from '../api';
 import type { ClaimView, KnowledgeCounts, Statement, StatusPoint, ThreadDetail, ThreadItem, TopicMapData, TopicSummary, TopicView } from '../types';
 import { Empty, LabelBadge, Spelled, Spinner } from './common';
+import { Name, Names } from './people';
 import { TopicViews, clusterColor, useWide } from './TopicViews';
 
 // Status presentation: what's live first, then what changed.
@@ -136,7 +137,7 @@ function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope:
         <div className="chips">{t.entities!.slice(0, 8).map((e) => <span key={e.id} className={'chip t-' + e.type}>{e.name}</span>)}</div>
       )}
       {(t.people?.length ?? 0) > 0 && (
-        <div className="people"><span className="dim">who: </span>{t.people!.slice(0, 8).map((p) => `${p.name} (${p.claims})`).join(' · ')}</div>
+        <div className="people"><span className="dim">who: </span>{t.people!.slice(0, 8).map((p, i) => <span key={p.name}>{i > 0 && ' · '}<Name name={p.name} /> ({p.claims})</span>)}</div>
       )}
 
       {t.thread && scope === 'owner' && <ThreadEdit id={t.id} scope={scope} picked={picked} setPicked={setPicked} onDone={reload} />}
@@ -435,7 +436,7 @@ function StatementRow({ s, onSource }: { s: Statement; onSource: (itemId: string
   return (
     <button className="stmt" onClick={() => onSource(s.itemId, s.chunkId)} title="Open the source passage">
       <div className="stmt-head">
-        <b>{s.holder || 'unknown'}</b>
+        <b>{s.holder ? <Name name={s.holder} /> : 'unknown'}</b>
         <span className="dim">{s.kind} · {Math.round(s.certainty * 100)}% sure · {fmtDate(s.saidAt)}</span>
         {s.value?.type && s.value.type !== 'none' && <span className="value-chip" title={s.value.normalized ? 'read as a ' + s.value.type : 'not understood as a ' + s.value.type}>{s.value.raw}</span>}
         <LabelBadge label={s.label} compact />

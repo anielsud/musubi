@@ -96,3 +96,29 @@ func (a *App) PersonProfile(entityID, scope string) (*engine.PersonProfile, erro
 	}
 	return a.eng.PersonProfile(entityID)
 }
+
+// People lists the people the owner meets, most met first (Explore →
+// People). Owner scope only.
+func (a *App) People(scope string) ([]engine.PersonRow, error) {
+	if a.eng == nil || scope != "owner" {
+		return nil, nil
+	}
+	return a.eng.People()
+}
+
+// PersonPage is a person's page (Explore). Owner scope only.
+func (a *App) PersonPage(entityID, scope string) (*engine.PersonPage, error) {
+	if a.eng == nil || scope != "owner" {
+		return nil, nil
+	}
+	return a.eng.PersonPage(entityID)
+}
+
+// PeopleNames maps names (normalised) that mean exactly one person to that
+// person, so names shown anywhere can open the person. Owner scope only.
+func (a *App) PeopleNames(scope string) (map[string]string, error) {
+	if a.eng == nil || scope != "owner" {
+		return nil, nil
+	}
+	return a.eng.PeopleNames()
+}

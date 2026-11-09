@@ -57,7 +57,9 @@ export function AskView({ onOpen, scope, onTopic, prefill }: {
     return () => offs.forEach((f) => f());
   }, []);
 
-  useEffect(() => end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }), [turns]);
+  // Braces: scrollIntoView may return a Promise (Chrome does), which React
+  // would take for a cleanup function.
+  useEffect(() => { end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }); }, [turns]);
 
   const send = (question: string) => {
     const text = question.trim();

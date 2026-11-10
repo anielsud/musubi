@@ -69,6 +69,9 @@ type KnowledgeOptions struct {
 	// knowledge.auto_max of them, and leaves the rest for a run someone
 	// starts (see Held).
 	Auto bool
+	// NewOnly is a catch-up started by hand: like Auto, it leaves items
+	// older than everything threaded for a rethread, but takes every new one.
+	NewOnly bool
 	// hold are items this run leaves unextracted, so not threaded either.
 	hold map[string]bool
 	// dups are meeting recordings another one stands in for: never
@@ -369,10 +372,10 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		older = older[n:]
 	}
 	ks.Outdated.Extract = len(older)
-	if o.Auto {
+	if o.Auto || o.NewOnly {
 		// After new data, take only what appends in time order, a few at a
 		// time; older items (a backlog) and big batches wait for a run
-		// someone starts.
+		// someone starts. A catch-up (NewOnly) takes all that append.
 		frontier, err := r.threadFrontier(items)
 		if err != nil {
 			return ks, err
@@ -392,7 +395,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 			switch {
 			case kc.Threads.HoldOlder && !frontier.IsZero() && !j.it.OccurredAt.After(frontier) && !j.prior:
 				ks.Held.Older++
-			case kc.AutoMax > 0 && len(keep) >= kc.AutoMax:
+			case o.Auto && kc.AutoMax > 0 && len(keep) >= kc.AutoMax:
 				ks.Held.Batch++
 			default:
 				keep = append(keep, j)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -508,5 +509,38 @@ func TestFutureEventNotFrontier(t *testing.T) {
 	}
 	if l, _ := st.LatestThreaded(); !l.Equal(want) {
 		t.Errorf("latest threaded %v, want %v", l, want)
+	}
+}
+
+// A catch-up takes every meeting newer than what's threaded, not only
+// auto_max of them, and leaves older ones (a backlog) for a rethread.
+func TestCatchUpTakesOnlyNew(t *testing.T) {
+	r, st := build(t)
+	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate, r.Cfg.Knowledge.AutoMax = "statements", 0, 1
+	items, _ := st.AllItems()
+	var times []time.Time
+	for _, it := range items {
+		if it.Kind != item.KindEvent {
+			times = append(times, it.OccurredAt)
+		}
+	}
+	sort.Slice(times, func(a, b int) bool { return times[a].Before(times[b]) })
+	if len(times) < 4 {
+		t.Fatalf("%d items", len(times))
+	}
+	frontier := times[len(times)-3]
+	for _, it := range items {
+		if it.Kind != item.KindEvent && it.OccurredAt.Equal(frontier) {
+			st.MarkThreaded(it.ID, "s")
+		}
+	}
+	ks := knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}, NewOnly: true})
+	if ks.Items < 2 || ks.Held.Batch != 0 || ks.Held.Older == 0 {
+		t.Fatalf("catch-up: extracted %d, held %d beyond auto_max, %d older", ks.Items, ks.Held.Batch, ks.Held.Older)
+	}
+	for _, it := range items {
+		if s, _ := st.StageStamp("extract", it.ID); s != "" && !it.OccurredAt.After(frontier) {
+			t.Errorf("%s (%v) is older than what's threaded but was extracted", it.ID, it.OccurredAt)
+		}
 	}
 }

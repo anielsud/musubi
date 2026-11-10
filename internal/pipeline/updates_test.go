@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anielsud/musubi/internal/config"
+	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/sensitivity"
@@ -479,5 +480,33 @@ func TestAutoExtractsNewBeforeAgain(t *testing.T) {
 	}
 	if s, _ := st.StageStamp("extract", fresh); s == "" {
 		t.Fatal("the new meeting waited behind ones extracted again")
+	}
+}
+
+// A calendar event booked ahead and marked threaded doesn't move what's
+// threaded past the meetings that happened: they stay new, not a backlog.
+func TestFutureEventNotFrontier(t *testing.T) {
+	r, st := build(t)
+	items, _ := st.AllItems()
+	newest := items[0]
+	for _, it := range items {
+		if it.OccurredAt.After(newest.OccurredAt) {
+			newest = it
+		}
+	}
+	st.MarkThreaded(newest.ID, "s")
+	at := newest.OccurredAt.Add(14 * 24 * time.Hour)
+	ev := item.Item{ID: "calendar:booked-ahead", Source: "calendar", Ref: "booked-ahead", Kind: item.KindEvent, Title: "Booked ahead", OccurredAt: at, EndedAt: at.Add(time.Hour)}
+	if _, err := st.UpsertItem(ev); err != nil {
+		t.Fatal(err)
+	}
+	st.MarkThreaded(ev.ID, "s")
+	items, _ = st.AllItems()
+	want := newest.OccurredAt.Truncate(time.Second)
+	if f, _ := r.threadFrontier(items); !f.Equal(want) {
+		t.Errorf("frontier %v, want %v", f, want)
+	}
+	if l, _ := st.LatestThreaded(); !l.Equal(want) {
+		t.Errorf("latest threaded %v, want %v", l, want)
 	}
 }

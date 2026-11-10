@@ -962,7 +962,8 @@ func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp str
 	var threaded []time.Time
 	for _, it := range items {
 		d := done[it.ID]
-		if d != "" {
+		// Not calendar events: future ones would put every meeting before them.
+		if d != "" && it.Kind != item.KindEvent {
 			threaded = append(threaded, it.OccurredAt)
 		}
 		switch {
@@ -1637,7 +1638,8 @@ func (r *Runner) LeanDryRun(ctx context.Context, llm provider.LLM, itemID string
 	return imported, sts, err
 }
 
-// threadFrontier is when the newest threaded item happened (zero if none).
+// threadFrontier is when the newest threaded item happened (zero if none),
+// calendar events aside: they're booked ahead, and nothing is threaded from them.
 func (r *Runner) threadFrontier(items []item.Item) (time.Time, error) {
 	done, err := r.Store.ThreadedItems()
 	if err != nil {
@@ -1645,7 +1647,7 @@ func (r *Runner) threadFrontier(items []item.Item) (time.Time, error) {
 	}
 	var t time.Time
 	for _, it := range items {
-		if done[it.ID] != "" && it.OccurredAt.After(t) {
+		if done[it.ID] != "" && it.Kind != item.KindEvent && it.OccurredAt.After(t) {
 			t = it.OccurredAt
 		}
 	}

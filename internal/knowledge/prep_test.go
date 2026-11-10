@@ -16,12 +16,26 @@ func TestPrepNames(t *testing.T) {
 	if k := PrepNameKey("Ruiz, Dana"); k != "dana ruiz" {
 		t.Errorf("key %q", k)
 	}
-	g := newPeople([]string{"Dana Ruiz", "Lee Chen", "Lee Park"})
+	g := newPeople([]string{"Dana Ruiz", "Lee Chen", "Lee Park"}, nil)
 	// A first name matches only when no one else in the group has it.
 	for name, want := range map[string]string{"dana": "Dana Ruiz", "Ruiz, Dana": "Dana Ruiz", "lee": "", "Lee Chen": "Lee Chen"} {
 		if got, _ := g.match(name); got != want {
 			t.Errorf("match(%q) = %q, want %q", name, got, want)
 		}
+	}
+	// Nor when someone else the owner meets has it, or a longer form of it:
+	// a statement about another Ben isn't about this one.
+	g = newPeople([]string{"Ben Moss", "Dana Ruiz"}, []string{"Benjamin Hart", "Dana Ruiz", "Lee Chen"})
+	for name, want := range map[string]string{"ben": "", "Ben Moss": "Ben Moss", "dana": "Dana Ruiz"} {
+		if got, _ := g.match(name); got != want {
+			t.Errorf("with others: match(%q) = %q, want %q", name, got, want)
+		}
+	}
+	if g.mentioned("Ben would like a retention bonus.") {
+		t.Error("a bare Ben, with another Ben around, counted as this one")
+	}
+	if !g.mentioned("Ben Moss starts on Monday.") {
+		t.Error("full name not found")
 	}
 }
 

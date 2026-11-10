@@ -125,13 +125,14 @@ func PrepNameKey(n string) string {
 }
 
 // people matches the names a meeting or a statement gives: a full name, an
-// email's local part, or a first name no one else in the group has.
+// email's local part, or a first name no one else has, in the group or
+// among others (the rest of the people the owner meets).
 type people struct {
 	full  map[string]string // key → display name
 	first map[string]string
 }
 
-func newPeople(names []string) people {
+func newPeople(names, others []string) people {
 	p := people{full: map[string]string{}, first: map[string]string{}}
 	firsts := map[string]int{}
 	for _, n := range names {
@@ -142,8 +143,24 @@ func newPeople(names []string) people {
 		p.full[k] = n
 		firsts[strings.Fields(k)[0]]++
 	}
+	// Others' first names, and the longer or shorter forms of them: "Ben"
+	// is anyone's Benjamin.
+	var taken []string
+	for _, n := range others {
+		if k := PrepNameKey(n); k != "" && p.full[k] == "" {
+			taken = append(taken, strings.Fields(k)[0])
+		}
+	}
+	shared := func(f string) bool {
+		for _, t := range taken {
+			if t == f || len(t) >= 3 && len(f) >= 3 && (strings.HasPrefix(t, f) || strings.HasPrefix(f, t)) {
+				return true
+			}
+		}
+		return false
+	}
 	for k, n := range p.full {
-		if f := strings.Fields(k)[0]; firsts[f] == 1 && strings.Contains(k, " ") {
+		if f := strings.Fields(k)[0]; firsts[f] == 1 && strings.Contains(k, " ") && !shared(f) {
 			p.first[f] = n
 		}
 	}
@@ -242,6 +259,7 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 		return m
 	}
 	var names []string
+	emails := map[string]bool{} // the group's, to know them under other names
 	byID := map[string]*item.Item{}
 	for i := range items {
 		byID[items[i].ID] = &items[i]
@@ -252,6 +270,9 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 		for _, pt := range t.Participants {
 			if !pt.Owner && PrepNameKey(participantName(pt)) != ownerKey {
 				names = append(names, participantName(pt))
+				if pt.Email != "" {
+					emails[strings.ToLower(pt.Email)] = true
+				}
 			}
 		}
 	} else {
@@ -260,7 +281,15 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 	if len(names) == 0 {
 		return v, nil
 	}
-	group := newPeople(names)
+	var others []string
+	for _, it := range items {
+		for _, pt := range it.Participants {
+			if !pt.Owner && !emails[strings.ToLower(pt.Email)] && PrepNameKey(participantName(pt)) != ownerKey {
+				others = append(others, participantName(pt))
+			}
+		}
+	}
+	group := newPeople(names, others)
 	for _, n := range group.full {
 		v.People = append(v.People, n)
 	}

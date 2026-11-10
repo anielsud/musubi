@@ -26,10 +26,16 @@ type PrepTarget struct {
 	At       time.Time `json:"at"`
 	Upcoming bool      `json:"upcoming"`
 	People   int       `json:"people"`
+	// Past marks a calendar event of the last week that has happened, and
+	// RecordingID is the recording matched to it, if any: the Meetings tab
+	// shows it as happened (its recap once written), not as one to prep.
+	Past        bool   `json:"past,omitempty"`
+	RecordingID string `json:"recordingId,omitempty"`
 }
 
 // PrepTargets lists upcoming events in the next two weeks, then the latest
-// occurrence of each meeting held in the last 45 days of the record.
+// occurrence of each meeting held in the last 45 days of the record, then
+// the events of the last week that have happened (Past).
 func (a *App) PrepTargets() ([]PrepTarget, error) {
 	if a.eng == nil {
 		return nil, fmt.Errorf("not ready: %s", a.err)
@@ -45,7 +51,15 @@ func (a *App) PrepTargets() ([]PrepTarget, error) {
 			latest = it.OccurredAt
 		}
 	}
-	var up, past []PrepTarget
+	recordedAs := map[string]string{}
+	if links, err := a.eng.Store.LinksFrom("occurred_as"); err == nil {
+		for m, ev := range links {
+			if recordedAs[ev] == "" || m < recordedAs[ev] {
+				recordedAs[ev] = m
+			}
+		}
+	}
+	var up, past, happened []PrepTarget
 	seen := map[string]bool{}
 	sort.Slice(items, func(i, j int) bool { return items[i].OccurredAt.After(items[j].OccurredAt) })
 	for _, it := range items {
@@ -63,6 +77,9 @@ func (a *App) PrepTargets() ([]PrepTarget, error) {
 		case it.Kind == item.KindEvent && it.OccurredAt.After(now) && it.OccurredAt.Before(now.Add(14*24*time.Hour)):
 			t.Upcoming = true
 			up = append(up, t)
+		case it.Kind == item.KindEvent && !it.OccurredAt.After(now) && it.OccurredAt.After(now.Add(-7*24*time.Hour)):
+			t.Past, t.RecordingID = true, recordedAs[it.ID]
+			happened = append(happened, t)
 		case it.Kind == item.KindMeeting && latest.Sub(it.OccurredAt) < 45*24*time.Hour:
 			k := strings.ToLower(strings.TrimSpace(it.Title))
 			if !seen[k] {
@@ -72,7 +89,7 @@ func (a *App) PrepTargets() ([]PrepTarget, error) {
 		}
 	}
 	sort.Slice(up, func(i, j int) bool { return up[i].At.Before(up[j].At) })
-	return append(up, past...), nil
+	return append(append(up, past...), happened...), nil
 }
 
 // Prep gathers what to bring to a meeting.

@@ -38,6 +38,10 @@ type PrepRequest struct {
 	// matters or private lives (the sharing rule's threshold), and, in a
 	// meeting with more than one other person, lists them last.
 	MarkPrivate bool `json:"markPrivate,omitempty"`
+	// Last is the previous meeting of the series (a recording): its recap
+	// and the to-dos said in it anchor the prep in what this group last
+	// discussed.
+	Last string `json:"last,omitempty"`
 }
 
 type PrepView struct {
@@ -48,6 +52,9 @@ type PrepView struct {
 	Subjects []PrepSubject `json:"subjects"`
 	Open     []PrepOpen    `json:"open"`
 	Share    []PrepShare   `json:"share"`
+	// Last is the recap of the previous meeting of the series (with its
+	// to-dos and how they stand now), when it has one the scope may see.
+	Last *MeetingPage `json:"last,omitempty"`
 }
 
 type PrepSubject struct {
@@ -199,6 +206,17 @@ func shareable(l sensitivity.Label) bool {
 // owner's name, left out of the group.
 func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.Item, owner string) (*PrepView, error) {
 	v := &PrepView{Title: req.Title, Since: req.Since}
+	if req.Last != "" {
+		now := req.Now
+		if now.IsZero() {
+			now = time.Now()
+		}
+		last, err := Views{Store: st, Scope: sc, Now: now}.MeetingPage(req.Last, 3, req.QuietAfter, owner)
+		if err != nil {
+			return nil, err
+		}
+		v.Last = last
+	}
 	sp, err := st.ConfirmedSpellings()
 	if err != nil {
 		return nil, err

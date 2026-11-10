@@ -196,6 +196,14 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 		} else if g := given[it.ID].Title; g != "" {
 			title = g
 		}
+		// An extracted item keeps the title its passages were extracted
+		// under: a later link to a calendar event (or a new generated name)
+		// would otherwise change the chunk stamp, and so re-extract it.
+		if ex, _ := r.Store.StageStamp("extract", it.ID); ex != "" {
+			if was, err := r.Store.ChunkTitle(it.ID); err == nil && was != "" {
+				title = was
+			}
+		}
 		chunkHash := hashOf("chunk", stages.ChunkVersion, ch, title)
 		chunks, err := r.ensure("chunk", it.ID, stages.ChunkVersion, chunkHash, st, func() error {
 			return r.Store.ReplaceChunks(it.ID, stages.ChunkVersion, chunkHash, stages.Chunk(*it, title))
@@ -353,19 +361,20 @@ func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
 		default:
 			continue
 		}
-		fmt.Fprintf(h, "%s %d %d|", it.ID, it.OccurredAt.Unix(), it.EndedAt.Unix())
+		fmt.Fprintf(h, "%s %d %d|", it.ID, it.OccurredAt.Unix(), it.End().Unix())
 	}
 	const slack = 15 * time.Minute
 	out := map[string]linkTarget{}
 	for _, m := range meetings {
-		mDur := m.EndedAt.Sub(m.OccurredAt)
+		mEnd := m.End()
+		mDur := mEnd.Sub(m.OccurredAt)
 		var best linkTarget
 		var bestGap time.Duration
 		for _, e := range events {
 			if m.OccurredAt.Before(e.OccurredAt.Add(-slack)) || m.OccurredAt.After(e.EndedAt) {
 				continue
 			}
-			lo, hi := maxT(m.OccurredAt, e.OccurredAt), minT(m.EndedAt, e.EndedAt)
+			lo, hi := maxT(m.OccurredAt, e.OccurredAt), minT(mEnd, e.EndedAt)
 			overlap := hi.Sub(lo)
 			denom := min(mDur, e.EndedAt.Sub(e.OccurredAt))
 			score := 0.0

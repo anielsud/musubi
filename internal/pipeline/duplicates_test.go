@@ -52,3 +52,20 @@ func TestMissedCopyGivesWay(t *testing.T) {
 		t.Errorf("duplicates = %v: want Tomoe's broken copy of x to give way, and Tomoe kept for y", d)
 	}
 }
+
+// One Teams transcript brought in twice (imported by hand, then synced) is
+// one meeting; two Teams meetings at the same time aren't.
+func TestDuplicateSameSourceTranscript(t *testing.T) {
+	at := time.Date(2026, 3, 2, 11, 0, 0, 0, time.UTC)
+	said := []item.Segment{{Text: "budget review alpha bravo charlie delta echo foxtrot", Start: 0}, {Text: "hiring plan golf hotel india juliet kilo", Start: 3000}}
+	other := []item.Segment{{Text: "completely unrelated lima mike november oscar papa", Start: 0}, {Text: "quebec romeo sierra tango uniform victor", Start: 3000}}
+	items := []item.Item{
+		{ID: "teams:hand", Source: "teams", Kind: item.KindMeeting, OccurredAt: at, Segments: said},
+		{ID: "teams:synced", Source: "teams", Kind: item.KindMeeting, OccurredAt: at.Add(-30 * time.Second), EndedAt: at.Add(time.Hour), Segments: said},
+		{ID: "teams:other", Source: "teams", Kind: item.KindMeeting, OccurredAt: at.Add(time.Minute), EndedAt: at.Add(time.Hour), Segments: other},
+	}
+	dups := meetingDuplicates(items, []string{"tomoe", "teams"}, func(id string) bool { return id == "teams:hand" })
+	if dups["teams:synced"] != "teams:hand" || dups["teams:other"] != "" || dups["teams:hand"] != "" {
+		t.Errorf("dups: %v", dups)
+	}
+}

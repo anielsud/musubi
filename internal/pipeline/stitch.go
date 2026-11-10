@@ -59,7 +59,7 @@ func stitchFills(items []item.Item, links map[string]string) (map[string][]stitc
 		for _, c := range ts {
 			var d time.Duration
 			for _, r := range rs {
-				lo, hi := maxTime(r.OccurredAt, c.OccurredAt), minTime(r.EndedAt, c.EndedAt)
+				lo, hi := maxTime(r.OccurredAt, c.OccurredAt), minTime(r.End(), c.End())
 				if hi.After(lo) {
 					d += hi.Sub(lo)
 				}
@@ -73,7 +73,7 @@ func stitchFills(items []item.Item, links map[string]string) (map[string][]stitc
 		}
 		longest := rs[0]
 		for _, r := range rs {
-			if r.EndedAt.Sub(r.OccurredAt) > longest.EndedAt.Sub(longest.OccurredAt) {
+			if r.End().Sub(r.OccurredAt) > longest.End().Sub(longest.OccurredAt) {
 				longest = r
 			}
 		}
@@ -91,7 +91,7 @@ func stitchFills(items []item.Item, links map[string]string) (map[string][]stitc
 			}
 			heard := false
 			for _, r := range rs {
-				if !at.Before(r.OccurredAt.Add(-stitchSlack)) && !at.After(r.EndedAt.Add(stitchSlack)) {
+				if !at.Before(r.OccurredAt.Add(-stitchSlack)) && !at.After(r.End().Add(stitchSlack)) {
 					heard = true
 					break
 				}
@@ -123,7 +123,7 @@ func stitched(it item.Item, lines []stitchLine) item.Item {
 	if len(lines) == 0 {
 		return it
 	}
-	start, end := it.OccurredAt, it.EndedAt
+	start, end := it.OccurredAt, it.End()
 	for _, l := range lines {
 		start, end = minTime(start, l.at), maxTime(end, l.end)
 	}
@@ -258,7 +258,7 @@ func (r *Runner) awaitingTranscript(items []item.Item, links map[string]string) 
 		if it.Source != "tomoe" || it.Kind != item.KindMeeting || ev == nil || ev.Native["joinUrl"] == "" || have[ev.ID] {
 			continue
 		}
-		end := maxTime(it.EndedAt, ev.EndedAt)
+		end := maxTime(it.End(), ev.EndedAt)
 		if now.Sub(end) >= wait {
 			continue
 		}

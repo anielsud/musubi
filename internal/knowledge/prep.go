@@ -3,6 +3,7 @@ package knowledge
 import (
 	"encoding/json"
 	"math"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,11 +43,18 @@ type PrepRequest struct {
 	// and the to-dos said in it anchor the prep in what this group last
 	// discussed.
 	Last string `json:"last,omitempty"`
+	// About are threads the meeting's title and description are about,
+	// best first (see MeetingQuery); they lead the subjects.
+	About []int64 `json:"about,omitempty"`
 }
 
 type PrepView struct {
-	Title    string        `json:"title"`
-	People   []string      `json:"people"`
+	Title string `json:"title"`
+	// Description is the calendar event's, when the prep is for one.
+	Description string   `json:"description,omitempty"`
+	People      []string `json:"people"`
+	// New are the people none of the owner's meetings had in them.
+	New      []string      `json:"new,omitempty"`
 	Since    time.Time     `json:"since"`
 	Met      int           `json:"met"` // meetings with any of them in the record
 	Subjects []PrepSubject `json:"subjects"`
@@ -98,6 +106,15 @@ const (
 	// never suggested for sharing.
 	prepSensitiveShare = 0.15
 	prepHalfLife       = 30 * 24 * time.Hour
+)
+
+// The threads a meeting's title and description are about (PrepRequest.About):
+// at most PrepAboutMax, each at least PrepAboutMin similar to them and
+// sharing a word with them that few thread names have (see
+// ThreadFinder.About).
+const (
+	PrepAboutMax = 3
+	PrepAboutMin = 0.74
 )
 
 // PrepNameKey normalises a person's name: "Ruiz, Dana" and "dana ruiz" are
@@ -267,6 +284,9 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 	ownerKey := PrepNameKey(owner)
 	if t := byID[req.Template]; t != nil {
 		v.Title, v.Since = t.Title, t.OccurredAt
+		if t.Kind == item.KindEvent {
+			v.Description = EventDescription(*t)
+		}
 		for _, pt := range t.Participants {
 			if !pt.Owner && PrepNameKey(participantName(pt)) != ownerKey {
 				names = append(names, participantName(pt))
@@ -298,6 +318,7 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 	// was: what is said in a 1:1 is theirs more than what is said in a
 	// large staff meeting they sat in.
 	attended := map[string]bool{}
+	met := map[string]bool{}
 	small := map[string]float64{}
 	for _, it := range items {
 		small[it.ID] = meetingWeight(len(it.Participants))
@@ -306,12 +327,21 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 		if it.Kind == item.KindEvent {
 			continue
 		}
+		in := false
 		for _, pt := range it.Participants {
-			if _, ok := group.match(participantName(pt)); ok {
-				attended[it.ID] = true
-				v.Met++
-				break
+			if n, ok := group.match(participantName(pt)); ok {
+				met[n] = true
+				in = true
 			}
+		}
+		if in {
+			attended[it.ID] = true
+			v.Met++
+		}
+	}
+	for _, n := range v.People {
+		if !met[n] {
+			v.New = append(v.New, n)
 		}
 	}
 	idx, err := st.ThreadIndex()
@@ -354,6 +384,7 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 		score                float64
 		said, about, inMeets int
 		holders              map[string]int
+		subject              bool // what the meeting's title and description are about
 	}
 	var ss []scored
 	for tid, its := range tis {
@@ -392,6 +423,31 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 		}
 	}
 	sort.Slice(ss, func(i, j int) bool { return ss[i].score > ss[j].score })
+	// The threads the meeting is about lead, whoever said what in them.
+	if len(req.About) > 0 {
+		var lead []scored
+		in := map[int64]bool{}
+		for _, id := range req.About {
+			if _, ok := name[id]; !ok || in[id] || len(tis[id]) == 0 {
+				continue
+			}
+			in[id] = true
+			s := scored{id: id, holders: map[string]int{}}
+			for _, x := range ss {
+				if x.id == id {
+					s = x
+				}
+			}
+			s.subject = true
+			lead = append(lead, s)
+		}
+		for _, x := range ss {
+			if !in[x.id] {
+				lead = append(lead, x)
+			}
+		}
+		ss = lead
+	}
 	now := req.Now
 	if now.IsZero() {
 		now = time.Now()
@@ -412,6 +468,13 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 		its := tis[s.id]
 		sub := PrepSubject{ID: s.id, Name: name[s.id], Items: its, AsOf: its[len(its)-1].SaidAt}
 		sub.Why = whyLine(s.holders, s.inMeets)
+		if s.subject {
+			if w := strings.TrimPrefix(sub.Why, " · "); w == "" {
+				sub.Why = "the meeting's subject"
+			} else {
+				sub.Why = "the meeting's subject · " + w
+			}
+		}
 		sub.Private = req.MarkPrivate && private(s.id)
 		if stt, ok := statuses[s.id]; ok {
 			var x Status
@@ -592,6 +655,77 @@ func pick(its []store.ThreadItem, ids []int64) []store.ThreadItem {
 			if it.ID == id {
 				out = append(out, it)
 			}
+		}
+	}
+	return out
+}
+
+// EventDescription is a calendar event's description: its text after the
+// title (see item's dropEvent).
+func EventDescription(it item.Item) string {
+	if len(it.Segments) == 0 {
+		return ""
+	}
+	t := strings.TrimSpace(it.Segments[0].Text)
+	return item.EventText(strings.TrimPrefix(t, strings.TrimSpace(it.Title)))
+}
+
+// MeetingQuery is what a meeting is about, to find its threads by: its
+// title and description without the attendees' and owner's names, so a
+// title like "Dana / Sam" finds nothing rather than some other Dana's
+// threads, nor the owner's organisation's (from its email domains, as
+// most titles name it). Empty when nothing is left but names.
+func MeetingQuery(it item.Item, owner string, domains []string) string {
+	names := map[string]bool{}
+	for _, d := range domains {
+		names[strings.ToLower(strings.Split(d, ".")[0])] = true
+	}
+	for _, n := range append([]string{owner}, participantNames(it)...) {
+		for _, w := range strings.Fields(PrepNameKey(n)) {
+			names[w] = true
+		}
+	}
+	text := webAddress.ReplaceAllString(it.Title+"\n"+EventDescription(it), " ")
+	var keep []string
+	for _, w := range strings.FieldsFunc(text, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+		if names[strings.ToLower(w)] {
+			continue
+		}
+		keep = append(keep, w)
+	}
+	q := strings.Join(keep, " ")
+	if len(QuestionWords(q)) == 0 {
+		return ""
+	}
+	return q
+}
+
+var webAddress = regexp.MustCompile(`https?://\S+`)
+
+// meetingWords are words any meeting's title may have: they say nothing
+// of its subject.
+var meetingWords = map[string]bool{"meeting": true, "meetings": true, "sync": true, "weekly": true, "monthly": true, "quarterly": true,
+	"daily": true, "review": true, "call": true, "session": true, "series": true, "team": true, "catch": true, "catchup": true,
+	"touchpoint": true, "check": true, "update": true, "updates": true, "connect": true, "continuation": true,
+	"hello": true, "everyone": true, "please": true, "join": true, "invite": true, "calendar": true,
+	"next": true, "week": true, "weeks": true, "today": true, "tomorrow": true, "subject": true, "location": true}
+
+func init() {
+	// Dates say when, not what.
+	for m := time.January; m <= time.December; m++ {
+		meetingWords[strings.ToLower(m.String())] = true
+	}
+	for d := time.Sunday; d <= time.Saturday; d++ {
+		meetingWords[strings.ToLower(d.String())] = true
+	}
+}
+
+func participantNames(it item.Item) []string {
+	var out []string
+	for _, pt := range it.Participants {
+		out = append(out, participantName(pt))
+		if i := strings.Index(pt.Email, "@"); i > 0 {
+			out = append(out, strings.NewReplacer(".", " ", "_", " ").Replace(pt.Email[:i]))
 		}
 	}
 	return out

@@ -3,6 +3,7 @@ package knowledge
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,6 +96,91 @@ func TestPrep(t *testing.T) {
 	}
 	if len(v.Subjects) == 0 || v.Subjects[0].Name != "Juniper programme" || v.Subjects[0].Private {
 		t.Fatalf("subjects with MarkPrivate %+v", v.Subjects)
+	}
+}
+
+// Prep for a calendar event: the thread its title and description are
+// about leads, someone never met is named as such, and the description
+// comes along.
+func TestPrepForEvent(t *testing.T) {
+	f := newCardFixture(t)
+	f.st.ClearThreads()
+	th := &Threader{Store: f.st, LLM: &scriptedThreads{}, Chunk: 70, Parallel: 2}
+	for _, it := range []ThreadItem{
+		{ID: "m:1", Start: time.Date(2026, 9, 16, 15, 0, 0, 0, time.UTC)},
+		{ID: "m:3", Start: time.Date(2026, 9, 23, 15, 0, 0, 0, time.UTC)},
+		{ID: "m:2", Start: time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)},
+	} {
+		if _, err := th.Thread(context.Background(), it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, _ := f.st.AllItems()
+	for i := range all {
+		all[i].Participants = []item.Participant{{Name: "Ruiz, Dana", Role: "attendee"}, {Name: "Sam Owner", Owner: true}}
+	}
+	ev := item.Item{ID: "ev:1", Kind: item.KindEvent, Title: "Interview - Kim New", OccurredAt: time.Date(2026, 10, 2, 15, 0, 0, 0, time.UTC),
+		Segments:     []item.Segment{{Text: "Interview - Kim New\nFor the platform role.\n________________\nMicrosoft Teams meeting"}},
+		Participants: []item.Participant{{Name: "Dana Ruiz", Role: "organizer"}, {Name: "Kim New", Role: "attendee"}, {Name: "Sam Owner", Owner: true}}}
+	all = append(all, ev)
+	idx, _ := f.st.ThreadIndex()
+	var about int64
+	for _, r := range idx {
+		if r.Name != "Juniper programme" {
+			about = r.ID
+		}
+	}
+	if about == 0 {
+		t.Fatal("fixture has one thread")
+	}
+	v, err := Prep(f.st, sensitivity.Owner(), PrepRequest{Template: "ev:1", About: []int64{about}}, all, "Sam Owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(v.Subjects) == 0 || v.Subjects[0].ID != about || !strings.HasPrefix(v.Subjects[0].Why, "the meeting's subject") {
+		t.Fatalf("subjects %+v", v.Subjects)
+	}
+	if len(v.New) != 1 || v.New[0] != "Kim New" {
+		t.Errorf("never met %v", v.New)
+	}
+	if v.Description != "For the platform role." {
+		t.Errorf("description %q", v.Description)
+	}
+}
+
+// A meeting's query leaves out the people in it, the owner and the
+// owner's organisation, and links: a title of names finds nothing.
+func TestMeetingQuery(t *testing.T) {
+	ps := []item.Participant{{Name: "Dana Ruiz", Email: "dana.ruiz@corp.example"}, {Name: "Sam Owner", Owner: true}}
+	for title, want := range map[string]string{
+		"Dana / Sam":                       "",
+		"Sam | Dana Ruiz":                  "",
+		"Corp Juniper rollout review":      "Juniper rollout review",
+		"Juniper https://corp.example/x y": "Juniper y",
+	} {
+		it := item.Item{Kind: item.KindEvent, Title: title, Participants: ps, Segments: []item.Segment{{Text: title}}}
+		if got := MeetingQuery(it, "Sam Owner", []string{"corp.example"}); got != want {
+			t.Errorf("MeetingQuery(%q) = %q, want %q", title, got, want)
+		}
+	}
+}
+
+// A thread counts as the meeting's only by a word few thread names have;
+// a short ending makes the same word, a longer stem doesn't.
+func TestSharesRare(t *testing.T) {
+	df := map[string]int{"interview": 2, "product": 40, "models": 3, "opticon": 1}
+	for _, c := range []struct {
+		words, name []string
+		want        bool
+	}{
+		{[]string{"interview"}, []string{"engineering", "hire", "interview"}, true},
+		{[]string{"product"}, []string{"product", "roadmap"}, false},
+		{[]string{"model"}, []string{"models"}, true},
+		{[]string{"opti"}, []string{"opticon"}, false},
+	} {
+		if got := sharesRare(c.words, c.name, df, 3); got != c.want {
+			t.Errorf("sharesRare(%v, %v) = %v", c.words, c.name, got)
+		}
 	}
 }
 

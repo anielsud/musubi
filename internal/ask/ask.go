@@ -327,7 +327,9 @@ func clip(s string, n int) string {
 	return s[:n] + "…"
 }
 
-const prepSystem = `You help an executive prepare for a meeting. You get the people they are meeting, the recap of this group's last meeting (with its to-dos and how each stands now), the subjects those people are part of (each with its written status and what is new since they last met), what is open between them, and what was said elsewhere that these people likely haven't heard. Sources are numbered; refer to the recap as "last meeting".
+const prepSystem = `You help an executive prepare for a meeting. You get the meeting's title and calendar description, the people they are meeting (and which of them they have never met), the recap of this group's last meeting (with its to-dos and how each stands now), the subjects the meeting is about or those people are part of (each with its written status and what is new since they last met), what is open between them, and what was said elsewhere that these people likely haven't heard. Sources are numbered; refer to the recap as "last meeting".
+
+The title and description say what the meeting is for: an interview, a review, a 1:1, a customer call. Shape the talking points to that. Someone they have never met has no history here: say so if it matters, and never take what was said by or about someone else with the same first name as theirs.
 
 Write talking points: four to seven bullets, most important first. Each says what to raise and why now (a decision due, a change since last time, something they need to know, a commitment owed either way), in one or two sentences, citing sources like [3]. Start from what the last meeting left open (decisions deferred, to-dos still owed) and what has moved on it since, then add what changed elsewhere. Prefer what changed recently and what needs them. Leave out anything that is only background. Never invent facts.`
 
@@ -359,7 +361,15 @@ func PrepBrief(ctx context.Context, e *engine.Engine, v *knowledge.PrepView, onT
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Meeting: %s\nWith: %s\nLast met: %s\n\n", v.Title, strings.Join(v.People, ", "), v.Since.Format("Mon 2 Jan 2006"))
+	fmt.Fprintf(&b, "Meeting: %s\n", v.Title)
+	if v.Description != "" {
+		fmt.Fprintf(&b, "Description:\n%s\n", clip(v.Description, 2000))
+	}
+	fmt.Fprintf(&b, "With: %s\n", strings.Join(v.People, ", "))
+	if len(v.New) > 0 {
+		fmt.Fprintf(&b, "Never met before: %s\n", strings.Join(v.New, ", "))
+	}
+	fmt.Fprintf(&b, "Last met: %s\n\n", v.Since.Format("Mon 2 Jan 2006"))
 	if l := v.Last; l != nil {
 		fmt.Fprintf(&b, "Last meeting (%s, %s), recap:\n%s\n", l.Title, l.Start.Format("Mon 2 Jan"), l.Overview)
 		for _, sec := range l.Sections {

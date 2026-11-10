@@ -9,8 +9,11 @@ Keep that doc current when the design changes.
 
 - **Private and proprietary.** No license file; `NOTICE` reserves all rights.
   Never add GPL, AGPL or LGPL dependencies (check before `go get` / `npm i`).
-  Never copy code from Tomoe (GPLv3); integrate only through its session files
-  and its live stream.
+  Tomoe (GPLv3) code may come into `internal/recorder/` only where the owner
+  wrote it; lines by Tomoe's upstream author are never copied, only
+  rewritten. Record every lifted package in
+  `docs/recorder-provenance.md`. Otherwise integrate with Tomoe only through
+  its session files and its live stream.
 - **No real data in git.** Meetings, email, chat, names and labelled references
   live in `testdata/private/` (gitignored) or `~/.local/share/musubi/`. Tests
   use synthetic data with invented names. Stage files by name; check

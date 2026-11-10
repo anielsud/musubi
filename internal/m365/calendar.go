@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -18,11 +20,13 @@ import (
 const CalendarSource = "m365-calendar"
 
 type graphEvent struct {
-	ID          string `json:"id"`
-	ICalUID     string `json:"iCalUId"`
-	Subject     string `json:"subject"`
-	BodyPreview string `json:"bodyPreview"`
-	Organizer   struct {
+	ID      string `json:"id"`
+	ICalUID string `json:"iCalUId"`
+	Subject string `json:"subject"`
+	Body    struct {
+		Content string `json:"content"`
+	} `json:"body"`
+	Organizer struct {
 		EmailAddress emailAddress `json:"emailAddress"`
 	} `json:"organizer"`
 	Attendees []struct {
@@ -119,11 +123,13 @@ func SyncCalendar(ctx context.Context, c *Client, dir string, from, to time.Time
 	q := url.Values{
 		"startDateTime": {from.UTC().Format(time.RFC3339)},
 		"endDateTime":   {to.UTC().Format(time.RFC3339)},
-		"$select":       {"id,iCalUId,subject,bodyPreview,organizer,attendees,start,end,isCancelled,isAllDay,isOrganizer,showAs,sensitivity,location,onlineMeeting,responseStatus"},
+		"$select":       {"id,iCalUId,subject,body,organizer,attendees,start,end,isCancelled,isAllDay,isOrganizer,showAs,sensitivity,location,onlineMeeting,responseStatus"},
 		"$top":          {"100"},
 	}
 	seen := map[string]bool{}
-	err := c.Pages(ctx, "/v1.0/me/calendarView?"+q.Encode(), func(raw json.RawMessage) error {
+	// The description as text, not HTML (see eventText).
+	hdr := http.Header{"Prefer": {`outlook.timezone="UTC"`, `outlook.body-content-type="text"`}}
+	err := c.PagesWith(ctx, "/v1.0/me/calendarView?"+q.Encode(), hdr, func(raw json.RawMessage) error {
 		var e graphEvent
 		if err := json.Unmarshal(raw, &e); err != nil {
 			return err
@@ -180,7 +186,7 @@ func SyncCalendar(ctx context.Context, c *Client, dir string, from, to time.Time
 
 func toDrop(e graphEvent) eventDrop {
 	d := eventDrop{
-		Subject: e.Subject, Summary: e.BodyPreview,
+		Subject: e.Subject, Summary: eventText(e.Body.Content),
 		Organizer: person{Name: e.Organizer.EmailAddress.Name, Email: strings.ToLower(e.Organizer.EmailAddress.Address)},
 		Start:     e.Start, End: e.End, IsCancelled: e.IsCancelled, IsAllDay: e.IsAllDay,
 		ShowAs: e.ShowAs, Sensitivity: e.Sensitivity, Location: e.Location.DisplayName,
@@ -200,6 +206,32 @@ func toDrop(e graphEvent) eventDrop {
 	}
 	return d
 }
+
+// eventText is an event's description without the join details Teams
+// and Zoom append (a rule of underscores, then the link and dial-ins),
+// and no longer than eventTextMax.
+func eventText(body string) string {
+	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
+	var keep []string
+	for _, l := range lines {
+		t := strings.TrimSpace(l)
+		if strings.Count(t, "_") >= 10 && strings.Trim(t, "_") == "" || strings.HasPrefix(t, "Join Zoom Meeting") {
+			break
+		}
+		keep = append(keep, strings.TrimRight(l, " \t"))
+	}
+	s := strings.TrimSpace(blankRuns.ReplaceAllString(strings.Join(keep, "\n"), "\n\n"))
+	if r := []rune(s); len(r) > eventTextMax {
+		s = strings.TrimSpace(string(r[:eventTextMax])) + "…"
+	}
+	return s
+}
+
+// eventTextMax bounds a description: an agenda fits, a pasted document
+// doesn't need to.
+const eventTextMax = 4000
+
+var blankRuns = regexp.MustCompile(`\n{3,}`)
 
 func fileName(ref string) string {
 	h := sha1.Sum([]byte(ref))

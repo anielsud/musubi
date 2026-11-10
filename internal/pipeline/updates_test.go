@@ -402,3 +402,82 @@ func TestReextractedRejoins(t *testing.T) {
 		t.Fatalf("re-extracted oldest: held %d, todo %+v", p.held, p.todo)
 	}
 }
+
+// A chunk stamp that changes without the passages' text (a meeting given
+// a name, say) keeps the item's statements, with no extraction.
+func TestSameTextKeepsStatements(t *testing.T) {
+	r, st := build(t)
+	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate, r.Cfg.Knowledge.Updates = "statements", 0, "explicit"
+	knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}})
+	items, _ := st.AllItems()
+	var id string
+	for _, it := range items {
+		if s, _ := st.StageStamp("extract", it.ID); s != "" {
+			id = it.ID
+			break
+		}
+	}
+	before, _ := st.StageStamp("chunk", id)
+	if err := st.SetItemTitle(id, "A new name", "generated", "x"); err != nil {
+		t.Fatal(err)
+	}
+	run(t, r)
+	if after, _ := st.StageStamp("chunk", id); after == before {
+		t.Fatal("the new name didn't change the chunk stamp")
+	}
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}}); ks.Items != 0 || ks.SameText == 0 {
+		t.Fatalf("renamed: %d extracted, %d kept", ks.Items, ks.SameText)
+	}
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}}); ks.Items != 0 || ks.SameText != 0 {
+		t.Fatalf("next run: %d extracted, %d kept", ks.Items, ks.SameText)
+	}
+	// Another model is a real change: kept until asked, as before.
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m2"}}); ks.SameText != 0 || ks.Outdated.Extract == 0 {
+		t.Fatalf("new model: %d kept, %d outdated", ks.SameText, ks.Outdated.Extract)
+	}
+}
+
+// After new data, a meeting never extracted goes before one being
+// extracted again.
+func TestAutoExtractsNewBeforeAgain(t *testing.T) {
+	r, st := build(t)
+	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate, r.Cfg.Knowledge.Updates = "statements", 0, "explicit"
+	r.Cfg.Knowledge.Threads.HoldOlder, r.Cfg.Knowledge.AutoMax = false, 1
+	n := knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}, Plan: true}).Planned.Extract
+	if n < 2 {
+		t.Fatalf("%d items to extract", n)
+	}
+	// All but one extracted: that one is new.
+	knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}, Limit: n - 1})
+	items, _ := st.AllItems()
+	var fresh string
+	var done []string
+	for _, it := range items {
+		if it.Kind == "event" {
+			continue
+		}
+		if s, _ := st.StageStamp("extract", it.ID); s == "" {
+			fresh = it.ID
+		} else {
+			done = append(done, it.ID)
+		}
+	}
+	if fresh == "" || len(done) == 0 {
+		t.Fatalf("new %q, extracted %d", fresh, len(done))
+	}
+	// Every extracted one changed: each would be extracted again.
+	for _, id := range done {
+		if err := st.ReplaceStatementsFrom(id, "x8", "stale", "different input", nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetExtractText(id, "other text"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}, Auto: true}); ks.Items != 1 {
+		t.Fatalf("auto: %d extracted", ks.Items)
+	}
+	if s, _ := st.StageStamp("extract", fresh); s == "" {
+		t.Fatal("the new meeting waited behind ones extracted again")
+	}
+}

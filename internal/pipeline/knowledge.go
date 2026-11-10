@@ -128,6 +128,7 @@ type KnowledgeStats struct {
 	Link                   knowledge.LinkStats
 	Topics                 int
 	Pending                int // items still to extract (when limited)
+	SameText               int // items whose chunk stamp changed but not their text: kept
 	Labelled, Checked      int // statements labelled sensitive; checked by the labeller
 	Statuses, StatusFailed int // thread statuses written; failed (tried again next run)
 	Digested, DigestFailed int // meetings read into digests; failed (tried again next run)
@@ -266,6 +267,8 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		known   string // points: the facts sheet; "" extracts statements
 		lean    bool
 		prior   bool // extracted before (a changed input, not a backlog)
+		// stampsFor gives the extract-text key once the passages are read.
+		stampsFor func(cs string) (version, known, h, input string)
 	}
 	var jobs, older []job
 	for i := range items {
@@ -277,39 +280,72 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		if err != nil || chunkStamp == "" {
 			continue
 		}
-		version, known := knowledge.ExtractVersion, ""
-		h := hashOf("extract", knowledge.ExtractVersion, chunkStamp, o.LLM.ModelName(), r.Cfg.Owner.Name)
-		input := hashOf("input", chunkStamp)
-		if gated {
-			h = hashOf(h, knowledge.GateVersion, fmt.Sprint(kc.Gate))
-		}
-		if kc.Extract == "points" && it.Kind == item.KindMeeting {
-			known = knowledge.KnownFacts(r.Cfg.Owner.Name, r.Cfg.Owner.Email, r.Cfg.Owner.InternalDomains, invitees(it))
-			// Points carry their passages' labels, so relabelling re-extracts.
-			clsStamp, _ := r.Store.StageStamp("classify", it.ID)
-			version = knowledge.PointsVersion
-			h = hashOf("points", version, chunkStamp, clsStamp, o.Extractor.ModelName(), r.Cfg.Owner.Name, known,
-				fmt.Sprint(pc.Think), fmt.Sprint(pc.Segment))
-			input = hashOf("input", chunkStamp, clsStamp, known)
-		}
+		// stampsFor is the extract stamp and input for passages stamped cs.
+		// With cs the passages' text instead (textKey), it tells whether
+		// anything but the chunk stamp changed (see extract-text).
 		lean := kc.Extract == "lean" && it.Kind == item.KindMeeting
-		if lean {
-			lc := kc.Lean
-			version = knowledge.LeanVersion
-			// Not the people list: it grows with every new name, which
-			// would put every meeting out of date.
-			h = hashOf("lean", version, chunkStamp, o.Extractor.ModelName(), r.Cfg.Owner.Name, lc.Description,
-				lc.Directory, fmt.Sprint(lc.Segment), fmt.Sprint(lc.Context))
+		stampsFor := func(cs string) (version, known, h, input string) {
+			version = knowledge.ExtractVersion
+			h = hashOf("extract", knowledge.ExtractVersion, cs, o.LLM.ModelName(), r.Cfg.Owner.Name)
+			input = hashOf("input", cs)
+			if gated {
+				h = hashOf(h, knowledge.GateVersion, fmt.Sprint(kc.Gate))
+			}
+			if kc.Extract == "points" && it.Kind == item.KindMeeting {
+				known = knowledge.KnownFacts(r.Cfg.Owner.Name, r.Cfg.Owner.Email, r.Cfg.Owner.InternalDomains, invitees(it))
+				// Points carry their passages' labels, so relabelling re-extracts.
+				clsStamp, _ := r.Store.StageStamp("classify", it.ID)
+				version = knowledge.PointsVersion
+				h = hashOf("points", version, cs, clsStamp, o.Extractor.ModelName(), r.Cfg.Owner.Name, known,
+					fmt.Sprint(pc.Think), fmt.Sprint(pc.Segment))
+				input = hashOf("input", cs, clsStamp, known)
+			}
+			if lean {
+				lc := kc.Lean
+				version = knowledge.LeanVersion
+				// Not the people list: it grows with every new name, which
+				// would put every meeting out of date.
+				h = hashOf("lean", version, cs, o.Extractor.ModelName(), r.Cfg.Owner.Name, lc.Description,
+					lc.Directory, fmt.Sprint(lc.Segment), fmt.Sprint(lc.Context))
+			}
+			return version, known, h, input
 		}
+		version, known, h, input := stampsFor(chunkStamp)
 		cur, _ := r.Store.StageStamp("extract", it.ID)
+		text, _ := r.Store.StageStamp("extract-text", it.ID)
+		textKey := func() string {
+			chunks, err := r.Store.Chunks(it.ID)
+			if err != nil {
+				return ""
+			}
+			_, _, k, _ := stampsFor("text:" + chunkText(chunks))
+			return k
+		}
 		if cur == version+"/"+h {
+			// Up to date: its passages are what it was extracted from.
+			if text == "" {
+				if k := textKey(); k != "" {
+					r.Store.SetExtractText(it.ID, k)
+				}
+			}
 			continue
+		}
+		// Only the chunk stamp changed (a new title, say), not the text or
+		// how it's extracted: its statements stand.
+		if text != "" && cur != "" {
+			if k := textKey(); k != "" && text == "t/"+k {
+				if err := r.Store.KeepStatements(it.ID, version, h, input); err != nil {
+					return ks, err
+				}
+				ks.SameText++
+				continue
+			}
 		}
 		title := it.Title
 		if e, ok := links[it.ID]; ok && byID[e] != nil {
 			title = byID[e].Title
 		}
-		j := job{it: it, hash: h, input: input, version: version, title: title, orgs: speakerOrgs(it), known: known, lean: lean, prior: cur != ""}
+		j := job{it: it, hash: h, input: input, version: version, title: title, orgs: speakerOrgs(it), known: known, lean: lean, prior: cur != "", stampsFor: stampsFor}
 		if cur != "" && kc.Updates != "auto" {
 			// Extracted before under another version. Its input changed too
 			// (or it is new) → extract; only the version changed → keep it
@@ -341,7 +377,15 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		if err != nil {
 			return ks, err
 		}
-		sort.Slice(jobs, func(a, b int) bool { return jobs[a].it.OccurredAt.Before(jobs[b].it.OccurredAt) })
+		// Items never extracted (new meetings) go before ones extracted
+		// again, so a run of re-extractions doesn't keep new meetings
+		// waiting.
+		sort.Slice(jobs, func(a, b int) bool {
+			if jobs[a].prior != jobs[b].prior {
+				return !jobs[a].prior
+			}
+			return jobs[a].it.OccurredAt.Before(jobs[b].it.OccurredAt)
+		})
 		o.hold = map[string]bool{}
 		var keep []job
 		for _, j := range jobs {
@@ -399,7 +443,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 					return func() error {
 						ks.Items++
 						ks.Statements += len(sts)
-						return r.Store.ReplaceStatementsFrom(j.it.ID, j.version, j.hash, j.input, sts)
+						return r.storeStatements(j.it.ID, j.version, j.hash, j.input, j.chunks, j.stampsFor, sts)
 					}, nil
 				}
 				if j.known != "" {
@@ -410,7 +454,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 					return func() error {
 						ks.Items++
 						ks.Statements += len(sts)
-						return r.Store.ReplaceStatementsFrom(j.it.ID, j.version, j.hash, j.input, sts)
+						return r.storeStatements(j.it.ID, j.version, j.hash, j.input, j.chunks, j.stampsFor, sts)
 					}, nil
 				}
 				var sts []store.Statement
@@ -461,7 +505,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 				return func() error {
 					ks.Items++
 					ks.Statements += len(sts)
-					return r.Store.ReplaceStatementsFrom(j.it.ID, knowledge.ExtractVersion, j.hash, j.input, sts)
+					return r.storeStatements(j.it.ID, knowledge.ExtractVersion, j.hash, j.input, j.chunks, j.stampsFor, sts)
 				}, nil
 			})
 		}
@@ -1606,4 +1650,27 @@ func (r *Runner) threadFrontier(items []item.Item) (time.Time, error) {
 		}
 	}
 	return t, nil
+}
+
+// storeStatements stores an item's new statements with, as extract-text,
+// the key of the passages' text they came from: a later change of chunk
+// stamp alone then keeps them (see extractKnowledge).
+func (r *Runner) storeStatements(itemID, version, hash, input string, chunks []store.Chunk, stampsFor func(string) (string, string, string, string), sts []store.Statement) error {
+	if err := r.Store.ReplaceStatementsFrom(itemID, version, hash, input, sts); err != nil {
+		return err
+	}
+	if stampsFor == nil {
+		return nil
+	}
+	_, _, k, _ := stampsFor("text:" + chunkText(chunks))
+	return r.Store.SetExtractText(itemID, k)
+}
+
+// chunkText is a hash of an item's passages' text, in order.
+func chunkText(chunks []store.Chunk) string {
+	parts := make([]string, len(chunks))
+	for i, c := range chunks {
+		parts[i] = c.Text
+	}
+	return hashOf(parts...)
 }

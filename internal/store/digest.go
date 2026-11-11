@@ -207,8 +207,9 @@ func (s *Store) MeetingDigest(sc sensitivity.Scope, itemID string) (*Digest, err
 	vis, vargs := digestVis(sc)
 	d := &Digest{ItemID: itemID}
 	var made, start int64
-	err := s.db.QueryRow(`SELECT `+displayTitle("i")+`, i.occurred_at, x.version, x.overview, x.made_at FROM meeting_digests x JOIN items i ON i.id = x.item_id`+digestVisJoin+
-		`WHERE x.item_id = ? AND `+vis, append([]any{itemID}, vargs...)...).Scan(&d.ItemTitle, &start, &d.Version, &d.Overview, &made)
+	var lvl, cats int64
+	err := s.db.QueryRow(`SELECT `+displayTitle("i")+`, i.occurred_at, x.version, x.overview, x.made_at, x.level, x.categories FROM meeting_digests x JOIN items i ON i.id = x.item_id`+digestVisJoin+
+		`WHERE x.item_id = ? AND `+vis, append([]any{itemID}, vargs...)...).Scan(&d.ItemTitle, &start, &d.Version, &d.Overview, &made, &lvl, &cats)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -216,7 +217,8 @@ func (s *Store) MeetingDigest(sc sensitivity.Scope, itemID string) (*Digest, err
 		return nil, err
 	}
 	d.MadeAt, d.Start = time.Unix(made, 0), time.Unix(start, 0)
-	rows, err := s.db.Query(`SELECT x.n, x.subject, x.text, x.people, x.spans, x.grounded, x.issues FROM meeting_sections x`+digestVisJoin+
+	d.OverviewOwn = sensitivity.Label{Level: sensitivity.Level(lvl), Categories: sensitivity.Categories(cats)}
+	rows, err := s.db.Query(`SELECT x.n, x.subject, x.text, x.people, x.spans, x.grounded, x.issues, x.level, x.categories FROM meeting_sections x`+digestVisJoin+
 		`WHERE x.item_id = ? AND `+vis+` ORDER BY x.n`, append([]any{itemID}, vargs...)...)
 	if err != nil {
 		return nil, err
@@ -224,10 +226,11 @@ func (s *Store) MeetingDigest(sc sensitivity.Scope, itemID string) (*Digest, err
 	for rows.Next() {
 		var x DigestSection
 		var people, spans string
-		if err := rows.Scan(&x.N, &x.Subject, &x.Text, &people, &spans, &x.Grounded, &x.Issues); err != nil {
+		if err := rows.Scan(&x.N, &x.Subject, &x.Text, &people, &spans, &x.Grounded, &x.Issues, &lvl, &cats); err != nil {
 			rows.Close()
 			return nil, err
 		}
+		x.Own = sensitivity.Label{Level: sensitivity.Level(lvl), Categories: sensitivity.Categories(cats)}
 		json.Unmarshal([]byte(people), &x.People)
 		json.Unmarshal([]byte(spans), &x.Spans)
 		d.Sections = append(d.Sections, x)
@@ -264,6 +267,9 @@ type DigestedItem struct {
 	Overview string    `json:"overview"`
 	Sections int       `json:"sections"`
 	Todos    int       `json:"todos"`
+	// Label is the overview's effective sensitivity (the item's and its
+	// own).
+	Label sensitivity.Label `json:"-"`
 }
 
 // DigestedItems returns up to limit digested meetings the scope can see.
@@ -278,7 +284,7 @@ func (s *Store) DigestedItems(sc sensitivity.Scope, limit int) ([]DigestedItem, 
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT x.item_id, `+displayTitle("i")+`, i.occurred_at, x.overview,
+	rows, err := s.db.Query(`SELECT x.item_id, `+displayTitle("i")+`, i.occurred_at, x.overview, max(il.level, x.level), (il.categories | x.categories),
 		(SELECT count(*) FROM meeting_sections WHERE item_id = x.item_id), (SELECT count(*) FROM meeting_todos WHERE item_id = x.item_id)
 		FROM meeting_digests x JOIN items i ON i.id = x.item_id`+digestVisJoin+`WHERE `+vis+` ORDER BY i.occurred_at DESC LIMIT ?`,
 		append(vargs, limit)...)
@@ -289,10 +295,11 @@ func (s *Store) DigestedItems(sc sensitivity.Scope, limit int) ([]DigestedItem, 
 	var out []DigestedItem
 	for rows.Next() {
 		var x DigestedItem
-		var at int64
-		if err := rows.Scan(&x.ItemID, &x.Title, &at, &x.Overview, &x.Sections, &x.Todos); err != nil {
+		var at, lvl, cats int64
+		if err := rows.Scan(&x.ItemID, &x.Title, &at, &x.Overview, &lvl, &cats, &x.Sections, &x.Todos); err != nil {
 			return nil, err
 		}
+		x.Label = sensitivity.Label{Level: sensitivity.Level(lvl), Categories: sensitivity.Categories(cats)}
 		x.Start, x.Overview = time.Unix(at, 0), fix.Text(0, x.Overview)
 		out = append(out, x)
 	}
@@ -372,8 +379,19 @@ func (s *Store) DigestCommitments(sc sensitivity.Scope, proposals bool) ([]Commi
 		return nil, err
 	}
 	used := map[int64]bool{}
+	items := map[string]sensitivity.Label{}
 	out := make([]Commitment, 0, len(todos))
 	for _, t := range todos {
+		// The to-do shows the digest's words, so it is as sensitive as the
+		// digest row and its item, and as the statement it matched.
+		il, ok := items[t.ItemID]
+		if !ok {
+			var err error
+			if il, _, err = s.ItemLabel(t.ItemID); err != nil {
+				il = sensitivity.Label{Level: sensitivity.Confidential}
+			}
+			items[t.ItemID] = il
+		}
 		var c Commitment
 		// A statement that two to-dos matched is shown for the first only.
 		if b, ok := base[t.StatementID]; ok && !used[t.StatementID] {
@@ -384,6 +402,7 @@ func (s *Store) DigestCommitments(sc sensitivity.Scope, proposals bool) ([]Commi
 			c.ItemKind = "meeting"
 		}
 		c.ItemID, c.ItemTitle, c.Digest = t.ItemID, t.ItemTitle, t.ID
+		c.Label = sensitivity.Combine(sensitivity.Combine(il, t.Own), c.Label)
 		c.Kind, c.Text, c.Original, c.SaidAt = "commitment", t.Text, "", t.SaidAt
 		c.Who = nil
 		for _, o := range t.Owners {

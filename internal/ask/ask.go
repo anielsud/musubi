@@ -80,13 +80,60 @@ func Ask(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question s
 // AskWith is Ask with hooks for showing progress.
 func AskWith(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question string, k int, exclude []string, h Hooks) (*Answer, error) {
 	onToken := h.Token
-	lim := limitsFor(e)
 	llm := e.AskLLM
 	// A hosted model reads only what the cloud scope allows, unless the
 	// owner allows hosted models to read meeting text.
 	if llm != nil && !llm.Local() && !e.Cfg.Knowledge.AllowHosted {
 		sc = narrower(sc, sensitivity.Cloud())
 	}
+	g, err := Gather(ctx, e, sc, question, k, exclude)
+	if err != nil {
+		return nil, err
+	}
+	ans, question := g.Answer, g.Question
+	if h.Found != nil {
+		h.Found(ans)
+	}
+	if llm == nil {
+		return ans, nil
+	}
+	if len(ans.Sources) == 0 {
+		ans.Text = "Nothing in your knowledge base matches that."
+		if onToken != nil {
+			onToken(ans.Text)
+		}
+		return ans, nil
+	}
+	msgs := []provider.Message{
+		{Role: "system", Content: system},
+		{Role: "user", Content: "Today: " + time.Now().Format("Mon 2 Jan 2006") + "\n\n" + g.Context + "Question: " + question},
+	}
+	ans.PromptChars = len(msgs[0].Content) + len(msgs[1].Content)
+	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.2, MaxTokens: 2000, Context: 16384, Timeout: askTimeout}, onToken)
+	if err != nil {
+		return ans, err
+	}
+	ans.Text = strings.TrimSpace(text)
+	return ans, nil
+}
+
+// Gathered is what an answer is written from.
+type Gathered struct {
+	// Answer holds the sources (numbered from 1 in order) and threads; its
+	// Text is empty.
+	Answer *Answer
+	// Context is the numbered material as a model reads it.
+	Context string
+	// Question is the question with confirmed spellings expanded.
+	Question string
+}
+
+// Gather finds what a question is about, in scope sc, without writing an
+// answer: the threads' statuses and current items, people's prep data and
+// passages found by search. Ask writes its answer from this; the MCP server
+// hands it to the caller's own model.
+func Gather(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question string, k int, exclude []string) (*Gathered, error) {
+	lim := limitsFor(e)
 	// Confirmed spellings: a question with a misheard or variant name also
 	// finds the kept form.
 	passage := func(s string) string { return s }
@@ -131,30 +178,7 @@ func AskWith(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, questi
 			fmt.Fprintf(&ctxt, "[%d] %s — %s (%s)\n%s\n\n", n, h.OccurredAt.Format("Mon 2 Jan 2006"), h.Title, h.Kind, clip(passage(h.Text), 1800))
 		}
 	}
-	if h.Found != nil {
-		h.Found(ans)
-	}
-	if llm == nil {
-		return ans, nil
-	}
-	if len(ans.Sources) == 0 {
-		ans.Text = "Nothing in your knowledge base matches that."
-		if onToken != nil {
-			onToken(ans.Text)
-		}
-		return ans, nil
-	}
-	msgs := []provider.Message{
-		{Role: "system", Content: system},
-		{Role: "user", Content: "Today: " + time.Now().Format("Mon 2 Jan 2006") + "\n\n" + ctxt.String() + "Question: " + question},
-	}
-	ans.PromptChars = len(msgs[0].Content) + len(msgs[1].Content)
-	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.2, MaxTokens: 2000, Context: 16384, Timeout: askTimeout}, onToken)
-	if err != nil {
-		return ans, err
-	}
-	ans.Text = strings.TrimSpace(text)
-	return ans, nil
+	return &Gathered{Answer: ans, Context: ctxt.String(), Question: question}, nil
 }
 
 // threadContext writes the found threads' statuses and latest current

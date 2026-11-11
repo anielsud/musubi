@@ -1216,6 +1216,7 @@ outside the company is included.
 | Side panel, screen shared | `internal` and below, no categories; set by the screen-safe toggle |
 | Drafted reply to X | items where X is in the audience, plus uncategorised `internal` (X an employee) or `public` (X external); never `personal` |
 | Sending text to a cloud provider | the per-source egress policy, e.g. no email to cloud |
+| The owner's assistant over MCP (`musubi mcp`) | the owner's (capped by `mcp.max_share`); nothing hidden, every result labelled with a share verdict and, for a named audience, whether it fits (docs/mcp-design.md) |
 
 Egress to a cloud LLM is just another scope, so provider policy and
 sensitivity are enforced by the same code. Scoped reads made for outbound

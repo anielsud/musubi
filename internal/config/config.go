@@ -32,6 +32,7 @@ type Config struct {
 	Ask         Ask         `toml:"ask"`
 	Prep        Prep        `toml:"prep"`
 	M365        M365        `toml:"m365"`
+	MCP         MCP         `toml:"mcp"`
 }
 
 // M365 reads the owner's Microsoft 365 data through Microsoft Graph
@@ -78,6 +79,22 @@ type M365 struct {
 	// to a calendar event (title, times, invitees), for Tomoe to show the
 	// meeting's name and to know who could be speaking.
 	TomoeContext bool `toml:"tomoe_context"`
+}
+
+// MCP configures `musubi mcp`, the local server that gives the owner's
+// assistant (Claude Code) Musubi's knowledge. It reads in the owner's scope
+// and labels every result rather than hiding it (docs/mcp-design.md).
+type MCP struct {
+	// Enabled false makes `musubi mcp` refuse to start.
+	Enabled bool `toml:"enabled"`
+	// Tools, when set, is an allow-list of tool names; empty offers all.
+	Tools []string `toml:"tools"`
+	// MaxShare caps what is returned at a share verdict (public, internal,
+	// party-only); "owner-only", the default, returns everything.
+	MaxShare string `toml:"max_share"`
+	// Write offers the tools that record the owner's word (verdicts,
+	// corrections, to-do marks); false leaves the server read-only.
+	Write bool `toml:"write"`
 }
 
 // Prep configures meeting preparation.
@@ -581,6 +598,7 @@ func DefaultConfig() Config {
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true, AutoBrief: true},
+		MCP:           MCP{Enabled: true, MaxShare: "owner-only", Write: true},
 		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
 		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},

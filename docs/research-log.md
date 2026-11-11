@@ -3313,6 +3313,32 @@ fit without seeing either system's verdict:
   as fitting the general subject still headlines that account. That
   belongs to threading (`docs/incremental-design.md`, "Subject shape").
 
+## 2026-11-06: MCP server, first run on all-t4
+
+`musubi mcp` (docs/mcp-design.md) driven over stdio against all-t4, reads
+only. Latency per call: meeting 0.03 s, thread 0.8 s, threads list 0.6 s,
+gather 0.3 s (30–50k characters of context), search 0.05 s.
+
+Two labelling faults found and fixed before use:
+
+- **Digest to-dos read as public.** `DigestCommitments` gave each to-do the
+  digest's words but not its label; ten of the owner's open to-dos came back
+  `public`. Each now carries its digest row's and item's label (all ten
+  became party-only), and the server combines every result with its item's
+  own label as a second guard.
+- **Owner-only was too common.** With restricted rated owner-only, 27 of the
+  40 latest meeting overviews and 36 of 50 thread statuses were owner-only,
+  nearly all for HR or financial material rather than personal details, and
+  the verdict disagreed with `fits` for attendees. Rated as the reply rule
+  rates it (restricted may go to those party to it), owner-only is 5 of 40
+  overviews, 4 of 167 sections (20 meetings), 12 of 50 statuses and 31 of
+  856 current items (20 threads); the rest is party-only but 4 internal
+  items.
+
+Nearly everything in all-t4 is party-only: it is leadership meetings, which
+default to confidential. A consumer writing for anyone outside a meeting
+will find little that fits, which is the point.
+
 ## 2026-11-09: Microsoft 365 connection, first calendar sync on all-t4
 
 - Signed in with `musubi m365 connect`, the Graph Command Line Tools client.
@@ -3450,3 +3476,44 @@ Recovery:
 - The choice takes about 4 s per person and is kept on disk for a week
   (`data/headshots`); a cached page opens in 0.6 s. Without Vision (not on
   macOS) the tile heuristic is kept.
+
+## 2026-11-09: coverage and search before retiring the old transcript search and Bluedot
+
+Question: can the old hosted transcript search (a personal Supabase vector index over the
+Bluedot folder) and Bluedot itself go, now that Musubi serves Claude Code (`musubi mcp`)?
+
+**Search: January–September added to all-t4 for search only.** `bluedot_since` moved from
+2026-10-01 to 2026-01-01 (config and database backed up first). `musubi update` imported 785
+meetings in 10.5 min at background priority (passages, rule labels, names, nomic-embed-text
+vectors; no paid model). `hold_older` keeps them out of extraction, threads and digests until a
+run is started by hand, so nothing was spent. Re-classifying the 463 meetings already present
+changed no label (1,586 passages compared), so no digest is invalidated.
+
+13 questions with a known meeting (date + title), phrased as topics rather than titles:
+Musubi hybrid search had the meeting in its top 5 for 12; the 13th returned the same recurring
+series on other dates. The hosted index answered none: timeouts, then HTTP 500 "could not query
+the database for the schema cache" (the project's database is paused or down).
+
+**Coverage: what the transcript folder holds.** 1,062 files: 836 Bluedot recordings and 226 Teams
+transcripts (fetched from Teams, including meetings the owner was invited to but did not join).
+Since 2 October, 17 meetings had a folder copy but no Tomoe recording starting within 15 min:
+- 9 Teams transcripts of meetings the owner wasn't in (0 turns by the owner; Tomoe's window
+  log shows the owner in another meeting throughout);
+- 1 Tomoe did record (start 25 min earlier, same meeting window throughout);
+- 1 partial, already patched from Teams;
+- 2 overnight trainings, not attended live;
+- 3 real misses, all on one day: Tomoe crashed (SIGSEGV on the main thread, just after a save) on
+  14 Oct and wasn't relaunched until 18 Oct. It is the only crash in the log since 2 Oct; the
+  autorelease-pool fixes of 20–22 Oct may cover it, which one instance can't confirm.
+
+The suspected "back-to-back meetings merged into one recording" problem does not exist: in every
+case the meeting window kept one title for the whole recording.
+
+**Bluedot's online archive vs the folder.** 939 recordings online; 104 never downloaded (the sync
+stops at the first known recording, and a second recording with the same title on the same day
+overwrites the first file; 37 such pairs online). Of the 104: 32 under 5 min, 51 covered ≥ 80% by
+a Tomoe recording, 21 only online (most have a same-named file in the folder, i.e. the other copy
+of a same-day pair or the Teams transcript).
+
+Tomoe follow-up: its app log now stamps every line with the time (Tomoe 95a8ddc), so the next
+miss can be lined up with the detector.

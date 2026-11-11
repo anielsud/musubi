@@ -45,17 +45,36 @@ var modelGroups = []modelGroup{
 }
 
 // SlotView is one model choice in a group. A choice is "gw:<id>" on the
-// gateway, "local:<name>" in Ollama, "custom" (as the config has it,
-// unchanged) or "" (none).
+// gateway, "via:<provider>:<model>" on a custom provider, "local:<name>"
+// in Ollama, "custom" (as the config has it, unchanged) or "" (none).
 type SlotView struct {
 	Kind     string   `json:"kind"`
 	Sections []string `json:"sections"`
 	Current  string   `json:"current"`
-	// CustomText describes a "custom" model.
-	CustomText  string `json:"customText,omitempty"`
-	Fallback    string `json:"fallback"`
-	HasFallback bool   `json:"hasFallback"` // the slot takes one
-	Effort      string `json:"effort"`
+	// CustomText and FallbackText describe a "custom" model.
+	CustomText     string `json:"customText,omitempty"`
+	Effort         string `json:"effort"`
+	Fallback       string `json:"fallback"`
+	FallbackText   string `json:"fallbackText,omitempty"`
+	FallbackEffort string `json:"fallbackEffort"`
+	HasFallback    bool   `json:"hasFallback"` // the slot takes one
+}
+
+// Rate is a group's typical tokens per unit of work (a meeting hour, a
+// question): measured with Claude Haiku 5.5 on three meetings (about two
+// hours) on 2026-11-11, Claude's tokenizer, visible output only (research
+// log). Thinking is not in it.
+type Rate struct {
+	In  int    `json:"in"`
+	Out int    `json:"out"`
+	Per string `json:"per"`
+}
+
+var groupRates = map[string]Rate{
+	"extract": {In: 255000, Out: 30000, Per: "meeting hour"},
+	"write":   {In: 145000, Out: 19000, Per: "meeting hour"},
+	"ask":     {In: 7000, Out: 300, Per: "question"},
+	"labels":  {In: 32000, Per: "meeting hour"},
 }
 
 type GroupView struct {
@@ -63,6 +82,7 @@ type GroupView struct {
 	Title string     `json:"title"`
 	Does  string     `json:"does"`
 	Slots []SlotView `json:"slots"`
+	Rate  *Rate      `json:"rate,omitempty"`
 }
 
 type LocalModel struct {
@@ -93,12 +113,15 @@ func (a *App) Models() (ModelsView, error) {
 	g := a.gatewayConfig()
 	for _, mg := range modelGroups {
 		gv := GroupView{Key: mg.Key, Title: mg.Title, Does: mg.Does}
+		if r, ok := groupRates[mg.Key]; ok {
+			gv.Rate = &r
+		}
 		for _, s := range mg.Slots {
 			sv := SlotView{Kind: s.Kind, Sections: s.Sections, HasFallback: s.FallbackAt != "-"}
 			sv.Current, sv.CustomText, sv.Effort = describe(cfg.Section(s.Sections[0]), g)
 			if sv.HasFallback {
 				if l := fallbackOf(&cfg, s); l != nil && l.Provider != "" {
-					sv.Fallback, _, _ = describe(l, g)
+					sv.Fallback, sv.FallbackText, sv.FallbackEffort = describe(l, g)
 				}
 			}
 			gv.Slots = append(gv.Slots, sv)
@@ -176,6 +199,9 @@ func describe(sec any, g config.Gateway) (choice, custom, effort string) {
 			return "", "", ""
 		}
 		effort = m.ReasoningEffort
+		if m.Via != "" {
+			return "via:" + m.Via + ":" + m.Model, "", effort
+		}
 		if m.Provider == "ollama" {
 			return "local:" + m.Model, "", effort
 		}
@@ -209,9 +235,10 @@ func host(u string) string {
 
 // SetModels writes a group's choice to every section it covers, then
 // reopens the dataset so the next call uses it. Choices are as in
-// SlotView; "custom" leaves a section as it is. Effort ("", "low",
-// "medium", "high") is for hosted chat models.
-func (a *App) SetModels(group string, choices, fallbacks []string, effort string) error {
+// SlotView; "custom" leaves a section as it is. Efforts (one per slot, for
+// the preferred and the fallback model; "" the model's own) are written
+// for hosted chat models.
+func (a *App) SetModels(group string, choices, fallbacks, efforts, fallbackEfforts []string) error {
 	if a.eng == nil {
 		return fmt.Errorf("no dataset open")
 	}
@@ -221,11 +248,24 @@ func (a *App) SetModels(group string, choices, fallbacks []string, effort string
 			mg = &modelGroups[i]
 		}
 	}
-	if mg == nil || len(choices) != len(mg.Slots) || len(fallbacks) != len(mg.Slots) {
+	if mg == nil {
 		return fmt.Errorf("unknown model group %q", group)
 	}
-	if effort != "" && effort != "low" && effort != "medium" && effort != "high" {
-		return fmt.Errorf("thinking level %q", effort)
+	n := len(mg.Slots)
+	if len(choices) != n || len(fallbacks) != n || len(efforts) != n || len(fallbackEfforts) != n {
+		return fmt.Errorf("unknown model group %q", group)
+	}
+	for i := range choices {
+		for _, e := range []string{efforts[i], fallbackEfforts[i]} {
+			if !validEffort[e] {
+				return fmt.Errorf("thinking level %q", e)
+			}
+		}
+		for _, c := range []string{choices[i], fallbacks[i]} {
+			if p, _, ok := strings.Cut(strings.TrimPrefix(c, "via:"), ":"); strings.HasPrefix(c, "via:") && (!ok || a.eng.Cfg.Providers[p].URL == "") {
+				return fmt.Errorf("no provider for %s", c)
+			}
+		}
 	}
 	g := a.gatewayConfig()
 	var models []GatewayModel
@@ -245,7 +285,7 @@ func (a *App) SetModels(group string, choices, fallbacks []string, effort string
 	var edits []config.Edit
 	for i, s := range mg.Slots {
 		for _, sec := range s.Sections {
-			e, err := slotEdits(sec, s.Kind, choices[i], effort, g, models)
+			e, err := slotEdits(sec, s.Kind, choices[i], efforts[i], g, models)
 			if err != nil {
 				return err
 			}
@@ -272,7 +312,7 @@ func (a *App) SetModels(group string, choices, fallbacks []string, effort string
 				}
 			}
 			for _, at := range ats {
-				e, err := slotEdits(at, "chat", fallbacks[i], effort, g, models)
+				e, err := slotEdits(at, "chat", fallbacks[i], fallbackEfforts[i], g, models)
 				if err != nil {
 					return err
 				}
@@ -305,7 +345,19 @@ func slotEdits(sec, kind, choice, effort string, g config.Gateway, models []Gate
 			return nil, fmt.Errorf("%s takes a decision model, not a local chat model", sec)
 		}
 		return []config.Edit{set("provider", "ollama"), set("url", "http://127.0.0.1:11434"), set("model", strings.TrimPrefix(choice, "local:")),
-			del("api_key"), del("headers"), del("price_in"), del("price_out"), del("reasoning_effort")}, nil
+			del("via"), del("api_key"), del("headers"), del("price_in"), del("price_out"), del("reasoning_effort")}, nil
+	case strings.HasPrefix(choice, "via:"):
+		if kind != "chat" {
+			return nil, fmt.Errorf("%s takes a %s model", sec, kind)
+		}
+		p, model, _ := strings.Cut(strings.TrimPrefix(choice, "via:"), ":")
+		out := []config.Edit{set("via", p), set("model", model), del("provider"), del("url"), del("api_key"), del("headers")}
+		if effort == "" {
+			out = append(out, del("reasoning_effort"))
+		} else {
+			out = append(out, set("reasoning_effort", effort))
+		}
+		return out, nil
 	case strings.HasPrefix(choice, "gw:"):
 		id := strings.TrimPrefix(choice, "gw:")
 		var m *GatewayModel
@@ -320,7 +372,7 @@ func slotEdits(sec, kind, choice, effort string, g config.Gateway, models []Gate
 		if kind == "local" || (kind == "decision") != (m.Kind == "decision") {
 			return nil, fmt.Errorf("%s can't take %s", sec, id)
 		}
-		out := []config.Edit{del("api_key"), del("headers")}
+		out := []config.Edit{del("via"), del("api_key"), del("headers")}
 		switch m.Provider {
 		case "jev":
 			return append(out, set("provider", "jev"), set("url", g.CatalogURL()), del("model")), nil
@@ -483,4 +535,23 @@ func (a *App) pullRequired() {
 			a.PullModel(m.Name)
 		}
 	}
+}
+
+var validEffort = map[string]bool{"": true, "none": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+
+// ApplyRecommended brings the dataset's models, providers and gateway to
+// the recommended setup (internal/config/recommended.toml); the rest of
+// the config stays as it is.
+func (a *App) ApplyRecommended() error {
+	if a.eng == nil {
+		return fmt.Errorf("no dataset open")
+	}
+	edits, err := config.RecommendedEdits()
+	if err != nil {
+		return err
+	}
+	if err := config.EditFile(a.cfgPath, edits); err != nil {
+		return err
+	}
+	return a.reopen("models:changed")
 }

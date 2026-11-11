@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { GatewayModel, GatewayView, ModelsView, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
+import type { GatewayModel, GatewayView, ModelsView, ProviderView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -73,7 +73,13 @@ export const api = {
   gatewayDisconnect: (): Promise<void> => app().GatewayDisconnect(),
   gatewayModels: (): Promise<GatewayModel[] | null> => app().GatewayModels(),
   models: (): Promise<ModelsView> => app().Models(),
-  setModels: (group: string, choices: string[], fallbacks: string[], effort: string): Promise<void> => app().SetModels(group, choices, fallbacks, effort),
+  setModels: (group: string, choices: string[], fallbacks: string[], efforts: string[], fallbackEfforts: string[]): Promise<void> => app().SetModels(group, choices, fallbacks, efforts, fallbackEfforts),
+  applyRecommended: (): Promise<void> => app().ApplyRecommended(),
+  providers: (): Promise<ProviderView[] | null> => app().Providers(),
+  saveProvider: (name: string, format: string, url: string, headers: Record<string, string>, key: string): Promise<void> => app().SaveProvider(name, format, url, headers, key),
+  deleteProvider: (name: string): Promise<void> => app().DeleteProvider(name),
+  testProvider: (name: string): Promise<TestResult> => app().TestProvider(name),
+  providerModels: (name: string): Promise<string[] | null> => app().ProviderModels(name),
   pullModel: (name: string): Promise<void> => app().PullModel(name),
   removeModel: (name: string): Promise<void> => app().RemoveModel(name),
   personProfile: (id: string, scope: string): Promise<PersonProfile | null> => app().PersonProfile(id, scope),

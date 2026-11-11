@@ -183,7 +183,31 @@ TypeSafe 1.14.0). Clef (`provider = "clef"`, `url` its own `/ai/run/@cf/
 cloudflare/clef` address) takes the same questions; on the labels sample
 it found fewer sensitive statements than Jev (research log, 2026-11-11).
 
-**Settings → Models** picks the model for each kind of work, writing the
+Settings has four tabs: **Accounts** (Microsoft 365), **AI providers**
+(the gateway, other providers, and Ollama on this Mac), **Processing**
+(which model does what) and **Dataset** (paths). **Use recommended** on
+Processing writes the setup in `internal/config/recommended.toml`: Claude
+Haiku 5.5 at medium thinking through the gateway, GLM on Baseten behind
+it, local models for Live and search. It changes only model sections,
+providers and the gateway address; tokens and keys stay in the Keychain.
+
+Another provider that serves the OpenAI or the Anthropic format is
+added once under AI providers and named; its key goes in the Keychain as
+`musubi-provider-<name>` (or where its `api_key` says), and models use
+it with `via`:
+
+```toml
+[providers.baseten]
+format = "openai"
+url = "https://inference.baseten.co"
+api_key = "keychain:baseten-api-key"
+
+[knowledge.threads.model.fallback]
+via = "baseten"
+model = "zai-org/GLM-5.3-Flash"
+```
+
+**Processing** picks the model for each kind of work, writing the
 sections above in place (comments and other keys stay; the file before
 each change is kept as `config.toml.bak`):
 
@@ -196,8 +220,13 @@ each change is kept as `config.toml.bak`):
 | Live | `llm` (on this Mac), `live.relevance` |
 
 Each takes a preferred model and, for the chat groups, a fallback
-(`[<section>.fallback]`, used when the preferred one fails) and a thinking
-level (`reasoning_effort`). Models on the gateway get its key and headers
+(`[<section>.fallback]`, used when the preferred one fails), each with
+its own thinking level (`reasoning_effort`): only the levels the model
+takes are offered (Cloudflare's catalog lists them; GLM-5.3-Flash, for
+one, runs "medium" as "max"). Each group shows its typical tokens in and
+out per meeting hour, and what they cost with the chosen models; the
+rates were measured with Claude Haiku 5.5 on 2026-11-11 and leave out
+thinking. Models on the gateway get its key and headers
 from `[gateway]`; a section set by hand to something else shows as "as in
 the config" and is left alone. With `[llm] pull_missing = true` (the
 default) the app downloads the local models the dataset needs; the

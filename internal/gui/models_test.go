@@ -84,3 +84,30 @@ min_p = 0.5
 		t.Error("decision model in a chat slot")
 	}
 }
+
+// A custom provider's model is written by name, and read back as such.
+func TestViaChoice(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.toml")
+	os.WriteFile(p, []byte("[providers.baseten]\nformat = \"openai\"\nurl = \"https://bt.test\"\n\n[ask.model]\nprovider = \"anthropic\"\nurl = \"https://gw.test/anthropic-shim\"\nmodel = \"claude-haiku-5-5\"\nheaders = { \"x\" = \"1\" }\n"), 0o600)
+	e, err := slotEdits("ask.model", "chat", "via:baseten:zai-org/GLM-5.3-Flash", "low", config.Gateway{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := config.EditFile(p, e); err != nil {
+		t.Fatal(err)
+	}
+	c, err := config.Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := c.Ask.Model
+	if m.Via != "baseten" || m.Provider != "openai" || m.URL != "https://bt.test" || m.Model != "zai-org/GLM-5.3-Flash" || m.ReasoningEffort != "low" || len(m.Headers) != 0 {
+		t.Errorf("%+v", m)
+	}
+	if ch, _, ef := describe(&m, config.Gateway{}); ch != "via:baseten:zai-org/GLM-5.3-Flash" || ef != "low" {
+		t.Errorf("describe: %s %s", ch, ef)
+	}
+	if _, err := slotEdits("live.relevance", "decision", "via:baseten:x", "", config.Gateway{}, nil); err == nil {
+		t.Error("a provider's chat model in a decision slot")
+	}
+}

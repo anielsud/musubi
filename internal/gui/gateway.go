@@ -50,6 +50,10 @@ type GatewayModel struct {
 	Context  int     `json:"context"`  // tokens; 0 unknown
 	Retires  string  `json:"retires"`  // YYYY-MM-DD, or ""
 	Note     string  `json:"note,omitempty"`
+	// Efforts are the thinking levels the model takes (none: it has no
+	// setting); DefaultEffort is what it does without one.
+	Efforts       []string `json:"efforts"`
+	DefaultEffort string   `json:"defaultEffort"`
 }
 
 // claudeModels: the gateway serves Claude through /anthropic-shim, which
@@ -186,6 +190,7 @@ func (a *App) GatewayModels() ([]GatewayModel, error) {
 	var out []GatewayModel
 	for _, m := range claudeModels {
 		m.Kind, m.Provider = "chat", "anthropic"
+		m.Efforts, m.DefaultEffort = []string{"low", "medium", "high", "max"}, "medium"
 		out = append(out, m)
 	}
 	out = append(out, cat...)
@@ -235,6 +240,15 @@ func gatewayCatalog(ctx context.Context, account, token string) ([]GatewayModel,
 					gm.Context, _ = strconv.Atoi(s)
 				case "planned_deprecation_date":
 					gm.Retires = s
+				case "reasoning_effort":
+					// Only the levels it lists: others are remapped (GLM-5.3-Flash
+					// takes "medium" as "max").
+					var re struct {
+						Supported []string `json:"supported_efforts"`
+						Default   string   `json:"default_effort"`
+					}
+					json.Unmarshal(p.Value, &re)
+					gm.Efforts, gm.DefaultEffort = re.Supported, re.Default
 				case "price":
 					var prices []struct {
 						Unit  string  `json:"unit"`

@@ -747,5 +747,15 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 
 .model-group { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px dashed var(--line); }
 .model-group-head { display: flex; flex-direction: column; gap: 2px; }
-.model-slot { display: flex; flex-direction: column; gap: 4px; }
-.model-group label { display: flex; flex-direction: column; gap: 3px; color: var(--text-dim); }
+
+.subtabs { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+.subtabs button { background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 6px 10px; color: var(--text-dim); }
+.subtabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+.slot-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; }
+.slot-row .slot-label { grid-column: 1 / -1; }
+.pick { display: grid; grid-template-columns: 1fr auto; gap: 4px; min-width: 0; }
+.pick .pick-label { grid-column: 1 / -1; }
+.pick select { min-width: 0; }
+.pick select.effort { width: 9.5em; }
+.provider { padding: 6px 0 10px; border-bottom: 1px dashed var(--line); }
+@media (max-width: 560px) { .slot-row { grid-template-columns: 1fr; } }

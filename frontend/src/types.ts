@@ -622,6 +622,25 @@ export interface GatewayModel {
   context: number;
   retires: string;
   note?: string;
+  efforts: string[] | null;
+  defaultEffort: string;
+}
+
+export interface ProviderView {
+  name: string;
+  format: 'openai' | 'anthropic';
+  url: string;
+  keyRef: string;
+  hasKey: boolean;
+  headers: Record<string, string> | null;
+  inUse: string[] | null;
+}
+
+export interface TestResult {
+  ok: boolean;
+  ms: number;
+  models: number;
+  error?: string;
 }
 
 export interface SlotView {
@@ -629,9 +648,17 @@ export interface SlotView {
   sections: string[];
   current: string;
   customText?: string;
-  fallback: string;
-  hasFallback: boolean;
   effort: string;
+  fallback: string;
+  fallbackText?: string;
+  fallbackEffort: string;
+  hasFallback: boolean;
+}
+
+export interface Rate {
+  in: number;
+  out: number;
+  per: string;
 }
 
 export interface GroupView {
@@ -639,6 +666,7 @@ export interface GroupView {
   title: string;
   does: string;
   slots: SlotView[];
+  rate?: Rate;
 }
 
 export interface LocalModel {

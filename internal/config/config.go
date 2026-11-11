@@ -34,6 +34,9 @@ type Config struct {
 	M365        M365        `toml:"m365"`
 	MCP         MCP         `toml:"mcp"`
 	Gateway     Gateway     `toml:"gateway"`
+	// Providers are hosted endpoints set up once and named, for models to
+	// use with `via` (Settings → AI providers).
+	Providers map[string]Provider `toml:"providers"`
 }
 
 // M365 reads the owner's Microsoft 365 data through Microsoft Graph
@@ -449,6 +452,10 @@ type LLM struct {
 	Provider string `toml:"provider"`
 	Model    string `toml:"model"`
 	URL      string `toml:"url"`
+	// Via names a [providers.<name>] to take the provider (its format),
+	// url, key and headers from, for whatever this section doesn't set.
+	// Empty: set here, the earlier way.
+	Via string `toml:"via"`
 	// StartOllama lets the app start `ollama serve` if it isn't running.
 	StartOllama bool `toml:"start_ollama"`
 	// PullMissing ([llm] only) has the app download the local models the
@@ -660,6 +667,9 @@ func Load(path string) (Config, error) {
 		return c, err
 	}
 	if err := toml.Unmarshal(b, &c); err != nil {
+		return c, err
+	}
+	if err := c.applyProviders(); err != nil {
 		return c, err
 	}
 	c.applyGateway()

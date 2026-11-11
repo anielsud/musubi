@@ -119,7 +119,9 @@ gateway token. Until Musubi sets this up itself:
 4. **Set the models** as below. `cf-aig-collect-log-payload: false` keeps
    the prompt and the reply out of the gateway's logs (cost, tokens and
    the `token_id` stay); send it until the gateway sets it on every
-   request itself.
+   request itself. `cf-aig-skip-cache: true` skips the gateway's
+   5-minute response cache, so a retry after a bad reply gets a new one
+   rather than the same.
 
 ```toml
 [knowledge.threads.model]  # and the other hosted models alike
@@ -127,7 +129,7 @@ provider = "openai"
 url = "https://<gateway worker>/workers-ai-shim"
 model = "@cf/zai-org/glm-5.3-flash"
 api_key = "keychain:ai-gateway-token"
-headers = { "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","setup_version":"custom"}', "cf-aig-collect-log-payload" = "false" }
+headers = { "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","setup_version":"custom"}', "cf-aig-collect-log-payload" = "false", "cf-aig-skip-cache" = "true" }
 price_in = 0.15
 price_out = 0.50
 

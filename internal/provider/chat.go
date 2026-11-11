@@ -76,8 +76,11 @@ func NewChat(c config.LLM) (*Chat, error) {
 // NewLLM builds any configured chat model: Ollama, or an OpenAI-compatible
 // server (llama.cpp's llama-server). nil when turned off.
 func NewLLM(c config.LLM) (LLM, error) {
-	if c.Provider == "openai" {
+	switch c.Provider {
+	case "openai":
 		return NewOpenAI(c), nil
+	case "anthropic":
+		return NewAnthropic(c), nil
 	}
 	ch, err := NewChat(c)
 	if ch == nil || err != nil {

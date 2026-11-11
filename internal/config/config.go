@@ -441,8 +441,10 @@ type Lean struct {
 // LLM is the chat model for answers, live query suggestions and briefs.
 type LLM struct {
 	// Provider is "ollama", "openai" (an OpenAI-compatible server such as
-	// llama-server; URL without /v1) or "none" (Q&A then shows passages
-	// only, and live suggestions come from names and key phrases alone).
+	// llama-server; URL without /v1), "anthropic" (an Anthropic Messages
+	// endpoint such as the AI Gateway's /anthropic-shim; URL without /v1)
+	// or "none" (Q&A then shows passages only, and live suggestions come
+	// from names and key phrases alone).
 	Provider string `toml:"provider"`
 	Model    string `toml:"model"`
 	URL      string `toml:"url"`
@@ -457,7 +459,8 @@ type LLM struct {
 	Headers map[string]string `toml:"headers"`
 	// ReasoningEffort is sent to hosted reasoning models ("low", "medium",
 	// "high"); empty leaves the model's default. Calls may ask for their own
-	// (threads ask for low on assign, as measured).
+	// (threads ask for low on assign, as measured); for "anthropic" the
+	// configured level wins, and empty is medium.
 	ReasoningEffort string `toml:"reasoning_effort"`
 	// PriceIn and PriceOut (dollars per million tokens) price hosted calls
 	// for the spend ledger (MUSUBI_SPEND_LEDGER); 0 records tokens only.

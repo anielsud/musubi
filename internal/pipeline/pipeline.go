@@ -11,6 +11,7 @@ import (
 	"io"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +31,7 @@ import (
 // records get re-translated.
 const TranslatorVersion = "t3"
 
-const LinkVersion = "l3"
+const LinkVersion = "l4"
 
 type Runner struct {
 	Cfg        config.Config
@@ -130,7 +131,7 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 	for i := range items {
 		byID[items[i].ID] = &items[i]
 	}
-	linkHash, links := linkMeetings(items)
+	linkHash, links := linkMeetings(items, r.Cfg.Owner.Name)
 	if old, _ := r.Store.GlobalStamp("link"); old != linkHash {
 		var ls []store.Link
 		for m, e := range links {
@@ -348,10 +349,10 @@ type linkTarget struct {
 // linkMeetings matches each Tomoe recording to the calendar event it most
 // likely was: the event must contain the recording's start (with 15 minutes
 // of slack either side) and overlap a good share of it.
-func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
+func linkMeetings(items []item.Item, owner string) (string, map[string]linkTarget) {
 	var meetings, events []item.Item
 	h := sha256.New()
-	h.Write([]byte(LinkVersion))
+	h.Write([]byte(LinkVersion + "\x00" + owner))
 	for _, it := range items {
 		switch {
 		case it.Kind == item.KindMeeting:
@@ -361,7 +362,7 @@ func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
 		default:
 			continue
 		}
-		fmt.Fprintf(h, "%s %d %d|", it.ID, it.OccurredAt.Unix(), it.End().Unix())
+		fmt.Fprintf(h, "%s %d %d %v|", it.ID, it.OccurredAt.Unix(), it.End().Unix(), others(it, owner))
 	}
 	const slack = 15 * time.Minute
 	out := map[string]linkTarget{}
@@ -386,7 +387,7 @@ func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
 				score = max(score, 0.5)
 			}
 			if score > 0 {
-				score += preference(m, e)
+				score += preference(m, e, owner)
 			}
 			gap := absDur(m.OccurredAt.Sub(e.OccurredAt))
 			if score > best.score || (score == best.score && score > 0 && gap < bestGap) {
@@ -404,13 +405,13 @@ func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
 // the recording's title names (Tomoe titles a recording from the meeting
 // window), then the ones the owner organized or accepted over those they
 // left unanswered or declined.
-func preference(m, e item.Item) float64 {
+func preference(m, e item.Item, owner string) float64 {
 	p := 0.0
 	subj, title := normTitle(e.Title), normTitle(m.Title)
 	switch {
 	case len(subj) >= 4 && (strings.Contains(title, subj) || len(title) >= 4 && strings.Contains(subj, title)):
 		p += 0.5
-	case title != "" && !genericTitle.MatchString(m.Title):
+	case title != "" && !genericTitle.MatchString(m.Title) && !samePeople(m, e, owner):
 		// The recording names a different meeting (an ad-hoc call with
 		// someone, during an event the owner didn't join): not this event.
 		p -= 1
@@ -424,6 +425,28 @@ func preference(m, e item.Item) float64 {
 		p -= 0.2
 	}
 	return p
+}
+
+// samePeople: the recording heard the event's invitees and no one else (a
+// call that stood in for the meeting, titled for the caller).
+func samePeople(m, e item.Item, owner string) bool {
+	heard := others(m, owner)
+	return len(heard) > 0 && slices.Equal(heard, others(e, owner))
+}
+
+// others are an item's participants but the owner, by name, lowercased
+// and sorted.
+func others(it item.Item, owner string) []string {
+	var out []string
+	for _, p := range it.Participants {
+		n := strings.ToLower(strings.TrimSpace(p.Name))
+		if p.Owner || n == "" || strings.EqualFold(n, owner) {
+			continue
+		}
+		out = append(out, n)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 // genericTitle is the name Tomoe gives a recording when it saw no meeting

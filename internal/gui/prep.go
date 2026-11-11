@@ -70,7 +70,8 @@ func (a *App) PrepTargets() ([]PrepTarget, error) {
 				others++
 			}
 		}
-		if others == 0 {
+		// Cancelled: nothing to prepare, and it didn't happen.
+		if others == 0 || it.Native["cancelled"] == "true" {
 			continue
 		}
 		t := PrepTarget{ItemID: it.ID, Title: it.Title, At: it.OccurredAt, People: others}

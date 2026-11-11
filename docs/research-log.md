@@ -3596,5 +3596,31 @@ per meeting) by error type; major = would store a wrong fact or owner.
 - Prices per M tokens (gateway `pricing/model-pricing.csv`): Haiku 5.5
   $0.10 / $0.50, GLM-5.3-Flash $0.15 / $0.50, DeepSeek V4.1 Flash
   $0.30 / $1.20. Claude's tokenizer counts about 1.5x the input tokens.
-- Not tested: threading, statuses, Ask, the Live brief. Musubi has no
-  Anthropic-format client, so Haiku needs one before it can be used.
+- Musubi has no Anthropic-format client, so Haiku needs one before it
+  can be used.
+
+**The other jobs: GLM on Baseten vs Haiku medium.** Musubi's own requests,
+captured through a pass-through recorder on a copy of the database (Ask:
+3 questions; statuses: 3 threads of 18–66 statements; Live card brief:
+3 cards; threading: assign, merge, two thread updates), then sent once
+each to both models, one at a time, and judged blind as above.
+
+| Major / minor errors | GLM on Baseten | Haiku medium |
+|---|---|---|
+| Ask (3) | 0 / 2 | 0 / 2 |
+| Statuses (3) | 2 / 10 | 0 / 14 |
+| Live brief (3) | 0 / 7 | 0 / 4 |
+| Threading (4) | 0 / 6 | 0 / 3 |
+| Total time, 13 calls | 574 s | 104 s |
+| Total cost, 13 calls | 1.9¢ | 1.8¢ |
+
+- Statuses: GLM invented a delivery that never happened and misattributed
+  a person, and leaked item numbers into reader-facing text against the
+  prompt; Haiku's errors were framing ("from X to Y") and inferred owners.
+- Live brief: GLM went over the 18-word headline twice, Haiku once; Haiku's
+  lines were more often what to raise now. Ask: even.
+- Threading: no major errors either way; Haiku won assign and one thread
+  update, GLM the other, merge identical.
+- Baseten's speed swung from 4 to 117 tokens/s (one brief 136 s, one
+  thread update 253 s); Haiku held 155–240.
+- Musubi hedges threading calls: 5 of 14 were sent twice.

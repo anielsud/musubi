@@ -363,8 +363,9 @@ func (l *Live) handle(ev Event, mode string) {
 		switch ev.State {
 		case "started":
 			tomoeTitle := ev.Session.Title
-			if t, err := l.eng.Store.EventAt(ev.Session.CreatedAt); err == nil && t != "" {
+			if t, invited, err := l.eng.Store.EventAt(ev.Session.CreatedAt); err == nil && t != "" {
 				ev.Session.Title = t
+				ev.Session.Invited = others(invited, l.eng.Cfg.Owner.Name, l.eng.Cfg.Owner.Email)
 			}
 			l.mu.Lock()
 			if mode == "live" {

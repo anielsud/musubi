@@ -35,6 +35,8 @@ export interface Session {
   title: string;
   platform: string;
   created_at: string;
+  // The other people on the calendar event under way, when there is one.
+  invited?: string[];
 }
 
 export interface LiveStatus {

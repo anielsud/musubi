@@ -3,6 +3,7 @@ import { api, fmtDate, on, speakerName } from '../api';
 import type { Brief, Card, Hit, LiveStatus, Segment, Session, Suggestion, TopicCard, TopicLine } from '../types';
 import { CitedText, Empty, HitRow, Spinner } from './common';
 import { StatusView } from './Knowledge';
+import { Names } from './people';
 import { AskCard, askExamples, useAsk } from './AskView';
 import type { ThreadDetail } from '../types';
 
@@ -120,6 +121,7 @@ export function LiveView({ status, onOpen, onEntity, onTopic, scope: askScope, p
     <div className={'view live' + (active ? '' : ' idle-mode')}>
       <div className="live-left">
       <MeetingHeader status={status} />
+      {active && <WithLine invited={status?.session?.invited ?? []} segs={segs} />}
 
       {!active && (
         <div className="idle">
@@ -275,6 +277,38 @@ function MeetingHeader({ status }: { status: LiveStatus | null }) {
       {s && mode === 'live' && <span className="meeting-time">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>}
       {mode === 'replay' && <button className="link" onClick={() => api.stopReplay()}>stop</button>}
       {status.scope !== 'owner' && <span className="scope-pill">screen-safe</span>}
+    </div>
+  );
+}
+
+// withInCall is who's in the call: everyone invited when it's a small
+// meeting (and anyone else heard), else those heard so far and how many
+// more were invited; with no calendar event, those heard.
+const smallMeeting = 6;
+export function withInCall(invited: string[], segs: Segment[]): { names: string[]; more: number } {
+  const key = (n: string) => n.trim().toLowerCase();
+  const heard: string[] = [];
+  for (const s of segs) {
+    const n = speakerName(s.speaker).trim();
+    if (!n || n === 'You' || /^(Person|Speaker) \d+$/.test(n) || heard.some((h) => key(h) === key(n))) continue;
+    heard.push(n);
+  }
+  const isHeard = (n: string) => heard.some((h) => key(h) === key(n));
+  if (invited.length > 0 && invited.length <= smallMeeting) {
+    return { names: [...invited, ...heard.filter((h) => !invited.some((n) => key(n) === key(h)))], more: 0 };
+  }
+  return { names: heard, more: invited.filter((n) => !isHeard(n)).length };
+}
+
+// WithLine names who's in the call, each a link to their page.
+function WithLine({ invited, segs }: { invited: string[]; segs: Segment[] }) {
+  const { names, more } = withInCall(invited, segs);
+  if (names.length === 0 && more === 0) return null;
+  return (
+    <div className="live-with small">
+      <span className="dim">With </span>
+      <Names names={names} />
+      {more > 0 && <span className="dim">{names.length > 0 ? ' ' : ''}+{more} invited</span>}
     </div>
   );
 }

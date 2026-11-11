@@ -71,6 +71,9 @@ type KnowledgeOptions struct {
 	Auto bool
 	// hold are items this run leaves unextracted, so not threaded either.
 	hold map[string]bool
+	// wait are recordings whose Teams transcript may still come: extracted
+	// and summarised, but threaded only once it can't change them.
+	wait map[string]bool
 	// dups are meeting recordings another one stands in for: never
 	// threaded.
 	dups map[string]string
@@ -157,6 +160,21 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	if err != nil {
 		return ks, err
 	}
+	// Recordings stitched with their Teams transcript (knowledge.stitch)
+	// are read as stitched, as they were chunked.
+	stitchedItems, stitchedInto, err := r.stitches(items, false)
+	if err != nil {
+		return ks, err
+	}
+	for i := range items {
+		if s, ok := stitchedItems[items[i].ID]; ok {
+			items[i] = s
+		}
+	}
+	o.wait = r.awaitingTranscript(items, links)
+	if len(o.wait) > 0 {
+		r.logf("%d Teams meetings wait for their transcript before threading (knowledge.stitch_wait_hours)", len(o.wait))
+	}
 	byID := map[string]*item.Item{}
 	for i := range items {
 		byID[items[i].ID] = &items[i]
@@ -197,6 +215,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		s, _ := r.Store.StageStamp("extract", id)
 		return s != ""
 	})
+	dups = withStitches(dups, stitchedInto)
 	o.dups = dups
 	if len(dups) > 0 {
 		r.logf("%d meetings recorded twice (Tomoe and a transcript): one of each becomes knowledge", len(dups))
@@ -929,7 +948,7 @@ func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp str
 		}
 	}
 	for i := len(p.todo) - 1; i >= 0; i-- {
-		if o.hold[p.todo[i].ID] || o.dups[p.todo[i].ID] != "" {
+		if o.hold[p.todo[i].ID] || o.wait[p.todo[i].ID] || o.dups[p.todo[i].ID] != "" {
 			p.todo = append(p.todo[:i], p.todo[i+1:]...)
 		}
 	}

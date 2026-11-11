@@ -143,6 +143,20 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 		st.Ran["link"]++
 		r.logf("link: %d meetings matched to calendar events", len(ls))
 	}
+	// A recording that missed part of its meeting takes those stretches
+	// from the meeting's Teams transcript (knowledge.stitch), from here on.
+	stitchedItems, _, err := r.stitches(items, true)
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		if s, ok := stitchedItems[items[i].ID]; ok {
+			items[i] = s
+		}
+	}
+	if len(stitchedItems) > 0 {
+		r.logf("stitch: %d recordings filled from their Teams transcript", len(stitchedItems))
+	}
 	linked := func(id string) *item.Item {
 		if l, ok := links[id]; ok {
 			return byID[l.id]

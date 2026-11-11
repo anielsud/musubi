@@ -49,6 +49,10 @@ type Segment struct {
 	Start   float64 `json:"start,omitempty"` // seconds from OccurredAt
 	End     float64 `json:"end,omitempty"`
 	Text    string  `json:"text"`
+	// From is set on a line taken from another copy of the meeting to fill
+	// a stretch this recording missed ("teams": the Teams transcript, for
+	// before the owner joined or after they left).
+	From string `json:"from,omitempty"`
 }
 
 type Participant struct {

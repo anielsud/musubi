@@ -131,11 +131,21 @@ headers = { "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","se
 price_in = 0.15
 price_out = 0.50
 
-[knowledge.label.classifier] # Clef: Jev's questions, on Cloudflare
-provider = "clef"            # the faster, cheaper one: "clef-flash" in url and model
-url = "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef"
+[knowledge.label.classifier] # Jev through the gateway (the organisation's key)
+provider = "jev"
+url = "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run"
 api_key = "keychain:ai-gateway-token"
+headers = { "cf-aig-gateway-id" = "ai-gw", "cf-aig-collect-log-payload" = "false", "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","setup_version":"custom"}' }
+# [live.relevance] takes the same provider, url, api_key and headers.
 ```
+
+A Jev `url` ending in `/ai/run` is Cloudflare's model catalog: the request
+names `typesafe/jev`, and without `cf-aig-gateway-id` Cloudflare answers 402.
+The catalog's Jev version floats like TypeSafe's own `jev-latest`, and
+the two needn't match (on 2026-11-11 the gateway served 1.13.0 and
+TypeSafe 1.14.0). Clef (`provider = "clef"`, `url` its own `/ai/run/@cf/
+cloudflare/clef` address) takes the same questions; on the labels sample
+it found fewer sensitive statements than Jev (research log, 2026-11-11).
 
 The full set of keys, each with what it does and how to restore the
 earlier behaviour, is in `internal/config/config.go`.

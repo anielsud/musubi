@@ -57,7 +57,11 @@ type Jev struct {
 	PriceIn    float64
 	// Endpoint is where requests go: URL's /v1/systemone, or Clef's URL.
 	Endpoint string
-	Headers  map[string]string
+	// catalog: Jev from Cloudflare's model catalog (the AI Gateway's
+	// /ai/run), which takes the question under "input" and wraps the
+	// answer twice.
+	catalog bool
+	Headers map[string]string
 	// kind names the provider in errors ("jev", "clef").
 	kind    string
 	keyOnce sync.Once
@@ -88,10 +92,18 @@ func NewClef(url, model, apiKey string, priceIn float64, headers map[string]stri
 		Headers: headers, kind: "clef", client: &http.Client{Timeout: 60 * time.Second}}
 }
 
-// NewClassifier makes the classifier a config names: "jev" or "clef".
+// NewClassifier makes the classifier a config names: "jev" or "clef". A
+// jev url ending in /ai/run is Cloudflare's model catalog (the AI
+// Gateway's route to Jev, with the organisation's key): the request names
+// model "typesafe/jev", and headers must route it into the gateway
+// (cf-aig-gateway-id) or Cloudflare refuses it (402).
 func NewClassifier(provider, url, model, apiKey string, priceIn float64, headers map[string]string) (*Jev, error) {
 	switch provider {
 	case "jev":
+		if u := strings.TrimRight(url, "/"); strings.HasSuffix(u, "/ai/run") {
+			return &Jev{URL: u, Endpoint: u, Model: cmpOr(model, "typesafe/jev"), APIKey: apiKey, PriceIn: cmpOrF(priceIn, 0.042),
+				Headers: headers, kind: "jev", catalog: true, client: &http.Client{Timeout: 60 * time.Second}}, nil
+		}
 		j := NewJev(url, model, apiKey, priceIn)
 		j.Headers = headers
 		return j, nil
@@ -134,7 +146,11 @@ func (j *Jev) Classify(ctx context.Context, state any, questions map[string]Ques
 		}
 		qs[id] = m
 	}
-	b, _ := json.Marshal(map[string]any{"model": j.Model, "state": state, "questions": qs})
+	req := map[string]any{"model": j.Model, "state": state, "questions": qs}
+	if j.catalog {
+		req = map[string]any{"model": j.Model, "input": map[string]any{"state": state, "questions": qs}}
+	}
+	b, _ := json.Marshal(req)
 	var lastErr error
 	for try := 0; try < 4; try++ {
 		if try > 0 {
@@ -182,11 +198,16 @@ func (j *Jev) Classify(ctx context.Context, state any, questions map[string]Ques
 				Out int `json:"output_tokens"`
 			} `json:"usage"`
 		}
-		// Cloudflare wraps the answer: {"result": {...}, "success": true}.
-		var wrap struct {
-			Result json.RawMessage `json:"result"`
-		}
-		if json.Unmarshal(body, &wrap) == nil && len(wrap.Result) > 0 && wrap.Result[0] == '{' {
+		// Cloudflare wraps the answer: {"result": {...}, "success": true},
+		// and the catalog's Jev once more ({"result": {"state": ...,
+		// "result": {...}}}).
+		for range 2 {
+			var wrap struct {
+				Result json.RawMessage `json:"result"`
+			}
+			if json.Unmarshal(body, &wrap) != nil || len(wrap.Result) == 0 || wrap.Result[0] != '{' {
+				break
+			}
 			body = wrap.Result
 		}
 		if err := json.Unmarshal(body, &out); err != nil {

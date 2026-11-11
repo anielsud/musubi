@@ -165,8 +165,9 @@ func maxTime(a, b time.Time) time.Time {
 // stitches is what stitching does this run: the stitched copy of each
 // recording it applies to, and each Teams copy stitched in (→ the
 // recording, which stands for it). It applies to a recording not yet
-// extracted, or already stitched once (stamp "stitch/<id>"), so an
-// extracted meeting is never re-chunked by a transcript arriving late.
+// threaded, or already stitched once (stamp "stitch/<id>"), so a threaded
+// meeting is never re-chunked by a transcript arriving late. One extracted
+// and summarised but not threaded is: redoing those is cheap.
 // mark records the stamp for those newly stitched.
 func (r *Runner) stitches(items []item.Item, mark bool) (map[string]item.Item, map[string]string, error) {
 	if !r.Cfg.Knowledge.Stitch {
@@ -180,6 +181,10 @@ func (r *Runner) stitches(items []item.Item, mark bool) (map[string]item.Item, m
 	if len(fills) == 0 {
 		return nil, nil, nil
 	}
+	threaded, err := r.Store.ThreadedItems()
+	if err != nil {
+		return nil, nil, err
+	}
 	out, into := map[string]item.Item{}, map[string]string{}
 	for i := range items {
 		it := items[i]
@@ -190,7 +195,7 @@ func (r *Runner) stitches(items []item.Item, mark bool) (map[string]item.Item, m
 		key := "stitch/" + it.ID
 		was, _ := r.Store.GlobalStamp(key)
 		if was == "" {
-			if ex, _ := r.Store.StageStamp("extract", it.ID); ex != "" {
+			if threaded[it.ID] != "" {
 				continue
 			}
 			if mark {
@@ -232,9 +237,9 @@ func withStitches(dups, into map[string]string) map[string]string {
 }
 
 // awaitingTranscript is the Tomoe recordings of Teams meetings (their
-// event has a join link) not yet extracted whose Teams transcript hasn't
+// event has a join link) not yet threaded whose Teams transcript hasn't
 // arrived, within knowledge.stitch_wait_hours of the meeting's end:
-// extracted now, they couldn't be stitched once it does.
+// threaded now, they couldn't be stitched once it does.
 func (r *Runner) awaitingTranscript(items []item.Item, links map[string]string) map[string]bool {
 	kc := r.Cfg.Knowledge
 	if !kc.Stitch || kc.StitchWaitHours <= 0 || !r.Cfg.M365.Enabled || !r.Cfg.M365.Transcripts {
@@ -249,6 +254,7 @@ func (r *Runner) awaitingTranscript(items []item.Item, links map[string]string) 
 			have[links[it.ID]] = true
 		}
 	}
+	threaded, _ := r.Store.ThreadedItems()
 	wait := time.Duration(kc.StitchWaitHours * float64(time.Hour))
 	now := time.Now()
 	out := map[string]bool{}
@@ -262,7 +268,7 @@ func (r *Runner) awaitingTranscript(items []item.Item, links map[string]string) 
 		if now.Sub(end) >= wait {
 			continue
 		}
-		if ex, _ := r.Store.StageStamp("extract", it.ID); ex == "" {
+		if threaded[it.ID] == "" {
 			out[it.ID] = true
 		}
 	}

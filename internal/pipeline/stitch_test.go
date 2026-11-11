@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,30 +77,56 @@ func TestStitch(t *testing.T) {
 	}
 }
 
-// A recording waiting for its meeting's Teams transcript isn't extracted
-// yet, so it isn't threaded either: marked threaded with nothing in it, it
-// would never be threaded once extracted.
+// A recording waiting for its meeting's Teams transcript is extracted
+// (and summarised) at once, but not threaded until the transcript can't
+// change it. When the transcript comes, the recording is stitched and
+// extracted again; once threaded, a transcript arriving late changes
+// nothing.
 func TestWaitingNotThreaded(t *testing.T) {
-	r, st := build(t)
-	kc := &r.Cfg.Knowledge
-	kc.Extract, kc.Gate, kc.Grouping, kc.Stitch, kc.StitchWaitHours = "statements", 0, "threads", true, 2
-	r.Cfg.M365.Enabled, r.Cfg.M365.Transcripts = true, true
-	at := time.Now().Add(-time.Hour).Truncate(time.Second)
-	ev := item.Item{ID: "m365-calendar:ev", Source: "m365-calendar", Ref: "ev", Kind: item.KindEvent, Title: "Weekly", OccurredAt: at, EndedAt: at.Add(30 * time.Minute),
-		Native: map[string]string{"joinUrl": "https://teams.example/join"}}
-	rec := recording("rec", at, 0, 30)
-	rec.Title = "Weekly"
-	for _, it := range []item.Item{ev, rec} {
-		if _, err := st.UpsertItem(it); err != nil {
+	for _, threadedFirst := range []bool{false, true} {
+		r, st := build(t)
+		kc := &r.Cfg.Knowledge
+		kc.Extract, kc.Gate, kc.Grouping, kc.Stitch, kc.StitchWaitHours = "statements", 0, "threads", true, 2
+		r.Cfg.M365.Enabled, r.Cfg.M365.Transcripts = true, true
+		at := time.Now().Add(-time.Hour).Truncate(time.Second)
+		ev := item.Item{ID: "m365-calendar:ev", Source: "m365-calendar", Ref: "ev", Kind: item.KindEvent, Title: "Weekly", OccurredAt: at, EndedAt: at.Add(30 * time.Minute),
+			Native: map[string]string{"joinUrl": "https://teams.example/join"}}
+		rec := recording("rec", at, 20, 30) // joined 20 minutes late
+		rec.Title = "Weekly"
+		for _, it := range []item.Item{ev, rec} {
+			if _, err := st.UpsertItem(it); err != nil {
+				t.Fatal(err)
+			}
+		}
+		run(t, r)
+		knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}})
+		if s, _ := st.StageStamp("extract", rec.ID); s == "" {
+			t.Fatal("a recording waiting for its transcript wasn't extracted")
+		}
+		if done, _ := st.ThreadedItems(); done[rec.ID] != "" {
+			t.Fatal("a recording waiting for its transcript was threaded")
+		}
+		if threadedFirst {
+			st.MarkThreaded(rec.ID, "s")
+		}
+
+		tc := teamsCopy("teams", at)
+		tc.Title = "Weekly"
+		if _, err := st.UpsertItem(tc); err != nil {
 			t.Fatal(err)
 		}
-	}
-	run(t, r)
-	knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}})
-	if s, _ := st.StageStamp("extract", rec.ID); s != "" {
-		t.Fatal("the recording didn't wait for its transcript")
-	}
-	if done, _ := st.ThreadedItems(); done[rec.ID] != "" {
-		t.Error("a recording waiting for its transcript was threaded")
+		run(t, r)
+		chunks, _ := st.Chunks(rec.ID)
+		heard := false
+		for _, c := range chunks {
+			heard = heard || strings.Contains(c.Text, "minute00")
+		}
+		if heard == threadedFirst {
+			t.Errorf("threaded first %v: stitched %v", threadedFirst, heard)
+		}
+		knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}})
+		if s, _ := st.StageStamp("extract", rec.ID); s == "" {
+			t.Errorf("threaded first %v: not extracted again after stitching", threadedFirst)
+		}
 	}
 }

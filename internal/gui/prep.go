@@ -89,10 +89,17 @@ func (a *App) Prep(req knowledge.PrepRequest, scope string) (*knowledge.PrepView
 		return nil, err
 	}
 	if req.Template != "" {
-		// An upcoming event prepares from the last meeting with its title,
-		// if there was one, so "since" is when you last met.
+		// An upcoming event prepares from the last meeting of its series, so
+		// "since" is when you last met and that meeting's recap anchors the
+		// prep: the latest earlier event with the same subject that has a
+		// recording (found through the calendar, as a recording's own title
+		// is often Tomoe's default), else a recording titled the same.
 		for _, it := range items {
 			if it.ID == req.Template && it.Kind == item.KindEvent {
+				if last, at := knowledge.LastOfSeries(a.eng.Store, it, items); last != "" {
+					req.Since, req.Last = at, last
+					break
+				}
 				for _, p := range items {
 					if p.Kind != item.KindEvent && strings.EqualFold(p.Title, it.Title) && p.OccurredAt.Before(it.OccurredAt) && p.OccurredAt.After(req.Since) {
 						req.Since = p.OccurredAt

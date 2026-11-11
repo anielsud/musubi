@@ -18,7 +18,7 @@ func WordAgreement(m, t *Item) float64 {
 	words := func(it *Item, window bool) map[string]bool {
 		w := map[string]bool{}
 		for _, sg := range it.Segments {
-			if at := it.OccurredAt.Add(time.Duration(sg.Start * float64(time.Second))); window && (at.Before(m.OccurredAt) || at.After(m.EndedAt)) {
+			if at := it.OccurredAt.Add(time.Duration(sg.Start * float64(time.Second))); window && (at.Before(m.OccurredAt) || at.After(m.End())) {
 				continue
 			}
 			for _, f := range strings.FieldsFunc(strings.ToLower(sg.Text), func(r rune) bool { return !unicode.IsLetter(r) }) {
@@ -48,14 +48,14 @@ func Overlapping(m *Item, ts []*Item) *Item {
 	var best *Item
 	var bestD time.Duration
 	for _, t := range ts {
-		lo, hi := m.OccurredAt, m.EndedAt
+		lo, hi := m.OccurredAt, m.End()
 		if t.OccurredAt.After(lo) {
 			lo = t.OccurredAt
 		}
-		if t.EndedAt.Before(hi) {
-			hi = t.EndedAt
+		if t.End().Before(hi) {
+			hi = t.End()
 		}
-		if d := hi.Sub(lo); d > bestD && d >= m.EndedAt.Sub(m.OccurredAt)/4 {
+		if d := hi.Sub(lo); d > bestD && d >= m.End().Sub(m.OccurredAt)/4 {
 			best, bestD = t, d
 		}
 	}

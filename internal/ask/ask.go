@@ -327,9 +327,9 @@ func clip(s string, n int) string {
 	return s[:n] + "…"
 }
 
-const prepSystem = `You help an executive prepare for a meeting. You get the people they are meeting, the subjects those people are part of (each with its written status and what is new since they last met), what is open between them, and what was said elsewhere that these people likely haven't heard. Sources are numbered.
+const prepSystem = `You help an executive prepare for a meeting. You get the people they are meeting, the recap of this group's last meeting (with its to-dos and how each stands now), the subjects those people are part of (each with its written status and what is new since they last met), what is open between them, and what was said elsewhere that these people likely haven't heard. Sources are numbered; refer to the recap as "last meeting".
 
-Write talking points: four to seven bullets, most important first. Each says what to raise and why now (a decision due, a change since last time, something they need to know, a commitment owed either way), in one or two sentences, citing sources like [3]. Prefer what changed recently and what needs them. Leave out anything that is only background. Never invent facts.`
+Write talking points: four to seven bullets, most important first. Each says what to raise and why now (a decision due, a change since last time, something they need to know, a commitment owed either way), in one or two sentences, citing sources like [3]. Start from what the last meeting left open (decisions deferred, to-dos still owed) and what has moved on it since, then add what changed elsewhere. Prefer what changed recently and what needs them. Leave out anything that is only background. Never invent facts.`
 
 // PrepBrief writes talking points for a prep view. Tokens stream to
 // onToken.
@@ -360,6 +360,31 @@ func PrepBrief(ctx context.Context, e *engine.Engine, v *knowledge.PrepView, onT
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Meeting: %s\nWith: %s\nLast met: %s\n\n", v.Title, strings.Join(v.People, ", "), v.Since.Format("Mon 2 Jan 2006"))
+	if l := v.Last; l != nil {
+		fmt.Fprintf(&b, "Last meeting (%s, %s), recap:\n%s\n", l.Title, l.Start.Format("Mon 2 Jan"), l.Overview)
+		for _, sec := range l.Sections {
+			fmt.Fprintf(&b, "- %s: %s\n", sec.Subject, sec.Text)
+		}
+		var todos []string
+		for _, t := range l.ToDos {
+			if t.State == "not" || t.State == "declined" {
+				continue
+			}
+			who := strings.Join(t.Owners, ", ")
+			if who == "" {
+				who = "owner unclear"
+			}
+			line := fmt.Sprintf("- %s (%s; now %s", t.Text, who, t.State)
+			if t.Due != "" {
+				line += ", " + t.Due
+			}
+			todos = append(todos, line+")")
+		}
+		if len(todos) > 0 {
+			b.WriteString("To-dos from the last meeting, and how they stand now:\n" + strings.Join(todos, "\n") + "\n")
+		}
+		b.WriteString("\n")
+	}
 	for _, s := range v.Subjects {
 		c := cite(s.Items)
 		fmt.Fprintf(&b, "Subject: %s (%s)\n", s.Name, s.Why)

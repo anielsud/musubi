@@ -161,6 +161,16 @@ func (s *Store) ReplaceChunks(itemID, version, hash string, chunks []Chunk) erro
 	})
 }
 
+// ChunkTitle is the title an item's passages carry ("" when it has none).
+func (s *Store) ChunkTitle(itemID string) (string, error) {
+	var t string
+	err := s.db.QueryRow(`SELECT title FROM chunks WHERE item_id = ? ORDER BY seq LIMIT 1`, itemID).Scan(&t)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return t, err
+}
+
 // sameChunks reports whether the item's stored passages are exactly these
 // (sequence, segment range, times, speakers, text), whatever their titles.
 func sameChunks(tx *sql.Tx, itemID string, chunks []Chunk) (bool, error) {

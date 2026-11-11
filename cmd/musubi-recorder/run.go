@@ -37,7 +37,7 @@ before exiting.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		data, _ := cmd.Flags().GetString("data")
-		return runRecorder(data)
+		return withMainLoop(func() error { return runRecorder(data) })
 	},
 }
 

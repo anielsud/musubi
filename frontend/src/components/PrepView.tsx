@@ -1,26 +1,33 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../api';
-import type { Hit, PrepRequest, PrepTarget, PrepView as Prep, ThreadItem, ThreadRef } from '../types';
+import type { Hit, PrepRequest, PrepView as Prep, ThreadItem, ThreadRef } from '../types';
 import { Empty, HitRow, Spelled, Spinner } from './common';
+import { Names } from './people';
 import { Answer } from './AskView';
 import { Cited, Refs, citedIn } from './Knowledge';
 
-// PrepView: before a meeting, what to bring: the subjects these people are
+// PrepPage: before a meeting, what to bring: the subjects these people are
 // part of and where each stands, what moved since you last met, what is
 // open between you, and what was said elsewhere they likely haven't heard.
-export function PrepView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void }) {
-  const [targets, setTargets] = useState<PrepTarget[] | null>(null);
-  const [req, setReq] = useState<PrepRequest | null>(null);
-  const [names, setNames] = useState('');
+// Opened from the Meetings tab, for an upcoming meeting, the next one of a
+// past meeting, or named people.
+export function PrepPage({ req, scope, onBack, onOpen, onTopic }: {
+  req: PrepRequest; scope: string; onBack?: () => void; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void;
+}) {
   const [view, setView] = useState<Prep | null | undefined>(null);
   const [err, setErr] = useState('');
-  const [brief, setBrief] = useState<{ id: string; text: string; sources: Hit[]; threads: ThreadRef[]; done: boolean; error?: string } | null>(null);
+  const [brief, setBrief] = useState<{ id: string; text: string; sources: Hit[]; threads: ThreadRef[]; done: boolean; error?: string; madeAt?: string } | null>(null);
+  // Talking points drafted ahead (prep.auto_brief) show until redrafted
+  // here, and are replaced when a newer draft lands.
+  const ev = req.template;
+  const loadSaved = () => {
+    if (!ev) return;
+    api.savedPrepBrief(ev, scope).then((b) => {
+      if (b) setBrief((cur) => (cur && !cur.madeAt ? cur : { id: 'saved', text: b.text, sources: b.sources ?? [], threads: b.threads ?? [], done: true, madeAt: b.madeAt }));
+    }, () => {});
+  };
+  useEffect(() => on<{ id: string }>('prep:brief', ({ id }) => { if (id === ev) loadSaved(); }), [ev, scope]);
   const src = (itemId: string, chunkId: number) => onOpen({ itemId, chunkId } as unknown as Hit, scope);
-
-  useEffect(() => {
-    const t = setTimeout(() => api.prepTargets().then((x) => setTargets(x ?? []), (e) => setErr(String(e))), 200);
-    return () => clearTimeout(t);
-  }, []);
 
   useEffect(() => {
     const offs = [
@@ -33,15 +40,14 @@ export function PrepView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h
   }, []);
 
   useEffect(() => {
-    if (!req) return;
     setView(undefined);
     setBrief(null);
     setErr('');
     api.prep(req, scope).then(setView, (e) => { setErr(String(e)); setView(null); });
+    loadSaved();
   }, [req, scope]);
 
   const draft = () => {
-    if (!req) return;
     const id = String(Date.now());
     setBrief({ id, text: '', sources: [], threads: [], done: false });
     api.prepBrief(id, req, scope).catch((e) => setBrief({ id, text: '', sources: [], threads: [], done: true, error: String(e) }));
@@ -49,28 +55,14 @@ export function PrepView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h
 
   return (
     <div className="view prep">
-      <div className="prep-pick">
-        <select value={req?.template ?? ''} onChange={(e) => e.target.value && setReq({ template: e.target.value })}>
-          <option value="">Prepare for…</option>
-          {(targets ?? []).some((t) => t.upcoming) && <optgroup label="Upcoming">
-            {targets!.filter((t) => t.upcoming).map((t) => <option key={t.itemId} value={t.itemId}>{fmtDate(t.at)} · {t.title}</option>)}
-          </optgroup>}
-          <optgroup label="The next one of a recent meeting">
-            {(targets ?? []).filter((t) => !t.upcoming).map((t) => <option key={t.itemId} value={t.itemId}>{t.title} · last {fmtDate(t.at)}</option>)}
-          </optgroup>
-        </select>
-        <form onSubmit={(e) => { e.preventDefault(); const ps = names.split(',').map((x) => x.trim()).filter(Boolean); if (ps.length) setReq({ people: ps }); }}>
-          <input value={names} onChange={(e) => setNames(e.target.value)} placeholder="…or people: name, name" />
-        </form>
-      </div>
+      {onBack && <button className="link back" onClick={onBack}>← Meetings</button>}
       {err && <div className="error small">{err}</div>}
-      {!req && <Empty>Pick a meeting to prepare for, or name the people you're meeting. Musubi gathers their subjects and where each stands, what moved since you last met, what's open between you, and what was said elsewhere they likely haven't heard.</Empty>}
       {view === undefined && <Spinner />}
       {view && (
         <>
           <div className="prep-head">
             <h2>{view.title || 'Meeting'}</h2>
-            <div className="dim small">with {(view.people ?? []).join(', ') || 'nobody found'} · since {fmtDate(view.since)} · {view.met} meetings with them in the record</div>
+            <div className="dim small">with {(view.people?.length ?? 0) > 0 ? <Names names={view.people!} /> : 'nobody found'} · since {fmtDate(view.since)} · {view.met} meetings with them in the record</div>
           </div>
 
           <section className="thread-status">
@@ -79,6 +71,7 @@ export function PrepView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h
               {!brief || brief.done ? <button className="link" onClick={draft}>{brief ? 'redraft' : 'draft'}</button> : <span><Spinner /> <button className="link" onClick={() => api.stopAsk()}>stop</button></span>}
             </div>
             {!brief && <div className="dim small">A model drafts what to raise, from everything below.</div>}
+            {brief?.madeAt && <div className="dim small">Drafted {fmtDate(brief.madeAt)}; drafted again as new information comes in.</div>}
             {brief?.text && <Answer text={brief.text} hits={brief.sources} onCite={(h) => onOpen(h, scope)} />}
             {brief?.error && <div className="error small">{brief.error}</div>}
           </section>
@@ -104,6 +97,26 @@ export function PrepView({ scope, onOpen, onTopic }: { scope: string; onOpen: (h
                 })}
               </ul>
             </>
+          )}
+
+          {view.last && (
+            <section className="prep-last">
+              <div className="section-head"><span>Last time</span><span className="dim">{fmtDate(view.last.start)}</span></div>
+              <p className="small">{view.last.overview}</p>
+              {(() => {
+                const open = (view.last.todos ?? []).filter((t) => t.state === 'open' || t.state === 'quiet' || t.state === 'proposed');
+                return open.length > 0 && (
+                  <>
+                    <div className="status-head">Still open from it</div>
+                    <ul className="status-list">
+                      {open.map((t) => (
+                        <li key={t.id}>{t.text}<span className="dim"> — {(t.owners?.length ?? 0) > 0 ? <Names names={t.owners!} /> : 'owner unclear'}{t.due ? ' · ' + t.due : ''}{t.state === 'quiet' ? ' · gone quiet' : ''}</span></li>
+                      ))}
+                    </ul>
+                  </>
+                );
+              })()}
+            </section>
           )}
 
           <div className="section-head"><span>Their subjects</span></div>

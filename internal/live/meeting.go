@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/anielsud/musubi/internal/item"
 )
 
 // Meeting is the conversation so far: the latest version of every line.
@@ -72,6 +74,25 @@ func (m *Meeting) RecentLines(window float64) []Segment {
 	return out
 }
 
+// RecentSplit is Recent(window) in two parts: the lines ending in the last
+// since seconds, and those before.
+func (m *Meeting) RecentSplit(window, since float64) (before, after string) {
+	lines := m.RecentLines(window)
+	if len(lines) == 0 {
+		return "", ""
+	}
+	end := lines[len(lines)-1].End
+	var b, a strings.Builder
+	for _, s := range lines {
+		w := &b
+		if s.End >= end-since {
+			w = &a
+		}
+		fmt.Fprintf(w, "%s: %s\n", speakerName(s.Speaker), s.Text)
+	}
+	return b.String(), a.String()
+}
+
 // Recent returns the last window seconds as "Speaker: text" lines.
 func (m *Meeting) Recent(window float64) string {
 	var b strings.Builder
@@ -99,6 +120,19 @@ func (m *Meeting) Speakers() []string {
 			seen[n] = true
 			out = append(out, n)
 		}
+	}
+	return out
+}
+
+// others are the invitees' names but the owner's (by name or email).
+func others(invited []item.Participant, ownerName, ownerEmail string) []string {
+	var out []string
+	for _, p := range invited {
+		n := strings.TrimSpace(p.Name)
+		if p.Owner || n == "" || strings.EqualFold(n, ownerName) || (ownerEmail != "" && strings.EqualFold(p.Email, ownerEmail)) {
+			continue
+		}
+		out = append(out, n)
 	}
 	return out
 }

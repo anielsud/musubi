@@ -92,7 +92,7 @@ Planned connectors, in order:
 | `tomoe` | reads `~/.local/share/tomoe/sessions/*/session.json` |
 | `calendar` | ICS or Graph; gives meetings their titles and attendees |
 | `mcpdrop` | an inbox directory that scheduled Claude Code jobs fill from the approved M365 / Salesforce / Zoom connectors, as JSON |
-| `graph` | direct Microsoft Graph (mail, chat), once an Entra app registration is approved |
+| `graph` | direct Microsoft Graph (mail, chat), once an Entra app registration is approved; until then `internal/m365` signs in as Microsoft's already-consented Graph Command Line Tools client and writes calendar events (and, next, Teams transcripts) into the inbox: docs/teams-design.md |
 
 ### 2. Items
 
@@ -245,7 +245,13 @@ cold lane like any other source.
   keep them. `[live.pick.brief]` (a chat model) writes each picked card
   a headline (something the last 3 minutes didn't say) and up to three
   things to raise in this meeting; when the notes planned this very
-  conversation, the headline says so. A picked card is its title,
+  conversation, the headline says so. The brief reads the lookups that
+  put the card forward and the 3 minutes split where the card was first
+  put forward (less 15 s), the earlier part marked as possibly another
+  subject (`full_window` restores one undivided window). It first says
+  whether the notes fit: when the conversation is about a customer,
+  person or project the notes never mention, the card is taken down and
+  not picked again for 10 minutes (`keep_unfit` keeps it). A picked card is its title,
   headline and best raise line, so the panel keeps the recent picks up
   (the current one marked), not only the open ones; opened, a card shows
   its other raise lines and the topic's written status, each point's
@@ -297,9 +303,23 @@ cold lane like any other source.
   rest as gone quiet, and a passed due date is marked overdue. Subjects
   over the same 15% are marked for the owner alone and, with more than
   one other person attending, listed last (`prep.mark_private`).
+  The previous meeting of an event's series (`knowledge.LastOfSeries`: the
+  latest earlier event with the same subject, "Canceled: " aside, that has
+  a recording, the copy with a recap first) sets "since" and anchors the
+  prep: its recap and its to-dos, with how each stands now, come before
+  the subjects, and the talking points start from what it left open. On
+  the 12 Nov ELT meeting this took the talking points from none of the
+  last meeting's agenda to most of it, on 22,700 characters of input
+  (a naive prep from the raw transcripts filled 120,000 with one meeting).
   "Draft" writes talking points with the Ask model.
+  With `prep.auto_brief` (on), the app drafts them ahead for the owner's
+  calendar events in the rest of the week: every 15 minutes it builds each
+  event's prep, hashes it with the model's name, and drafts again only
+  when the hash changed; drafts are kept in `prep_briefs` with the
+  combined label of the sources they cite (confidential with none), and
+  nothing runs while a meeting is live.
   `musubi prep <item> [--brief]` is the same from the command line.
-- **To-do** (`knowledge.ToDos`, `store.Commitments`): everything someone
+- **To-do** (`knowledge.ToDos`, `store.Commitments`, or the digest's to-dos, see Meeting digests): everything someone
   said would happen (commitment statements) and, with "+ proposals", what
   someone said should happen and nobody agreed yet (positions and
   decisions still proposed). Nothing is stored for the list: what came of
@@ -430,7 +450,25 @@ extracted or threaded isn't a backlog: re-extracted after its content
 changed (a speaker renamed in Tomoe), it goes back into the threads in its
 place. A meeting
 recorded twice (Tomoe and a transcript overlapping) is knowledge once
-(`prefer_source`). `Runner.Queue` reports the waiting work; the Status
+(`prefer_source`); two copies from one source count only when they share
+most of their words (a Teams transcript imported by hand and synced), never
+two Tomoe recordings. A recording without an end time (imported
+transcripts, Bluedot) ends at its last line for linking and duplicates
+(`item.End`), and an extracted item keeps the title its passages carry,
+so a later link to its calendar event doesn't re-extract it. With `knowledge.stitch` (on), a Tomoe recording whose
+calendar event also has a Teams transcript (sharing at least 0.6 of its
+words, `item.WordAgreement`) takes the transcript's lines for the
+stretches it missed (joined late, left early, between two parts of a
+split recording), marked "Teams transcript, not heard by you" in its
+passages; the Teams copy is then its duplicate. The stitched copy exists
+in memory only (chunking onward; stored items are untouched), and only
+for a recording not yet threaded when first stitched (stamp
+`stitch/<id>`), so a transcript arriving late never re-chunks a threaded
+meeting. A Teams meeting's recording waits up to
+`knowledge.stitch_wait_hours` (2) after the meeting for its transcript
+before threading; it is extracted and summarised meanwhile, and both are
+redone if the transcript stitches in (cheap, as nothing is threaded yet).
+`Runner.Queue` reports the waiting work; the Status
 tab shows it and starts "catch up" and "rethread" runs under a spend
 cap.
 
@@ -774,6 +812,72 @@ the best. With `ask.find_newer` (off by default) it adds one more within 0.12
 when that thread's latest item is later than every thread found: a
 subject's latest turn is sometimes threaded on its own (research log
 2026-10-20).
+
+### Meeting digests (`knowledge.digest`)
+
+A meeting's summary and its to-dos, each from one whole-meeting read, apart
+from statement extraction (which keeps its 50-line excerpts: handing it the
+whole transcript found fewer, research log 2026-10-16; a narrow task over
+the whole meeting does better, 2026-11-02). Two calls per meeting
+(`knowledge.Digester`), the transcript fenced as data between markers with
+the task after it:
+
+- **A sectioned summary**: an overview and one section per subject (title,
+  2 to 4 sentences, people, the line ranges it rests on, sensitive
+  categories). Against a plain paragraph, graders preferred it 10 of 10; it
+  covered every major subject (85% for the paragraph), about 2% errors per
+  claim, mostly who-said-what swaps in a back-and-forth.
+- **To-dos**: each with owner, who asked, agreed / asked / floated /
+  declined, the timing words and a date worked out from the meeting's day,
+  and the lines and quote it rests on. Against to-dos read from statements:
+  88% good (68%), 4% duplicates (17%), owner right 96% (87%).
+
+Stored in `meeting_digests`, `meeting_sections` and `meeting_todos`
+(created by `schema.sql`, no schema-version bump, so nothing extracted is
+dropped). Stamped stage `digest` (version `DigestVersion`, input hash of the
+passages, labels and facts; a new version waits for `--redo digest` as
+extraction does), deleted with the item.
+
+- **Checks in code.** Replies are schema-constrained and validated: counts
+  and lengths capped, line numbers kept only inside the meeting, dates only
+  real dates from the meeting's day to three years on, states and
+  categories from fixed lists. Names and figures are checked against the
+  meeting as points are (`Meeting.Check`); a failing row is kept and shown
+  as "check wording". A long meeting answered with no to-dos, or with most
+  to-dos citing no line, is asked once more (the model does both sometimes)
+  and the reading that cites more is kept.
+- **Sensitivity.** Each row's label is worked out in code from the passages
+  it cites (all the meeting's, when it cites none that exist), the text
+  rules and the model's flags (personal, hr, legal, financial), which only
+  ever add. Every read combines it with the item's, as statements do; the
+  overview is as sensitive as the most sensitive section. 93% of flags were
+  right, 7% over-flagged, none missed.
+- **To-dos and statements.** A to-do is matched with the statement that
+  says the same (cited lines within two of its own plus shared words, or
+  many shared words; one to-do per statement). The statement carries what
+  the to-do view needs: its thread and the later statements related to it,
+  so done, changed and repeated are read as before, and the owner's
+  marks (named by statement) still apply. The match is made again, with no
+  model call, when the item is re-extracted (`digest-link` stamp). A to-do
+  no statement matches stands alone with a negative id: no thread, and the
+  owner can't mark it yet.
+- **The To-do view** reads digest to-dos when `knowledge.digest.todos` is
+  on (`DigestCommitments`): the statement's id and relations, the to-do's
+  own words, owners, state and date over it. A digest date replaces the
+  guess from the words (`due()`), and none means none was said; floated
+  ones are proposals; a declined one is closed by the meeting.
+- **Meetings tab** (`Views.MeetingPage`, `MeetingList`): the summary in
+  sections, each linked to where it was said; the meeting's to-dos with
+  their current state; and its topics, the threads holding at least
+  `knowledge.digest.min_topic_statements` (3) of its statements, derived
+  when read from the statements' memberships so they follow rethreading,
+  merges and splits (a thread holding one statement was judged "not here";
+  weight predicts relevance). A summary is what was said in that meeting; it
+  is never shown as where a subject stands now, and Ask doesn't read it
+  (untested).
+- **Run**: in the normal knowledge run after labels, or alone with
+  `musubi knowledge --digest-only [--plan]`; model `knowledge.digest.model`
+  (else the threads model); hosted needs `knowledge.allow_hosted`.
 
 ### Topic map (`Views.Map`, computed when read)
 
@@ -1120,6 +1224,7 @@ outside the company is included.
 | Side panel, screen shared | `internal` and below, no categories; set by the screen-safe toggle |
 | Drafted reply to X | items where X is in the audience, plus uncategorised `internal` (X an employee) or `public` (X external); never `personal` |
 | Sending text to a cloud provider | the per-source egress policy, e.g. no email to cloud |
+| The owner's assistant over MCP (`musubi mcp`) | the owner's (capped by `mcp.max_share`); nothing hidden, every result labelled with a share verdict and, for a named audience, whether it fits (docs/mcp-design.md) |
 
 Egress to a cloud LLM is just another scope, so provider policy and
 sensitivity are enforced by the same code. Scoped reads made for outbound

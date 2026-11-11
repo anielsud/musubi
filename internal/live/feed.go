@@ -36,6 +36,9 @@ type Session struct {
 	Title     string    `json:"title"`
 	Platform  string    `json:"platform"`
 	CreatedAt time.Time `json:"created_at"`
+	// Invited are the other people on the calendar event under way, set
+	// here (Tomoe doesn't send them).
+	Invited []string `json:"invited,omitempty"`
 }
 
 // Event is one feed message.

@@ -31,6 +31,70 @@ type Config struct {
 	Knowledge   Knowledge   `toml:"knowledge"`
 	Ask         Ask         `toml:"ask"`
 	Prep        Prep        `toml:"prep"`
+	M365        M365        `toml:"m365"`
+	MCP         MCP         `toml:"mcp"`
+}
+
+// M365 reads the owner's Microsoft 365 data through Microsoft Graph
+// (internal/m365) once the owner has connected from Settings or
+// `musubi m365 connect`. Until then nothing changes.
+type M365 struct {
+	// Enabled false never syncs, even when connected: the earlier behaviour.
+	Enabled bool `toml:"enabled"`
+	// Calendar writes the owner's events as inbox drops, so recordings get
+	// their meeting's title and invitees and prep sees what's coming.
+	Calendar bool `toml:"calendar"`
+	// PastDays and FutureDays bound the calendar window each sync reads.
+	PastDays   int `toml:"past_days"`
+	FutureDays int `toml:"future_days"`
+	// Reconnect opens the sign-in page again when a sync finds the sign-in
+	// no longer works (not while Tomoe is recording). false: the app only
+	// says so.
+	Reconnect bool `toml:"reconnect"`
+	// Transcripts writes the Teams transcripts of the owner's past meetings
+	// (calendar window) as inbox meeting drops: the second copy of a meeting
+	// Tomoe recorded, the only copy of one it missed. Needs Calendar.
+	Transcripts bool `toml:"transcripts"`
+	// Unattended also keeps transcripts of meetings the owner was invited to
+	// but didn't join (no Tomoe recording, not among the speakers), including
+	// ones the owner was invited to only through a distribution list.
+	Unattended bool `toml:"unattended"`
+	// MeetingChat writes what was written in a meeting's chat during it.
+	MeetingChat bool `toml:"meeting_chat"`
+	// People looks up internal participants in the directory (job title,
+	// department, office, manager): names and name variants for resolving
+	// mentions, and profiles for the person views.
+	People bool `toml:"people"`
+	// Mail and Chats read the owner's email and Teams chats (not meeting
+	// chats) as inbox drops, from MailDays / ChatDays back on the first sync
+	// and incrementally after. Off by default: turning them on is the
+	// owner's decision (volume, and extraction of written messages).
+	// MailFocusedOnly leaves out what Outlook files as "Other".
+	Mail            bool `toml:"mail"`
+	MailDays        int  `toml:"mail_days"`
+	MailFocusedOnly bool `toml:"mail_focused_only"`
+	Chats           bool `toml:"chats"`
+	ChatDays        int  `toml:"chat_days"`
+	// TomoeContext writes calendar.json next to each Tomoe recording linked
+	// to a calendar event (title, times, invitees), for Tomoe to show the
+	// meeting's name and to know who could be speaking.
+	TomoeContext bool `toml:"tomoe_context"`
+}
+
+// MCP configures `musubi mcp`, the local server that gives the owner's
+// assistant (Claude Code) Musubi's knowledge. It reads in the owner's scope
+// and labels every result rather than hiding it (docs/mcp-design.md).
+type MCP struct {
+	// Enabled false makes `musubi mcp` refuse to start.
+	Enabled bool `toml:"enabled"`
+	// Tools, when set, is an allow-list of tool names; empty offers all.
+	Tools []string `toml:"tools"`
+	// MaxShare caps what is returned at a share verdict (public, internal,
+	// party-only); "owner-only", the default, returns everything.
+	MaxShare string `toml:"max_share"`
+	// Write offers the tools that record the owner's word (verdicts,
+	// corrections, to-do marks); false leaves the server read-only.
+	Write bool `toml:"write"`
 }
 
 // Prep configures meeting preparation.
@@ -44,6 +108,11 @@ type Prep struct {
 	// in a meeting with more than one other person. false: unmarked, in
 	// score order, the earlier behaviour.
 	MarkPrivate bool `toml:"mark_private"`
+	// AutoBrief drafts talking points for the owner's meetings in the rest
+	// of the week, in the background, and drafts them again when what they
+	// rest on changes (checked every 15 minutes, not during a live meeting).
+	// false: talking points only when asked, the earlier behaviour.
+	AutoBrief bool `toml:"auto_brief"`
 }
 
 // QuietAfter is QuietDays as a duration.
@@ -80,6 +149,11 @@ type Ask struct {
 
 // Knowledge configures statement extraction.
 type Knowledge struct {
+	// NameMeetings names meetings that have no calendar event and only a
+	// generic title ("Teams Meeting 2026-11-06 10:02") from their digest,
+	// with the digest model; the name is shown wherever titles are. false:
+	// such meetings keep their generic titles, as before.
+	NameMeetings bool `toml:"name_meetings"`
 	// Gate skips passages whose probability of holding knowledge (one
 	// yes/no forward pass) is below this. 0 extracts every passage, the
 	// previous behaviour, and keeps existing extractions valid.
@@ -121,6 +195,16 @@ type Knowledge struct {
 	// (a Tomoe session and the meeting app's transcript, overlapping) becomes
 	// knowledge, unless one is extracted already: the first source listed.
 	PreferSource []string `toml:"prefer_source"`
+	// Stitch fills the stretches a Tomoe recording missed (joined late,
+	// left early, a recording split in two) from the meeting's Teams
+	// transcript, before the meeting is first threaded; the Teams copy is
+	// then a duplicate of the recording. StitchWaitHours holds a Teams
+	// meeting's recording back from threading that long after it ends
+	// while its transcript hasn't arrived; it is extracted and summarised
+	// meanwhile, and again if stitched. Stitch false: the earlier
+	// behaviour (each copy on its own, one kept when they start together).
+	Stitch          bool    `toml:"stitch"`
+	StitchWaitHours float64 `toml:"stitch_wait_hours"`
 	// Grouping is how claims are grouped and related: "topics" (pairwise
 	// judging, then clustering; the earlier behaviour) or "threads" (a model
 	// assigns each meeting's items to specific threads, then reconciles
@@ -179,6 +263,9 @@ type Knowledge struct {
 	// item fails the run after extraction, as before, so nothing is linked
 	// or threaded until it extracts (research-log.md, 2026-11-05).
 	SkipFailedItems bool `toml:"skip_failed_items"`
+	// Digest reads each meeting whole into a sectioned summary and its
+	// to-dos (knowledge.Digester).
+	Digest Digest `toml:"digest"`
 	// AllowHosted lets points, threads and labels use a hosted model (the
 	// owner's policy since 2026-10-16 allows the approved endpoints to read
 	// meeting text). false keeps them local.
@@ -195,6 +282,30 @@ type Status struct {
 	Model LLM `toml:"model"`
 	// Parallel is how many statuses are written at once.
 	Parallel int `toml:"parallel"`
+}
+
+// Digest configures meeting digests: a sectioned summary of each meeting
+// and the to-dos said in it, from one whole-meeting read (research log,
+// 2026-11-02).
+type Digest struct {
+	// Enabled: false makes none, and the to-do view reads commitment
+	// statements, as before.
+	Enabled bool `toml:"enabled"`
+	// Model reads the meeting; provider "" uses the threads model. It reads
+	// meeting text, so it must be local unless knowledge.allow_hosted. A
+	// long meeting needs a long context (about 30k tokens for two hours).
+	Model LLM `toml:"model"`
+	// Parallel is how many meetings are read at once.
+	Parallel int `toml:"parallel"`
+	// ToDos makes the to-do view read the digest's to-dos (with their
+	// owners, agreed-or-floated state and dates) instead of commitment
+	// statements. Meetings without a digest then have no to-dos listed.
+	ToDos bool `toml:"todos"`
+	// MinTopicStatements is how many of a meeting's statements a thread
+	// must hold to be listed as one of its topics (a thread holding fewer
+	// is mostly not about the meeting: 1 statement, "not here" in the
+	// measure; 3 to 5 split the rest).
+	MinTopicStatements int `toml:"min_topic_statements"`
 }
 
 // Label configures statement sensitivity labelling.
@@ -445,6 +556,17 @@ type Pick struct {
 	// earlier by what is most worth raising. Provider "": the card's lines.
 	// Hosted, it reads the meeting: needs knowledge.allow_hosted.
 	Brief LLM `toml:"brief"`
+	// KeepUnfit keeps a picked card the brief model finds the notes don't
+	// cover (the conversation is about a customer, person or project they
+	// never mention). Off, the card is taken down: a card for another
+	// account had its brief written with this one's facts (research log
+	// 2026-11-05).
+	KeepUnfit bool `toml:"keep_unfit"`
+	// FullWindow gives the brief the last 3 minutes as one. Off, they are
+	// split where the card's subject was first put forward (less 15 s),
+	// the earlier part marked as possibly another subject, so what was
+	// said about the previous account isn't written into this card.
+	FullWindow bool `toml:"full_window"`
 }
 
 type Sensitivity struct {
@@ -483,8 +605,10 @@ func DefaultConfig() Config {
 		Embed:         Embed{Provider: "ollama", Model: "nomic-embed-text", URL: "http://127.0.0.1:11434"},
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
-		Prep:          Prep{QuietDays: 21, MarkPrivate: true},
-		Knowledge:     Knowledge{Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
+		Prep:          Prep{QuietDays: 21, MarkPrivate: true, AutoBrief: true},
+		MCP:           MCP{Enabled: true, MaxShare: "owner-only", Write: true},
+		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
+		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
@@ -524,3 +648,6 @@ func (c Config) DBPath() string   { return filepath.Join(c.DataDir, "musubi.db")
 func (c Config) RawDir() string   { return filepath.Join(c.DataDir, "raw") }
 func (c Config) InboxDir() string { return filepath.Join(c.DataDir, "inbox") }
 func (c Config) Registry() string { return filepath.Join(c.DataDir, "registry.toml") }
+
+// DirectoryPath is where the Microsoft 365 directory lookups are kept.
+func (c Config) DirectoryPath() string { return filepath.Join(c.DataDir, "directory.json") }

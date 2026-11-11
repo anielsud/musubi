@@ -80,6 +80,12 @@ END;
 CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
 	INSERT INTO chunks_fts(chunks_fts, rowid, text, speakers, title) VALUES ('delete', old.id, old.text, old.speakers, old.title);
 END;
+-- A passage retitled in place (ReplaceChunks keeps rows whose text is
+-- unchanged) must be re-indexed under its new title.
+CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
+	INSERT INTO chunks_fts(chunks_fts, rowid, text, speakers, title) VALUES ('delete', old.id, old.text, old.speakers, old.title);
+	INSERT INTO chunks_fts(rowid, text, speakers, title) VALUES (new.id, new.text, new.speakers, new.title);
+END;
 
 -- Vectors for several models can coexist, so models can be compared on the
 -- same data. Search is exact (brute force) over the scope-filtered rows: at
@@ -442,4 +448,84 @@ CREATE TABLE IF NOT EXISTS owner_links (
 	by         TEXT NOT NULL,
 	at         INTEGER NOT NULL,
 	undone     INTEGER NOT NULL DEFAULT 0
+);
+
+-- Meeting digests (knowledge.digest): a sectioned summary of a meeting and
+-- the to-dos said in it, each from one whole-meeting read (docs/research-log.md,
+-- 2026-11-02). Derived: rebuilt from the item's chunks, stamped like the
+-- other stages, deleted with the item. Every row carries its own label,
+-- worked out in code from the passages it cites and combined with the
+-- item's on every read; the model's say-so can only add to it. A to-do
+-- links to the statement that says the same thing (statement_id), which is
+-- where its state (done, changed, repeated) and its thread come from; the
+-- link is made again, with no model call, when the item is re-extracted.
+CREATE TABLE IF NOT EXISTS meeting_digests (
+	item_id    TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+	version    TEXT NOT NULL,
+	overview   TEXT NOT NULL,
+	level      INTEGER NOT NULL DEFAULT 0,
+	categories INTEGER NOT NULL DEFAULT 0,
+	made_at    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS meeting_sections (
+	item_id    TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	n          INTEGER NOT NULL,
+	subject    TEXT NOT NULL,
+	text       TEXT NOT NULL,
+	people     TEXT NOT NULL DEFAULT '[]',
+	spans      TEXT NOT NULL DEFAULT '[]',   -- [{fromChunk, fromLine, toChunk, toLine}]
+	level      INTEGER NOT NULL DEFAULT 0,
+	categories INTEGER NOT NULL DEFAULT 0,
+	grounded   INTEGER NOT NULL DEFAULT 1,
+	issues     TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (item_id, n)
+);
+
+CREATE TABLE IF NOT EXISTS meeting_todos (
+	id           INTEGER PRIMARY KEY,
+	item_id      TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+	n            INTEGER NOT NULL,
+	text         TEXT NOT NULL,
+	owners       TEXT NOT NULL DEFAULT '[]',
+	requester    TEXT NOT NULL DEFAULT '',
+	agreed       TEXT NOT NULL,              -- agreed, asked, floated, declined
+	due_text     TEXT NOT NULL DEFAULT '',   -- the timing words as said
+	due_date     TEXT NOT NULL DEFAULT '',   -- 2006-01-02, or empty
+	evidence     TEXT NOT NULL DEFAULT '[]', -- [{chunkId, line, quote}]
+	said_at      INTEGER NOT NULL,
+	statement_id INTEGER REFERENCES statements(id) ON DELETE SET NULL,
+	link_score   REAL NOT NULL DEFAULT 0,
+	level        INTEGER NOT NULL DEFAULT 0,
+	categories   INTEGER NOT NULL DEFAULT 0,
+	grounded     INTEGER NOT NULL DEFAULT 1,
+	issues       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS meeting_todos_item ON meeting_todos(item_id);
+CREATE INDEX IF NOT EXISTS meeting_todos_statement ON meeting_todos(statement_id);
+
+-- A name Musubi gave a meeting that has no calendar event and only a
+-- generic title (pipeline.nameMeetings). Shown where the title is shown;
+-- a linked event's subject still wins.
+CREATE TABLE IF NOT EXISTS item_titles (
+	item_id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+	title   TEXT NOT NULL,
+	source  TEXT NOT NULL,
+	input   TEXT NOT NULL,
+	made_at INTEGER NOT NULL
+);
+
+-- Talking points drafted ahead of a meeting (prep.auto_brief): one per
+-- upcoming event, redone when what they rest on (input) changes. Label is
+-- the combined label of the sources cited; with none, confidential.
+CREATE TABLE IF NOT EXISTS prep_briefs (
+	item_id    TEXT PRIMARY KEY,
+	input      TEXT NOT NULL,
+	model      TEXT NOT NULL,
+	text       TEXT NOT NULL,
+	sources    TEXT NOT NULL DEFAULT '[]',
+	threads    TEXT NOT NULL DEFAULT '[]',
+	level      INTEGER NOT NULL,
+	categories INTEGER NOT NULL DEFAULT 0,
+	made_at    INTEGER NOT NULL
 );

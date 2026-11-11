@@ -3051,6 +3051,473 @@ competition differs; two meetings; judges are one model family.
 Decision (owner, 2026-10-29): statements are the default for Live lookups
 when relevance is on (`live.lookups = "passages"` restores the old path).
 
+## 2026-11-02: To-dos from a whole-meeting pass vs from statements (side by side)
+
+Question: does one narrow whole-meeting call that returns only to-dos give a
+better list than the to-do view's source today (extracted statements of kind
+commitment, plus proposals)? Five all-t4 meetings (42 to 142 chunks; one
+Bluedot with 241 speakerless lines), prompt tuned once on one meeting (the
+only change: resolve a range or approximate timing to its later or last day).
+B = GLM-5.3-Flash, whole transcript in one call, low reasoning, structured
+fields (owner, requester, agreed/asked/floated/declined, due text and date,
+quoted evidence). Reference lists written blind by Opus from the transcript
+alone; two Opus graders judged both lists blind (sides randomised and
+unlabelled) against the transcript. Owner marks in owner_links were not used
+(all three were undone beforehand; backup in the dataset folder).
+
+| Mean of two graders (131 A items, 104 B items) | A: statements | B: whole-meeting pass |
+|---|---|---|
+| Good, stated correctly | 68% | 88% |
+| Flawed (wrong owner, figure or state) | 18% | 8% |
+| Not a to-do | 13% | 3% |
+| Duplicates within the meeting | 17% | 4% |
+| Owner right | 87% | 96% |
+| Agreed/floated state right | 90% | 98% |
+| Reference to-dos found | 57-64% | 68-71% |
+| Cost per meeting | n/a (already extracted) | 0.2-1.1¢ (2 h meeting: 1.1¢) |
+
+- Largest gap on the longest meeting (142 chunks): B found about 80% of the
+  reference against about 48% for A.
+- Due dates (B only; A has no field): of 100 matched items, 79 equal the
+  reference, 13 differ or are missing on one side, mostly the last-day
+  convention for approximate periods; one real error ("for January" dated 31
+  December).
+- Caveats: A's duplicates are partly folded by the view's repeat relations;
+  A includes proposals, which the view hides by default and the graders
+  often judged not to-dos; B's prompt and the reference share my definition
+  of a to-do; the link from B's items to existing statements (state from
+  relations) is not measured yet; one prompt tuning step, no variance runs.
+- Spend: GLM about $0.03 in total; graders and references were Opus
+  subagents.
+
+## 2026-11-02: Meeting summaries: sectioned with citations vs plain paragraph
+
+Question: should a meeting summary be stored, and in what form? Same five
+meetings, GLM-5.3-Flash, one whole-transcript call per summary, low
+reasoning. Arm S: an overview plus one section per subject (title, 2-4
+sentences, people, cited line ranges, sensitive categories). Arm P: one or
+two paragraphs, at most 250 words. Two Opus graders judged blind (sides
+randomised) against the transcript. Topic links were read from existing data:
+the threads of the meeting's current statements, weighted by statement count.
+
+| Two graders together | S: sectioned | P: plain |
+|---|---|---|
+| Preferred (10 judgements) | 10 | 0 |
+| Major subjects covered (93) | 100% | 85% |
+| Errors per claim (approximate counts) | 2.2% (20 / 898) | 3.4% (12 / 354) |
+| Main error type | wrong attribution, 13 of 20 | overstated certainty, 6 of 12 |
+| Cost per meeting | 0.25-0.67¢ | 0.14-0.23¢ |
+
+- Section citations contained what the section said in 97% of cases (146 of
+  150), but the ranges are wide (e.g. lines 14-92), so they are loose
+  evidence, not tight.
+- Sensitive flags: 93% right, 7% over-flagged, none missed (err on the
+  safe side).
+- Topic links from statement membership (126 judgements): 58% belong, 31%
+  partly, 11% not here. Weight predicts it: median statements from the
+  meeting 9 (belongs), 3-4 (partly), 1 (not here). A minimum weight of
+  about 3 to 5 would drop most of the weak links. 3 to 6 major subjects in
+  all five meetings had no matching topic.
+- Caveats: claim counts are approximate and error counts small; one
+  Bluedot meeting has unreliable speaker labels (graders went by labels as
+  written); sensitive flags not yet compared with the statements' own
+  labels; no test of whether summaries help Ask.
+- Spend: GLM about $0.03; graders were Opus subagents.
+
+## 2026-11-02: Meeting digests on the whole dataset
+
+Built as stages (`knowledge.digest`, docs/architecture.md "Meeting digests")
+and run over every meeting in all-t4 (335, the 84 recorded twice counted
+once): 56 minutes, 4 at a time, GLM-5.3-Flash, none failed; about half a
+cent a meeting by token counts (the Go provider doesn't log these calls to
+the ledger).
+
+- Stored: 2,727 sections, 3,081 to-dos (2,360 agreed, 418 asked, 299
+  floated, 4 declined), 768 with a date. 94.7% of to-dos matched a
+  statement (2,916); all cite at least one line; 29 meetings have none (one
+  of 60 or more passages).
+- The code's own check (names and figures against the meeting) marks 20% of
+  sections and 5% of to-dos "check wording". The blind graders found about
+  2% wrong per claim, so most flags are misheard or misspelt names and
+  acronyms: a prompt to look at, not an error count.
+- Two model habits found on real meetings, both now asked again once (long
+  meetings only): an empty to-do list for a 470-line meeting with a dozen
+  commitments (the first run; a rerun found 13, all matched), and to-dos
+  with the evidence field left empty (a 650-line meeting; also seen in the
+  five-meeting test). A reply is kept only if it cites more.
+- Re-running the same prompt on a meeting does not give the same list: the
+  stage is stamped so it runs once per meeting, and a rerun is by
+  `--redo digest`.
+
+## Live suggestion model: qwen3.6-35B-A3B builds (2026-11-05)
+
+Same 40 prompts and `suggestPrompt` as the 2026-10-29 run; thinking off,
+temperature 0.3, 300-token cap, one model loaded at a time, Tomoe idle (checked
+before every prompt). Ollama runs used JSON mode, except nvfp4: Ollama's MLX
+engine rejects `format` ("structured output is unavailable"). The two MLX
+builds ran on mlx_lm.server 0.32.2 (OpenAI-compatible, no JSON mode). Memory is
+the server process's physical footprint, so it reads higher than `ollama ps`.
+qwen3:8b was re-run as today's baseline; its TTFT is slower than on 10-29.
+
+| model | TTFT p50 / p90 | total p50 / p90 | decode | valid JSON | queries naming the user | memory |
+|---|---|---|---|---|---|---|
+| qwen3:8b (Live today) | 0.67 / 0.93 s | 1.18 / 1.49 s | 47 tok/s | 40/40 | 0 of 117 | 11 GB |
+| qwen3.6:35b-a3b Q4_K_M (Ollama, llama.cpp) | 0.68 / 1.31 s | 1.56 / 3.68 s | 46 tok/s | 40/40 | 0 of 117 | 30 GB |
+| qwen3.6:35b-a3b-nvfp4 (Ollama MLX engine) | 0.46 / 0.60 s | 0.79 / 1.04 s | 92 tok/s | 39/40 | 0 of 122 | 29 GB |
+| OptiQ-4bit-REAP-19B (mlx-lm; half the experts pruned) | 0.26 / 0.31 s | 0.77 / 0.86 s | 64 tok/s | 39/40 | 0 of 117 | 13 GB |
+| unsloth UD-MLX-3bit (mlx-lm) | 0.28 / 0.34 s | 0.83 / 0.94 s | 67 tok/s | 39/40 | 0 of 117 | 17 GB |
+
+- The engine matters more than the model: on MLX the 35B-A3B reaches first
+  token in about 0.3 s, against 0.67 s for qwen3:8b on llama.cpp. Prefill is
+  where it wins, which is what Live needs.
+- None of the qwen3.6 builds named the user (qwen3.5:4b did in 14%).
+- Without JSON mode, format still held: the only miss in each MLX run was a
+  bare `[]` on the near-empty first prompt.
+- REAP-19B is the lightest (13 GB, about qwen3:8b plus 2 GB) but drops 21
+  points on MMLU per its card; UD-MLX-3bit keeps every expert for 4 GB more.
+- Not measured: query quality (ungraded), behaviour under meeting load, cold
+  load time. Adopting either MLX build needs Live's chat client to accept an
+  OpenAI-compatible server (it is Ollama-only today) and a JSON fallback.
+- Scripts and raw results: session scratchpad `bench/` (bench2.py, run-all.sh,
+  analyse.py, results2.json).
+
+### Query quality, blind (2026-11-05)
+
+The three light candidates' queries from the run above (qwen3:8b, OptiQ
+REAP-19B, UD-MLX-3bit; 351 queries), graded blind by two independent Claude
+graders with separately shuffled set order: 2 = useful, 1 = okay/generic,
+0 = not useful (off-topic, small talk, ungrounded, or the user). Per-query
+agreement between graders 76%.
+
+| model | useful, grader 1 / 2 | not useful, 1 / 2 | prompts with a useful query, 1 / 2 | best set, 1 / 2 |
+|---|---|---|---|---|
+| qwen3:8b | 36% / 28% | 7% / 8% | 25 / 21 of 40 | 6 / 5 |
+| OptiQ REAP-19B | 46% / 37% | 11% / 9% | 30 / 25 of 40 | 4 / 5 |
+| UD-MLX-3bit | 50% / 35% | 10% / 11% | 30 / 25 of 40 | 10 / 4 |
+
+- Both qwen3.6 builds give more useful queries than qwen3:8b under both
+  graders (+7 to +14 points) and a useful query on 4-5 more prompts of 40,
+  with slightly more misses (+2-4 points of 0s).
+- Pruning half the experts cost nothing measurable here: REAP-19B and
+  UD-MLX-3bit are within grader noise of each other.
+- "Best set" votes are mostly ties and don't separate the models.
+- Same failure in all three: queries on small talk (one prompt where all
+  sets should have been empty). Small sample (40 prompts); usefulness here
+  is judged from the conversation alone, not from what the search returns.
+
+## Live card brief: GLM vs local qwen3.6 (2026-11-05)
+
+Can a local model replace GLM-5.3-Flash for `live.pick.brief` (card headline
++ up to 3 things to raise)? 32 distinct cards from the two 2026-10-29
+stepped replays. Prompts rebuilt with the playground's `/brief` (exact
+`cardBriefPrompt`, card and status as of meeting start; window = segments in
+the last 180 s before the brief, speakers so far), so all three systems got
+identical prompts. GLM was called fresh through `/brief`; the local builds
+ran on mlx_lm.server, thinking off, temperature 0.3. Two independent blind
+Claude graders, set order shuffled separately; errors = statements not
+supported by the notes or conversation (invented, wrong number/date/person,
+overstated status).
+
+| system | latency p50 / p90 | briefs with an error (g1 / g2) | errors | headline mean (0-2) | raise mean (0-2) | best brief (of 32) |
+|---|---|---|---|---|---|---|
+| GLM-5.3-Flash (Baseten) | 8.0 / 20.6 s | 11 / 12 | 16 / 15 | 1.59 / 1.62 | 1.74 / 1.41 | 30 / 29 |
+| UD-MLX-3bit (local) | 2.7 / 3.7 s | 24 / 25 | 34 / 37 | 0.44 / 0.59 | 0.90 / 0.81 | 1 / 2 |
+| OptiQ REAP-19B (local) | 3.7 / 6.4 s | 25 / 24 | 33 / 31 | 0.59 / 0.53 | 1.09 / 0.89 | 1 / 1 |
+
+- GLM stays. Both local builds put an error in about three briefs of four
+  (GLM: one in three) and lose "best brief" 29-30 of 32 under both graders.
+  Typical local errors: invented deadlines, statuses overstated ("resolved",
+  "finalized"), numbers from one account attached to another.
+- Local is 3-5x faster and has no long tail; GLM's p90 of ~21 s is the real
+  Live problem, but this doesn't solve it without a quality loss (see
+  "no quality trade-offs").
+- Some errors are in the input, not the model: on one card all three systems
+  attached another account's sponsor and go-live to the topic, and several
+  local errors conflate two accounts that share a card. Worth checking card
+  grouping for mixed accounts.
+- Even GLM errs on about a third of briefs; error types: misdated stances,
+  figures from adjacent months, "opportunities" called "accounts".
+- Data: session scratchpad `brief/` (briefs.json with prompts and outputs,
+  grade packets, keys, grades, score.py).
+
+### Why some card briefs mixed up accounts (2026-11-05)
+
+Follow-up on the brief comparison above: the graders flagged three cards
+where every system attached one customer's facts to another. Checked the
+cards, the picker's trace and the threads in the playground database. The
+model is not the main cause; four separate problems:
+
+1. **Picker accepts the nearest card when the account has none.** A
+   customer discussed for the first time (zero prior statements) got a
+   CMS integration card for a different customer, at p = 0.48 (min_p 0.4).
+   The picker's own queries named the right customer; the chosen card
+   never mentions it. Every system then wrote the new customer's sponsor and
+   ARR into the other customer's brief.
+2. **The 3-minute window spans a change of subject.** When the meeting moved
+   to the next customer, the window still held the previous customer's
+   sponsor discussion, and the briefs attributed it to the new one.
+3. **Theme threads carry one account's name or status.** The card titled
+   for one partner account (128 current statements) is really the CMS–CMP
+   integration theme: 17 statements mention that account, 49 are about the
+   integration in general. Another theme card ("customer onboarding &
+   adoption", 144 statements) has a status line entirely about one
+   customer.
+4. **One account's statements are split between a theme thread and its own
+   thread.** That customer has its own card (138 statements), and 57 more
+   about it sit in the theme card above; the two share none. So neither card
+   has the whole story, and the theme card reads as that account's card.
+
+Problems 1-2 are Live (picker, brief window); 3-4 are threading and
+labelling. Not yet measured: how many cards have problems 3-4.
+
+### Card fit check and split window: results (2026-11-05)
+
+Fixes for problems 1-2 above (`internal/live/pick.go`):
+- **Fit check.** The brief model first answers `fits`: false when the
+  conversation is about a customer, partner, person or project the notes
+  never mention. The card is then taken down and not picked again for
+  10 minutes (`live.pick.keep_unfit = true` keeps it). The brief also sees
+  the lookups that put the card forward: in the worst case the other
+  account was named 182 s before the pick, outside the 3 minutes, and
+  only a lookup ("<account> PaaS CMS onboarding") still carried its name.
+- **Split window.** The 3 minutes are split where the card was first put
+  forward, less 15 s, and the earlier part is marked as possibly another
+  subject (`live.pick.full_window = true` restores one window). Lookups
+  trail the words that prompted them by 11 s median, 29 s p75, 57 s p90
+  (464 lookups, both replays). A 60 s lead still reached the previous
+  account's sponsor discussion; 15 s did not.
+
+Same 32 cards, GLM-5.3-Flash, one run; old vs new graded blind by two
+Claude graders (order shuffled separately), who also judged each card's
+fit without seeing either system's verdict:
+
+| | grader 1 | grader 2 |
+|---|---|---|
+| cards graded fit yes / partly / no | 11 / 13 / 8 | 11 / 13 / 8 |
+| taken down by the new brief | 8 | 8 |
+| take-downs judged right | 8 of 8 | 8 of 8 |
+| errors, old briefs (cards with one) | 35 (26 of 32) | 31 (22 of 32) |
+| errors, new briefs (cards with one) | 16 (14 of 24) | 12 (12 of 24) |
+| better: new / old / tie | 18 / 2 / 12 | 19 / 3 / 10 |
+
+- No useful card was taken down. Both mixed-up account cards from above
+  are now taken down; the third (the next account, after the subject
+  changed) keeps its card and no longer borrows the previous account's
+  sponsor.
+- Three cards both graders call unfit still pass: the conversation is on
+  a different subject (support numbers against an adoption card, a
+  support roadmap against an engineering staffing card), not an
+  unmentioned account. The check is worded for accounts, people and
+  projects; widening it to subjects is the picker's job and untested.
+- Theme cards still carry one account's slant (problem 3): a card kept
+  as fitting the general subject still headlines that account. That
+  belongs to threading (`docs/incremental-design.md`, "Subject shape").
+
+## 2026-11-06: MCP server, first run on all-t4
+
+`musubi mcp` (docs/mcp-design.md) driven over stdio against all-t4, reads
+only. Latency per call: meeting 0.03 s, thread 0.8 s, threads list 0.6 s,
+gather 0.3 s (30–50k characters of context), search 0.05 s.
+
+Two labelling faults found and fixed before use:
+
+- **Digest to-dos read as public.** `DigestCommitments` gave each to-do the
+  digest's words but not its label; ten of the owner's open to-dos came back
+  `public`. Each now carries its digest row's and item's label (all ten
+  became party-only), and the server combines every result with its item's
+  own label as a second guard.
+- **Owner-only was too common.** With restricted rated owner-only, 27 of the
+  40 latest meeting overviews and 36 of 50 thread statuses were owner-only,
+  nearly all for HR or financial material rather than personal details, and
+  the verdict disagreed with `fits` for attendees. Rated as the reply rule
+  rates it (restricted may go to those party to it), owner-only is 5 of 40
+  overviews, 4 of 167 sections (20 meetings), 12 of 50 statuses and 31 of
+  856 current items (20 threads); the rest is party-only but 4 internal
+  items.
+
+Nearly everything in all-t4 is party-only: it is leadership meetings, which
+default to confidential. A consumer writing for anyone outside a meeting
+will find little that fits, which is the point.
+
+## 2026-11-09: Microsoft 365 connection, first calendar sync on all-t4
+
+- Signed in with `musubi m365 connect`, the Graph Command Line Tools client.
+  The refresh token is kept in the Keychain.
+- First sync, 30 days back and 14 ahead: 201 events written. The update
+  then linked 79 Tomoe recordings to their events; before, 0 were linked,
+  because the dataset had no calendar.
+- `calendar.json` was written next to all 79 recordings. The registry grew
+  from 778 to 1,836 entities, mostly invitees.
+- Labels: 19 of 1,464 items changed, nearly all meetings now labelled from
+  their real invitee list. 17 became less restricted and 1 more. 15 of the
+  19 have digests, which the next knowledge run redoes (a few cents on
+  GLM-Flash).
+- **Link audit against Tomoe's window titles** (looks.jsonl), for the 79
+  linked recordings:
+  - 56 agree;
+  - 10 have no meeting window to compare (Zoom and other calls);
+  - 13 disagree, mostly ad-hoc calls whose window names a person, which
+    were linked to a large event under way at the same time.
+- Fix, two parts:
+  - Tomoe titles recordings from the call window (Tomoe PR);
+  - linking refuses an event when the recording's own title names another
+    meeting, and otherwise prefers the event the title names, then the ones
+    the owner organized or accepted.
+- Recordings saved before the Tomoe change keep generic titles, and so keep
+  the time-only link until they are retitled.
+
+## 2026-11-09: Teams transcripts and meeting chats, first run on all-t4
+
+- `update`, with `transcripts` and `meeting_chat` on and `unattended` off,
+  30 days back:
+  - 97 past Teams meetings;
+  - 28 transcripts kept and 3 passed over (the owner neither recorded nor
+    spoke);
+  - 45 meeting chats.
+- Against Tomoe (size of text):
+  - 2 transcripts are meetings Tomoe has no recording of;
+  - 3 have a Tomoe copy under 80% of the Teams copy;
+  - 23 are second copies, with named speakers.
+- Linking went from 79 to 105 meetings (the Teams copies link too).
+- Labels changed on 2 passages of 3,958.
+- Processing the 74 new items (chunks, labels, local embeddings) took 7 min
+  at background priority.
+
+## 2026-11-09: incident — retitling deleted statements; fixed and recovered
+
+What happened:
+- Linking meetings to their calendar events (first calendar sync, #9)
+  changed their passages' title. The title is part of the chunk hash, so
+  280 meetings were re-chunked.
+- `ReplaceChunks` deleted and re-inserted every passage, and the delete
+  cascades: statements went from 34,970 to 26,313 and thread items from
+  34,224 to 25,468. The Musubi app's automatic updates repeated it as more
+  meetings linked.
+- Raw data and the inbox were untouched. No owner edits had been made
+  since the backup taken just before the sync.
+
+Fix (#9):
+- `ReplaceChunks` updates titles in place when the passages are otherwise
+  identical (sequence, segments, times, speakers, text hash). A real
+  change of text still replaces them.
+- The FTS table gets the AFTER UPDATE trigger it lacked; without it an
+  in-place update corrupted the index.
+
+Recovery:
+- Restored the 10:51 backup and re-ran `update` with the fix. Calendar,
+  Teams and directory data were re-ingested from the inbox.
+- Statements are back at 34,970 and thread items at 34,224, with 106 links.
+  `integrity_check` and the FTS integrity check pass.
+- Knowledge runs made in between (a few hundred statements for new Teams
+  copies, a few digests) are redone by the next automatic run.
+
+## 2026-11-09: names for meetings with no calendar event
+
+- 182 Tomoe recordings: 78 linked to a calendar event. 104 had a generic
+  title and no event; 95 of those had a digest.
+- `musubi name-meetings` (GLM-5.3-Flash, the threads model) named 99 in
+  two runs (60 + 39), about 1 minute each, from the digest's overview and
+  section subjects, or the first 4,000 characters without one. 5 had too
+  little text.
+- Names are stored in `item_titles`. Every title shown now uses one rule:
+  the calendar event's subject, else the given name, else the item's own
+  title.
+- Passage titles follow it in place: the next update retitled 99 meetings
+  (2,286 passages) and statements stayed at 34,970.
+- `title.json` is written next to the 99 Tomoe recordings (Tomoe #86 shows
+  it).
+
+## 2026-11-09: People tab and person pages
+
+- **People** (Explore, owner scope): 1,558 person entities with a meeting or
+  a directory entry, most met first. A recording linked to a calendar event
+  counts once (as the event). The list builds in under a second.
+- **Person page** for the 12 most-met people:
+  - directory details for 11 (one has no directory entry);
+  - recent and upcoming meetings, topics and open to-dos for all 12;
+  - a headshot for 11 and a voice clip (8–15 s) for 11.
+- Topics come from the threads holding the most of what the person said
+  (current items, by `holder_id` or the written holder). `topic_entities`
+  is empty in all-t4.
+- **Headshots:**
+  - the active-speaker tile of a Tomoe look whose name read is the person;
+  - one tile only, at least 120×90 in window pixels, with a thumbnail;
+  - cropped from the 320×200 thumbnail, largest tile first.
+  - A camera-off tile (a picture on a plain background: border luminance
+    standard deviation under 12) is passed over for one with video. If all
+    are camera-off, the middle square (half the tile's height) is used. On
+    3 sample people: 2 camera-on crops, 1 tight profile-picture crop.
+- **Voice clip:** the longest 5–15 s turn attributed to the person, from the
+  most recent Tomoe recording with audio. Played from `/replay-audio/`
+  between its start and end.
+- **Directory lookup v2** adds business and mobile phones, city, country and
+  hire date. Older entries are looked up again: 978 in four syncs.
+- Names across the app are links when they mean exactly one person
+  (`PeopleNames`): speakers in transcripts, digest people and owners, to-do
+  owners, prep attendees, statement holders.
+- **Faces (later the same day).** Shaf's headshot was a profile picture
+  that wasn't his face. Two causes:
+  - The 6 largest tiles were all full-screen camera-off views. Of his 1,421
+    tiles, Vision finds a face in 1,286, and 856 are live video (face height
+    ≥ 28% of the tile), all in smaller gallery tiles.
+  - The camera-on check also passed shared slides.
+- Now:
+  - Up to 60 tiles are taken, spread evenly across tile sizes, preferring
+    direct name reads ("read … under the ring") over carried-over ones.
+  - One-to-one calls are skipped: there the name is the window title,
+    whoever is highlighted.
+  - macOS Vision finds faces (`VNDetectFaceCaptureQualityRequest`) and
+    compares them (`VNGenerateImageFeaturePrintRequest`). Live faces are
+    preferred when there are two or more. The face nearest the others on
+    average (the one that recurs) wins over slides or someone else shown
+    under the name; among faces as close as the median, the best capture
+    quality.
+  - The headshot is framed around the face at 1.9× its size.
+- The choice takes about 4 s per person and is kept on disk for a week
+  (`data/headshots`); a cached page opens in 0.6 s. Without Vision (not on
+  macOS) the tile heuristic is kept.
+
+## 2026-11-09: coverage and search before retiring the old transcript search and Bluedot
+
+Question: can the old hosted transcript search (a personal Supabase vector index over the
+Bluedot folder) and Bluedot itself go, now that Musubi serves Claude Code (`musubi mcp`)?
+
+**Search: January–September added to all-t4 for search only.** `bluedot_since` moved from
+2026-10-01 to 2026-01-01 (config and database backed up first). `musubi update` imported 785
+meetings in 10.5 min at background priority (passages, rule labels, names, nomic-embed-text
+vectors; no paid model). `hold_older` keeps them out of extraction, threads and digests until a
+run is started by hand, so nothing was spent. Re-classifying the 463 meetings already present
+changed no label (1,586 passages compared), so no digest is invalidated.
+
+13 questions with a known meeting (date + title), phrased as topics rather than titles:
+Musubi hybrid search had the meeting in its top 5 for 12; the 13th returned the same recurring
+series on other dates. The hosted index answered none: timeouts, then HTTP 500 "could not query
+the database for the schema cache" (the project's database is paused or down).
+
+**Coverage: what the transcript folder holds.** 1,062 files: 836 Bluedot recordings and 226 Teams
+transcripts (fetched from Teams, including meetings the owner was invited to but did not join).
+Since 2 October, 17 meetings had a folder copy but no Tomoe recording starting within 15 min:
+- 9 Teams transcripts of meetings the owner wasn't in (0 turns by the owner; Tomoe's window
+  log shows the owner in another meeting throughout);
+- 1 Tomoe did record (start 25 min earlier, same meeting window throughout);
+- 1 partial, already patched from Teams;
+- 2 overnight trainings, not attended live;
+- 3 real misses, all on one day: Tomoe crashed (SIGSEGV on the main thread, just after a save) on
+  14 Oct and wasn't relaunched until 18 Oct. It is the only crash in the log since 2 Oct; the
+  autorelease-pool fixes of 20–22 Oct may cover it, which one instance can't confirm.
+
+The suspected "back-to-back meetings merged into one recording" problem does not exist: in every
+case the meeting window kept one title for the whole recording.
+
+**Bluedot's online archive vs the folder.** 939 recordings online; 104 never downloaded (the sync
+stops at the first known recording, and a second recording with the same title on the same day
+overwrites the first file; 37 such pairs online). Of the 104: 32 under 5 min, 51 covered ≥ 80% by
+a Tomoe recording, 21 only online (most have a same-named file in the folder, i.e. the other copy
+of a same-day pair or the Teams transcript).
+
+Tomoe follow-up: its app log now stamps every line with the time (Tomoe 95a8ddc), so the next
+miss can be lined up with the detector.
+
 ## 2026-11-05: Items that fail every passage stop the knowledge run
 
 Setup: local only, `qwen3:8b` via Ollama for extraction, an experiment

@@ -149,7 +149,7 @@ Where each step runs (dataset "All", 2026-10-21):
 
 | Step | Model | Why |
 |---|---|---|
-| Extraction, threading, statuses, Ask, prep drafts | GLM-5.3-Flash (hosted, Baseten) | Ask beat the local 27B 17–4 and 18–5 (blind), 3 s vs 170 s an answer |
+| Extraction, threading, statuses, meeting digests, Ask, prep drafts | GLM-5.3-Flash (hosted, Baseten) | Ask beat the local 27B 17–4 and 18–5 (blind), 3 s vs 170 s an answer |
 | Statement labels | Jev (TypeSafe, typed classifier) | 86% of sensitive statements found against 71%, same precision |
 | Live relevance | Jev | ranks hints as graders do (AUC 0.88), ~100 ms a call |
 | Live suggestions and summaries | qwen3:8b (local) | latency (0.6 s vs ~1.4 s hosted median) |

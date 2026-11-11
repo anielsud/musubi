@@ -40,6 +40,8 @@ type Engine struct {
 	finderSig string
 
 	updating sync.Mutex
+	ms       m365Engine
+	fi       faceIndex
 }
 
 func Open(cfgPath string) (*Engine, error) {
@@ -123,11 +125,24 @@ func (e *Engine) Update(ctx context.Context, log io.Writer) (pipeline.Stats, err
 	if err != nil {
 		return st, err
 	}
+	// Microsoft 365 first, so what it writes to the inbox is ingested now.
+	// A failed sync (offline, sign-in lapsed) doesn't stop the update; the
+	// app reads it from M365State.
+	if rep, err := e.SyncM365(ctx); err != nil {
+		st.M365 = "m365: " + err.Error()
+	} else {
+		st.M365 = rep
+	}
 	if err := r.Ingest(ctx, &st); err != nil {
 		return st, err
 	}
-	err = r.Process(ctx, &st)
-	return st, err
+	if err = r.Process(ctx, &st); err != nil {
+		return st, err
+	}
+	if _, err := e.WriteTomoeContext(); err != nil && log != nil {
+		fmt.Fprintf(log, "tomoe calendar context: %v\n", err)
+	}
+	return st, nil
 }
 
 // Search embeds the query (if an embedder is configured) and runs a scoped
@@ -227,6 +242,24 @@ func (e *Engine) ThreadFinder() (*knowledge.ThreadFinder, error) {
 	f.Newer, f.NewerFirst = e.Cfg.Ask.FindNewer, e.Cfg.Ask.NewerFirst
 	e.finder, e.finderSig = f, sig
 	return f, nil
+}
+
+// ThreadsAbout finds the threads a meeting's query (knowledge.MeetingQuery)
+// is about (see knowledge.ThreadFinder.About). nil for an empty query or
+// without an embedder.
+func (e *Engine) ThreadsAbout(ctx context.Context, sc sensitivity.Scope, query string) ([]knowledge.ThreadMatch, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, nil
+	}
+	f, err := e.ThreadFinder()
+	if err != nil || f == nil {
+		return nil, err
+	}
+	vec := e.Embed(ctx, query)
+	if vec == nil {
+		return nil, nil
+	}
+	return f.About(sc, vec, query), nil
 }
 
 // Embed embeds one query, nil when there is no embedder or it fails

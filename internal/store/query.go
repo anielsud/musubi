@@ -228,7 +228,7 @@ func (s *Store) ids(query string, args ...any) ([]int64, error) {
 // the title of the calendar event it was linked to.
 func (s *Store) hit(sc sensitivity.Scope, chunkID int64) (*Hit, error) {
 	vis, vargs := visSQL(sc, "il", "cl", "c.item_id")
-	q := `SELECT c.id, c.item_id, i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END, i.occurred_at, c.seq, c.start_s, c.end_s, c.speakers, c.text,
+	q := `SELECT c.id, c.item_id, i.kind, ` + displayTitle("i") + `, i.occurred_at, c.seq, c.start_s, c.end_s, c.speakers, c.text,
 		max(il.level, coalesce(cl.level, 0)), (il.categories | coalesce(cl.categories, 0)), coalesce(cl.reason, il.reason)
 		FROM chunks c JOIN items i ON i.id = c.item_id
 		LEFT JOIN item_links lk ON lk.item_id = i.id AND lk.rel = 'occurred_as'
@@ -363,7 +363,7 @@ func (s *Store) entityItems(sc sensitivity.Scope, entityID string, limit int) ([
 	), u AS (
 		SELECT item_id FROM m UNION SELECT item_id FROM p
 	)
-	SELECT i.id, i.kind, coalesce(e.title, i.title), i.occurred_at, coalesce(m.n, 0), p.item_id IS NOT NULL, il.level, il.categories
+	SELECT i.id, i.kind, ` + displayTitle("i") + `, i.occurred_at, coalesce(m.n, 0), p.item_id IS NOT NULL, il.level, il.categories
 	FROM u JOIN items i ON i.id = u.item_id
 	JOIN labels il ON il.item_id = i.id AND il.chunk_seq = -1
 	LEFT JOIN m ON m.item_id = i.id LEFT JOIN p ON p.item_id = i.id
@@ -500,6 +500,25 @@ func (s *Store) Audit(sc sensitivity.Scope, op, detail string) error {
 	return err
 }
 
+// AuditCounts counts the audited reads made under a scope name, by op.
+func (s *Store) AuditCounts(scope string) (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT op, count(*) FROM audit WHERE scope = ? GROUP BY op`, scope)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var op string
+		var n int
+		if err := rows.Scan(&op, &n); err != nil {
+			return nil, err
+		}
+		out[op] = n
+	}
+	return out, rows.Err()
+}
+
 // ChunkLabel returns a chunk's effective label and its item's audience. It
 // is the eval harness's independent check on what Search returned, so it
 // reads labels directly rather than through visSQL.
@@ -605,7 +624,7 @@ func (s *Store) ItemTitles(sc sensitivity.Scope, ids []string) (map[string]ItemR
 	for i := 0; i < len(ids); i += 400 {
 		part := ids[i:min(i+400, len(ids))]
 		vis, vargs := visSQL(sc, "il", "", "i.id")
-		q := `SELECT i.id, i.kind, coalesce(e.title, i.title), i.occurred_at FROM items i
+		q := `SELECT i.id, i.kind, ` + displayTitle("i") + `, i.occurred_at FROM items i
 			JOIN labels il ON il.item_id = i.id AND il.chunk_seq = -1
 			LEFT JOIN item_links lk ON lk.item_id = i.id AND lk.rel = 'occurred_as' LEFT JOIN items e ON e.id = lk.other_id
 			WHERE i.id IN (?` + strings.Repeat(",?", len(part)-1) + `) AND ` + vis
@@ -631,4 +650,48 @@ func (s *Store) ItemTitles(sc sensitivity.Scope, ids []string) (map[string]ItemR
 		rows.Close()
 	}
 	return out, nil
+}
+
+// TopicRefRow is a thread an entity comes up in, with how many claims.
+type TopicRefRow struct {
+	ID     int64
+	Label  string
+	Claims int
+}
+
+// EntityTopicRefs lists the threads an entity comes up in most, owner
+// scope (the person views are the owner's): the threads holding the most
+// of what they said (current items), and the topic map's entity links
+// where those exist.
+// names (lower case) also match statements whose holder was written but
+// not resolved to the entity.
+func (s *Store) EntityTopicRefs(entityID string, names []string, limit int) ([]TopicRefRow, error) {
+	in := "''"
+	args := []any{entityID}
+	if len(names) > 0 {
+		in = strings.TrimSuffix(strings.Repeat("?,", len(names)), ",")
+		for _, n := range names {
+			args = append(args, n)
+		}
+	}
+	args = append(args, entityID, limit)
+	rows, err := s.db.Query(`SELECT id, label, sum(n) FROM (
+			SELECT t.id, t.label, count(*) AS n FROM thread_items ti JOIN statements st ON st.id = ti.statement_id JOIN topics t ON t.id = ti.topic_id
+			WHERE ti.current = 1 AND (st.holder_id = ? OR lower(st.holder) IN (`+in+`)) AND t.label != '' GROUP BY t.id
+			UNION ALL
+			SELECT t.id, t.label, te.claims FROM topic_entities te JOIN topics t ON t.id = te.topic_id WHERE te.entity_id = ? AND t.label != '')
+		GROUP BY id ORDER BY 3 DESC, id DESC LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TopicRefRow
+	for rows.Next() {
+		var r TopicRefRow
+		if err := rows.Scan(&r.ID, &r.Label, &r.Claims); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

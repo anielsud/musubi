@@ -43,6 +43,10 @@ type App struct {
 	askCancel  context.CancelFunc
 	// spellMu runs one refresh after a spelling rule at a time.
 	spellMu sync.Mutex
+	// m365Connecting: a sign-in is open in the browser; m365AutoAt: when
+	// the app last opened one by itself.
+	m365Connecting bool
+	m365AutoAt     time.Time
 }
 
 func NewApp() *App { return &App{} }
@@ -88,6 +92,9 @@ func (a *App) openConfig(path string) error {
 		a.emit("app:status", a.Status())
 	}()
 	go a.live.Run(lctx)
+	if e.Cfg.Prep.AutoBrief && e.AskLLM != nil {
+		go a.draftBriefs(lctx)
+	}
 	if n := e.Cfg.Live.UpdateEvery; n > 0 {
 		go func() {
 			t := time.NewTicker(time.Duration(n) * time.Minute)
@@ -186,6 +193,9 @@ func (a *App) Update() {
 		a.lastUpdate = time.Now()
 		a.mu.Unlock()
 		msg := fmt.Sprintf("%d new or changed", st.Changed)
+		if st.M365 != "" {
+			msg = st.M365 + "; " + msg
+		}
 		if err != nil {
 			msg = err.Error()
 		} else if a.eng.Cfg.Knowledge.OnUpdate {
@@ -201,6 +211,7 @@ func (a *App) Update() {
 		if err == nil {
 			a.live.Reload()
 		}
+		a.maybeReconnectM365()
 		a.emit("update:done", msg)
 		a.emit("app:status", a.Status())
 		a.emit("queue:changed", nil)
@@ -340,8 +351,8 @@ func (a *App) SetWide(on bool) {
 		return
 	}
 	w, h := a.narrowW, a.narrowH
-	if w == 0 || w >= 900 {
-		w, h = 460, 900
+	if w == 0 || w >= 1500 {
+		w, h = 1080, 900
 	}
 	wruntime.WindowSetSize(a.ctx, w, h)
 }

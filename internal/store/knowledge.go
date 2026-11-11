@@ -625,7 +625,7 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 		args = append(args, vargs...)
 		rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, c.text_hash, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
 			st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, st.quote, st.grounded, st.issues,
-			sc.claim_id, i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END,
+			sc.claim_id, i.kind, `+displayTitle("i")+`,
 			`+stLevel+`, `+stCats+`, st.status, st.who, st.evidence
 			FROM statement_claims sc JOIN statements st ON st.id = sc.statement_id JOIN chunks c ON c.id = st.chunk_id
 			JOIN items i ON i.id = st.item_id`+chunkVisJoin+`WHERE `+in+vis+` ORDER BY st.said_at, st.id`, args...)
@@ -1113,4 +1113,24 @@ func (s *Store) LabelStatement(id int64, l sensitivity.Label, version string) er
 func (s *Store) WasThreaded(itemID string) bool {
 	v, _ := s.StageStamp("was-threaded", itemID)
 	return v != ""
+}
+
+// KeepStatements records an item's statements as current under version
+// and hash (and input) without extracting again: the passages they came
+// from have the same text (see SetExtractText).
+func (s *Store) KeepStatements(itemID, version, hash, input string) error {
+	return s.tx(func(tx *sql.Tx) error {
+		if input != "" {
+			if err := stamp(tx, "extract-input", itemID, "in", input); err != nil {
+				return err
+			}
+		}
+		return stamp(tx, "extract", itemID, version, hash)
+	})
+}
+
+// SetExtractText records the key of the passage text, and of how it was
+// extracted, that an item's statements came from.
+func (s *Store) SetExtractText(itemID, key string) error {
+	return s.tx(func(tx *sql.Tx) error { return stamp(tx, "extract-text", itemID, "t", key) })
 }

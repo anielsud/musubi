@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, fmtDate, kindIcon } from '../api';
-import type { EntityRef, Graph, Hit } from '../types';
+import type { EntityRef, Graph, Hit, PersonRow } from '../types';
+import { PersonView, initials } from './PersonView';
 import { Empty, HitRow, LabelBadge, Spinner } from './common';
 import { GraphView } from './GraphView';
 import { ClaimResults, TopicsPane } from './Knowledge';
@@ -26,7 +27,9 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [trail, setTrail] = useState<EntityRef[]>([]);
-  const [mode, setMode] = useState<'topics' | 'search' | 'corrections'>('topics');
+  const [mode, setMode] = useState<'topics' | 'search' | 'corrections' | 'people'>('topics');
+  const [topicWant, setTopicWant] = useState<{ id: number; n: number } | null>(null);
+  const openTopicHere = (id: number) => { setFocus(null); setTopicWant({ id, n: Date.now() }); setMode('topics'); };
   const [lastQ, setLastQ] = useState('');
   const openSource = (itemId: string, chunkId: number) => onOpen({ itemId, chunkId } as unknown as Hit, scope);
 
@@ -67,15 +70,25 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
     }
   };
 
-  if (focus && mode === 'topics') setMode('search');
+  if (focus && mode === 'topics') setMode(focus.startsWith('person:') && scope === 'owner' ? 'people' : 'search');
   return (
     <div className="view explore">
       <div className="segmented">
         <button className={mode === 'topics' ? 'on' : ''} onClick={() => { setMode('topics'); setFocus(null); }}>Topics</button>
+        {scope === 'owner' && <button className={mode === 'people' ? 'on' : ''} onClick={() => { setMode('people'); setFocus(null); }}>People</button>}
         <button className={mode === 'search' ? 'on' : ''} onClick={() => setMode('search')}>Search</button>
         {scope === 'owner' && <button className={mode === 'corrections' ? 'on' : ''} onClick={() => { setMode('corrections'); setFocus(null); }} title="Misheard or misspelled names and terms to confirm or reject">Corrections</button>}
       </div>
-      {mode === 'topics' && <TopicsPane scope={scope} onSource={openSource} want={topicReq} />}
+      {mode === 'topics' && <TopicsPane scope={scope} onSource={openSource} want={topicWant ?? topicReq} />}
+      {mode === 'people' && scope === 'owner' && (focus ? (
+        <section className="entity">
+          <div className="entity-head">
+            <button className="link" onClick={() => setFocus(null)}>← People</button>
+          </div>
+          {graph && <div className="entity-name">{graph.entity.name}</div>}
+          <PersonView id={focus} scope={scope} onPick={setFocus} onOpenItem={onOpenItem} onTopic={openTopicHere} />
+        </section>
+      ) : <PeoplePane onPick={setFocus} />)}
       {mode === 'corrections' && scope === 'owner' && <CorrectionsView onSource={openSource} start={correctReq} />}
       {mode === 'search' && <>
       <form className="lookup" onSubmit={(e) => { e.preventDefault(); run(q); }}>
@@ -113,6 +126,7 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
                 </div>
                 <button className="icon-btn" onClick={() => setFocus(null)} title="Close">✕</button>
               </div>
+              {graph.entity.type === 'person' && scope === 'owner' && <PersonView id={graph.entity.id} scope={scope} onPick={setFocus} onOpenItem={onOpenItem} onTopic={openTopicHere} />}
               {(graph.neighbors?.length ?? 0) > 0 ? (
                 <GraphView graph={graph} onPick={(n) => setFocus(n.id)} />
               ) : (
@@ -150,5 +164,65 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
       )}
       </>}
     </div>
+  );
+}
+
+// PeoplePane shows the people the owner meets as tiles, most met first,
+// with a filter on name, title and team.
+function PeoplePane({ onPick }: { onPick: (id: string) => void }) {
+  const [rows, setRows] = useState<PersonRow[] | null>(null);
+  const [f, setF] = useState('');
+  useEffect(() => { api.people('owner').then((r) => setRows(r ?? []), () => setRows([])); }, []);
+  if (!rows) return <Spinner />;
+  const words = f.toLowerCase().split(/\s+/).filter(Boolean);
+  const shown = rows.filter((r) => words.every((w) => `${r.name} ${r.title ?? ''} ${r.department ?? ''} ${r.email ?? ''}`.toLowerCase().includes(w)));
+  return (
+    <div className="people-list">
+      <form className="lookup" onSubmit={(e) => e.preventDefault()}>
+        <input value={f} onChange={(e) => setF(e.target.value)} placeholder={`Filter ${rows.length} people by name, title or team…`} />
+      </form>
+      <div className="person-tiles">
+        {shown.slice(0, 200).map((r) => <PersonTile key={r.id} r={r} onPick={onPick} />)}
+      </div>
+      {shown.length > 200 && <div className="dim small">{shown.length - 200} more; filter to narrow.</div>}
+    </div>
+  );
+}
+
+// Headshots are chosen on first ask (face detection over a person's meeting
+// tiles takes a few seconds), so tiles ask only once on screen, two at a
+// time; what came back is kept for the session.
+const shots = new Map<string, string>();
+const shotQueue: (() => Promise<void>)[] = [];
+let shotsRunning = 0;
+function nextShot() {
+  while (shotsRunning < 2 && shotQueue.length) {
+    shotsRunning++;
+    shotQueue.shift()!().finally(() => { shotsRunning--; nextShot(); });
+  }
+}
+
+function PersonTile({ r, onPick }: { r: PersonRow; onPick: (id: string) => void }) {
+  const [shot, setShot] = useState(shots.get(r.id));
+  const el = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (shots.has(r.id) || r.together === 0 || !el.current) return;
+    let gone = false;
+    const io = new IntersectionObserver(([e]) => {
+      if (!e.isIntersecting) return;
+      io.disconnect();
+      shotQueue.push(() => (gone ? Promise.resolve() : api.headshot(r.id, 'owner').then((s) => { shots.set(r.id, s ?? ''); if (!gone) setShot(s ?? ''); }, () => {})));
+      nextShot();
+    });
+    io.observe(el.current);
+    return () => { gone = true; io.disconnect(); };
+  }, [r.id, r.together]);
+  return (
+    <button ref={el} className="person-tile" onClick={() => onPick(r.id)} title={r.email}>
+      {shot ? <img className="tile-shot" src={shot} alt="" /> : <div className="tile-shot none">{initials(r.name)}</div>}
+      <div className="tile-name">{r.name}</div>
+      <div className="sub">{[r.title, r.department].filter(Boolean).join(' · ') || r.email}</div>
+      <div className="sub">{r.together > 0 ? `${r.together} meetings` : ''}{r.lastTogether && !r.lastTogether.startsWith('0001') ? ` · last ${fmtDate(r.lastTogether)}` : ''}</div>
+    </button>
   );
 }

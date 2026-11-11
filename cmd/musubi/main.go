@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -21,8 +22,10 @@ import (
 	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/engine"
 	"github.com/anielsud/musubi/internal/eval"
+	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/live"
+	"github.com/anielsud/musubi/internal/m365"
 	"github.com/anielsud/musubi/internal/pipeline"
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/raw"
@@ -51,7 +54,7 @@ func root() *cobra.Command {
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
 	r.AddCommand(importItemsCmd(), extractLeanCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), aliasesCmd(), liveCmd(),
-		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd())
+		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd())
 	return r
 }
 
@@ -122,11 +125,12 @@ func updateCmd() *cobra.Command {
 		Use:   "update",
 		Short: "Fetch new data from every source and bring derived data up to date",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, st, err := load()
+			e, err := engine.Open(cfgPath)
 			if err != nil {
 				return err
 			}
-			defer st.Close()
+			defer e.Close()
+			cfg, st := e.Cfg, e.Store
 			embs, err := parseEmbedders(embed, cfg)
 			if err != nil {
 				return err
@@ -136,6 +140,14 @@ func updateCmd() *cobra.Command {
 				return err
 			}
 			start := time.Now()
+			if rep, err := e.SyncM365(cmd.Context()); err != nil {
+				fmt.Fprintf(os.Stderr, "m365: %v\n", err)
+				if errors.Is(err, m365.ErrAuthRequired) {
+					fmt.Fprintln(os.Stderr, "m365: run `musubi m365 connect` to sign in again")
+				}
+			} else if rep != "" {
+				fmt.Fprintf(os.Stderr, "m365: %s\n", rep)
+			}
 			var stats pipeline.Stats
 			if err := r.Ingest(cmd.Context(), &stats); err != nil {
 				return err
@@ -145,6 +157,11 @@ func updateCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(os.Stderr, "process: %v in %s\n", stats.Ran, time.Since(start).Round(time.Millisecond))
+			if n, err := e.WriteTomoeContext(); err != nil {
+				fmt.Fprintf(os.Stderr, "tomoe calendar context: %v\n", err)
+			} else if n > 0 {
+				fmt.Fprintf(os.Stderr, "tomoe calendar context: %d recordings updated\n", n)
+			}
 			return nil
 		},
 	}
@@ -738,12 +755,29 @@ func prepCmd() *cobra.Command {
 			req := knowledge.PrepRequest{People: people, QuietAfter: e.Cfg.Prep.QuietAfter(), MarkPrivate: e.Cfg.Prep.MarkPrivate}
 			if len(args) == 1 {
 				req.Template = args[0]
+				for _, it := range items {
+					if it.ID == req.Template && it.Kind == item.KindEvent {
+						ms, err := e.ThreadsAbout(cmd.Context(), sc, knowledge.MeetingQuery(it, e.Cfg.Owner.Name, e.Cfg.Owner.InternalDomains))
+						if err != nil {
+							return err
+						}
+						for _, m := range ms {
+							req.About = append(req.About, m.ID)
+						}
+					}
+				}
 			}
 			v, err := knowledge.Prep(e.Store, sc, req, items, e.Cfg.Owner.Name)
 			if err != nil {
 				return err
 			}
 			fmt.Printf("%s — with %s; since %s; %d meetings with them\n", v.Title, strings.Join(v.People, ", "), v.Since.Format("2006-01-02"), v.Met)
+			if len(v.New) > 0 {
+				fmt.Printf("first meeting with: %s\n", strings.Join(v.New, ", "))
+			}
+			if v.Description != "" {
+				fmt.Printf("description: %s\n", v.Description)
+			}
 			for _, s := range v.Subjects {
 				mark := ""
 				if s.Private {
@@ -1041,7 +1075,7 @@ func importItemsCmd() *cobra.Command {
 func knowledgeCmd() *cobra.Command {
 	var items, redo []string
 	var limit, workers, newest int
-	var verbose, plan, noThreads bool
+	var verbose, plan, noThreads, digestOnly bool
 	c := &cobra.Command{
 		Use:   "knowledge",
 		Short: "Extract statements, link them into claims, and build topics (uses the local model)",
@@ -1052,12 +1086,12 @@ func knowledgeCmd() *cobra.Command {
 			}
 			defer e.Close()
 			for _, s := range redo {
-				if s != "extract" && s != "links" && s != "threads" && s != "label" {
-					return fmt.Errorf("--redo takes extract, links, threads or label (got %q)", s)
+				if s != "extract" && s != "links" && s != "threads" && s != "label" && s != "digest" {
+					return fmt.Errorf("--redo takes extract, links, threads, label or digest (got %q)", s)
 				}
 			}
 			o := pipeline.KnowledgeOptions{Items: items, Limit: limit, Workers: workers,
-				Redo: redo, RedoNewest: newest, Plan: plan, NoThreads: noThreads}
+				Redo: redo, RedoNewest: newest, Plan: plan, NoThreads: noThreads, DigestOnly: digestOnly}
 			if verbose {
 				o.LinkTrace = func(f string, a ...any) { fmt.Fprintf(os.Stderr, "  link: "+f+"\n", a...) }
 			}
@@ -1066,6 +1100,10 @@ func knowledgeCmd() *cobra.Command {
 			defer printOutdated(ks.Outdated, e.Cfg.Knowledge.Updates)
 			if plan {
 				p := ks.Planned
+				if digestOnly {
+					fmt.Fprintf(os.Stderr, "plan: read %d meetings into summaries and to-dos\n", p.Digest)
+					return err
+				}
 				fmt.Fprintf(os.Stderr, "plan: extract %d items; %s; thread %d items%s\n", p.Extract,
 					map[bool]string{true: "rebuild every claim", false: "link new statements"}[p.RebuildLinks], p.Thread,
 					map[bool]string{true: " (every thread cleared first)", false: ""}[p.RebuildThreads])
@@ -1088,9 +1126,10 @@ func knowledgeCmd() *cobra.Command {
 	c.Flags().IntVar(&limit, "limit", 0, "extract at most this many items this run")
 	c.Flags().IntVar(&workers, "workers", 2, "parallel model requests")
 	c.Flags().BoolVarP(&verbose, "verbose", "v", false, "print each linking decision")
-	c.Flags().StringSliceVar(&redo, "redo", nil, "bring these stages up to their current version: extract, links (rethreads too, in thread mode), threads, label (relabel every statement with the configured labeller)")
+	c.Flags().StringSliceVar(&redo, "redo", nil, "bring these stages up to their current version: extract, links (rethreads too, in thread mode), threads, label (relabel every statement with the configured labeller), digest (meeting summaries and to-dos)")
 	c.Flags().IntVar(&newest, "newest", 0, "with --redo extract: only this many items, newest first")
 	c.Flags().BoolVar(&noThreads, "no-threads", false, "stop after linking (threads applied from elsewhere)")
+	c.Flags().BoolVar(&digestOnly, "digest-only", false, "only write meeting summaries and to-dos (knowledge.digest): no extraction, linking or threading")
 	c.Flags().BoolVar(&plan, "plan", false, "say what a run would do, and what is on an earlier version, without doing it")
 	return c
 }
@@ -1109,6 +1148,9 @@ func printOutdated(o pipeline.Outdated, mode string) {
 	}
 	if o.Threads > 0 {
 		fmt.Fprintf(os.Stderr, "older version: %d items were threaded under earlier rules (musubi knowledge --redo threads)\n", o.Threads)
+	}
+	if o.Digest > 0 {
+		fmt.Fprintf(os.Stderr, "older version: %d meetings were digested under an earlier digest version (musubi knowledge --redo digest)\n", o.Digest)
 	}
 	if o.Backfilled > 0 {
 		fmt.Fprintf(os.Stderr, "out of order: %d items older than ones already threaded were threaded after them (musubi knowledge --redo threads)\n", o.Backfilled)

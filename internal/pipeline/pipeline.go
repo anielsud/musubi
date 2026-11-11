@@ -9,10 +9,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/item"
@@ -28,7 +31,7 @@ import (
 // records get re-translated.
 const TranslatorVersion = "t3"
 
-const LinkVersion = "l2"
+const LinkVersion = "l4"
 
 type Runner struct {
 	Cfg        config.Config
@@ -47,6 +50,8 @@ type Stats struct {
 	Fetched, Changed, Skipped int
 	Ran                       map[string]int
 	Elapsed                   time.Duration
+	// M365 is the Microsoft 365 sync's report, or its error.
+	M365 string
 }
 
 func (r *Runner) logf(f string, a ...any) {
@@ -126,7 +131,7 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 	for i := range items {
 		byID[items[i].ID] = &items[i]
 	}
-	linkHash, links := linkMeetings(items)
+	linkHash, links := linkMeetings(items, r.Cfg.Owner.Name)
 	if old, _ := r.Store.GlobalStamp("link"); old != linkHash {
 		var ls []store.Link
 		for m, e := range links {
@@ -138,6 +143,20 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 		r.Store.SetGlobalStamp("link", linkHash)
 		st.Ran["link"]++
 		r.logf("link: %d meetings matched to calendar events", len(ls))
+	}
+	// A recording that missed part of its meeting takes those stretches
+	// from the meeting's Teams transcript (knowledge.stitch), from here on.
+	stitchedItems, _, err := r.stitches(items, true)
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		if s, ok := stitchedItems[items[i].ID]; ok {
+			items[i] = s
+		}
+	}
+	if len(stitchedItems) > 0 {
+		r.logf("stitch: %d recordings filled from their Teams transcript", len(stitchedItems))
 	}
 	linked := func(id string) *item.Item {
 		if l, ok := links[id]; ok {
@@ -162,6 +181,10 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 		chunks []store.Chunk
 	}
 	var jobs []embedJob
+	given, err := r.Store.GivenTitles()
+	if err != nil {
+		return err
+	}
 	for i := range items {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -171,6 +194,16 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 		title := it.Title
 		if l := linked(it.ID); l != nil {
 			title = l.Title
+		} else if g := given[it.ID].Title; g != "" {
+			title = g
+		}
+		// An extracted item keeps the title its passages were extracted
+		// under: a later link to a calendar event (or a new generated name)
+		// would otherwise change the chunk stamp, and so re-extract it.
+		if ex, _ := r.Store.StageStamp("extract", it.ID); ex != "" {
+			if was, err := r.Store.ChunkTitle(it.ID); err == nil && was != "" {
+				title = was
+			}
 		}
 		chunkHash := hashOf("chunk", stages.ChunkVersion, ch, title)
 		chunks, err := r.ensure("chunk", it.ID, stages.ChunkVersion, chunkHash, st, func() error {
@@ -316,10 +349,10 @@ type linkTarget struct {
 // linkMeetings matches each Tomoe recording to the calendar event it most
 // likely was: the event must contain the recording's start (with 15 minutes
 // of slack either side) and overlap a good share of it.
-func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
+func linkMeetings(items []item.Item, owner string) (string, map[string]linkTarget) {
 	var meetings, events []item.Item
 	h := sha256.New()
-	h.Write([]byte(LinkVersion))
+	h.Write([]byte(LinkVersion + "\x00" + owner))
 	for _, it := range items {
 		switch {
 		case it.Kind == item.KindMeeting:
@@ -329,19 +362,20 @@ func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
 		default:
 			continue
 		}
-		fmt.Fprintf(h, "%s %d %d|", it.ID, it.OccurredAt.Unix(), it.EndedAt.Unix())
+		fmt.Fprintf(h, "%s %d %d %v|", it.ID, it.OccurredAt.Unix(), it.End().Unix(), others(it, owner))
 	}
 	const slack = 15 * time.Minute
 	out := map[string]linkTarget{}
 	for _, m := range meetings {
-		mDur := m.EndedAt.Sub(m.OccurredAt)
+		mEnd := m.End()
+		mDur := mEnd.Sub(m.OccurredAt)
 		var best linkTarget
 		var bestGap time.Duration
 		for _, e := range events {
 			if m.OccurredAt.Before(e.OccurredAt.Add(-slack)) || m.OccurredAt.After(e.EndedAt) {
 				continue
 			}
-			lo, hi := maxT(m.OccurredAt, e.OccurredAt), minT(m.EndedAt, e.EndedAt)
+			lo, hi := maxT(m.OccurredAt, e.OccurredAt), minT(mEnd, e.EndedAt)
 			overlap := hi.Sub(lo)
 			denom := min(mDur, e.EndedAt.Sub(e.OccurredAt))
 			score := 0.0
@@ -351,6 +385,9 @@ func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
 			// A short recording at the start of an event still belongs to it.
 			if mDur < 5*time.Minute && overlap > 0 {
 				score = max(score, 0.5)
+			}
+			if score > 0 {
+				score += preference(m, e, owner)
 			}
 			gap := absDur(m.OccurredAt.Sub(e.OccurredAt))
 			if score > best.score || (score == best.score && score > 0 && gap < bestGap) {
@@ -362,6 +399,64 @@ func linkMeetings(items []item.Item) (string, map[string]linkTarget) {
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil)[:16]), out
+}
+
+// preference breaks ties between overlapping events: the one whose subject
+// the recording's title names (Tomoe titles a recording from the meeting
+// window), then the ones the owner organized or accepted over those they
+// left unanswered or declined.
+func preference(m, e item.Item, owner string) float64 {
+	p := 0.0
+	subj, title := normTitle(e.Title), normTitle(m.Title)
+	switch {
+	case len(subj) >= 4 && (strings.Contains(title, subj) || len(title) >= 4 && strings.Contains(subj, title)):
+		p += 0.5
+	case title != "" && !genericTitle.MatchString(m.Title) && !samePeople(m, e, owner):
+		// The recording names a different meeting (an ad-hoc call with
+		// someone, during an event the owner didn't join): not this event.
+		p -= 1
+	}
+	switch e.Native["response"] {
+	case "organizer", "accepted":
+		p += 0.1
+	case "tentativelyAccepted":
+		p += 0.05
+	case "declined":
+		p -= 0.2
+	}
+	return p
+}
+
+// samePeople: the recording heard the event's invitees and no one else (a
+// call that stood in for the meeting, titled for the caller).
+func samePeople(m, e item.Item, owner string) bool {
+	heard := others(m, owner)
+	return len(heard) > 0 && slices.Equal(heard, others(e, owner))
+}
+
+// others are an item's participants but the owner, by name, lowercased
+// and sorted.
+func others(it item.Item, owner string) []string {
+	var out []string
+	for _, p := range it.Participants {
+		n := strings.ToLower(strings.TrimSpace(p.Name))
+		if p.Owner || n == "" || strings.EqualFold(n, owner) {
+			continue
+		}
+		out = append(out, n)
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// genericTitle is the name Tomoe gives a recording when it saw no meeting
+// window title ("Teams Meeting 2026-11-06 10:02", "Session 2026-11-06 10:02").
+var genericTitle = regexp.MustCompile(`^((\w+ )?Meeting|Session) \d{4}-\d\d-\d\d \d\d:\d\d$`)
+
+func normTitle(s string) string {
+	return strings.Join(strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}), " ")
 }
 
 // linkable excludes calendar entries that aren't meetings: all-day or very

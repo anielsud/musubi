@@ -135,6 +135,19 @@ type Chunk struct {
 // hashes include the chunk stage's.
 func (s *Store) ReplaceChunks(itemID, version, hash string, chunks []Chunk) error {
 	return s.tx(func(tx *sql.Tx) error {
+		// The same passages under a new title (the meeting was linked to its
+		// calendar event, or renamed) keep their rows: deleting them would
+		// cascade to the statements, digests and vectors that point at them.
+		if same, err := sameChunks(tx, itemID, chunks); err != nil {
+			return err
+		} else if same {
+			for _, c := range chunks {
+				if _, err := tx.Exec(`UPDATE chunks SET title = ? WHERE item_id = ? AND seq = ?`, c.Title, itemID, c.Seq); err != nil {
+					return err
+				}
+			}
+			return stamp(tx, "chunk", itemID, version, hash)
+		}
 		if _, err := tx.Exec(`DELETE FROM chunks WHERE item_id = ?`, itemID); err != nil {
 			return err
 		}
@@ -146,6 +159,43 @@ func (s *Store) ReplaceChunks(itemID, version, hash string, chunks []Chunk) erro
 		}
 		return stamp(tx, "chunk", itemID, version, hash)
 	})
+}
+
+// ChunkTitle is the title an item's passages carry ("" when it has none).
+func (s *Store) ChunkTitle(itemID string) (string, error) {
+	var t string
+	err := s.db.QueryRow(`SELECT title FROM chunks WHERE item_id = ? ORDER BY seq LIMIT 1`, itemID).Scan(&t)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return t, err
+}
+
+// sameChunks reports whether the item's stored passages are exactly these
+// (sequence, segment range, times, speakers, text), whatever their titles.
+func sameChunks(tx *sql.Tx, itemID string, chunks []Chunk) (bool, error) {
+	rows, err := tx.Query(`SELECT seq, seg_from, seg_to, start_s, end_s, speakers, text_hash FROM chunks WHERE item_id = ? ORDER BY seq`, itemID)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	i := 0
+	for rows.Next() {
+		var c Chunk
+		var th string
+		if err := rows.Scan(&c.Seq, &c.SegFrom, &c.SegTo, &c.Start, &c.End, &c.Speakers, &th); err != nil {
+			return false, err
+		}
+		if i >= len(chunks) {
+			return false, nil
+		}
+		n := chunks[i]
+		if c.Seq != n.Seq || c.SegFrom != n.SegFrom || c.SegTo != n.SegTo || c.Start != n.Start || c.End != n.End || c.Speakers != n.Speakers || th != textHash(n.Text) {
+			return false, nil
+		}
+		i++
+	}
+	return i == len(chunks) && i > 0, rows.Err()
 }
 
 func (s *Store) Chunks(itemID string) ([]Chunk, error) {
@@ -577,7 +627,7 @@ type MeetingRef struct {
 // Meetings lists Tomoe recordings with their linked titles, newest first,
 // for the owner's replay picker.
 func (s *Store) Meetings(limit int) ([]MeetingRef, error) {
-	rows, err := s.db.Query(`SELECT i.id, i.ref, coalesce(e.title, i.title), i.occurred_at, (SELECT count(*) FROM chunks c WHERE c.item_id = i.id)
+	rows, err := s.db.Query(`SELECT i.id, i.ref, `+displayTitle("i")+`, i.occurred_at, (SELECT count(*) FROM chunks c WHERE c.item_id = i.id)
 		FROM items i LEFT JOIN item_links l ON l.item_id = i.id AND l.rel = 'occurred_as' LEFT JOIN items e ON e.id = l.other_id
 		WHERE i.kind = 'meeting' ORDER BY i.occurred_at DESC LIMIT ?`, limit)
 	if err != nil {
@@ -612,20 +662,71 @@ func (s *Store) EntityNames() (map[string][2]string, error) {
 	return out, rows.Err()
 }
 
-// EventAt returns the subject of the calendar event under way at t, for the
-// live panel's title (Tomoe names recordings by time). Owner-only display.
-func (s *Store) EventAt(t time.Time) (string, error) {
-	var title string
-	err := s.db.QueryRow(`SELECT title FROM items WHERE kind = 'event' AND occurred_at <= ? AND ended_at > ?
+// EventAt returns the subject and invitees of the calendar event under way
+// at t, for the live panel's title (Tomoe names recordings by time) and who
+// is in the call. Owner-only display.
+// Among overlapping invitations, one the owner declined is passed over and
+// one they organized or accepted comes first, then tentative ones, then the
+// latest to start.
+func (s *Store) EventAt(t time.Time) (string, []item.Participant, error) {
+	var title, ps string
+	err := s.db.QueryRow(`SELECT title, participants FROM items WHERE kind = 'event' AND occurred_at <= ? AND ended_at > ?
 		AND ended_at - occurred_at <= 4 * 3600 AND native NOT LIKE '%"allDay":"true"%' AND native NOT LIKE '%"cancelled":"true"%'
-		AND native NOT LIKE '%"showAs":"free"%' ORDER BY occurred_at DESC LIMIT 1`, t.Unix()+15*60, t.Unix()).Scan(&title)
+		AND native NOT LIKE '%"showAs":"free"%' AND native NOT LIKE '%"response":"declined"%'
+		ORDER BY (native LIKE '%"response":"organizer"%' OR native LIKE '%"response":"accepted"%') DESC,
+			native LIKE '%"response":"tentativelyAccepted"%' DESC, occurred_at DESC LIMIT 1`, t.Unix()+15*60, t.Unix()).Scan(&title, &ps)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+		return "", nil, nil
 	}
-	return title, err
+	if err != nil {
+		return "", nil, err
+	}
+	var invited []item.Participant
+	if err := json.Unmarshal([]byte(ps), &invited); err != nil {
+		return "", nil, err
+	}
+	return title, invited, nil
 }
 
 func textHash(s string) string {
 	h := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(h[:12])
+}
+
+// ItemTitle is a name Musubi gave an item, with the hash of what it was
+// made from.
+type ItemTitle struct{ Title, Source, Input string }
+
+// GivenTitles returns the names Musubi gave items, by item.
+func (s *Store) GivenTitles() (map[string]ItemTitle, error) {
+	rows, err := s.db.Query(`SELECT item_id, title, source, input FROM item_titles`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]ItemTitle{}
+	for rows.Next() {
+		var id string
+		var t ItemTitle
+		if err := rows.Scan(&id, &t.Title, &t.Source, &t.Input); err != nil {
+			return nil, err
+		}
+		out[id] = t
+	}
+	return out, rows.Err()
+}
+
+// SetItemTitle records a name for an item.
+func (s *Store) SetItemTitle(itemID, title, source, input string) error {
+	_, err := s.db.Exec(`INSERT INTO item_titles(item_id, title, source, input, made_at) VALUES (?,?,?,?,?)
+		ON CONFLICT(item_id) DO UPDATE SET title = excluded.title, source = excluded.source, input = excluded.input, made_at = excluded.made_at`,
+		itemID, title, source, input, time.Now().Unix())
+	return err
+}
+
+// displayTitle is the SQL for item alias a's title as shown everywhere: the
+// subject of the calendar event it was linked to, else a name Musubi gave
+// it, else its own title.
+func displayTitle(a string) string {
+	return `coalesce((SELECT de.title FROM item_links dl JOIN items de ON de.id = dl.other_id WHERE dl.item_id = ` + a + `.id AND dl.rel = 'occurred_as'), (SELECT dt.title FROM item_titles dt WHERE dt.item_id = ` + a + `.id), ` + a + `.title)`
 }

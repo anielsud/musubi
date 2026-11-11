@@ -14,6 +14,15 @@ type Commitment struct {
 	Statement
 	Topic int64    `json:"topic"`
 	Later []Follow `json:"later,omitempty"`
+	// From a meeting digest (DigestCommitments): the due date the model
+	// worked out, as 2006-01-02 (empty when none was said), who asked for
+	// it, and the digest to-do's id (the statement it matched, if any, is
+	// the embedded Statement; ID is negative when none did).
+	DueDate   string `json:"dueDate,omitempty"`
+	Requester string `json:"requester,omitempty"`
+	Digest    int64  `json:"digest,omitempty"`
+	// Agreed is the summary's reading: agreed, asked, floated, declined.
+	Agreed string `json:"agreed,omitempty"`
 }
 
 // Follow is a later statement and how it relates to an earlier one
@@ -26,8 +35,8 @@ type Follow struct {
 	Statement
 }
 
-const commitmentCols = `st.id, st.item_id, st.chunk_id, c.seq, st.line, st.kind, st.text, st.holder, st.said_at, st.quote,
-	i.kind, CASE WHEN c.title != '' THEN c.title ELSE i.title END, ` + stLevel + `, ` + stCats + `, st.status, st.who, st.evidence`
+var commitmentCols = `st.id, st.item_id, st.chunk_id, c.seq, st.line, st.kind, st.text, st.holder, st.said_at, st.quote,
+	i.kind, ` + displayTitle("i") + `, ` + stLevel + `, ` + stCats + `, st.status, st.who, st.evidence`
 
 func scanCommitmentCols(sc interface{ Scan(...any) error }, st *Statement, extra ...any) error {
 	var said int64
@@ -49,12 +58,19 @@ func scanCommitmentCols(sc interface{ Scan(...any) error }, st *Statement, extra
 // first; with proposals, also positions and decisions still proposed
 // ("we should…"), which the extractors keep apart from commitments.
 func (s *Store) Commitments(sc sensitivity.Scope, proposals bool) ([]Commitment, error) {
+	return s.loadCommitments(sc, `(st.kind = 'commitment' OR (? AND st.status = 'proposed' AND st.kind IN ('position', 'decision', 'opinion')))`, []any{proposals})
+}
+
+// loadCommitments reads the statements cond selects (cond may use the
+// aliases st, c and i, and takes args), with the later statements that
+// relate to each, under the scope.
+func (s *Store) loadCommitments(sc sensitivity.Scope, cond string, condArgs []any) ([]Commitment, error) {
 	vis, vargs := statementVis(sc)
-	args := append([]any{proposals}, vargs...)
+	args := append(append([]any{}, condArgs...), vargs...)
 	rows, err := s.db.Query(`SELECT `+commitmentCols+`,
 		coalesce((SELECT t.topic_id FROM thread_items t WHERE t.statement_id = st.id ORDER BY t.current DESC, t.added_at DESC LIMIT 1), 0)
 		FROM statements st JOIN chunks c ON c.id = st.chunk_id JOIN items i ON i.id = st.item_id`+chunkVisJoin+`
-		WHERE (st.kind = 'commitment' OR (? AND st.status = 'proposed' AND st.kind IN ('position', 'decision', 'opinion'))) AND `+vis+`
+		WHERE `+cond+` AND `+vis+`
 		ORDER BY st.said_at DESC, st.id`, args...)
 	if err != nil {
 		return nil, err

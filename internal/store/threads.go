@@ -404,10 +404,11 @@ func (s *Store) DeleteThread(id int64) error {
 	})
 }
 
-// LatestThreaded is when the latest threaded item happened (zero if none).
+// LatestThreaded is when the latest threaded item happened (zero if none),
+// calendar events aside (see threadFrontier).
 func (s *Store) LatestThreaded() (time.Time, error) {
 	var at sql.NullInt64
-	err := s.db.QueryRow(`SELECT max(i.occurred_at) FROM thread_runs r JOIN items i ON i.id = r.item_id`).Scan(&at)
+	err := s.db.QueryRow(`SELECT max(i.occurred_at) FROM thread_runs r JOIN items i ON i.id = r.item_id WHERE i.kind != 'event'`).Scan(&at)
 	if !at.Valid {
 		return time.Time{}, err
 	}
@@ -721,7 +722,7 @@ type StatementEdit struct {
 
 // StatementEdits lists the corrections not undone, newest first.
 func (s *Store) StatementEdits() ([]StatementEdit, error) {
-	rows, err := s.db.Query(`SELECT c.id, c.statement, c.item_id, coalesce(i.title, ''), coalesce(st.chunk_id, 0), c.field, c.old, c.new, c.at, st.id IS NULL
+	rows, err := s.db.Query(`SELECT c.id, c.statement, c.item_id, coalesce(` + displayTitle("i") + `, ''), coalesce(st.chunk_id, 0), c.field, c.old, c.new, c.at, st.id IS NULL
 		FROM corrections c LEFT JOIN items i ON i.id = c.item_id LEFT JOIN statements st ON st.id = c.statement
 		WHERE c.undone = 0 ORDER BY c.at DESC, c.id DESC`)
 	if err != nil {

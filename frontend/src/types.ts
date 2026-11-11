@@ -35,6 +35,8 @@ export interface Session {
   title: string;
   platform: string;
   created_at: string;
+  // The other people on the calendar event under way, when there is one.
+  invited?: string[];
 }
 
 export interface LiveStatus {
@@ -326,6 +328,13 @@ export interface ToDo extends Statement {
   steps?: number;
   stepsDone?: number;
   marks?: OwnerLink[] | null;
+  // From a meeting summary (knowledge.digest): who asked for it, and the
+  // summary to-do's id. A negative id means no statement says the same, so
+  // it has no thread and can't be marked yet.
+  requester?: string;
+  digest?: number;
+  // The summary's reading: agreed, asked, floated, declined (summary to-dos).
+  agreed?: 'agreed' | 'asked' | 'floated' | 'declined';
 }
 
 // OwnerLink is the owner's word on a to-do: a link (same, replaces, part)
@@ -333,7 +342,7 @@ export interface ToDo extends Statement {
 export interface OwnerLink {
   id: number;
   statement: { item: string; text: string };
-  rel: 'same' | 'replaces' | 'part' | 'done' | 'dropped' | 'not' | 'due';
+  rel: 'same' | 'replaces' | 'part' | 'done' | 'dropped' | 'not' | 'due' | 'who';
   other: { item: string; text: string };
   note?: string;
   at: string;
@@ -410,6 +419,20 @@ export interface PrepTarget {
   at: string;
   upcoming: boolean;
   people: number;
+  // past: a calendar event of the last week that has happened, with the
+  // recording matched to it, if any.
+  past?: boolean;
+  recordingId?: string;
+}
+
+// SavedBrief is talking points drafted ahead of a meeting (prep.auto_brief).
+export interface SavedBrief {
+  itemId: string;
+  model: string;
+  text: string;
+  sources: Hit[] | null;
+  threads: ThreadRef[] | null;
+  madeAt: string;
 }
 
 export interface PrepRequest {
@@ -436,6 +459,8 @@ export interface PrepView {
   subjects: PrepSubject[] | null;
   open: { text: string; who?: string; due?: string; thread: number; name: string; items: ThreadItem[] | null; raised: string; quiet?: boolean; overdue?: boolean; private?: boolean }[] | null;
   share: { thread: number; name: string; item: ThreadItem }[] | null;
+  // last: the recap of this series' previous meeting, with its to-dos.
+  last?: MeetingPage | null;
 }
 
 export interface AliasView {
@@ -514,4 +539,123 @@ export interface QueueView {
   running: string;
   spent: number;
   ledger: string;
+}
+
+// A meeting summary (knowledge.digest): the meeting in sections, its to-dos
+// and how they stand, and the threads its statements are in.
+export interface MeetingSpan { fromChunk: number; fromLine: number; toChunk: number; toLine: number }
+
+export interface MeetingSection {
+  n: number;
+  subject: string;
+  text: string;
+  people?: string[] | null;
+  spans?: MeetingSpan[] | null;
+  // grounded is false when a name or figure isn't in the meeting; issues says which.
+  grounded: boolean;
+  issues?: string;
+}
+
+export interface MeetingToDo {
+  id: number;
+  text: string;
+  owners?: string[] | null;
+  requester?: string;
+  agreed: 'agreed' | 'asked' | 'floated' | 'declined';
+  dueText?: string;
+  dueDate?: string;
+  evidence?: { chunkId: number; line: number; quote: string }[] | null;
+  saidAt: string;
+  grounded: boolean;
+  issues?: string;
+  // State as the to-do view reads it; "repeated" when a later meeting said
+  // it again, "declined" when this meeting turned it down.
+  state: 'open' | 'quiet' | 'proposed' | 'done' | 'changed' | 'not' | 'repeated' | 'declined';
+  due?: string;
+  topic?: number;
+  topicLabel?: string;
+}
+
+export interface MeetingTopic { id: number; label: string; statements: number; size: number }
+
+export interface MeetingPage {
+  itemId: string;
+  title: string;
+  start: string;
+  overview: string;
+  sections: MeetingSection[] | null;
+  todos: MeetingToDo[] | null;
+  topics: MeetingTopic[] | null;
+}
+
+export interface MeetingListItem { itemId: string; title: string; start: string; overview: string; sections: number; todos: number }
+
+export interface M365View {
+  enabled: boolean;
+  connected: boolean;
+  account?: { username: string; name: string; tenantId: string; connectedAt: string };
+  needsSignIn: boolean;
+  lastSync: string;
+  lastError?: string;
+  lastReport?: string;
+  connecting: boolean;
+}
+
+export interface DirectoryPerson {
+  email: string;
+  name: string;
+  givenName?: string;
+  surname?: string;
+  phones?: string[];
+  mobile?: string;
+  city?: string;
+  country?: string;
+  hireDate?: string;
+  title?: string;
+  department?: string;
+  office?: string;
+  managerEmail?: string;
+  managerName?: string;
+}
+
+export interface PersonProfile extends DirectoryPerson {
+  chain: DirectoryPerson[] | null;
+  reports: DirectoryPerson[] | null;
+  together: number;
+  lastTogether: string;
+}
+
+export interface PersonRow {
+  id: string;
+  name: string;
+  email?: string;
+  title?: string;
+  department?: string;
+  together: number;
+  lastTogether: string;
+}
+
+export interface MeetingRefP { itemId: string; title: string; at: string }
+
+export interface PersonPage {
+  id: string;
+  name: string;
+  email?: string;
+  directory?: DirectoryPerson;
+  chain: DirectoryPerson[] | null;
+  reports: DirectoryPerson[] | null;
+  peers: DirectoryPerson[] | null;
+  seenWith: { id: string; name: string }[] | null;
+  together: number;
+  first: string;
+  recent: MeetingRefP[] | null;
+  upcoming: MeetingRefP[] | null;
+  topics: { id: number; label: string; claims: number }[] | null;
+  // Threads linked to theirs that they aren't in, with why (the link to
+  // From, the closest of theirs).
+  nearby: { id: number; label: string; kind: string; via?: string[]; from: string; links: number }[] | null;
+  todos: ToDo[] | null;
+  names: string[];
+  headshot?: string;
+  voice?: { session: string; start: number; end: number; title: string; at: string; text: string };
 }

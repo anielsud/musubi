@@ -31,7 +31,7 @@ func main() {
 	app := gui.NewApp()
 	err := wails.Run(&options.App{
 		Title:            "Musubi",
-		Width:            460,
+		Width:            1080,
 		Height:           900,
 		MinWidth:         360,
 		MinHeight:        520,

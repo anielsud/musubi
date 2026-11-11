@@ -4,16 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/mail"
+	"regexp"
 	"strings"
 	"time"
 )
 
 // Record shapes accepted in inbox envelopes.
 //
-// event (Graph calendar event as the M365 connector returns it):
+// event (Graph calendar event as the M365 connector or internal/m365 writes it):
 //
 //	{subject, summary, organizer, attendees: ["email", ...], start: {dateTime, timeZone},
-//	 end: {...}, isCancelled, showAs, sensitivity}
+//	 end: {...}, isCancelled, showAs, sensitivity, joinUrl?, iCalUId?, response?}
 //
 // email:
 //
@@ -101,6 +102,12 @@ func dropEvent(b []byte) ([]Item, error) {
 		ShowAs      string    `json:"showAs"`
 		Sensitivity string    `json:"sensitivity"`
 		Location    string    `json:"location"`
+		// From the m365 calendar sync: the Teams join link, the event's
+		// iCalendar id, and the owner's response (accepted, tentativelyAccepted,
+		// declined, notResponded, organizer).
+		JoinURL  string `json:"joinUrl"`
+		ICalUID  string `json:"iCalUId"`
+		Response string `json:"response"`
 	}
 	if err := json.Unmarshal(b, &e); err != nil {
 		return nil, err
@@ -118,6 +125,11 @@ func dropEvent(b []byte) ([]Item, error) {
 	}}
 	if e.IsCancelled {
 		it.Native["cancelled"] = "true"
+	}
+	for k, v := range map[string]string{"joinUrl": e.JoinURL, "iCalUId": e.ICalUID, "response": e.Response} {
+		if v != "" {
+			it.Native[k] = v
+		}
 	}
 	if e.IsAllDay {
 		it.Native["allDay"] = "true"
@@ -244,3 +256,32 @@ func stripQuoted(body string) string {
 	}
 	return strings.TrimSpace(strings.Join(out, "\n"))
 }
+
+// EventText is an event's description without the join details Teams
+// and Zoom append (a rule of underscores, or the join line, then the link
+// and dial-ins), and no longer than eventTextMax.
+func EventText(body string) string {
+	s := strings.ReplaceAll(body, "\r\n", "\n")
+	if loc := joinStart.FindStringIndex(s); loc != nil {
+		s = s[:loc[0]]
+	}
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " \t")
+	}
+	s = strings.TrimSpace(blankRuns.ReplaceAllString(strings.Join(lines, "\n"), "\n\n"))
+	if r := []rune(s); len(r) > eventTextMax {
+		s = strings.TrimSpace(string(r[:eventTextMax])) + "…"
+	}
+	return s
+}
+
+// eventTextMax bounds a description: an agenda fits, a pasted document
+// doesn't need to.
+const eventTextMax = 4000
+
+// joinStart is where the join details begin. A preview has no line
+// breaks, so the markers are found anywhere.
+var joinStart = regexp.MustCompile(`_{10,}|(?i)microsoft teams (meeting|need help)|join zoom meeting`)
+
+var blankRuns = regexp.MustCompile(`\n{3,}`)

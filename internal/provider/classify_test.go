@@ -83,3 +83,34 @@ func TestDeciderClassifier(t *testing.T) {
 		t.Errorf("answers %+v", a)
 	}
 }
+
+// Clef takes Jev's request at its own address, with the configured headers,
+// and answers inside Cloudflare's {"result": ...}.
+func TestClefClassify(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ai/run/@cf/cloudflare/clef" || r.Header.Get("Authorization") != "Bearer k" || r.Header.Get("cf-aig-metadata") != `{"token_id":"t1"}` {
+			http.Error(w, "bad", 401)
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&got)
+		fmt.Fprint(w, `{"result":{"answers":{"quiet":{"type":"noul","noul":0.7}},"usage":{"input_tokens":1000000,"output_tokens":0}},"success":true}`)
+	}))
+	defer srv.Close()
+	t.Setenv("MUSUBI_SPEND_LEDGER", filepath.Join(t.TempDir(), "spend.jsonl"))
+	t.Setenv("K", "k")
+	c, err := NewClassifier("clef", srv.URL+"/ai/run/@cf/cloudflare/clef", "", "env:K", 0, map[string]string{"cf-aig-metadata": `{"token_id":"t1"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := c.Classify(context.Background(), "it went quiet", map[string]Question{"quiet": {Type: "noul", Instructions: "Gone quiet?"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a["quiet"].Noul != 0.7 || got["model"] != "clef" {
+		t.Errorf("answers %+v, model %v", a, got["model"])
+	}
+	if _, err := NewClassifier("clef", "", "", "env:K", 0, nil); err == nil {
+		t.Error("clef without its address was accepted")
+	}
+}

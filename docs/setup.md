@@ -13,7 +13,7 @@ dataset's config; the code's defaults are all local.
 |---|---|---|---|
 | Embeddings | search, threads, card lines | Ollama `nomic-embed-text` | the same |
 | Chat models | extraction, threading, statuses, Ask, prep, Live suggestions and summaries | Ollama `qwen3:8b` | GLM-5.3-Flash on Baseten for all but Live; Live stays on `qwen3:8b` for latency |
-| Typed classifier | sensitive-statement labels, Live relevance | the chat model's yes/no | Jev (TypeSafe) |
+| Typed classifier | sensitive-statement labels, Live relevance | the chat model's yes/no | Jev (TypeSafe), or Clef (Cloudflare) |
 
 Jev is cleared for testing, not for the product. The product path is the
 same `provider.Classifier` interface over GLM or the local model
@@ -96,6 +96,27 @@ api_key = "keychain:jev-api-key"
 provider = "jev"
 api_key = "keychain:jev-api-key"
 min_p = 0.5
+```
+
+Through the Optimizely AI Gateway, the same models take one personal
+gateway token (kept in the keychain like any key), the gateway's address,
+and the header that charges the call to the token's owner. Its `token_id`
+isn't secret (the gateway docs show how to look it up):
+
+```toml
+[knowledge.threads.model]  # and the other hosted models alike
+provider = "openai"
+url = "https://<gateway worker>/workers-ai-shim"
+model = "@cf/zai-org/glm-5.3-flash"
+api_key = "keychain:ai-gateway-token"
+headers = { "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","setup_version":"custom"}' }
+price_in = 0.15
+price_out = 0.50
+
+[knowledge.label.classifier] # Clef: Jev's questions, on Cloudflare
+provider = "clef"
+url = "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef"
+api_key = "keychain:ai-gateway-token"
 ```
 
 The full set of keys, each with what it does and how to restore the

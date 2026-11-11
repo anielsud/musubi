@@ -1336,13 +1336,14 @@ func (r *Runner) labelStatements(ctx context.Context, o KnowledgeOptions, ks *Kn
 	version, minP := knowledge.LabelVersion, kc.Label.MinP
 	var cl provider.Classifier
 	if c := kc.Label.Classifier; c.Provider != "" {
-		if c.Provider != "jev" {
-			return fmt.Errorf("knowledge.label.classifier: unknown provider %q", c.Provider)
-		}
 		if !kc.AllowHosted {
 			return fmt.Errorf("the statement labeller reads meeting text, so a hosted classifier needs knowledge.allow_hosted")
 		}
-		cl = provider.NewJev(c.URL, c.Model, c.APIKey, c.PriceIn)
+		j, err := provider.NewClassifier(c.Provider, c.URL, c.Model, c.APIKey, c.PriceIn, c.Headers)
+		if err != nil {
+			return fmt.Errorf("knowledge.label.classifier: %w", err)
+		}
+		cl = j
 		version, minP = knowledge.LabelVersionTyped, c.MinP
 		if minP == 0 {
 			minP = 0.5

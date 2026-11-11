@@ -1114,3 +1114,23 @@ func (s *Store) WasThreaded(itemID string) bool {
 	v, _ := s.StageStamp("was-threaded", itemID)
 	return v != ""
 }
+
+// KeepStatements records an item's statements as current under version
+// and hash (and input) without extracting again: the passages they came
+// from have the same text (see SetExtractText).
+func (s *Store) KeepStatements(itemID, version, hash, input string) error {
+	return s.tx(func(tx *sql.Tx) error {
+		if input != "" {
+			if err := stamp(tx, "extract-input", itemID, "in", input); err != nil {
+				return err
+			}
+		}
+		return stamp(tx, "extract", itemID, version, hash)
+	})
+}
+
+// SetExtractText records the key of the passage text, and of how it was
+// extracted, that an item's statements came from.
+func (s *Store) SetExtractText(itemID, key string) error {
+	return s.tx(func(tx *sql.Tx) error { return stamp(tx, "extract-text", itemID, "t", key) })
+}

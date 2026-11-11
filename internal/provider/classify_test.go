@@ -110,6 +110,9 @@ func TestClefClassify(t *testing.T) {
 	if a["quiet"].Noul != 0.7 || got["model"] != "clef" {
 		t.Errorf("answers %+v, model %v", a, got["model"])
 	}
+	if f, _ := NewClassifier("clef", srv.URL, "clef-flash", "env:K", 0, nil); f.PriceIn != 0.09 || c.PriceIn != 0.24 {
+		t.Errorf("prices: clef %v, clef-flash %v", c.PriceIn, f.PriceIn)
+	}
 	if _, err := NewClassifier("clef", "", "", "env:K", 0, nil); err == nil {
 		t.Error("clef without its address was accepted")
 	}

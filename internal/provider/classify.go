@@ -79,7 +79,12 @@ func NewJev(url, model, apiKey string, priceIn float64) *Jev {
 // tokens (clef-flash $0.09), output free.
 func NewClef(url, model, apiKey string, priceIn float64, headers map[string]string) *Jev {
 	u := strings.TrimRight(url, "/")
-	return &Jev{URL: u, Endpoint: u, Model: cmpOr(model, "clef"), APIKey: apiKey, PriceIn: cmpOrF(priceIn, 0.24),
+	model = cmpOr(model, "clef")
+	price := 0.24
+	if model == "clef-flash" {
+		price = 0.09
+	}
+	return &Jev{URL: u, Endpoint: u, Model: model, APIKey: apiKey, PriceIn: cmpOrF(priceIn, price),
 		Headers: headers, kind: "clef", client: &http.Client{Timeout: 60 * time.Second}}
 }
 

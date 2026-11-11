@@ -144,6 +144,13 @@ type AppStatus struct {
 	Live       live.Status       `json:"live"`
 	Config     map[string]string `json:"config"`
 	Dataset    string            `json:"dataset"`
+	// What "Check for new meetings" does: sync Microsoft 365 (when on),
+	// then process up to AutoMax new meetings (0: all) when OnUpdate; and
+	// how often it runs by itself (minutes, 0: never).
+	M365        bool `json:"m365"`
+	OnUpdate    bool `json:"onUpdate"`
+	AutoMax     int  `json:"autoMax"`
+	UpdateEvery int  `json:"updateEvery"`
 }
 
 func (a *App) Status() AppStatus {
@@ -155,6 +162,8 @@ func (a *App) Status() AppStatus {
 	st.OllamaUp, st.Updating, st.LastUpdate = a.ollamaUp, a.updating, a.lastUpdate
 	a.mu.Unlock()
 	st.Owner = a.eng.Cfg.Owner.Name
+	st.M365, st.OnUpdate, st.AutoMax = a.eng.Cfg.M365.Enabled, a.eng.Cfg.Knowledge.OnUpdate, a.eng.Cfg.Knowledge.AutoMax
+	st.UpdateEvery = a.eng.Cfg.Live.UpdateEvery
 	if a.eng.Chat != nil {
 		st.ChatModel = a.eng.Chat.Model
 	}

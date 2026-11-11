@@ -1,17 +1,31 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../api';
 import type { AppStatus, M365View } from '../types';
-import { Spinner } from './common';
+import { checkDoes, Spinner } from './common';
 
-export function SettingsView() {
+export function SettingsView({ status }: { status: AppStatus | null }) {
   return (
     <div className="view status-page">
-      <M365Card />
+      <M365Card status={status} />
+      <FilesCard status={status} />
     </div>
   );
 }
 
-function M365Card() {
+// FilesCard: where this dataset's config and data are, and the live panel's
+// settings (read-only here; they live in the config file).
+function FilesCard({ status }: { status: AppStatus | null }) {
+  if (!status?.config) return null;
+  return (
+    <section className="kv">
+      <div className="section-head"><span>Dataset</span></div>
+      <Row k="dataset" v={status.dataset || '—'} />
+      {Object.entries(status.config).map(([k, v]) => <Row key={k} k={k} v={v} />)}
+    </section>
+  );
+}
+
+function M365Card({ status }: { status: AppStatus | null }) {
   const [m, setM] = useState<M365View | null>(null);
   const [err, setErr] = useState('');
   const [syncing, setSyncing] = useState(false);
@@ -57,8 +71,8 @@ function M365Card() {
           {m.connecting ? <><Spinner /> Waiting for the browser…</> : m.connected && !m.needsSignIn ? 'Reconnect' : m.needsSignIn ? 'Sign in again' : 'Connect to Microsoft 365'}
         </button>
         {m.connected && (
-          <button disabled={syncing} onClick={() => { setDone(''); setSyncing(true); api.update(); }}>
-            {syncing ? <><Spinner /> Syncing…</> : 'Sync now'}
+          <button disabled={syncing} title={checkDoes(status)} onClick={() => { setDone(''); setSyncing(true); api.update(); }}>
+            {syncing ? <><Spinner /> Checking for new meetings…</> : 'Check for new meetings'}
           </button>
         )}
         {m.connected && <button onClick={signOut}>Sign out</button>}

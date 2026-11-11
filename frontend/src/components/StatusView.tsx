@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../api';
 import type { AppStatus, QueueView } from '../types';
-import { Spinner } from './common';
+import { checkDoes, Spinner } from './common';
 
 const levels = ['public', 'internal', 'confidential', 'restricted'];
 
@@ -47,13 +47,12 @@ export function StatusView({ status }: { status: AppStatus | null }) {
         <Row k="meetings linked to calendar" v={s ? `${s.MeetingsLinked} of ${s.Meetings}` : '—'} />
         <Row k="names resolved" v={s ? `${s.Mentions - s.Ambiguous} of ${s.Mentions}` : '—'} />
         <Row k="last update" v={status.lastUpdate && !status.lastUpdate.startsWith('0001') ? fmtDate(status.lastUpdate) : 'not this session'} />
-        {Object.entries(status.config ?? {}).map(([k, v]) => <Row key={k} k={k} v={v} />)}
       </section>
 
       <button className="primary wide" disabled={status.updating} onClick={() => api.update()}>
-        {status.updating ? <><Spinner /> Updating…</> : 'Update now'}
+        {status.updating ? <><Spinner /> Checking for new meetings…</> : 'Check for new meetings'}
       </button>
-      <p className="dim small">Update reads new Tomoe recordings and anything in the inbox. Meetings are also ingested automatically when Tomoe saves them.</p>
+      <p className="dim small">{checkDoes(status)}</p>
     </div>
   );
 }

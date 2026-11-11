@@ -209,6 +209,10 @@ export interface AppStatus {
   live: LiveStatus;
   config: Record<string, string>;
   dataset: string;
+  m365: boolean;
+  onUpdate: boolean;
+  autoMax: number;
+  updateEvery: number;
 }
 
 export interface Statement {

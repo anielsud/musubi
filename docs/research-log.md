@@ -3542,3 +3542,59 @@ Change: `knowledge.skip_failed_items` (default false, the earlier
 behaviour). On, such an item is logged and left unstamped, the run goes on,
 and the summary counts it; a run where no item extracts still fails.
 Default off until it has been run on a real dataset.
+
+## 2026-11-11: GLM-5.3-Flash vs Haiku 5.5 vs DeepSeek V4.1 Flash, one call at a time
+
+Question: what replaces GLM-5.3-Flash on Cloudflare Workers AI (retired
+2026-11-20), and why the gateway calls were slow. A first bake-off the same
+morning ran four models at up to 16 calls at once with the 16k token cap and
+mixed provider defaults; its times were not usable. Redone with one request
+per call, no retries or hedging, no token cap, on Musubi's own prompts
+(written out by a dump tool, then sent by one-off scripts): brief, one
+extraction chunk, meeting summary, to-dos.
+
+**Thinking levels Musubi sends.** Only the digest (summary, to-dos) and
+thread assignment hardcode `reasoning_effort: low`; everything else sends
+none, so the provider's default applies. Cloudflare's GLM-5.3-Flash
+defaults to max, Baseten's thinks far less: on one extraction chunk,
+20,141 output tokens (192 s) on Cloudflare vs 2,706 (19 s) on Baseten.
+Moving from Baseten to the gateway therefore also raised extraction,
+threading, status and Ask from Baseten's level to max; that, not serving
+speed (105 vs 141 tokens/s), is most of the 12 s → 76 s extraction calls.
+
+**Token cap.** The 16k floor cut 3 of 7 extraction calls on Cloudflare GLM;
+without `max_tokens` the gateway returns full replies. Removed (this branch).
+
+**DeepSeek V4.1 Flash** (Cloudflare, low): 120–145 tokens/s but about 80% of
+its output is thinking even at low (brief 40 s, extraction chunk 31 s,
+summary 47 s); its to-dos call failed twice with an empty to-do and once
+with Workers AI's own timeout (HTTP 408, code 3046, at 235 s).
+**GLM-4.7-Flash** (Cloudflare): 50–67 tokens/s; calls that think past about
+5 minutes came back empty. Neither is a candidate.
+
+**GLM on Baseten vs Haiku 5.5** (gateway → Vertex, adaptive thinking at
+`low` and `medium`). Three meetings (a weekly 1:1, a vendor call, a VP staff
+sync): extraction on two, summary and to-dos on three, 8 answers per setup.
+Answers judged blind against the transcripts (labels shuffled; one reviewer
+per meeting) by error type; major = would store a wrong fact or owner.
+
+| Major / minor errors | GLM on Baseten | Haiku medium | Haiku low |
+|---|---|---|---|
+| Extraction (2) | 0 / 6 | 0 / 7 | 2 / 13 |
+| Summary (3) | 5 / 15 | 8 / 26 | 11 / 18 |
+| To-dos (3) | 2 / 10 | 2 / 8 | 3 / 10 |
+| Total | 7 / 31 | 10 / 41 | 16 / 41 |
+| Per call, mean | ~50 s, ~0.37¢ | ~27 s, ~0.50¢ | ~15 s, ~0.31¢ |
+
+- Haiku low broke the extraction rule on context lines in all three
+  meetings (6, 1 and 5 items from `[context]` lines) and misattributes most.
+- Haiku medium equals Baseten GLM on extraction and to-dos, is a little
+  worse on summaries (wrong owners); about twice as fast, a third dearer.
+- All three credit to the owner some vendor lines the transcript labels as
+  the owner's (the vendor call), and record a floated December message as
+  agreed: transcript problems no model choice fixes.
+- Prices per M tokens (gateway `pricing/model-pricing.csv`): Haiku 5.5
+  $0.10 / $0.50, GLM-5.3-Flash $0.15 / $0.50, DeepSeek V4.1 Flash
+  $0.30 / $1.20. Claude's tokenizer counts about 1.5x the input tokens.
+- Not tested: threading, statuses, Ask, the Live brief. Musubi has no
+  Anthropic-format client, so Haiku needs one before it can be used.

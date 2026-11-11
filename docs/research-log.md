@@ -3624,3 +3624,23 @@ each to both models, one at a time, and judged blind as above.
 - Baseten's speed swung from 4 to 117 tokens/s (one brief 136 s, one
   thread update 253 s); Haiku held 155–240.
 - Musubi hedges threading calls: 5 of 14 were sent twice.
+
+## 2026-11-11: tokens per meeting hour, by job (for Settings' cost lines)
+
+From the Haiku 5.5 runs above (medium thinking, Claude's tokenizer) on the
+three meetings, 22, 34 and 63 minutes (1.97 h; 422 statements; 30 threads
+touched). Output is the visible answer only: thinking isn't counted, and
+some models spend many times more on it.
+
+| Job | In / meeting hour | Out / meeting hour |
+|---|---|---|
+| Extraction (brief + chunks; one meeting, full run) | ~118K | ~28K |
+| Threading (assign, merge, thread updates; one meeting) | ~137K | ~2K |
+| Statuses (~15 threads an hour, ~6.4K in, ~0.9K out each) | ~96K | ~14K |
+| Meeting summary + to-dos (three meetings) | ~49K | ~5K |
+| Labels (Jev, ~214 statements an hour) | ~32K | — |
+| Ask (per question) | ~7K | ~0.3K |
+
+Settings groups them as extraction and threading ~255K in / 30K out,
+statuses and summaries ~145K / 19K: with Haiku 5.5 about $0.04 and $0.02 a
+meeting hour. One-meeting figures (extraction, threading) are rough.

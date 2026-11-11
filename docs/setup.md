@@ -132,7 +132,7 @@ price_in = 0.15
 price_out = 0.50
 
 [knowledge.label.classifier] # Clef: Jev's questions, on Cloudflare
-provider = "clef"            # model "clef-flash" for the faster, cheaper one
+provider = "clef"            # the faster, cheaper one: "clef-flash" in url and model
 url = "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef"
 api_key = "keychain:ai-gateway-token"
 ```

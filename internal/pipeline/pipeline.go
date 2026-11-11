@@ -144,6 +144,20 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 		st.Ran["link"]++
 		r.logf("link: %d meetings matched to calendar events", len(ls))
 	}
+	// A recording that missed part of its meeting takes those stretches
+	// from the meeting's Teams transcript (knowledge.stitch), from here on.
+	stitchedItems, _, err := r.stitches(items, true)
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		if s, ok := stitchedItems[items[i].ID]; ok {
+			items[i] = s
+		}
+	}
+	if len(stitchedItems) > 0 {
+		r.logf("stitch: %d recordings filled from their Teams transcript", len(stitchedItems))
+	}
 	linked := func(id string) *item.Item {
 		if l, ok := links[id]; ok {
 			return byID[l.id]
@@ -182,6 +196,14 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 			title = l.Title
 		} else if g := given[it.ID].Title; g != "" {
 			title = g
+		}
+		// An extracted item keeps the title its passages were extracted
+		// under: a later link to a calendar event (or a new generated name)
+		// would otherwise change the chunk stamp, and so re-extract it.
+		if ex, _ := r.Store.StageStamp("extract", it.ID); ex != "" {
+			if was, err := r.Store.ChunkTitle(it.ID); err == nil && was != "" {
+				title = was
+			}
 		}
 		chunkHash := hashOf("chunk", stages.ChunkVersion, ch, title)
 		chunks, err := r.ensure("chunk", it.ID, stages.ChunkVersion, chunkHash, st, func() error {
@@ -340,19 +362,20 @@ func linkMeetings(items []item.Item, owner string) (string, map[string]linkTarge
 		default:
 			continue
 		}
-		fmt.Fprintf(h, "%s %d %d %v|", it.ID, it.OccurredAt.Unix(), it.EndedAt.Unix(), others(it, owner))
+		fmt.Fprintf(h, "%s %d %d %v|", it.ID, it.OccurredAt.Unix(), it.End().Unix(), others(it, owner))
 	}
 	const slack = 15 * time.Minute
 	out := map[string]linkTarget{}
 	for _, m := range meetings {
-		mDur := m.EndedAt.Sub(m.OccurredAt)
+		mEnd := m.End()
+		mDur := mEnd.Sub(m.OccurredAt)
 		var best linkTarget
 		var bestGap time.Duration
 		for _, e := range events {
 			if m.OccurredAt.Before(e.OccurredAt.Add(-slack)) || m.OccurredAt.After(e.EndedAt) {
 				continue
 			}
-			lo, hi := maxT(m.OccurredAt, e.OccurredAt), minT(m.EndedAt, e.EndedAt)
+			lo, hi := maxT(m.OccurredAt, e.OccurredAt), minT(mEnd, e.EndedAt)
 			overlap := hi.Sub(lo)
 			denom := min(mDur, e.EndedAt.Sub(e.OccurredAt))
 			score := 0.0

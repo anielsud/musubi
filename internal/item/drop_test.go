@@ -1,6 +1,7 @@
 package item
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/anielsud/musubi/internal/source"
@@ -50,5 +51,23 @@ func TestDropEventKeepsSyncFields(t *testing.T) {
 	}
 	if len(its[0].Participants) != 2 || its[0].Participants[1].Email != "kai.moreno@corp.example" {
 		t.Errorf("participants %+v", its[0].Participants)
+	}
+}
+
+// An event's description loses the join details Teams and Zoom append,
+// with line breaks (the body) or without (a preview).
+func TestEventText(t *testing.T) {
+	for in, want := range map[string]string{
+		"Agenda:\r\n- budget\r\n\r\n\r\n\r\n________________________________\r\nMicrosoft Teams meeting\r\nJoin: https://x": "Agenda:\n- budget",
+		"Settings this up as agreed. Microsoft Teams meeting Join: https://x Meeting ID: 1":                                 "Settings this up as agreed.",
+		"Quarterly review.\nJoin Zoom Meeting\nhttps://zoom.example/j/1":                                                    "Quarterly review.",
+		"Just a note": "Just a note",
+	} {
+		if got := EventText(in); got != want {
+			t.Errorf("EventText(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := []rune(EventText(strings.Repeat("a", eventTextMax+10))); len(got) != eventTextMax+1 {
+		t.Errorf("long description: %d runes", len(got))
 	}
 }

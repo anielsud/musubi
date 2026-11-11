@@ -68,6 +68,7 @@ func (a *App) RunKnowledge(kind string) error {
 	estimate := q.CatchUpUSD
 	switch kind {
 	case "catchup":
+		o.NewOnly = true
 	case "rethread":
 		o.Redo = []string{"threads"}
 		estimate = q.RethreadUSD

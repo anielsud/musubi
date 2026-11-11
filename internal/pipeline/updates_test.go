@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/anielsud/musubi/internal/config"
+	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/sensitivity"
@@ -400,5 +402,175 @@ func TestReextractedRejoins(t *testing.T) {
 	p, _ = r.planThreads(o, llm, cur, false)
 	if p.held != 0 || len(p.todo) != 1 || p.todo[0].ID != oldest.ID {
 		t.Fatalf("re-extracted oldest: held %d, todo %+v", p.held, p.todo)
+	}
+}
+
+// A chunk stamp that changes without the passages' text (a meeting given
+// a name, say) keeps the item's statements, with no extraction.
+func TestSameTextKeepsStatements(t *testing.T) {
+	r, st := build(t)
+	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate, r.Cfg.Knowledge.Updates = "statements", 0, "explicit"
+	knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}})
+	items, _ := st.AllItems()
+	var id string
+	for _, it := range items {
+		if s, _ := st.StageStamp("extract", it.ID); s != "" {
+			id = it.ID
+			break
+		}
+	}
+	before, _ := st.StageStamp("chunk", id)
+	if err := st.SetItemTitle(id, "A new name", "generated", "x"); err != nil {
+		t.Fatal(err)
+	}
+	run(t, r)
+	if after, _ := st.StageStamp("chunk", id); after == before {
+		t.Fatal("the new name didn't change the chunk stamp")
+	}
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}}); ks.Items != 0 || ks.SameText == 0 {
+		t.Fatalf("renamed: %d extracted, %d kept", ks.Items, ks.SameText)
+	}
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}}); ks.Items != 0 || ks.SameText != 0 {
+		t.Fatalf("next run: %d extracted, %d kept", ks.Items, ks.SameText)
+	}
+	// Another model is a real change: kept until asked, as before.
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m2"}}); ks.SameText != 0 || ks.Outdated.Extract == 0 {
+		t.Fatalf("new model: %d kept, %d outdated", ks.SameText, ks.Outdated.Extract)
+	}
+}
+
+// After new data, a meeting never extracted goes before one being
+// extracted again.
+func TestAutoExtractsNewBeforeAgain(t *testing.T) {
+	r, st := build(t)
+	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate, r.Cfg.Knowledge.Updates = "statements", 0, "explicit"
+	r.Cfg.Knowledge.Threads.HoldOlder, r.Cfg.Knowledge.AutoMax = false, 1
+	n := knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}, Plan: true}).Planned.Extract
+	if n < 2 {
+		t.Fatalf("%d items to extract", n)
+	}
+	// All but one extracted: that one is new.
+	knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}, Limit: n - 1})
+	items, _ := st.AllItems()
+	var fresh string
+	var done []string
+	for _, it := range items {
+		if it.Kind == "event" {
+			continue
+		}
+		if s, _ := st.StageStamp("extract", it.ID); s == "" {
+			fresh = it.ID
+		} else {
+			done = append(done, it.ID)
+		}
+	}
+	if fresh == "" || len(done) == 0 {
+		t.Fatalf("new %q, extracted %d", fresh, len(done))
+	}
+	// Every extracted one changed: each would be extracted again.
+	for _, id := range done {
+		if err := st.ReplaceStatementsFrom(id, "x8", "stale", "different input", nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetExtractText(id, "other text"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ks := knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}, Auto: true}); ks.Items != 1 {
+		t.Fatalf("auto: %d extracted", ks.Items)
+	}
+	if s, _ := st.StageStamp("extract", fresh); s == "" {
+		t.Fatal("the new meeting waited behind ones extracted again")
+	}
+}
+
+// A calendar event booked ahead and marked threaded doesn't move what's
+// threaded past the meetings that happened: they stay new, not a backlog.
+func TestFutureEventNotFrontier(t *testing.T) {
+	r, st := build(t)
+	items, _ := st.AllItems()
+	newest := items[0]
+	for _, it := range items {
+		if it.OccurredAt.After(newest.OccurredAt) {
+			newest = it
+		}
+	}
+	st.MarkThreaded(newest.ID, "s")
+	at := newest.OccurredAt.Add(14 * 24 * time.Hour)
+	ev := item.Item{ID: "calendar:booked-ahead", Source: "calendar", Ref: "booked-ahead", Kind: item.KindEvent, Title: "Booked ahead", OccurredAt: at, EndedAt: at.Add(time.Hour)}
+	if _, err := st.UpsertItem(ev); err != nil {
+		t.Fatal(err)
+	}
+	st.MarkThreaded(ev.ID, "s")
+	items, _ = st.AllItems()
+	want := newest.OccurredAt.Truncate(time.Second)
+	if f, _ := r.threadFrontier(items); !f.Equal(want) {
+		t.Errorf("frontier %v, want %v", f, want)
+	}
+	if l, _ := st.LatestThreaded(); !l.Equal(want) {
+		t.Errorf("latest threaded %v, want %v", l, want)
+	}
+}
+
+// A catch-up takes every meeting newer than what's threaded, not only
+// auto_max of them, and leaves older ones (a backlog) for a rethread.
+func TestCatchUpTakesOnlyNew(t *testing.T) {
+	r, st := build(t)
+	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate, r.Cfg.Knowledge.AutoMax = "statements", 0, 1
+	r.Cfg.Knowledge.Threads.Rewind = 0
+	items, _ := st.AllItems()
+	var times []time.Time
+	for _, it := range items {
+		if it.Kind != item.KindEvent {
+			times = append(times, it.OccurredAt)
+		}
+	}
+	sort.Slice(times, func(a, b int) bool { return times[a].Before(times[b]) })
+	if len(times) < 4 {
+		t.Fatalf("%d items", len(times))
+	}
+	frontier := times[len(times)-3]
+	for _, it := range items {
+		if it.Kind != item.KindEvent && it.OccurredAt.Equal(frontier) {
+			st.MarkThreaded(it.ID, "s")
+		}
+	}
+	ks := knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}, NewOnly: true})
+	if ks.Items < 2 || ks.Held.Batch != 0 || ks.Held.Older == 0 {
+		t.Fatalf("catch-up: extracted %d, held %d beyond auto_max, %d older", ks.Items, ks.Held.Batch, ks.Held.Older)
+	}
+	for _, it := range items {
+		if s, _ := st.StageStamp("extract", it.ID); s != "" && it.OccurredAt.Before(frontier) {
+			t.Errorf("%s (%v) is older than what's threaded but was extracted", it.ID, it.OccurredAt)
+		}
+	}
+}
+
+// A meeting behind the newest threaded ones by no more than threads.rewind
+// of them (one that waited for its transcript, say) is new, not a backlog:
+// it is extracted, and those are threaded again after it.
+func TestBacklogWithinRewind(t *testing.T) {
+	r, st := build(t)
+	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate, r.Cfg.Knowledge.Threads.Rewind = "statements", 0, 1
+	items, _ := st.AllItems()
+	var ms []item.Item
+	for _, it := range items {
+		if it.Kind != item.KindEvent {
+			ms = append(ms, it)
+		}
+	}
+	sort.Slice(ms, func(a, b int) bool { return ms[a].OccurredAt.Before(ms[b].OccurredAt) })
+	n := len(ms)
+	if n < 4 || !ms[n-4].OccurredAt.Before(ms[n-3].OccurredAt) || !ms[n-3].OccurredAt.Before(ms[n-2].OccurredAt) {
+		t.Fatalf("%d items", n)
+	}
+	st.MarkThreaded(ms[n-1].ID, "s")
+	st.MarkThreaded(ms[n-3].ID, "s")
+	knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}, NewOnly: true})
+	if s, _ := st.StageStamp("extract", ms[n-2].ID); s == "" {
+		t.Errorf("one threaded meeting is newer than %s, within rewind, but it wasn't extracted", ms[n-2].ID)
+	}
+	if s, _ := st.StageStamp("extract", ms[n-4].ID); s != "" {
+		t.Errorf("two threaded meetings are newer than %s, beyond rewind, but it was extracted", ms[n-4].ID)
 	}
 }

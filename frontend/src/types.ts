@@ -457,6 +457,8 @@ export interface PrepView {
   subjects: PrepSubject[] | null;
   open: { text: string; who?: string; due?: string; thread: number; name: string; items: ThreadItem[] | null; raised: string; quiet?: boolean; overdue?: boolean; private?: boolean }[] | null;
   share: { thread: number; name: string; item: ThreadItem }[] | null;
+  // last: the recap of this series' previous meeting, with its to-dos.
+  last?: MeetingPage | null;
 }
 
 export interface AliasView {

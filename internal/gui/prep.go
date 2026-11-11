@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anielsud/musubi/internal/ask"
+	"github.com/anielsud/musubi/internal/engine"
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/sensitivity"
@@ -107,10 +108,17 @@ func (a *App) Prep(req knowledge.PrepRequest, scope string) (*knowledge.PrepView
 		return nil, err
 	}
 	if req.Template != "" {
-		// An upcoming event prepares from the last meeting with its title,
-		// if there was one, so "since" is when you last met.
+		// An upcoming event prepares from the last meeting of its series, so
+		// "since" is when you last met and that meeting's recap anchors the
+		// prep: the latest earlier event with the same subject that has a
+		// recording (found through the calendar, as a recording's own title
+		// is often Tomoe's default), else a recording titled the same.
 		for _, it := range items {
 			if it.ID == req.Template && it.Kind == item.KindEvent {
+				if last, at := knowledge.LastOfSeries(a.eng.Store, it, items); last != "" {
+					req.Since, req.Last = at, last
+					break
+				}
 				for _, p := range items {
 					if p.Kind != item.KindEvent && strings.EqualFold(p.Title, it.Title) && p.OccurredAt.Before(it.OccurredAt) && p.OccurredAt.After(req.Since) {
 						req.Since = p.OccurredAt
@@ -120,7 +128,26 @@ func (a *App) Prep(req knowledge.PrepRequest, scope string) (*knowledge.PrepView
 		}
 	}
 	req.QuietAfter, req.MarkPrivate = a.eng.Cfg.Prep.QuietAfter(), a.eng.Cfg.Prep.MarkPrivate
+	if req.About, err = prepAbout(a.ctx, a.eng, sc, req.Template, items); err != nil {
+		return nil, err
+	}
 	return knowledge.Prep(a.eng.Store, sc, req, items, a.eng.Cfg.Owner.Name)
+}
+
+// prepAbout finds the threads an event's title and description are about.
+func prepAbout(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, id string, items []item.Item) ([]int64, error) {
+	for _, it := range items {
+		if it.ID != id || it.Kind != item.KindEvent {
+			continue
+		}
+		ms, err := e.ThreadsAbout(ctx, sc, knowledge.MeetingQuery(it, e.Cfg.Owner.Name, e.Cfg.Owner.InternalDomains))
+		var ids []int64
+		for _, m := range ms {
+			ids = append(ids, m.ID)
+		}
+		return ids, err
+	}
+	return nil, nil
 }
 
 // PrepBrief writes talking points in the background, streaming

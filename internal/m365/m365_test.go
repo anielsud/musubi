@@ -196,6 +196,9 @@ func fakeGraph(t *testing.T, events []map[string]any) *httptest.Server {
 			w.WriteHeader(404)
 			return
 		}
+		if p := strings.Join(r.Header.Values("Prefer"), ","); !strings.Contains(p, `outlook.body-content-type="text"`) || !strings.Contains(p, `outlook.timezone="UTC"`) {
+			t.Errorf("Prefer %q", p)
+		}
 		half := len(events) / 2
 		page, next := events[:half], "http://"+r.Host+"/v1.0/me/calendarView?page=2"
 		if r.URL.Query().Get("page") == "2" {
@@ -207,7 +210,8 @@ func fakeGraph(t *testing.T, events []map[string]any) *httptest.Server {
 
 func event(id, subject, start string, extra map[string]any) map[string]any {
 	e := map[string]any{
-		"id": id, "subject": subject, "bodyPreview": "agenda",
+		"id": id, "subject": subject,
+		"body":      map[string]any{"content": "agenda\r\n\r\n\r\n\r\n________________________________________________________________________________\r\nMicrosoft Teams meeting\r\nJoin: https://teams.example/meet/1"},
 		"organizer": map[string]any{"emailAddress": map[string]any{"name": "Robin Vale", "address": "Robin.Vale@corp.example"}},
 		"attendees": []any{
 			map[string]any{"type": "required", "emailAddress": map[string]any{"name": "Kai Moreno", "address": "kai.moreno@corp.example"}, "status": map[string]any{"response": "accepted"}},
@@ -260,6 +264,9 @@ func TestSyncCalendar(t *testing.T) {
 	json.Unmarshal(b, &env)
 	if env.Kind != "event" || env.Source != CalendarSource || env.Ref != "e4" || env.Record.Response != "organizer" || env.Record.JoinURL == "" {
 		t.Errorf("drop %+v", env)
+	}
+	if env.Record.Summary != "agenda" {
+		t.Errorf("description %q (the join details left out)", env.Record.Summary)
 	}
 	if len(env.Record.Attendees) != 1 || env.Record.Attendees[0].Email != "kai.moreno@corp.example" || env.Record.Organizer.Email != "robin.vale@corp.example" {
 		t.Errorf("people %+v / %+v (rooms left out, emails lower-cased)", env.Record.Attendees, env.Record.Organizer)

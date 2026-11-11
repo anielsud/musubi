@@ -23,7 +23,9 @@ import (
 // is the default. Sampling settings are not sent: Haiku 5.5 refuses
 // non-default ones.
 type Anthropic struct {
-	*OpenAI
+	// o holds the shared settings. Not embedded: OpenAI's Decide speaks the
+	// OpenAI shape, and an Anthropic client must not look like a Decider.
+	o *OpenAI
 }
 
 var errRefused = errors.New("anthropic: the model declined the request")
@@ -33,6 +35,9 @@ var errRefused = errors.New("anthropic: the model declined the request")
 const anthropicMaxTokens = 128000
 
 func NewAnthropic(c config.LLM) *Anthropic { return &Anthropic{NewOpenAI(c)} }
+
+func (a *Anthropic) ModelName() string { return a.o.Model }
+func (a *Anthropic) Local() bool       { return a.o.Local() }
 
 func (a *Anthropic) Complete(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error) {
 	var lastErr error
@@ -62,11 +67,11 @@ func (a *Anthropic) Complete(ctx context.Context, msgs []Message, opt ChatOption
 // effort: the configured level (one per model group) wins over a call's
 // own hint, which was tuned for other models; medium when neither says.
 func (a *Anthropic) effortFor(opt ChatOptions) string {
-	return cmpOr(a.effort, cmpOr(opt.Effort, "medium"))
+	return cmpOr(a.o.effort, cmpOr(opt.Effort, "medium"))
 }
 
 func (a *Anthropic) stream(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error) {
-	if err := a.checkSpend(); err != nil {
+	if err := a.o.checkSpend(); err != nil {
 		return "", err
 	}
 	started := time.Now()
@@ -87,7 +92,7 @@ func (a *Anthropic) stream(ctx context.Context, msgs []Message, opt ChatOptions,
 		}
 		oc["format"] = map[string]any{"type": "json_schema", "schema": closeSchema(sc)}
 	}
-	body := map[string]any{"model": a.Model, "max_tokens": anthropicMaxTokens, "stream": true,
+	body := map[string]any{"model": a.o.Model, "max_tokens": anthropicMaxTokens, "stream": true,
 		"thinking": map[string]any{"type": "adaptive"}, "output_config": oc, "messages": turns}
 	if len(system) > 0 {
 		body["system"] = strings.Join(system, "\n\n")
@@ -95,7 +100,7 @@ func (a *Anthropic) stream(ctx context.Context, msgs []Message, opt ChatOptions,
 	b, _ := json.Marshal(body)
 	cctx, cancel := context.WithTimeout(ctx, max(hostedWall, opt.Timeout))
 	defer cancel()
-	req, err := http.NewRequestWithContext(cctx, "POST", a.URL+"/v1/messages", bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(cctx, "POST", a.o.URL+"/v1/messages", bytes.NewReader(b))
 	if err != nil {
 		return "", err
 	}
@@ -103,15 +108,15 @@ func (a *Anthropic) stream(ctx context.Context, msgs []Message, opt ChatOptions,
 	req.Header.Set("anthropic-version", "2023-06-01")
 	// Cloudflare refuses some clients' default User-Agent (error 1010).
 	req.Header.Set("User-Agent", "musubi")
-	if key, err := a.resolveKey(); err != nil {
+	if key, err := a.o.resolveKey(); err != nil {
 		return "", err
 	} else if key != "" {
 		req.Header.Set("x-api-key", key)
 	}
-	for k, v := range a.headers {
+	for k, v := range a.o.headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := a.client.Do(req)
+	resp, err := a.o.client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("anthropic: %w", err)
 	}
@@ -182,7 +187,7 @@ func (a *Anthropic) stream(ctx context.Context, msgs []Message, opt ChatOptions,
 		}
 		return "", fmt.Errorf("anthropic: stream: %w", err)
 	}
-	a.record(used, stop, time.Since(started), opt.Kind)
+	a.o.record(used, stop, time.Since(started), opt.Kind)
 	switch stop {
 	case "end_turn", "stop_sequence":
 	case "max_tokens":

@@ -51,6 +51,9 @@ func TestAnthropic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, ok := llm.(Decider); ok {
+		t.Error("an Anthropic client must not offer OpenAI-shaped decisions")
+	}
 	msgs := []Message{{Role: "system", Content: "rules"}, {Role: "user", Content: "hi"}}
 	schema := json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}}}`)
 	out, err := llm.Complete(context.Background(), msgs, ChatOptions{Schema: schema, Temperature: 0.7, TopP: 0.9, Effort: "low"}, nil)

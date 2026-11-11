@@ -709,6 +709,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .day-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); padding: 8px 2px 0; scroll-margin-top: 8px; }
 .day-head.today { color: var(--accent); }
 .meeting-row.upcoming { border-style: dashed; }
+.meeting-row.happened { opacity: 0.8; }
+.meeting-row:disabled { cursor: default; }
 .now-line { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 11px; margin: 2px 0; }
 .now-line::before, .now-line::after { content: ''; flex: 1; height: 1px; background: var(--accent); }
 .page-nav { display: flex; justify-content: space-between; }

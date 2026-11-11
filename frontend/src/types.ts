@@ -417,6 +417,10 @@ export interface PrepTarget {
   at: string;
   upcoming: boolean;
   people: number;
+  // past: a calendar event of the last week that has happened, with the
+  // recording matched to it, if any.
+  past?: boolean;
+  recordingId?: string;
 }
 
 // SavedBrief is talking points drafted ahead of a meeting (prep.auto_brief).

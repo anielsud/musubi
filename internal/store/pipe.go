@@ -662,22 +662,30 @@ func (s *Store) EntityNames() (map[string][2]string, error) {
 	return out, rows.Err()
 }
 
-// EventAt returns the subject of the calendar event under way at t, for the
-// live panel's title (Tomoe names recordings by time). Owner-only display.
+// EventAt returns the subject and invitees of the calendar event under way
+// at t, for the live panel's title (Tomoe names recordings by time) and who
+// is in the call. Owner-only display.
 // Among overlapping invitations, one the owner declined is passed over and
 // one they organized or accepted comes first, then tentative ones, then the
 // latest to start.
-func (s *Store) EventAt(t time.Time) (string, error) {
-	var title string
-	err := s.db.QueryRow(`SELECT title FROM items WHERE kind = 'event' AND occurred_at <= ? AND ended_at > ?
+func (s *Store) EventAt(t time.Time) (string, []item.Participant, error) {
+	var title, ps string
+	err := s.db.QueryRow(`SELECT title, participants FROM items WHERE kind = 'event' AND occurred_at <= ? AND ended_at > ?
 		AND ended_at - occurred_at <= 4 * 3600 AND native NOT LIKE '%"allDay":"true"%' AND native NOT LIKE '%"cancelled":"true"%'
 		AND native NOT LIKE '%"showAs":"free"%' AND native NOT LIKE '%"response":"declined"%'
 		ORDER BY (native LIKE '%"response":"organizer"%' OR native LIKE '%"response":"accepted"%') DESC,
-			native LIKE '%"response":"tentativelyAccepted"%' DESC, occurred_at DESC LIMIT 1`, t.Unix()+15*60, t.Unix()).Scan(&title)
+			native LIKE '%"response":"tentativelyAccepted"%' DESC, occurred_at DESC LIMIT 1`, t.Unix()+15*60, t.Unix()).Scan(&title, &ps)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+		return "", nil, nil
 	}
-	return title, err
+	if err != nil {
+		return "", nil, err
+	}
+	var invited []item.Participant
+	if err := json.Unmarshal([]byte(ps), &invited); err != nil {
+		return "", nil, err
+	}
+	return title, invited, nil
 }
 
 func textHash(s string) string {

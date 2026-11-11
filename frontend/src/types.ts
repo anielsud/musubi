@@ -35,6 +35,8 @@ export interface Session {
   title: string;
   platform: string;
   created_at: string;
+  // The other people on the calendar event under way, when there is one.
+  invited?: string[];
 }
 
 export interface LiveStatus {
@@ -649,6 +651,9 @@ export interface PersonPage {
   recent: MeetingRefP[] | null;
   upcoming: MeetingRefP[] | null;
   topics: { id: number; label: string; claims: number }[] | null;
+  // Threads linked to theirs that they aren't in, with why (the link to
+  // From, the closest of theirs).
+  nearby: { id: number; label: string; kind: string; via?: string[]; from: string; links: number }[] | null;
   todos: ToDo[] | null;
   names: string[];
   headshot?: string;

@@ -268,16 +268,18 @@ type PersonPage struct {
 	Peers   []*m365.Person `json:"peers"` // others with the same manager
 	// SeenWith are the people most often in the same meetings, small
 	// meetings counting for more.
-	SeenWith []PersonRef      `json:"seenWith"`
-	Together int              `json:"together"`
-	First    time.Time        `json:"first"`
-	Recent   []MeetingRef     `json:"recent"`
-	Upcoming []MeetingRef     `json:"upcoming"`
-	Topics   []TopicRef       `json:"topics"`
-	ToDos    []knowledge.ToDo `json:"todos"`
-	Names    []string         `json:"names"`
-	Headshot string           `json:"headshot,omitempty"` // data: URL
-	Voice    *VoiceClip       `json:"voice,omitempty"`
+	SeenWith []PersonRef  `json:"seenWith"`
+	Together int          `json:"together"`
+	First    time.Time    `json:"first"`
+	Recent   []MeetingRef `json:"recent"`
+	Upcoming []MeetingRef `json:"upcoming"`
+	Topics   []TopicRef   `json:"topics"`
+	// Nearby are threads linked to theirs that they aren't in.
+	Nearby   []knowledge.NearbyTopic `json:"nearby"`
+	ToDos    []knowledge.ToDo        `json:"todos"`
+	Names    []string                `json:"names"`
+	Headshot string                  `json:"headshot,omitempty"` // data: URL
+	Voice    *VoiceClip              `json:"voice,omitempty"`
 }
 
 // PersonPage gathers a person's page; nil when the entity isn't a person.
@@ -353,6 +355,16 @@ func (e *Engine) PersonPage(entityID string) (*PersonPage, error) {
 	pg.SeenWith = seenWith(p, ps, 8)
 	if pg.Topics, err = e.entityTopics(p.id, pg.Names, 8); err != nil {
 		return nil, err
+	}
+	if len(pg.Topics) > 0 {
+		var own []int64
+		for _, t := range pg.Topics {
+			own = append(own, t.ID)
+		}
+		// The topic map is cached; without it the page goes without.
+		if m, err := (knowledge.Views{Store: e.Store, Scope: sensitivity.Owner(), Now: time.Now()}).Map(); err == nil {
+			pg.Nearby = knowledge.Nearby(m, own, 6)
+		}
 	}
 	pg.ToDos = e.personToDos(p)
 	pg.Headshot = e.headshot(p)

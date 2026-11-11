@@ -131,6 +131,7 @@ main > div { height: 100%; }
 .mode-replay .mode-badge { background: rgba(167, 139, 250, 0.15); color: var(--accent-2); }
 .meeting-title { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meeting-time { font-family: var(--mono); color: var(--text-dim); font-size: 12px; }
+.live-with { padding: 4px 12px 0; }
 
 .idle { text-align: center; color: var(--text-dim); display: flex; flex-direction: column; gap: 10px; padding: 8px 4px; }
 .idle-art {

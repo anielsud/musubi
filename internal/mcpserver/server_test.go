@@ -30,8 +30,11 @@ func open(t *testing.T, extra string) *engine.Engine {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Microsoft 365 off: it is on by default, and with the developer's
+	// sign-in in the Keychain an update would sync their real calendar and
+	// chats into the synthetic inbox linked below (it did, 2026-11-11).
 	cfg := fmt.Sprintf("data_dir = %q\ntomoe_sessions = %q\n", dir, filepath.Join(syn, "tomoe")) + string(base) +
-		"\n[embed]\nprovider = \"hash\"\n[llm]\nprovider = \"none\"\n" + extra
+		"\n[embed]\nprovider = \"hash\"\n[llm]\nprovider = \"none\"\n[m365]\nenabled = false\n" + extra
 	path := filepath.Join(dir, "config.toml")
 	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)

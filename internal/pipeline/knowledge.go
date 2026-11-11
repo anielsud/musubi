@@ -71,6 +71,9 @@ type KnowledgeOptions struct {
 	Auto bool
 	// hold are items this run leaves unextracted, so not threaded either.
 	hold map[string]bool
+	// wait are recordings whose Teams transcript may still come: extracted
+	// and summarised, but threaded only once it can't change them.
+	wait map[string]bool
 	// dups are meeting recordings another one stands in for: never
 	// threaded.
 	dups map[string]string
@@ -168,14 +171,9 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 			items[i] = s
 		}
 	}
-	held := r.awaitingTranscript(items, links)
-	if len(held) > 0 {
-		r.logf("%d Teams meetings wait for their transcript before extraction (knowledge.stitch_wait_hours)", len(held))
-	}
-	// Not extracted yet, so not threaded either.
-	o.hold = map[string]bool{}
-	for id := range held {
-		o.hold[id] = true
+	o.wait = r.awaitingTranscript(items, links)
+	if len(o.wait) > 0 {
+		r.logf("%d Teams meetings wait for their transcript before threading (knowledge.stitch_wait_hours)", len(o.wait))
 	}
 	byID := map[string]*item.Item{}
 	for i := range items {
@@ -223,7 +221,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		r.logf("%d meetings recorded twice (Tomoe and a transcript): one of each becomes knowledge", len(dups))
 	}
 	wanted := func(id string) bool {
-		if dups[id] != "" || held[id] {
+		if dups[id] != "" {
 			return false
 		}
 		if len(o.Items) == 0 {
@@ -363,6 +361,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 			return ks, err
 		}
 		sort.Slice(jobs, func(a, b int) bool { return jobs[a].it.OccurredAt.Before(jobs[b].it.OccurredAt) })
+		o.hold = map[string]bool{}
 		var keep []job
 		for _, j := range jobs {
 			switch {
@@ -949,7 +948,7 @@ func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp str
 		}
 	}
 	for i := len(p.todo) - 1; i >= 0; i-- {
-		if o.hold[p.todo[i].ID] || o.dups[p.todo[i].ID] != "" {
+		if o.hold[p.todo[i].ID] || o.wait[p.todo[i].ID] || o.dups[p.todo[i].ID] != "" {
 			p.todo = append(p.todo[:i], p.todo[i+1:]...)
 		}
 	}

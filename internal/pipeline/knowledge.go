@@ -65,12 +65,12 @@ type KnowledgeOptions struct {
 	// knowledge.digest.model, else uses the threads model.
 	DigestLLM provider.LLM
 	// Auto is the update that follows new data (knowledge.on_update): it
-	// takes only items newer than everything threaded, at most
+	// takes only items that append in time order (see newerThan), at most
 	// knowledge.auto_max of them, and leaves the rest for a run someone
 	// starts (see Held).
 	Auto bool
-	// NewOnly is a catch-up started by hand: like Auto, it leaves items
-	// older than everything threaded for a rethread, but takes every new one.
+	// NewOnly is a catch-up started by hand: like Auto, it leaves a
+	// backlog for a rethread, but takes every new item.
 	NewOnly bool
 	// hold are items this run leaves unextracted, so not threaded either.
 	hold map[string]bool
@@ -376,7 +376,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		// After new data, take only what appends in time order, a few at a
 		// time; older items (a backlog) and big batches wait for a run
 		// someone starts. A catch-up (NewOnly) takes all that append.
-		frontier, err := r.threadFrontier(items)
+		threaded, err := r.threadedTimes(items)
 		if err != nil {
 			return ks, err
 		}
@@ -393,7 +393,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		var keep []job
 		for _, j := range jobs {
 			switch {
-			case kc.Threads.HoldOlder && !frontier.IsZero() && !j.it.OccurredAt.After(frontier) && !j.prior:
+			case kc.Threads.HoldOlder && newerThan(threaded, j.it.OccurredAt) > kc.Threads.Rewind && !j.prior:
 				ks.Held.Older++
 			case o.Auto && kc.AutoMax > 0 && len(keep) >= kc.AutoMax:
 				ks.Held.Batch++
@@ -988,8 +988,7 @@ func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp str
 		rewind := r.Cfg.Knowledge.Threads.Rewind
 		keep := p.todo[:0]
 		for _, t := range p.todo {
-			newer := len(threaded) - sort.Search(len(threaded), func(i int) bool { return threaded[i].After(t.Start) })
-			if newer > rewind && !r.Store.WasThreaded(t.ID) {
+			if newerThan(threaded, t.Start) > rewind && !r.Store.WasThreaded(t.ID) {
 				p.held++
 				continue
 			}
@@ -1655,6 +1654,31 @@ func (r *Runner) threadFrontier(items []item.Item) (time.Time, error) {
 		}
 	}
 	return t, nil
+}
+
+// threadedTimes are when the threaded items happened, in order, calendar
+// events aside (see threadFrontier).
+func (r *Runner) threadedTimes(items []item.Item) ([]time.Time, error) {
+	done, err := r.Store.ThreadedItems()
+	if err != nil {
+		return nil, err
+	}
+	var out []time.Time
+	for _, it := range items {
+		if done[it.ID] != "" && it.Kind != item.KindEvent {
+			out = append(out, it.OccurredAt)
+		}
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Before(out[b]) })
+	return out, nil
+}
+
+// newerThan counts the times (sorted) after t. An item with more threaded
+// items newer than threads.rewind redoes is a backlog: threading it would
+// break time order, so it waits for a rethread. With fewer, those are
+// threaded again after it.
+func newerThan(times []time.Time, t time.Time) int {
+	return len(times) - sort.Search(len(times), func(i int) bool { return times[i].After(t) })
 }
 
 // storeStatements stores an item's new statements with, as extract-text,

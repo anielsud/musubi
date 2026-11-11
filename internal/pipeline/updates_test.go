@@ -517,6 +517,7 @@ func TestFutureEventNotFrontier(t *testing.T) {
 func TestCatchUpTakesOnlyNew(t *testing.T) {
 	r, st := build(t)
 	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate, r.Cfg.Knowledge.AutoMax = "statements", 0, 1
+	r.Cfg.Knowledge.Threads.Rewind = 0
 	items, _ := st.AllItems()
 	var times []time.Time
 	for _, it := range items {
@@ -539,8 +540,37 @@ func TestCatchUpTakesOnlyNew(t *testing.T) {
 		t.Fatalf("catch-up: extracted %d, held %d beyond auto_max, %d older", ks.Items, ks.Held.Batch, ks.Held.Older)
 	}
 	for _, it := range items {
-		if s, _ := st.StageStamp("extract", it.ID); s != "" && !it.OccurredAt.After(frontier) {
+		if s, _ := st.StageStamp("extract", it.ID); s != "" && it.OccurredAt.Before(frontier) {
 			t.Errorf("%s (%v) is older than what's threaded but was extracted", it.ID, it.OccurredAt)
 		}
+	}
+}
+
+// A meeting behind the newest threaded ones by no more than threads.rewind
+// of them (one that waited for its transcript, say) is new, not a backlog:
+// it is extracted, and those are threaded again after it.
+func TestBacklogWithinRewind(t *testing.T) {
+	r, st := build(t)
+	r.Cfg.Knowledge.Extract, r.Cfg.Knowledge.Gate, r.Cfg.Knowledge.Threads.Rewind = "statements", 0, 1
+	items, _ := st.AllItems()
+	var ms []item.Item
+	for _, it := range items {
+		if it.Kind != item.KindEvent {
+			ms = append(ms, it)
+		}
+	}
+	sort.Slice(ms, func(a, b int) bool { return ms[a].OccurredAt.Before(ms[b].OccurredAt) })
+	n := len(ms)
+	if n < 4 || !ms[n-4].OccurredAt.Before(ms[n-3].OccurredAt) || !ms[n-3].OccurredAt.Before(ms[n-2].OccurredAt) {
+		t.Fatalf("%d items", n)
+	}
+	st.MarkThreaded(ms[n-1].ID, "s")
+	st.MarkThreaded(ms[n-3].ID, "s")
+	knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}, NewOnly: true})
+	if s, _ := st.StageStamp("extract", ms[n-2].ID); s == "" {
+		t.Errorf("one threaded meeting is newer than %s, within rewind, but it wasn't extracted", ms[n-2].ID)
+	}
+	if s, _ := st.StageStamp("extract", ms[n-4].ID); s != "" {
+		t.Errorf("two threaded meetings are newer than %s, beyond rewind, but it was extracted", ms[n-4].ID)
 	}
 }

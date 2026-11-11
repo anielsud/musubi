@@ -19,7 +19,7 @@ const agreedWords: Record<MeetingToDo['agreed'], string> = {
 
 // A row of the merged list: a past meeting with a summary, or one to
 // prepare for (upcoming on the calendar).
-interface Row { id: string; title: string; at: Date; upcoming: boolean; m?: MeetingListItem; people?: number }
+interface Row { id: string; title: string; at: Date; upcoming: boolean; m?: MeetingListItem; people?: number; past?: boolean; rec?: string }
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const dayWords = (d: Date) => {
@@ -74,20 +74,30 @@ export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
   const listEl = useRef<HTMLUListElement>(null);
   const wide = useWide();
 
+  // Loaded when the tab shows and every 5 minutes while it does: meetings
+  // move from coming up to happened, and recaps get written.
   useEffect(() => {
+    if (!active) return;
     setErr('');
-    const t = setTimeout(() => {
+    const load = () => {
       api.meetingList(scope).then((x) => setList(x ?? []), (e) => { setErr(String(e)); setList(null); });
       api.prepTargets().then((x) => setTargets(x ?? []), () => setTargets([]));
-    }, 150);
-    return () => clearTimeout(t);
-  }, [scope]);
+    };
+    const t = setTimeout(load, 150);
+    const every = setInterval(load, 5 * 60 * 1000);
+    return () => { clearTimeout(t); clearInterval(every); };
+  }, [scope, active]);
   useEffect(() => { if (req) setSel({ kind: 'recap', id: req.id }); }, [req]);
 
   const rows = useMemo(() => {
     const up: Row[] = targets.filter((t) => t.upcoming).map((t) => ({ id: t.itemId, title: t.title, at: new Date(t.at), upcoming: true, people: t.people }));
     const past: Row[] = (list ?? []).map((m) => ({ id: m.itemId, title: m.title || m.itemId, at: new Date(m.start), upcoming: false, m }));
-    return [...up, ...past].sort((x, y) => x.at.getTime() - y.at.getTime());
+    // A calendar event that has happened stands until its recording's
+    // recap is written; then the recap's row takes its place.
+    const recapped = new Set((list ?? []).map((m) => m.itemId));
+    const happened: Row[] = targets.filter((t) => t.past && t.upcoming !== true && !(t.recordingId && recapped.has(t.recordingId)))
+      .map((t) => ({ id: t.itemId, title: t.title, at: new Date(t.at), upcoming: false, past: true, rec: t.recordingId, people: t.people }));
+    return [...up, ...past, ...happened].sort((x, y) => x.at.getTime() - y.at.getTime());
   }, [list, targets]);
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   // A filter searches every meeting; otherwise the list keeps to its days.
@@ -139,15 +149,28 @@ export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
   useEffect(() => {
     if (!wide || sel || rows.length === 0) return;
     const now = Date.now();
-    const next = rows.find((r) => r.upcoming && r.at.getTime() >= now - 3600e3) ?? [...rows].reverse().find((r) => !r.upcoming);
+    const next = rows.find((r) => r.upcoming && r.at.getTime() >= now - 3600e3) ?? [...rows].reverse().find((r) => !!r.m);
     if (next) setSel(next.upcoming ? { kind: 'prep', req: { template: next.id }, id: next.id } : { kind: 'recap', id: next.id });
   }, [rows, wide, sel]);
 
-  const open = (r: Row) => setSel(r.upcoming ? { kind: 'prep', req: { template: r.id }, id: r.id } : { kind: 'recap', id: r.id });
+  // A meeting open for prep that has since happened turns to its recap.
+  useEffect(() => {
+    if (sel?.kind !== 'prep' || !sel.id) return;
+    const t = targets.find((x) => x.itemId === sel.id);
+    if (t?.past) setSel(t.recordingId ? { kind: 'recap', id: t.recordingId } : null);
+  }, [targets, sel]);
+
+  // Coming up: its prep. Happened: its recap (the recording's), never prep.
+  const open = (r: Row) => {
+    if (r.upcoming) setSel({ kind: 'prep', req: { template: r.id }, id: r.id });
+    else if (r.m) setSel({ kind: 'recap', id: r.id });
+    else if (r.rec) setSel({ kind: 'recap', id: r.rec });
+  };
   const back = wide ? undefined : () => setSel(null);
   const people = q.split(',').map((x) => x.trim()).filter(Boolean);
   const prepPeople = () => { if (people.length) setSel({ kind: 'prep', req: { people } }); };
   const selId = sel?.kind === 'recap' ? sel.id : sel?.id;
+  const isSel = (r: Row) => r.id === selId || (!!r.rec && r.rec === selId);
 
   const detail = sel && (sel.kind === 'prep'
     ? <PrepPage key={JSON.stringify(sel.req)} req={sel.req} scope={scope} onBack={back} onOpen={onOpen} onTopic={onTopic} />
@@ -162,13 +185,16 @@ export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
 
   const rowView = (r: Row) => (
     <li key={r.id}>
-      <button className={'meeting-row' + (r.upcoming ? ' upcoming' : '') + (wide && r.id === selId ? ' on' : '')} onClick={() => open(r)}>
+      <button className={'meeting-row' + (r.upcoming ? ' upcoming' : '') + (r.past ? ' happened' : '') + (wide && isSel(r) ? ' on' : '')} onClick={() => open(r)}
+        disabled={r.past && !r.rec}>
         <div className="meeting-head"><span className="mtg-title">{r.title}</span><span className="dim small">{timeWords(r.at)}</span></div>
         {r.m ? (
           <>
             <div className="meeting-overview small">{r.m.overview}</div>
             <div className="dim small">{r.m.sections} subjects · {r.m.todos} to-dos</div>
           </>
+        ) : r.past ? (
+          <div className="dim small">{r.rec ? 'happened · summary coming' : 'happened · not recorded'}</div>
         ) : <div className="dim small">coming up · {r.people} {r.people === 1 ? 'other' : 'others'} · prep</div>}
       </button>
     </li>
@@ -293,7 +319,7 @@ function MeetingPageView({ id, scope, onBack, onOpen, onTopic, onPrep }: {
       </div>
       {err && <div className="error small">{err}</div>}
       {page === undefined && <div className="empty"><Spinner /></div>}
-      {page === null && !err && <Empty>No summary for this meeting, or none that is fine to show here.</Empty>}
+      {page === null && !err && <Empty>No summary for this meeting yet (it's written once the meeting has been processed), or none that is fine to show here.</Empty>}
       {page && (
         <>
           <h2 className="meeting-h">{page.title || page.itemId} <span className="dim small">{fmtDate(page.start)}</span></h2>

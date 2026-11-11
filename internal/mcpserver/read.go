@@ -658,7 +658,7 @@ type PrepOpen struct {
 	Items   []Item    `json:"items"`
 }
 
-func (s *Server) prep(_ context.Context, in PrepIn) (*result, error) {
+func (s *Server) prep(ctx context.Context, in PrepIn) (*result, error) {
 	if err := checkFor(in.For); err != nil {
 		return nil, err
 	}
@@ -685,6 +685,9 @@ func (s *Server) prep(_ context.Context, in PrepIn) (*result, error) {
 		}
 		out := []target{}
 		for _, t := range ts {
+			if t.Past {
+				continue // happened: nothing to prepare
+			}
 			il, _, err := s.e.Store.ItemLabel(t.ItemID)
 			if err != nil {
 				// Unlabelled fails closed, as everywhere else.
@@ -701,7 +704,7 @@ func (s *Server) prep(_ context.Context, in PrepIn) (*result, error) {
 	if err != nil {
 		return nil, err
 	}
-	v, err := s.e.Prep(knowledge.PrepRequest{Template: in.Event, People: in.People, Since: since}, s.sc)
+	v, err := s.e.Prep(ctx, knowledge.PrepRequest{Template: in.Event, People: in.People, Since: since}, s.sc)
 	if err != nil {
 		return nil, err
 	}

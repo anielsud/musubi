@@ -303,6 +303,14 @@ cold lane like any other source.
   rest as gone quiet, and a passed due date is marked overdue. Subjects
   over the same 15% are marked for the owner alone and, with more than
   one other person attending, listed last (`prep.mark_private`).
+  The previous meeting of an event's series (`knowledge.LastOfSeries`: the
+  latest earlier event with the same subject, "Canceled: " aside, that has
+  a recording, the copy with a recap first) sets "since" and anchors the
+  prep: its recap and its to-dos, with how each stands now, come before
+  the subjects, and the talking points start from what it left open. On
+  the 12 Nov ELT meeting this took the talking points from none of the
+  last meeting's agenda to most of it, on 22,700 characters of input
+  (a naive prep from the raw transcripts filled 120,000 with one meeting).
   "Draft" writes talking points with the Ask model.
   With `prep.auto_brief` (on), the app drafts them ahead for the owner's
   calendar events in the rest of the week: every 15 minutes it builds each
@@ -434,7 +442,25 @@ extracted or threaded isn't a backlog: re-extracted after its content
 changed (a speaker renamed in Tomoe), it goes back into the threads in its
 place. A meeting
 recorded twice (Tomoe and a transcript overlapping) is knowledge once
-(`prefer_source`). `Runner.Queue` reports the waiting work; the Status
+(`prefer_source`); two copies from one source count only when they share
+most of their words (a Teams transcript imported by hand and synced), never
+two Tomoe recordings. A recording without an end time (imported
+transcripts, Bluedot) ends at its last line for linking and duplicates
+(`item.End`), and an extracted item keeps the title its passages carry,
+so a later link to its calendar event doesn't re-extract it. With `knowledge.stitch` (on), a Tomoe recording whose
+calendar event also has a Teams transcript (sharing at least 0.6 of its
+words, `item.WordAgreement`) takes the transcript's lines for the
+stretches it missed (joined late, left early, between two parts of a
+split recording), marked "Teams transcript, not heard by you" in its
+passages; the Teams copy is then its duplicate. The stitched copy exists
+in memory only (chunking onward; stored items are untouched), and only
+for a recording not yet threaded when first stitched (stamp
+`stitch/<id>`), so a transcript arriving late never re-chunks a threaded
+meeting. A Teams meeting's recording waits up to
+`knowledge.stitch_wait_hours` (2) after the meeting for its transcript
+before threading; it is extracted and summarised meanwhile, and both are
+redone if the transcript stitches in (cheap, as nothing is threaded yet).
+`Runner.Queue` reports the waiting work; the Status
 tab shows it and starts "catch up" and "rethread" runs under a spend
 cap.
 

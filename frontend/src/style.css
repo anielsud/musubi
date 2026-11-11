@@ -131,6 +131,7 @@ main > div { height: 100%; }
 .mode-replay .mode-badge { background: rgba(167, 139, 250, 0.15); color: var(--accent-2); }
 .meeting-title { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meeting-time { font-family: var(--mono); color: var(--text-dim); font-size: 12px; }
+.live-with { padding: 4px 12px 0; }
 
 .idle { text-align: center; color: var(--text-dim); display: flex; flex-direction: column; gap: 10px; padding: 8px 4px; }
 .idle-art {
@@ -709,6 +710,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .day-head { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); padding: 8px 2px 0; scroll-margin-top: 8px; }
 .day-head.today { color: var(--accent); }
 .meeting-row.upcoming { border-style: dashed; }
+.meeting-row.happened { opacity: 0.8; }
+.meeting-row:disabled { cursor: default; }
 .now-line { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 11px; margin: 2px 0; }
 .now-line::before, .now-line::after { content: ''; flex: 1; height: 1px; background: var(--accent); }
 .page-nav { display: flex; justify-content: space-between; }

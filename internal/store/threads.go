@@ -404,10 +404,11 @@ func (s *Store) DeleteThread(id int64) error {
 	})
 }
 
-// LatestThreaded is when the latest threaded item happened (zero if none).
+// LatestThreaded is when the latest threaded item happened (zero if none),
+// calendar events aside (see threadFrontier).
 func (s *Store) LatestThreaded() (time.Time, error) {
 	var at sql.NullInt64
-	err := s.db.QueryRow(`SELECT max(i.occurred_at) FROM thread_runs r JOIN items i ON i.id = r.item_id`).Scan(&at)
+	err := s.db.QueryRow(`SELECT max(i.occurred_at) FROM thread_runs r JOIN items i ON i.id = r.item_id WHERE i.kind != 'event'`).Scan(&at)
 	if !at.Valid {
 		return time.Time{}, err
 	}

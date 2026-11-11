@@ -26,15 +26,16 @@ type Queue struct {
 	// append to the threads in time order, older ones can't.
 	Frontier time.Time `json:"frontier"`
 	Threaded int       `json:"threaded"`
-	// New: items newer than the frontier, to extract (then thread), or
-	// extracted and waiting to be threaded. An update after new data takes
-	// AutoMax of them; "Catch up" takes the rest.
+	// New: items newer than the frontier, or behind it by no more than
+	// threads.rewind threaded items (those are threaded again after): to
+	// extract (then thread), or extracted and waiting to be threaded. An
+	// update after new data takes AutoMax of them; "Catch up" the rest.
 	NewExtract int `json:"newExtract"`
 	NewThread  int `json:"newThread"`
 	AutoMax    int `json:"autoMax"`
-	// Older: items older than the frontier (a backlog), not yet extracted
-	// or extracted but unthreaded. They join only when everything is
-	// rethreaded in time order.
+	// Older: the rest (a backlog), not yet extracted or extracted but
+	// unthreaded. They join only when everything is rethreaded in time
+	// order.
 	OlderExtract int `json:"olderExtract"`
 	OlderThread  int `json:"olderThread"`
 	// Duplicates: meetings recorded twice; one of each becomes knowledge.
@@ -61,11 +62,24 @@ func (r *Runner) Queue() (Queue, error) {
 	if q.Frontier, err = r.threadFrontier(items); err != nil {
 		return q, err
 	}
+	times, err := r.threadedTimes(items)
+	if err != nil {
+		return q, err
+	}
 	extracted := func(id string) bool {
 		s, _ := r.Store.StageStamp("extract", id)
 		return s != ""
 	}
-	dups := meetingDuplicates(items, kc.PreferSource, extracted)
+	stitchedItems, into, err := r.stitches(items, false)
+	if err != nil {
+		return q, err
+	}
+	for i := range items {
+		if s, ok := stitchedItems[items[i].ID]; ok {
+			items[i] = s
+		}
+	}
+	dups := withStitches(meetingDuplicates(items, kc.PreferSource, extracted), into)
 	q.Duplicates = len(dups)
 	for i := range items {
 		it := &items[i]
@@ -78,7 +92,7 @@ func (r *Runner) Queue() (Queue, error) {
 			continue
 		}
 		ex := extracted(it.ID) || kc.Extract == "none"
-		newer := q.Frontier.IsZero() || it.OccurredAt.After(q.Frontier)
+		newer := newerThan(times, it.OccurredAt) <= kc.Threads.Rewind
 		switch {
 		case newer && !ex:
 			q.NewExtract++
@@ -96,7 +110,7 @@ func (r *Runner) Queue() (Queue, error) {
 	// A rethread takes the preferred copy of a meeting recorded twice, which
 	// may not be extracted yet.
 	switching := 0
-	for id, kept := range meetingDuplicates(items, kc.PreferSource, func(string) bool { return false }) {
+	for id, kept := range withStitches(meetingDuplicates(items, kc.PreferSource, func(string) bool { return false }), into) {
 		_ = id
 		if !extracted(kept) {
 			switching++

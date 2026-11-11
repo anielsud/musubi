@@ -65,12 +65,18 @@ type KnowledgeOptions struct {
 	// knowledge.digest.model, else uses the threads model.
 	DigestLLM provider.LLM
 	// Auto is the update that follows new data (knowledge.on_update): it
-	// takes only items newer than everything threaded, at most
+	// takes only items that append in time order (see newerThan), at most
 	// knowledge.auto_max of them, and leaves the rest for a run someone
 	// starts (see Held).
 	Auto bool
+	// NewOnly is a catch-up started by hand: like Auto, it leaves a
+	// backlog for a rethread, but takes every new item.
+	NewOnly bool
 	// hold are items this run leaves unextracted, so not threaded either.
 	hold map[string]bool
+	// wait are recordings whose Teams transcript may still come: extracted
+	// and summarised, but threaded only once it can't change them.
+	wait map[string]bool
 	// dups are meeting recordings another one stands in for: never
 	// threaded.
 	dups map[string]string
@@ -128,6 +134,7 @@ type KnowledgeStats struct {
 	Link                   knowledge.LinkStats
 	Topics                 int
 	Pending                int // items still to extract (when limited)
+	SameText               int // items whose chunk stamp changed but not their text: kept
 	Labelled, Checked      int // statements labelled sensitive; checked by the labeller
 	Statuses, StatusFailed int // thread statuses written; failed (tried again next run)
 	Digested, DigestFailed int // meetings read into digests; failed (tried again next run)
@@ -156,6 +163,21 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	links, err := r.Store.LinksFrom("occurred_as")
 	if err != nil {
 		return ks, err
+	}
+	// Recordings stitched with their Teams transcript (knowledge.stitch)
+	// are read as stitched, as they were chunked.
+	stitchedItems, stitchedInto, err := r.stitches(items, false)
+	if err != nil {
+		return ks, err
+	}
+	for i := range items {
+		if s, ok := stitchedItems[items[i].ID]; ok {
+			items[i] = s
+		}
+	}
+	o.wait = r.awaitingTranscript(items, links)
+	if len(o.wait) > 0 {
+		r.logf("%d Teams meetings wait for their transcript before threading (knowledge.stitch_wait_hours)", len(o.wait))
 	}
 	byID := map[string]*item.Item{}
 	for i := range items {
@@ -197,6 +219,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		s, _ := r.Store.StageStamp("extract", id)
 		return s != ""
 	})
+	dups = withStitches(dups, stitchedInto)
 	o.dups = dups
 	if len(dups) > 0 {
 		r.logf("%d meetings recorded twice (Tomoe and a transcript): one of each becomes knowledge", len(dups))
@@ -266,6 +289,8 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		known   string // points: the facts sheet; "" extracts statements
 		lean    bool
 		prior   bool // extracted before (a changed input, not a backlog)
+		// stampsFor gives the extract-text key once the passages are read.
+		stampsFor func(cs string) (version, known, h, input string)
 	}
 	var jobs, older []job
 	for i := range items {
@@ -277,39 +302,72 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		if err != nil || chunkStamp == "" {
 			continue
 		}
-		version, known := knowledge.ExtractVersion, ""
-		h := hashOf("extract", knowledge.ExtractVersion, chunkStamp, o.LLM.ModelName(), r.Cfg.Owner.Name)
-		input := hashOf("input", chunkStamp)
-		if gated {
-			h = hashOf(h, knowledge.GateVersion, fmt.Sprint(kc.Gate))
-		}
-		if kc.Extract == "points" && it.Kind == item.KindMeeting {
-			known = knowledge.KnownFacts(r.Cfg.Owner.Name, r.Cfg.Owner.Email, r.Cfg.Owner.InternalDomains, invitees(it))
-			// Points carry their passages' labels, so relabelling re-extracts.
-			clsStamp, _ := r.Store.StageStamp("classify", it.ID)
-			version = knowledge.PointsVersion
-			h = hashOf("points", version, chunkStamp, clsStamp, o.Extractor.ModelName(), r.Cfg.Owner.Name, known,
-				fmt.Sprint(pc.Think), fmt.Sprint(pc.Segment))
-			input = hashOf("input", chunkStamp, clsStamp, known)
-		}
+		// stampsFor is the extract stamp and input for passages stamped cs.
+		// With cs the passages' text instead (textKey), it tells whether
+		// anything but the chunk stamp changed (see extract-text).
 		lean := kc.Extract == "lean" && it.Kind == item.KindMeeting
-		if lean {
-			lc := kc.Lean
-			version = knowledge.LeanVersion
-			// Not the people list: it grows with every new name, which
-			// would put every meeting out of date.
-			h = hashOf("lean", version, chunkStamp, o.Extractor.ModelName(), r.Cfg.Owner.Name, lc.Description,
-				lc.Directory, fmt.Sprint(lc.Segment), fmt.Sprint(lc.Context))
+		stampsFor := func(cs string) (version, known, h, input string) {
+			version = knowledge.ExtractVersion
+			h = hashOf("extract", knowledge.ExtractVersion, cs, o.LLM.ModelName(), r.Cfg.Owner.Name)
+			input = hashOf("input", cs)
+			if gated {
+				h = hashOf(h, knowledge.GateVersion, fmt.Sprint(kc.Gate))
+			}
+			if kc.Extract == "points" && it.Kind == item.KindMeeting {
+				known = knowledge.KnownFacts(r.Cfg.Owner.Name, r.Cfg.Owner.Email, r.Cfg.Owner.InternalDomains, invitees(it))
+				// Points carry their passages' labels, so relabelling re-extracts.
+				clsStamp, _ := r.Store.StageStamp("classify", it.ID)
+				version = knowledge.PointsVersion
+				h = hashOf("points", version, cs, clsStamp, o.Extractor.ModelName(), r.Cfg.Owner.Name, known,
+					fmt.Sprint(pc.Think), fmt.Sprint(pc.Segment))
+				input = hashOf("input", cs, clsStamp, known)
+			}
+			if lean {
+				lc := kc.Lean
+				version = knowledge.LeanVersion
+				// Not the people list: it grows with every new name, which
+				// would put every meeting out of date.
+				h = hashOf("lean", version, cs, o.Extractor.ModelName(), r.Cfg.Owner.Name, lc.Description,
+					lc.Directory, fmt.Sprint(lc.Segment), fmt.Sprint(lc.Context))
+			}
+			return version, known, h, input
 		}
+		version, known, h, input := stampsFor(chunkStamp)
 		cur, _ := r.Store.StageStamp("extract", it.ID)
+		text, _ := r.Store.StageStamp("extract-text", it.ID)
+		textKey := func() string {
+			chunks, err := r.Store.Chunks(it.ID)
+			if err != nil {
+				return ""
+			}
+			_, _, k, _ := stampsFor("text:" + chunkText(chunks))
+			return k
+		}
 		if cur == version+"/"+h {
+			// Up to date: its passages are what it was extracted from.
+			if text == "" {
+				if k := textKey(); k != "" {
+					r.Store.SetExtractText(it.ID, k)
+				}
+			}
 			continue
+		}
+		// Only the chunk stamp changed (a new title, say), not the text or
+		// how it's extracted: its statements stand.
+		if text != "" && cur != "" {
+			if k := textKey(); k != "" && text == "t/"+k {
+				if err := r.Store.KeepStatements(it.ID, version, h, input); err != nil {
+					return ks, err
+				}
+				ks.SameText++
+				continue
+			}
 		}
 		title := it.Title
 		if e, ok := links[it.ID]; ok && byID[e] != nil {
 			title = byID[e].Title
 		}
-		j := job{it: it, hash: h, input: input, version: version, title: title, orgs: speakerOrgs(it), known: known, lean: lean, prior: cur != ""}
+		j := job{it: it, hash: h, input: input, version: version, title: title, orgs: speakerOrgs(it), known: known, lean: lean, prior: cur != "", stampsFor: stampsFor}
 		if cur != "" && kc.Updates != "auto" {
 			// Extracted before under another version. Its input changed too
 			// (or it is new) → extract; only the version changed → keep it
@@ -333,22 +391,30 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		older = older[n:]
 	}
 	ks.Outdated.Extract = len(older)
-	if o.Auto {
+	if o.Auto || o.NewOnly {
 		// After new data, take only what appends in time order, a few at a
 		// time; older items (a backlog) and big batches wait for a run
-		// someone starts.
-		frontier, err := r.threadFrontier(items)
+		// someone starts. A catch-up (NewOnly) takes all that append.
+		threaded, err := r.threadedTimes(items)
 		if err != nil {
 			return ks, err
 		}
-		sort.Slice(jobs, func(a, b int) bool { return jobs[a].it.OccurredAt.Before(jobs[b].it.OccurredAt) })
+		// Items never extracted (new meetings) go before ones extracted
+		// again, so a run of re-extractions doesn't keep new meetings
+		// waiting.
+		sort.Slice(jobs, func(a, b int) bool {
+			if jobs[a].prior != jobs[b].prior {
+				return !jobs[a].prior
+			}
+			return jobs[a].it.OccurredAt.Before(jobs[b].it.OccurredAt)
+		})
 		o.hold = map[string]bool{}
 		var keep []job
 		for _, j := range jobs {
 			switch {
-			case kc.Threads.HoldOlder && !frontier.IsZero() && !j.it.OccurredAt.After(frontier) && !j.prior:
+			case kc.Threads.HoldOlder && newerThan(threaded, j.it.OccurredAt) > kc.Threads.Rewind && !j.prior:
 				ks.Held.Older++
-			case kc.AutoMax > 0 && len(keep) >= kc.AutoMax:
+			case o.Auto && kc.AutoMax > 0 && len(keep) >= kc.AutoMax:
 				ks.Held.Batch++
 			default:
 				keep = append(keep, j)
@@ -399,7 +465,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 					return func() error {
 						ks.Items++
 						ks.Statements += len(sts)
-						return r.Store.ReplaceStatementsFrom(j.it.ID, j.version, j.hash, j.input, sts)
+						return r.storeStatements(j.it.ID, j.version, j.hash, j.input, j.chunks, j.stampsFor, sts)
 					}, nil
 				}
 				if j.known != "" {
@@ -410,7 +476,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 					return func() error {
 						ks.Items++
 						ks.Statements += len(sts)
-						return r.Store.ReplaceStatementsFrom(j.it.ID, j.version, j.hash, j.input, sts)
+						return r.storeStatements(j.it.ID, j.version, j.hash, j.input, j.chunks, j.stampsFor, sts)
 					}, nil
 				}
 				var sts []store.Statement
@@ -461,7 +527,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 				return func() error {
 					ks.Items++
 					ks.Statements += len(sts)
-					return r.Store.ReplaceStatementsFrom(j.it.ID, knowledge.ExtractVersion, j.hash, j.input, sts)
+					return r.storeStatements(j.it.ID, knowledge.ExtractVersion, j.hash, j.input, j.chunks, j.stampsFor, sts)
 				}, nil
 			})
 		}
@@ -918,7 +984,8 @@ func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp str
 	var threaded []time.Time
 	for _, it := range items {
 		d := done[it.ID]
-		if d != "" {
+		// Not calendar events: future ones would put every meeting before them.
+		if d != "" && it.Kind != item.KindEvent {
 			threaded = append(threaded, it.OccurredAt)
 		}
 		switch {
@@ -929,7 +996,7 @@ func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp str
 		}
 	}
 	for i := len(p.todo) - 1; i >= 0; i-- {
-		if o.hold[p.todo[i].ID] || o.dups[p.todo[i].ID] != "" {
+		if o.hold[p.todo[i].ID] || o.wait[p.todo[i].ID] || o.dups[p.todo[i].ID] != "" {
 			p.todo = append(p.todo[:i], p.todo[i+1:]...)
 		}
 	}
@@ -940,8 +1007,7 @@ func (r *Runner) planThreads(o KnowledgeOptions, llm provider.LLM, linkStamp str
 		rewind := r.Cfg.Knowledge.Threads.Rewind
 		keep := p.todo[:0]
 		for _, t := range p.todo {
-			newer := len(threaded) - sort.Search(len(threaded), func(i int) bool { return threaded[i].After(t.Start) })
-			if newer > rewind && !r.Store.WasThreaded(t.ID) {
+			if newerThan(threaded, t.Start) > rewind && !r.Store.WasThreaded(t.ID) {
 				p.held++
 				continue
 			}
@@ -1593,7 +1659,8 @@ func (r *Runner) LeanDryRun(ctx context.Context, llm provider.LLM, itemID string
 	return imported, sts, err
 }
 
-// threadFrontier is when the newest threaded item happened (zero if none).
+// threadFrontier is when the newest threaded item happened (zero if none),
+// calendar events aside: they're booked ahead, and nothing is threaded from them.
 func (r *Runner) threadFrontier(items []item.Item) (time.Time, error) {
 	done, err := r.Store.ThreadedItems()
 	if err != nil {
@@ -1601,9 +1668,57 @@ func (r *Runner) threadFrontier(items []item.Item) (time.Time, error) {
 	}
 	var t time.Time
 	for _, it := range items {
-		if done[it.ID] != "" && it.OccurredAt.After(t) {
+		if done[it.ID] != "" && it.Kind != item.KindEvent && it.OccurredAt.After(t) {
 			t = it.OccurredAt
 		}
 	}
 	return t, nil
+}
+
+// threadedTimes are when the threaded items happened, in order, calendar
+// events aside (see threadFrontier).
+func (r *Runner) threadedTimes(items []item.Item) ([]time.Time, error) {
+	done, err := r.Store.ThreadedItems()
+	if err != nil {
+		return nil, err
+	}
+	var out []time.Time
+	for _, it := range items {
+		if done[it.ID] != "" && it.Kind != item.KindEvent {
+			out = append(out, it.OccurredAt)
+		}
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Before(out[b]) })
+	return out, nil
+}
+
+// newerThan counts the times (sorted) after t. An item with more threaded
+// items newer than threads.rewind redoes is a backlog: threading it would
+// break time order, so it waits for a rethread. With fewer, those are
+// threaded again after it.
+func newerThan(times []time.Time, t time.Time) int {
+	return len(times) - sort.Search(len(times), func(i int) bool { return times[i].After(t) })
+}
+
+// storeStatements stores an item's new statements with, as extract-text,
+// the key of the passages' text they came from: a later change of chunk
+// stamp alone then keeps them (see extractKnowledge).
+func (r *Runner) storeStatements(itemID, version, hash, input string, chunks []store.Chunk, stampsFor func(string) (string, string, string, string), sts []store.Statement) error {
+	if err := r.Store.ReplaceStatementsFrom(itemID, version, hash, input, sts); err != nil {
+		return err
+	}
+	if stampsFor == nil {
+		return nil
+	}
+	_, _, k, _ := stampsFor("text:" + chunkText(chunks))
+	return r.Store.SetExtractText(itemID, k)
+}
+
+// chunkText is a hash of an item's passages' text, in order.
+func chunkText(chunks []store.Chunk) string {
+	parts := make([]string, len(chunks))
+	for i, c := range chunks {
+		parts[i] = c.Text
+	}
+	return hashOf(parts...)
 }

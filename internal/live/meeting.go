@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/anielsud/musubi/internal/item"
 )
 
 // Meeting is the conversation so far: the latest version of every line.
@@ -118,6 +120,19 @@ func (m *Meeting) Speakers() []string {
 			seen[n] = true
 			out = append(out, n)
 		}
+	}
+	return out
+}
+
+// others are the invitees' names but the owner's (by name or email).
+func others(invited []item.Participant, ownerName, ownerEmail string) []string {
+	var out []string
+	for _, p := range invited {
+		n := strings.TrimSpace(p.Name)
+		if p.Owner || n == "" || strings.EqualFold(n, ownerName) || (ownerEmail != "" && strings.EqualFold(p.Email, ownerEmail)) {
+			continue
+		}
+		out = append(out, n)
 	}
 	return out
 }

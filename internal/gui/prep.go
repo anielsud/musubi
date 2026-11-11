@@ -20,7 +20,8 @@ import (
 type PrepTarget = engine.PrepTarget
 
 // PrepTargets lists upcoming events in the next two weeks, then the latest
-// occurrence of each meeting held in the last 45 days of the record.
+// occurrence of each meeting held in the last 45 days of the record, then
+// the events of the last week that have happened (Past).
 func (a *App) PrepTargets() ([]PrepTarget, error) {
 	if a.eng == nil {
 		return nil, fmt.Errorf("not ready: %s", a.err)
@@ -37,7 +38,7 @@ func (a *App) Prep(req knowledge.PrepRequest, scope string) (*knowledge.PrepView
 	if err != nil {
 		return nil, err
 	}
-	return a.eng.Prep(req, sc)
+	return a.eng.Prep(a.ctx, req, sc)
 }
 
 // PrepBrief writes talking points in the background, streaming

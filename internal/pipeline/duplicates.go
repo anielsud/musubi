@@ -58,7 +58,14 @@ func meetingDuplicates(items []item.Item, prefer []string, extracted func(id str
 			if b.OccurredAt.Sub(a.OccurredAt) > sameMeetingStart {
 				break
 			}
-			if a.Source == b.Source || dup[b.ID] != "" || !overlapping(a, b) {
+			if dup[b.ID] != "" || !overlapping(a, b) {
+				continue
+			}
+			// Two recordings from one source are two meetings (or a split
+			// recording), unless they're one transcript brought in twice (a
+			// hand-imported Teams transcript and the synced one): then they
+			// share most of their words. Tomoe's never are.
+			if a.Source == b.Source && (a.Source == "tomoe" || item.WordAgreement(a, b) < item.SameMeetingWords) {
 				continue
 			}
 			keep, drop := a, b
@@ -82,7 +89,7 @@ func meetingDuplicates(items []item.Item, prefer []string, extracted func(id str
 // overlapping reports whether two recordings overlap for at least
 // sameMeetingOverlap of the shorter one.
 func overlapping(a, b *item.Item) bool {
-	ae, be := recordingEnd(a), recordingEnd(b)
+	ae, be := a.End(), b.End()
 	lo, hi := a.OccurredAt, ae
 	if b.OccurredAt.After(lo) {
 		lo = b.OccurredAt
@@ -92,18 +99,6 @@ func overlapping(a, b *item.Item) bool {
 	}
 	shorter := min(ae.Sub(a.OccurredAt), be.Sub(b.OccurredAt))
 	return shorter > 0 && hi.Sub(lo) >= time.Duration(sameMeetingOverlap*float64(shorter))
-}
-
-// recordingEnd is when a recording ends: its end time, else its last line's.
-func recordingEnd(it *item.Item) time.Time {
-	if !it.EndedAt.IsZero() && it.EndedAt.After(it.OccurredAt) {
-		return it.EndedAt
-	}
-	end := 0.0
-	for _, s := range it.Segments {
-		end = max(end, s.End, s.Start)
-	}
-	return it.OccurredAt.Add(time.Duration(end * float64(time.Second)))
 }
 
 func wordCount(it *item.Item) int {

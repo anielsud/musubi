@@ -1116,6 +1116,9 @@ func knowledgeCmd() *cobra.Command {
 			fmt.Fprintf(os.Stderr, "knowledge: %d items (%d passages, %d gated, extraction %s, %s per passage), %d statements (%d embedded, %d scored, %d below min_worth), claims %d new / %d joined / %d judged (linking %s), %d relations, %d topics; %d items still to extract; %s total\n",
 				ks.Items, ks.Chunks, ks.Gated, ks.ExtractTime.Round(time.Second), per.Round(100*time.Millisecond), ks.Statements, ks.Embedded, ks.Scored, ks.Unworthy,
 				ks.Link.New, ks.Link.Joined, ks.Link.Judged, ks.LinkTime.Round(time.Second), ks.Link.Related, ks.Topics, ks.Pending, time.Since(start).Round(time.Second))
+			if ks.Skipped > 0 {
+				fmt.Fprintf(os.Stderr, "knowledge: %d items skipped (every passage failed); tried again next run\n", ks.Skipped)
+			}
 			return err
 		},
 	}

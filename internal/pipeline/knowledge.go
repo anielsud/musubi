@@ -134,6 +134,7 @@ type KnowledgeStats struct {
 	Link                   knowledge.LinkStats
 	Topics                 int
 	Pending                int // items still to extract (when limited)
+	Skipped                int // items whose every passage failed (knowledge.skip_failed_items); tried again next run
 	SameText               int // items whose chunk stamp changed but not their text: kept
 	Labelled, Checked      int // statements labelled sensitive; checked by the labeller
 	Statuses, StatusFailed int // thread statuses written; failed (tried again next run)
@@ -453,6 +454,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	r.Workers = o.Workers
 	var st Stats
 	st.Ran = map[string]int{}
+	var skipErr error // the first skipped item's, for when every item failed
 	err = r.runPool(ctx, &st, "extract", len(jobs), func(yield func(func() (func() error, error))) {
 		for _, j := range jobs {
 			j := j
@@ -522,7 +524,24 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 					}
 				}
 				if tried > 0 && failed == tried {
-					return nil, fmt.Errorf("extract %s: every passage failed: %w", j.it.ID, lastErr)
+					err := fmt.Errorf("extract %s: every passage failed: %w", j.it.ID, lastErr)
+					if !kc.SkipFailedItems {
+						return nil, err
+					}
+					// A few small items can fail every passage the same way
+					// on every run (a local model at temperature 0 cut off
+					// at the token limit), and failing the run for them
+					// would stop linking and threads for every item, run
+					// after run. Not stamped, so the next run tries again;
+					// the broken-model case is caught after the pool.
+					r.logf("extract %s skipped: every passage failed: %v", j.it.ID, lastErr)
+					return func() error {
+						ks.Skipped++
+						if skipErr == nil {
+							skipErr = err
+						}
+						return nil
+					}, nil
 				}
 				return func() error {
 					ks.Items++
@@ -551,6 +570,11 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	ks.Gated = int(gatedN.Load())
 	if err != nil {
 		return ks, err
+	}
+	if ks.Skipped > 0 && ks.Items == 0 {
+		// Nothing extracted at all is a broken model or cache, which must
+		// fail the run even when single items may be skipped.
+		return ks, fmt.Errorf("extract: no item extracted, %d failed on every passage: %w", ks.Skipped, skipErr)
 	}
 
 	// 2. Embed statements.

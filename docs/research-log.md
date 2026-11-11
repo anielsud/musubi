@@ -3517,3 +3517,28 @@ of a same-day pair or the Teams transcript).
 
 Tomoe follow-up: its app log now stamps every line with the time (Tomoe 95a8ddc), so the next
 miss can be lined up with the detector.
+
+## 2026-11-05: Items that fail every passage stop the knowledge run
+
+Setup: local only, `qwen3:8b` via Ollama for extraction, an experiment
+dataset of about 800 email, chat and event items, `musubi knowledge`.
+
+What happened: some passages got cut-off replies (`extract: model reply
+isn't JSON: unexpected end of JSON input`; extraction asks for at most 700
+tokens). Most items lost only that passage, as designed. But 11 small items
+(8 emails of 2.8–5 KB, 2 chat days, one of them 994 characters, and 1 more
+email) failed on every passage, and at temperature 0 they fail the same way
+every run. The first such item became the run's error after extraction:
+`knowledge: 612 items (1099 passages … 12.3s per passage), 2310 statements
+(0 embedded …) claims 0 new … 0 topics`, exit 1. Embedding, linking, claims
+and threads never ran for any item, and the next run retried the same items
+and stopped again; forgetting one item only moved the stop to the next.
+
+Hypothesis (not verified): a reply over 700 tokens for an input under 1 KB
+suggests the model repeats itself until the token limit, so a higher limit
+alone may not help.
+
+Change: `knowledge.skip_failed_items` (default false, the earlier
+behaviour). On, such an item is logged and left unstamped, the run goes on,
+and the summary counts it; a run where no item extracts still fails.
+Default off until it has been run on a real dataset.

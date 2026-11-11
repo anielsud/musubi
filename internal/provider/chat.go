@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -76,6 +77,26 @@ func NewChat(c config.LLM) (*Chat, error) {
 // NewLLM builds any configured chat model: Ollama, or an OpenAI-compatible
 // server (llama.cpp's llama-server). nil when turned off.
 func NewLLM(c config.LLM) (LLM, error) {
+	primary, err := newLLM(c)
+	if primary == nil || err != nil || c.Fallback == nil || c.Fallback.Provider == "" {
+		return primary, err
+	}
+	fb := *c.Fallback
+	fb.Fallback = nil // one level: a fallback's own fallback isn't followed
+	secondary, err := newLLM(fb)
+	if err != nil {
+		return nil, fmt.Errorf("fallback: %w", err)
+	}
+	f := Fallback{Primary: primary, Secondary: secondary, Note: func(err error) {
+		fmt.Fprintf(os.Stderr, "%s failed (%v); answering with %s\n", primary.ModelName(), err, secondary.ModelName())
+	}}
+	if d, ok := primary.(Decider); ok {
+		return fallbackDecider{f, d}, nil
+	}
+	return f, nil
+}
+
+func newLLM(c config.LLM) (LLM, error) {
 	switch c.Provider {
 	case "openai":
 		return NewOpenAI(c), nil

@@ -90,6 +90,9 @@ func (a *App) openConfig(path string) error {
 		a.ollamaUp = up
 		a.mu.Unlock()
 		a.emit("app:status", a.Status())
+		if up {
+			a.pullRequired()
+		}
 	}()
 	go a.live.Run(lctx)
 	if e.Cfg.Prep.AutoBrief && e.AskLLM != nil {

@@ -624,6 +624,38 @@ export interface GatewayModel {
   note?: string;
 }
 
+export interface SlotView {
+  kind: 'chat' | 'decision' | 'local';
+  sections: string[];
+  current: string;
+  customText?: string;
+  fallback: string;
+  hasFallback: boolean;
+  effort: string;
+}
+
+export interface GroupView {
+  key: string;
+  title: string;
+  does: string;
+  slots: SlotView[];
+}
+
+export interface LocalModel {
+  name: string;
+  size: number;
+  have: boolean;
+  required: boolean;
+  why: string;
+}
+
+export interface ModelsView {
+  groups: GroupView[];
+  local: LocalModel[];
+  ollama: boolean;
+  pulls: string[] | null;
+}
+
 export interface DirectoryPerson {
   email: string;
   name: string;

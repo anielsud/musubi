@@ -30,3 +30,15 @@ func (f Fallback) Local() bool {
 }
 
 func (f Fallback) ModelName() string { return f.Primary.ModelName() }
+
+// fallbackDecider keeps the primary's decisions (logprob yes/no) visible
+// through the wrapper; they aren't retried on the secondary, which may not
+// offer them.
+type fallbackDecider struct {
+	Fallback
+	d Decider
+}
+
+func (f fallbackDecider) Decide(ctx context.Context, msgs []Message, choices []string) (map[string]float64, error) {
+	return f.d.Decide(ctx, msgs, choices)
+}

@@ -102,3 +102,27 @@ func TestEditFile(t *testing.T) {
 		t.Error("file changed by a refused edit")
 	}
 }
+
+func TestEditRemovesTable(t *testing.T) {
+	in := "[a]\nx = 1\n\n[a.fallback]\nprovider = \"ollama\"\nmodel = \"m\"\n\n# the labeller\n[b]\ny = 2\n"
+	out, err := EditText(in, []Edit{{Section: "a.fallback", Delete: true}})
+	if err != nil || out != "[a]\nx = 1\n\n# the labeller\n[b]\ny = 2\n" {
+		t.Errorf("got %q %v", out, err)
+	}
+}
+
+func TestSection(t *testing.T) {
+	c := DefaultConfig()
+	if l, ok := c.Section("knowledge.threads.model").(*LLM); !ok || l != &c.Knowledge.Threads.Model {
+		t.Error("knowledge.threads.model")
+	}
+	if _, ok := c.Section("live.relevance").(*Classifier); !ok {
+		t.Error("live.relevance")
+	}
+	if l, ok := c.Section("llm").(*LLM); !ok || l.Model != "qwen3:8b" {
+		t.Error("llm")
+	}
+	if c.Section("knowledge.nope") != nil || c.Section("owner") != nil {
+		t.Error("not model settings")
+	}
+}

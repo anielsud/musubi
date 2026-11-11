@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { GatewayModel, GatewayView, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
+import type { GatewayModel, GatewayView, ModelsView, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -72,6 +72,10 @@ export const api = {
   gatewayConnect: (url: string, account: string, token: string): Promise<void> => app().GatewayConnect(url, account, token),
   gatewayDisconnect: (): Promise<void> => app().GatewayDisconnect(),
   gatewayModels: (): Promise<GatewayModel[] | null> => app().GatewayModels(),
+  models: (): Promise<ModelsView> => app().Models(),
+  setModels: (group: string, choices: string[], fallbacks: string[], effort: string): Promise<void> => app().SetModels(group, choices, fallbacks, effort),
+  pullModel: (name: string): Promise<void> => app().PullModel(name),
+  removeModel: (name: string): Promise<void> => app().RemoveModel(name),
   personProfile: (id: string, scope: string): Promise<PersonProfile | null> => app().PersonProfile(id, scope),
   people: (scope: string): Promise<PersonRow[] | null> => app().People(scope),
   headshot: (id: string, scope: string): Promise<string> => app().Headshot(id, scope),

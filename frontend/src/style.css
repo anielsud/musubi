@@ -744,3 +744,8 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .models-table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 6px; }
 .models-table th { text-align: left; color: var(--text-dim); font-weight: 500; border-bottom: 1px solid var(--line); padding: 3px 4px; }
 .models-table td { padding: 3px 4px; border-bottom: 1px dashed var(--line); word-break: break-all; }
+
+.model-group { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-bottom: 1px dashed var(--line); }
+.model-group-head { display: flex; flex-direction: column; gap: 2px; }
+.model-slot { display: flex; flex-direction: column; gap: 4px; }
+.model-group label { display: flex; flex-direction: column; gap: 3px; color: var(--text-dim); }

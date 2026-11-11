@@ -109,3 +109,26 @@ func TestAnthropic(t *testing.T) {
 		t.Errorf("cut off: %v", err)
 	}
 }
+
+// A model with a fallback answers with it when it fails, and stays a
+// Decider when its primary is one.
+func TestConfiguredFallback(t *testing.T) {
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "nope", 400) }))
+	defer bad.Close()
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { sse(w, "from the fallback", "end_turn") }))
+	defer good.Close()
+	t.Setenv("MUSUBI_SPEND_LEDGER", "")
+	c := config.LLM{Provider: "anthropic", URL: bad.URL, Model: "a", Fallback: &config.LLM{Provider: "anthropic", URL: good.URL, Model: "b"}}
+	llm, err := NewLLM(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := llm.Complete(context.Background(), []Message{{Role: "user", Content: "hi"}}, ChatOptions{}, nil)
+	if err != nil || out != "from the fallback" || llm.ModelName() != "a" {
+		t.Errorf("%q %v %s", out, err, llm.ModelName())
+	}
+	o, _ := NewLLM(config.LLM{Provider: "openai", URL: bad.URL, Model: "x", Fallback: &config.LLM{Provider: "anthropic", URL: good.URL, Model: "b"}})
+	if _, ok := o.(Decider); !ok {
+		t.Error("an OpenAI primary's decisions lost behind the fallback")
+	}
+}

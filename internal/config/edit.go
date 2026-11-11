@@ -11,7 +11,8 @@ import (
 )
 
 // Edit sets (or, with Delete, removes) one key of one table in a config
-// file. Section is the table's dotted name ("knowledge.threads.model").
+// file. Section is the table's dotted name ("knowledge.threads.model");
+// Delete with no Key removes the whole table.
 type Edit struct {
 	Section, Key string
 	// Value is a string, bool, int, float64 or map[string]string (written
@@ -103,7 +104,24 @@ func editLines(lines []string, e Edit) ([]string, error) {
 		return append(lines, "", "["+e.Section+"]", e.Key+" = "+val, ""), nil
 	}
 	from := start + 1 // 0 for the root table
-	last := -1        // the table's last key line
+	if e.Key == "" {
+		if !e.Delete || e.Section == "" {
+			return nil, fmt.Errorf("an edit needs a key")
+		}
+		// The header and its keys go; a comment just above the next header
+		// is that table's, and stays.
+		stop := start + 1
+		for i := start + 1; i < end; i++ {
+			if keyRe.MatchString(lines[i]) {
+				stop = i + 1
+			}
+		}
+		if stop < len(lines) && strings.TrimSpace(lines[stop]) == "" && start > 0 && strings.TrimSpace(lines[start-1]) == "" {
+			stop++ // no double blank line where it was
+		}
+		return append(lines[:start:start], lines[stop:]...), nil
+	}
+	last := -1 // the table's last key line
 	for i := from; i < end; i++ {
 		m := keyRe.FindStringSubmatch(lines[i])
 		if m == nil {

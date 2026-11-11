@@ -183,6 +183,26 @@ TypeSafe 1.14.0). Clef (`provider = "clef"`, `url` its own `/ai/run/@cf/
 cloudflare/clef` address) takes the same questions; on the labels sample
 it found fewer sensitive statements than Jev (research log, 2026-11-11).
 
+**Settings → Models** picks the model for each kind of work, writing the
+sections above in place (comments and other keys stay; the file before
+each change is kept as `config.toml.bak`):
+
+| Group | Sections |
+|---|---|
+| Extraction and threading | `knowledge.lean.model`, `knowledge.threads.model` |
+| Statuses, summaries and Live briefs | `knowledge.status.model`, `knowledge.digest.model`, `live.pick.brief` |
+| Ask | `ask.model` (fallback: `ask.fallback`) |
+| Labels | `knowledge.label.classifier` |
+| Live | `llm` (on this Mac), `live.relevance` |
+
+Each takes a preferred model and, for the chat groups, a fallback
+(`[<section>.fallback]`, used when the preferred one fails) and a thinking
+level (`reasoning_effort`). Models on the gateway get its key and headers
+from `[gateway]`; a section set by hand to something else shows as "as in
+the config" and is left alone. With `[llm] pull_missing = true` (the
+default) the app downloads the local models the dataset needs; the
+others can be fetched or removed there.
+
 The full set of keys, each with what it does and how to restore the
 earlier behaviour, is in `internal/config/config.go`.
 

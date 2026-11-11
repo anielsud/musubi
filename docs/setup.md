@@ -99,9 +99,27 @@ min_p = 0.5
 ```
 
 Through the Optimizely AI Gateway, the same models take one personal
-gateway token (kept in the keychain like any key), the gateway's address,
-and the header that charges the call to the token's owner. Its `token_id`
-isn't secret (the gateway docs show how to look it up):
+gateway token. Until Musubi sets this up itself:
+
+1. **Get a token** (`cfat_…`) from the gateway's mint workflow (a one-time
+   link). It needs both of the permissions personal tokens are minted
+   with, *AI Gateway Run* and *Workers AI Read*: without the second,
+   Claude works but GLM and Clef answer 401 "Authentication error".
+   A re-mint keeps a token's permissions, so a token missing one is
+   revoked and minted again.
+2. **Put it in the keychain** (Musubi only reads it; it prompts for the
+   token, so it never lands in a file or the shell history):
+   `security add-generic-password -s ai-gateway-token -a "$USER" -w`
+3. **Look up its `token_id`**, which isn't secret, for the header that
+   charges calls to you (without it they land as "unknown"):
+   ```sh
+   curl -s https://api.cloudflare.com/client/v4/accounts/<account>/tokens/verify \
+     -H "Authorization: Bearer $(security find-generic-password -s ai-gateway-token -w)" | jq -r .result.id
+   ```
+4. **Set the models** as below. `cf-aig-collect-log-payload: false` keeps
+   the prompt and the reply out of the gateway's logs (cost, tokens and
+   the `token_id` stay); send it until the gateway sets it on every
+   request itself.
 
 ```toml
 [knowledge.threads.model]  # and the other hosted models alike
@@ -109,12 +127,12 @@ provider = "openai"
 url = "https://<gateway worker>/workers-ai-shim"
 model = "@cf/zai-org/glm-5.3-flash"
 api_key = "keychain:ai-gateway-token"
-headers = { "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","setup_version":"custom"}' }
+headers = { "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","setup_version":"custom"}', "cf-aig-collect-log-payload" = "false" }
 price_in = 0.15
 price_out = 0.50
 
 [knowledge.label.classifier] # Clef: Jev's questions, on Cloudflare
-provider = "clef"
+provider = "clef"            # model "clef-flash" for the faster, cheaper one
 url = "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef"
 api_key = "keychain:ai-gateway-token"
 ```

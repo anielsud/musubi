@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"syscall"
+
+	"github.com/anielsud/musubi/internal/recorder/config"
 )
 
 // DiarizeAttempt is one step of the retry ladder for out-of-process
@@ -29,12 +31,12 @@ var DefaultDiarizeAttempts = []DiarizeAttempt{
 	{UseCPU: true, Label: "CPU fallback, try 3 of 3"},
 }
 
-// diarizeWorkerName is the executable that implements the
-// diarize-session subcommand. It is still Tomoe's binary; the recorder
-// will provide its own worker later.
-const diarizeWorkerName = "tomoe"
+// diarizeWorkerName is the executable that implements the diarize
+// subcommand: the recorder itself, so the post-meeting pass writes the
+// recorder's sessions and never Tomoe's.
+const diarizeWorkerName = "musubi-recorder"
 
-// FindDiarizeWorker returns the path of the diarize-session worker, or ""
+// FindDiarizeWorker returns the path of the diarize worker, or ""
 // if there is none. It prefers the running executable when that is the
 // worker, then a worker installed in the same directory (the GUI is
 // installed next to the CLI), then the first one on $PATH.
@@ -55,10 +57,11 @@ func FindDiarizeWorker() string {
 }
 
 // RunDiarizeWithRetry diarizes session sessID by running
-// `<worker> diarize-session <id> [--cpu]` once per attempt until one
-// succeeds; nil or empty attempts means DefaultDiarizeAttempts. The
-// worker's output goes to this process's stdout and stderr, so it lands
-// in the same log.
+// `<worker> diarize <id> [--cpu] --data <config.DataDir()>` once per
+// attempt until one succeeds; nil or empty attempts means
+// DefaultDiarizeAttempts. --data keeps the worker on this process's data
+// folder, wherever SetDataDir put it. The worker's output goes to this
+// process's stdout and stderr, so it lands in the same log.
 func RunDiarizeWithRetry(sessID string, attempts []DiarizeAttempt) error {
 	worker := FindDiarizeWorker()
 	if worker == "" {
@@ -80,10 +83,11 @@ func diarizeWithWorker(worker, sessID string, attempts []DiarizeAttempt) error {
 	}
 	var last error
 	for _, try := range attempts {
-		args := []string{"diarize-session", sessID}
+		args := []string{"diarize", sessID}
 		if try.UseCPU {
 			args = append(args, "--cpu")
 		}
+		args = append(args, "--data", config.DataDir())
 		fmt.Printf("diarize: session %s: %s\n", sessID, try.Label)
 		cmd := exec.Command(worker, args...)
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr

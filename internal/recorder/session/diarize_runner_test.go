@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/anielsud/musubi/internal/recorder/config"
 )
 
 // stubWorker writes a shell script standing in for the diarize worker.
@@ -56,7 +58,7 @@ func TestDiarizeWorkerFirstTrySucceeds(t *testing.T) {
 	if err := diarizeWithWorker(bin, "s-1", nil); err != nil {
 		t.Fatal(err)
 	}
-	if r := runs(t, log); len(r) != 1 || r[0] != "diarize-session s-1" {
+	if r := runs(t, log); len(r) != 1 || r[0] != "diarize s-1 --data "+config.DataDir() {
 		t.Errorf("runs = %q", r)
 	}
 }
@@ -68,7 +70,8 @@ func TestDiarizeWorkerRetriesCrashesAndFailures(t *testing.T) {
 			if err := diarizeWithWorker(bin, "s-2", DefaultDiarizeAttempts); err != nil {
 				t.Fatal(err)
 			}
-			want := []string{"diarize-session s-2", "diarize-session s-2", "diarize-session s-2 --cpu"}
+			data := " --data " + config.DataDir()
+			want := []string{"diarize s-2" + data, "diarize s-2" + data, "diarize s-2 --cpu" + data}
 			if r := runs(t, log); strings.Join(r, "|") != strings.Join(want, "|") {
 				t.Errorf("runs = %q, want %q", r, want)
 			}
@@ -113,5 +116,19 @@ func TestFindDiarizeWorkerOnPath(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	if got := FindDiarizeWorker(); got != "" {
 		t.Errorf("with no worker anywhere, got %q", got)
+	}
+}
+
+// The worker diarizes in this process's data folder, not Tomoe's.
+func TestDiarizeWorkerGetsTheDataFolder(t *testing.T) {
+	bin, log := stubWorker(t, "exit 0")
+	dir := t.TempDir()
+	config.SetDataDir(dir)
+	t.Cleanup(func() { config.SetDataDir("") })
+	if err := diarizeWithWorker(bin, "s-5", nil); err != nil {
+		t.Fatal(err)
+	}
+	if r := runs(t, log); len(r) != 1 || r[0] != "diarize s-5 --data "+dir {
+		t.Errorf("runs = %q", r)
 	}
 }

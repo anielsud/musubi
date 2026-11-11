@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Filled in by scripts/install-recorder.sh: __EXECUTABLE__ is the
+     recorder inside the installed app, __DATA__ its data folder. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.anielsud.musubi.recorder</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>__EXECUTABLE__</string>
+		<string>run</string>
+		<string>--data</string>
+		<string>__DATA__</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<!-- Restarted after a crash or a failed start, not after a clean
+	     exit (SIGTERM from launchctl bootout saves and exits 0). -->
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<!-- A start that keeps failing (no models, say) retries once a minute,
+	     not every ten seconds. -->
+	<key>ThrottleInterval</key>
+	<integer>60</integer>
+	<!-- Live audio: not throttled like a background job. -->
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>StandardOutPath</key>
+	<string>__DATA__/logs/recorder.log</string>
+	<key>StandardErrorPath</key>
+	<string>__DATA__/logs/recorder.log</string>
+</dict>
+</plist>

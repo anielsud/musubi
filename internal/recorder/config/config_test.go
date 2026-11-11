@@ -135,6 +135,32 @@ func TestPathsFallBackToHome(t *testing.T) {
 	}
 }
 
+// The recorder's own folder takes sessions and voices away from Tomoe's,
+// but models are still read from Tomoe's, and clearing it goes back.
+func TestSetDataDirMovesDataButNotModels(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "/xd")
+	SetDataDir("/rec")
+	t.Cleanup(func() { SetDataDir("") })
+	for got, want := range map[string]string{
+		DataDir():         "/rec",
+		SessionDir():      "/rec/sessions",
+		HintAnalysisDir(): "/rec/hint-analysis",
+		ModelDir():        "/xd/tomoe/models",
+		TomoeDataDir():    "/xd/tomoe",
+	} {
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	}
+	if got := DefaultConfig().Transcription.ModelPath; got != "/xd/tomoe/models" {
+		t.Errorf("default model_path = %q, want Tomoe's models", got)
+	}
+	SetDataDir("")
+	if got := SessionDir(); got != "/xd/tomoe/sessions" {
+		t.Errorf("after SetDataDir(\"\"), SessionDir() = %q", got)
+	}
+}
+
 func TestExists(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	if Exists() {

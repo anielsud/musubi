@@ -78,18 +78,18 @@ func TestOpenAISessionAffinity(t *testing.T) {
 }
 
 // A hosted endpoint: the key is sent, replies stream, the schema is made
-// strict, and a reply cut off at the token cap is asked again with more.
+// strict, no token cap is sent, and a reply cut off is asked again with
+// low reasoning effort.
 func TestOpenAIHosted(t *testing.T) {
 	var calls int
-	var lastMax float64
 	var auth, effort string
-	var strict bool
+	var strict, capped bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		auth = r.Header.Get("Authorization")
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
-		lastMax = body["max_tokens"].(float64)
+		_, capped = body["max_tokens"]
 		effort, _ = body["reasoning_effort"].(string)
 		js := body["response_format"].(map[string]any)["json_schema"].(map[string]any)
 		strict = js["strict"] == true && js["schema"].(map[string]any)["additionalProperties"] == false
@@ -123,9 +123,10 @@ func TestOpenAIHosted(t *testing.T) {
 	if err != nil || out != `{"ok":true}` {
 		t.Fatalf("reply %q %v", out, err)
 	}
-	// Cut off at the cap: asked again at the same cap, with low effort.
-	if calls != 2 || lastMax != hostedMinTokens || auth != "Bearer sekret" || effort != "low" || !strict {
-		t.Errorf("calls %d, max %v, auth %q, effort %q, strict %v", calls, lastMax, auth, effort, strict)
+	// No cap sent, even though the caller asked for one; cut off by the
+	// server: asked again with low effort.
+	if calls != 2 || capped || auth != "Bearer sekret" || effort != "low" || !strict {
+		t.Errorf("calls %d, capped %v, auth %q, effort %q, strict %v", calls, capped, auth, effort, strict)
 	}
 	// Both calls metered: 2 × (1M in × $0.15 + 2M out × $0.50).
 	if got := ledgerTotal(ledger); got < 2.29 || got > 2.31 {

@@ -75,3 +75,31 @@ func TestStitch(t *testing.T) {
 		t.Errorf("dups: %v", dups)
 	}
 }
+
+// A recording waiting for its meeting's Teams transcript isn't extracted
+// yet, so it isn't threaded either: marked threaded with nothing in it, it
+// would never be threaded once extracted.
+func TestWaitingNotThreaded(t *testing.T) {
+	r, st := build(t)
+	kc := &r.Cfg.Knowledge
+	kc.Extract, kc.Gate, kc.Grouping, kc.Stitch, kc.StitchWaitHours = "statements", 0, "threads", true, 2
+	r.Cfg.M365.Enabled, r.Cfg.M365.Transcripts = true, true
+	at := time.Now().Add(-time.Hour).Truncate(time.Second)
+	ev := item.Item{ID: "m365-calendar:ev", Source: "m365-calendar", Ref: "ev", Kind: item.KindEvent, Title: "Weekly", OccurredAt: at, EndedAt: at.Add(30 * time.Minute),
+		Native: map[string]string{"joinUrl": "https://teams.example/join"}}
+	rec := recording("rec", at, 0, 30)
+	rec.Title = "Weekly"
+	for _, it := range []item.Item{ev, rec} {
+		if _, err := st.UpsertItem(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(t, r)
+	knowledgeRun(t, r, KnowledgeOptions{LLM: emptyLLM{"m1"}})
+	if s, _ := st.StageStamp("extract", rec.ID); s != "" {
+		t.Fatal("the recording didn't wait for its transcript")
+	}
+	if done, _ := st.ThreadedItems(); done[rec.ID] != "" {
+		t.Error("a recording waiting for its transcript was threaded")
+	}
+}

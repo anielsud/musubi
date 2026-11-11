@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../api';
 import type { AppStatus, M365View } from '../types';
 import { checkDoes, Spinner } from './common';
+import { GatewayCard } from './GatewayCard';
 
 export function SettingsView({ status }: { status: AppStatus | null }) {
   return (
     <div className="view status-page">
       <M365Card status={status} />
+      <GatewayCard />
       <FilesCard status={status} />
     </div>
   );

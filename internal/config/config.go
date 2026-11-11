@@ -33,6 +33,7 @@ type Config struct {
 	Prep        Prep        `toml:"prep"`
 	M365        M365        `toml:"m365"`
 	MCP         MCP         `toml:"mcp"`
+	Gateway     Gateway     `toml:"gateway"`
 }
 
 // M365 reads the owner's Microsoft 365 data through Microsoft Graph
@@ -653,6 +654,7 @@ func Load(path string) (Config, error) {
 	if err := toml.Unmarshal(b, &c); err != nil {
 		return c, err
 	}
+	c.applyGateway()
 	return c, nil
 }
 

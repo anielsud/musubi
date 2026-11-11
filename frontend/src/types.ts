@@ -605,6 +605,25 @@ export interface M365View {
   connecting: boolean;
 }
 
+export interface GatewayView {
+  url: string;
+  account: string;
+  tokenId: string;
+  connected: boolean;
+  configured: boolean;
+}
+
+export interface GatewayModel {
+  id: string;
+  kind: 'chat' | 'decision';
+  provider: 'anthropic' | 'openai' | 'jev' | 'clef';
+  priceIn: number;
+  priceOut: number;
+  context: number;
+  retires: string;
+  note?: string;
+}
+
 export interface DirectoryPerson {
   email: string;
   name: string;

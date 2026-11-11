@@ -99,7 +99,24 @@ min_p = 0.5
 ```
 
 Through the Optimizely AI Gateway, the same models take one personal
-gateway token. Until Musubi sets this up itself:
+gateway token. **Settings → Optimizely AI Gateway** sets it up: paste the
+token, and Musubi checks it with Cloudflare, keeps it in the Keychain and
+writes the gateway to the config:
+
+```toml
+[gateway]
+url = "https://<gateway worker>"
+account = "<account>"
+api_key = "keychain:ai-gateway-token"
+token_id = "<token id>"
+```
+
+Every model whose `url` is on the gateway (its worker, or the account's
+`/ai/run` catalog) then takes the gateway's `api_key` and headers for
+whatever it doesn't set itself, so a model needs only `provider`, `url`,
+`model` and prices. The card also lists the models the gateway serves,
+with live prices and Cloudflare's planned retirement dates. By hand,
+without the app:
 
 1. **Get a token** (`cfat_…`) from the gateway's mint workflow (a one-time
    link). It needs both of the permissions personal tokens are minted

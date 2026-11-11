@@ -736,3 +736,11 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .triage-text { font-size: 15px; }
 .triage-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .triage-actions b { color: var(--accent); }
+
+.gw-form { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.gw-form label { display: flex; flex-direction: column; gap: 3px; color: var(--text-dim); }
+.gw-models { margin-top: 10px; }
+.gw-models summary { cursor: pointer; color: var(--text-dim); }
+.models-table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 6px; }
+.models-table th { text-align: left; color: var(--text-dim); font-weight: 500; border-bottom: 1px solid var(--line); padding: 3px 4px; }
+.models-table td { padding: 3px 4px; border-bottom: 1px dashed var(--line); word-break: break-all; }

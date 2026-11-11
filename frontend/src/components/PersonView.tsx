@@ -66,6 +66,16 @@ export function PersonView({ id, scope, onPick, onOpenItem, onTopic }: {
         ))}</div>
       </>}
 
+      {(p.nearby?.length ?? 0) > 0 && <>
+        <div className="section-head" title="Threads linked to theirs that they aren't in"><span>Nearby</span></div>
+        <ul className="status-list">{p.nearby!.map((t) => (
+          <li key={t.id}>
+            <button className="link" onClick={() => onTopic?.(t.id)}>{t.label}</button>
+            <span className="dim small"> · {nearbyWhy(t)}{t.links > 1 ? ` (and ${t.links - 1} more of theirs)` : ''}</span>
+          </li>
+        ))}</ul>
+      </>}
+
       {(p.todos?.length ?? 0) > 0 && <>
         <div className="section-head"><span>Their open to-dos</span></div>
         <ul className="status-list">{p.todos!.map((t) => (
@@ -76,6 +86,16 @@ export function PersonView({ id, scope, onPick, onOpenItem, onTopic }: {
       {p.names.length > 1 && <div className="dim small">also known as {p.names.filter((n) => n !== p.name.toLowerCase()).slice(0, 6).map((n, i) => <span key={n}>{i > 0 && ', '}<Name name={n} /></span>)}</div>}
     </div>
   );
+}
+
+// nearbyWhy says how a nearby thread is linked to the closest of theirs.
+function nearbyWhy(t: NonNullable<PersonPage['nearby']>[number]) {
+  switch (t.kind) {
+    case 'same': return t.via?.length ? `same ${t.via.join(', ')} as ${t.from}` : `same subject as ${t.from}`;
+    case 'shared': return `shares points with ${t.from}`;
+    case 'together': return `discussed alongside ${t.from}`;
+    default: return `similar to ${t.from}`;
+  }
 }
 
 export function initials(name: string) {

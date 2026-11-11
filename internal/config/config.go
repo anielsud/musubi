@@ -180,10 +180,11 @@ type Knowledge struct {
 	PreferSource []string `toml:"prefer_source"`
 	// Stitch fills the stretches a Tomoe recording missed (joined late,
 	// left early, a recording split in two) from the meeting's Teams
-	// transcript, before the meeting is first extracted; the Teams copy is
+	// transcript, before the meeting is first threaded; the Teams copy is
 	// then a duplicate of the recording. StitchWaitHours holds a Teams
-	// meeting's recording back from extraction that long after it ends
-	// while its transcript hasn't arrived. Stitch false: the earlier
+	// meeting's recording back from threading that long after it ends
+	// while its transcript hasn't arrived; it is extracted and summarised
+	// meanwhile, and again if stitched. Stitch false: the earlier
 	// behaviour (each copy on its own, one kept when they start together).
 	Stitch          bool    `toml:"stitch"`
 	StitchWaitHours float64 `toml:"stitch_wait_hours"`

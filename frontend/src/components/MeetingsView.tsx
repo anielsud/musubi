@@ -1,9 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { api, fmtDate } from '../api';
+import { api, fmtDate, on, speakerName } from '../api';
 import type { Hit, MeetingListItem, MeetingPage, MeetingToDo, PrepRequest, PrepTarget } from '../types';
 import { Empty, Spinner } from './common';
 import { Names } from './people';
 import { PrepPage } from './PrepView';
+import { LookTimeline } from './recorder';
+import { ActNotes, ReviewItems, VoicesError, openReviews, readOnlyWhy, useAct, useVoices } from './voices';
+import type { MeetingSpeakers } from '../types';
 
 // A meeting's page shows the summary in sections (each linked to where
 // in the meeting it was said), the to-dos said in it and how they stand
@@ -85,7 +88,8 @@ export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
     };
     const t = setTimeout(load, 150);
     const every = setInterval(load, 5 * 60 * 1000);
-    return () => { clearTimeout(t); clearInterval(every); };
+    const off = on<string>('meetings:changed', (id) => { setSel((s) => (s?.kind === 'recap' && s.id === id ? null : s)); load(); });
+    return () => { clearTimeout(t); clearInterval(every); off(); };
   }, [scope, active]);
   useEffect(() => { if (req) setSel({ kind: 'recap', id: req.id }); }, [req]);
 
@@ -365,6 +369,76 @@ function MeetingPageView({ id, scope, onBack, onOpen, onTopic, onPrep }: {
           </ul>
         </>
       )}
+      {scope === 'owner' && <MeetingRecording itemId={id} />}
     </div>
+  );
+}
+
+// MeetingRecording is the recording behind a meeting: its speakers, with
+// the voice review for this meeting and renames; what the recorder saw of
+// the meeting window; and delete. Owner scope only: names come straight
+// from the recording. Edits need Musubi's recorder of record (and its
+// recording of this meeting).
+function MeetingRecording({ itemId }: { itemId: string }) {
+  const [sp, setSp] = useState<MeetingSpeakers | null | undefined>(undefined);
+  const { view, err } = useVoices();
+  const a = useAct();
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [looks, setLooks] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  useEffect(() => {
+    const load = () => api.meetingSpeakers(itemId).then(setSp, () => setSp(null));
+    load();
+    return on('voices:changed', load);
+  }, [itemId]);
+  if (!sp) return null;
+  const editable = sp.editable;
+  const reviews = openReviews(view, sp.session);
+  const rename = (label: string, name: string) => {
+    setRenaming(null);
+    a.act('rename/' + label, () => api.recorderSpeaker('rename_speaker', sp.session, label, name), `Named ${speakerName(label)} ${name}; the meeting is read again with the new name.`);
+  };
+  return (
+    <>
+      <div className="section-head"><span>Speakers ({sp.speakers.length})</span>{reviews > 0 && <span className="badge">{reviews} to check</span>}</div>
+      {!editable && <div className="dim small">{sp.why || readOnlyWhy}</div>}
+      <VoicesError err={err} />
+      {view && <ReviewItems view={view} session={sp.session} editable={editable} a={a} showTitle={false} />}
+      {sp.speakers.length > 0 && <div className="review-head">Everyone heard</div>}
+      <ul className="speaker-list">
+        {sp.speakers.map((s) => (
+          <li key={s.label}>
+            {renaming === s.label ? <SpeakerNameForm start={speakerName(s.label).startsWith('Person ') ? '' : speakerName(s.label)} onName={(n) => rename(s.label, n)} onCancel={() => setRenaming(null)} /> : (
+              <>
+                <span>{speakerName(s.label)}</span>
+                <span className="dim small"> · {s.lines} {s.lines === 1 ? 'line' : 'lines'}, {Math.round(s.seconds / 60) || '<1'} min</span>
+                {editable && s.label !== 'You' && <button className="link" disabled={a.busy !== null} onClick={() => setRenaming(s.label)}>rename</button>}
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+      <ActNotes a={a} />
+      <div className="section-head"><span>What Musubi saw</span><button className="link" onClick={() => setLooks(!looks)}>{looks ? 'hide' : 'the meeting window, look by look'}</button></div>
+      {looks && <LookTimeline session={sp.session} />}
+      {editable && (deleting ? (
+        <div className="confirm-row">
+          <span className="small">Delete this meeting? The recording and its audio are deleted, and what Musubi learnt from it leaves its subjects. This can&apos;t be undone.</span>
+          <button className="primary danger" disabled={a.busy !== null} onClick={() => { setDeleting(false); a.act('delete', () => api.deleteMeeting(itemId)); }}>Delete</button>
+          <button onClick={() => setDeleting(false)}>Keep</button>
+        </div>
+      ) : <button className="link danger-link" onClick={() => setDeleting(true)}>Delete meeting…</button>)}
+    </>
+  );
+}
+
+function SpeakerNameForm({ start, onName, onCancel }: { start: string; onName: (n: string) => void; onCancel: () => void }) {
+  const [n, setN] = useState(start);
+  return (
+    <form className="voice-name" onSubmit={(e) => { e.preventDefault(); if (n.trim()) onName(n.trim()); }}>
+      <input value={n} autoFocus placeholder="Who is it?" onChange={(e) => setN(e.target.value)} />
+      <button className="primary" type="submit" disabled={!n.trim()}>Save</button>
+      <button type="button" onClick={onCancel}>Cancel</button>
+    </form>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { on } from '../api';
+import { LookTimeline } from './recorder';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface Trace {
@@ -19,6 +20,9 @@ const filters: Record<string, string[]> = {
   model: ['llm', 'summary'],
   search: ['rank', 'search', 'brief'],
   input: ['feed', 'line', 'cycle', 'entities', 'phrases'],
+  // window: what the recorder saw of the meeting window (its looks), not
+  // Musubi's own steps.
+  window: [],
 };
 
 export function mmss(s: number): string {
@@ -28,8 +32,10 @@ export function mmss(s: number): string {
 }
 
 // DiagPanel shows how the live panel is processing the conversation, step
-// by step, grouped by suggestion cycle, newest first.
-export function DiagPanel() {
+// by step, grouped by suggestion cycle, newest first; and, under
+// "window", what the recorder saw of the meeting window. Embedded, it
+// sits in a page (Status) rather than beside the app.
+export function DiagPanel({ embedded }: { embedded?: boolean } = {}) {
   const [traces, setTraces] = useState<Trace[]>([]);
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState<Record<number, boolean>>({});
@@ -56,7 +62,7 @@ export function DiagPanel() {
   }, [traces, filter]);
 
   return (
-    <aside className="diag">
+    <aside className={'diag' + (embedded ? ' diag-embedded' : '')}>
       <header className="diag-head">
         <div className="diag-title">How Musubi is thinking</div>
         <div className="diag-filters">
@@ -66,6 +72,7 @@ export function DiagPanel() {
         </div>
       </header>
 
+      {filter === 'window' ? <div className="diag-list"><LookTimeline /></div> : <>
       <section className="diag-stats">
         <Stat label="model runs" v={String(stats.cycles)} />
         <Stat label="lines in" v={`${stats.finals} final · ${stats.drafts} draft`} />
@@ -95,6 +102,7 @@ export function DiagPanel() {
           ),
         )}
       </div>
+      </>}
     </aside>
   );
 }

@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../api';
 import type { AppStatus, M365View, ProviderView, QueueView } from '../types';
 import { checkDoes, Spinner } from './common';
+import { LabellingPane, RecordingCard } from './recorder';
+import { DiagPanel } from './DiagPanel';
 
 const levels = ['public', 'internal', 'confidential', 'restricted'];
 
@@ -12,6 +14,7 @@ export function StatusView({ status }: { status: AppStatus | null }) {
   return (
     <div className="view status-page">
       {status.error && <div className="error">{status.error}</div>}
+      <RecordingCard />
       <section className="tiles">
         <Tile n={s?.ItemsByKind.meeting ?? 0} label="meetings" />
         <Tile n={s?.ItemsByKind.event ?? 0} label="calendar events" />
@@ -52,6 +55,14 @@ export function StatusView({ status }: { status: AppStatus | null }) {
         {status.updating ? <><Spinner /> Checking for new meetings…</> : 'Check for new meetings'}
       </button>
       <p className="dim small">{checkDoes(status)}</p>
+
+      <section>
+        <div className="section-head"><span>Diagnostics</span><span className="dim small">the recorder&apos;s labelling, and Musubi&apos;s steps</span></div>
+        <div className="status-diag">
+          <LabellingPane />
+          <DiagPanel embedded />
+        </div>
+      </section>
     </div>
   );
 }

@@ -780,3 +780,55 @@ export interface PersonPage {
   headshot?: string;
   voice?: { session: string; start: number; end: number; title: string; at: string; text: string };
 }
+
+// The recorder (internal/recorder/control): its state, sources, tools,
+// live labelling, window looks and voices, as the control socket sends
+// them.
+export interface RecSource { kind: string; id: string; name: string }
+export interface RecSessionInfo { id: string; title: string; platform: string; created_at: string }
+export interface RecStatus {
+  version: string;
+  recording: boolean;
+  session?: RecSessionInfo;
+  started_at?: string;
+  mic: RecSource;
+  system: RecSource;
+  silent?: RecSource;
+  suggest?: RecSource;
+  health?: string[];
+  busy?: string;
+}
+export interface RecorderView { running: boolean; status?: RecStatus; ofRecord: string; editable: boolean; error?: string }
+export interface RecSources { mics: RecSource[] | null; system: RecSource[] | null }
+export interface ToolFix { kind: 'action' | 'command'; label: string; command?: string }
+export interface ToolStatus { id: string; name: string; group: string; ok: boolean; required: boolean; neededFor: string; detail: string; fix?: ToolFix }
+export interface RecDiag { at: string; kind: string; line?: string; label?: string; detail: string; fields?: Record<string, string> }
+export interface Ring { X: number; Y: number; Width: number; Height: number }
+export interface LookView {
+  id: number; time: string; sessionTime: number; stage: string; detail: string; window?: string; name?: string;
+  fromCache?: boolean; usable: boolean; ring?: Ring; rings?: Ring[]; candidates?: string[]; width?: number; height?: number;
+  thumb?: string; thumbOf?: number;
+}
+export interface VoiceClip { session: string; start: number; end: number }
+export interface TileRef { session: string; look: number }
+export interface VoiceMeeting { session: string; title: string; at: string; source: string; fingerprints: number; agreement: number; clip: VoiceClip; tiles: TileRef[] | null }
+export interface VoiceProfile {
+  model: string; id: string; name: string; meetings: number; fingerprints: number; fromTiles: number; fromNamed: number;
+  lastHeard: string; clip: VoiceClip; heard: VoiceMeeting[] | null; rejected: number; startedOver: boolean;
+  takenOut: VoiceMeeting[] | null; face?: TileRef; inUse: boolean; confirmed: boolean;
+}
+export interface NamedByVoice { session: string; title: string; at: string; label: string; name: string; model: string; profile: string; similarity: number; seconds: number; clip: VoiceClip; window?: string }
+export interface VoiceDoubt { session: string; title: string; at: string; label: string; window: string; name: string; similarity: number; seconds: number; clip: VoiceClip; noProfile: boolean }
+export interface VoicePair { model: string; a: string; b: string; similarity: number }
+export interface UnknownVoice { session: string; title: string; at: string; label: string; seconds: number; clip: VoiceClip; soundsLike?: string; similarity?: number }
+export interface VoicesView {
+  enabled: boolean; profiles: VoiceProfile[] | null; pairs: VoicePair[] | null; unknown: UnknownVoice[] | null;
+  namedByVoice: NamedByVoice[] | null; doubts: VoiceDoubt[] | null;
+}
+export interface VoiceArgs { model: string; id: string; other?: string; session?: string; name?: string }
+export interface SpeakerCount { label: string; lines: number; seconds: number }
+export interface MeetingSpeakers { session: string; speakers: SpeakerCount[]; editable: boolean; why?: string }
+export interface RecOption { value: string; label: string }
+export interface RecField { table: string; key: string; label: string; help?: string; type: 'bool' | 'int' | 'float' | 'string' | 'select'; step?: number; min: number; options?: RecOption[]; value: unknown; set: boolean }
+export interface RecGroup { title: string; fields: RecField[] }
+export interface RecordingSettings { ofRecord: string; since: string; groups: RecGroup[]; tomoeConfig: string }

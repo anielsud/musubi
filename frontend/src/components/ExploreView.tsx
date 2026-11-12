@@ -6,6 +6,7 @@ import { Empty, HitRow, LabelBadge, Spinner } from './common';
 import { GraphView } from './GraphView';
 import { ClaimResults, TopicsPane } from './Knowledge';
 import { CorrectionsView } from './CorrectionsView';
+import { ActNotes, LearnButton, ReviewItems, VoicesError, openReviews, readOnlyWhy, useAct, useEditable, useVoices } from './voices';
 
 interface Props {
   scope: string;
@@ -32,6 +33,8 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
   const openTopicHere = (id: number) => { setFocus(null); setTopicWant({ id, n: Date.now() }); setMode('topics'); };
   const [lastQ, setLastQ] = useState('');
   const openSource = (itemId: string, chunkId: number) => onOpen({ itemId, chunkId } as unknown as Hit, scope);
+  const voices = useVoices();
+  const reviews = openReviews(voices.view);
 
   useEffect(() => {
     if (topicReq) setMode('topics');
@@ -75,7 +78,7 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
     <div className="view explore">
       <div className="segmented">
         <button className={mode === 'topics' ? 'on' : ''} onClick={() => { setMode('topics'); setFocus(null); }}>Topics</button>
-        {scope === 'owner' && <button className={mode === 'people' ? 'on' : ''} onClick={() => { setMode('people'); setFocus(null); }}>People</button>}
+        {scope === 'owner' && <button className={mode === 'people' ? 'on' : ''} onClick={() => { setMode('people'); setFocus(null); }}>People{reviews > 0 && <span className="count" title="Voices to check"> {reviews}</span>}</button>}
         <button className={mode === 'search' ? 'on' : ''} onClick={() => setMode('search')}>Search</button>
         {scope === 'owner' && <button className={mode === 'corrections' ? 'on' : ''} onClick={() => { setMode('corrections'); setFocus(null); }} title="Misheard or misspelled names and terms to confirm or reject">Corrections</button>}
       </div>
@@ -88,7 +91,7 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
           {graph && <div className="entity-name">{graph.entity.name}</div>}
           <PersonView id={focus} scope={scope} onPick={setFocus} onOpenItem={onOpenItem} onTopic={openTopicHere} />
         </section>
-      ) : <PeoplePane onPick={setFocus} />)}
+      ) : <><VoiceReviews voices={voices} /><PeoplePane onPick={setFocus} /></>)}
       {mode === 'corrections' && scope === 'owner' && <CorrectionsView onSource={openSource} start={correctReq} />}
       {mode === 'search' && <>
       <form className="lookup" onSubmit={(e) => { e.preventDefault(); run(q); }}>
@@ -164,6 +167,33 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
       )}
       </>}
     </div>
+  );
+}
+
+// VoiceReviews is the open voice review across meetings, from the
+// recorder: voices to name or confirm, and profiles that may be one person.
+function VoiceReviews({ voices }: { voices: ReturnType<typeof useVoices> }) {
+  const a = useAct();
+  const editable = useEditable();
+  const [open, setOpen] = useState(true);
+  const n = openReviews(voices.view);
+  if (voices.err) return <VoicesError err={voices.err} />;
+  if (!voices.view) return null;
+  return (
+    <section className="voice-reviews">
+      <div className="section-head">
+        <span>Voices to check ({n})</span>
+        <span>
+          {editable && <LearnButton a={a} />}
+          {n > 0 && <button className="link" onClick={() => setOpen(!open)}>{open ? 'hide' : 'show'}</button>}
+        </span>
+      </div>
+      {!voices.view.enabled && <div className="dim small">Voice profiles are off (Settings → Recording): meetings don&apos;t teach them and nobody is named by voice.</div>}
+      {!editable && n > 0 && <div className="dim small">{readOnlyWhy}</div>}
+      {n === 0 && <div className="dim small">Nothing to check.</div>}
+      {open && <ReviewItems view={voices.view} editable={editable} a={a} />}
+      <ActNotes a={a} />
+    </section>
   );
 }
 

@@ -3,6 +3,8 @@ import { api, fmtDate } from '../api';
 import type { DirectoryPerson, PersonPage } from '../types';
 import { Spinner } from './common';
 import { Name } from './people';
+import { ActNotes, ReviewItems, VoiceProfileCard, VoicesError, readOnlyWhy, useAct, useEditable, useVoices } from './voices';
+import type { VoicesView } from '../types';
 
 // PersonView is a person's page: who they are (Microsoft 365 directory),
 // what they look and sound like (from Tomoe's recordings), and what the
@@ -83,8 +85,35 @@ export function PersonView({ id, scope, onPick, onOpenItem, onTopic }: {
         ))}</ul>
       </>}
 
+      <PersonVoice names={[p.name, ...p.names]} />
+
       {p.names.length > 1 && <div className="dim small">also known as {p.names.filter((n) => n !== p.name.toLowerCase()).slice(0, 6).map((n, i) => <span key={n}>{i > 0 && ', '}<Name name={n} /></span>)}</div>}
     </div>
+  );
+}
+
+// PersonVoice is the recorder's voice profile for this person, matched by
+// name, with "Same person?" pairs it is in.
+function PersonVoice({ names }: { names: string[] }) {
+  const { view, err } = useVoices();
+  const a = useAct();
+  const editable = useEditable();
+  const fold = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  const want = new Set(names.map(fold));
+  const profiles = (view?.profiles ?? []).filter((v) => want.has(fold(v.name)));
+  if (err) return <><div className="section-head"><span>Voice</span></div><VoicesError err={err} /></>;
+  if (!view || profiles.length === 0) return null;
+  const ids = new Set(profiles.map((x) => x.id));
+  const pairs: VoicesView = { ...view, namedByVoice: [], doubts: [], unknown: [], pairs: (view.pairs ?? []).filter((x) => ids.has(x.a) || ids.has(x.b)) };
+  const all = (view.profiles ?? []).map((x) => x.name);
+  return (
+    <>
+      <div className="section-head"><span>Voice</span></div>
+      {!editable && <div className="dim small">{readOnlyWhy}</div>}
+      {profiles.map((v) => <VoiceProfileCard key={v.model + '/' + v.id} p={v} names={all} editable={editable} a={a} />)}
+      <ReviewItems view={pairs} editable={editable} a={a} />
+      <ActNotes a={a} />
+    </>
   );
 }
 

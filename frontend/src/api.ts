@@ -1,6 +1,7 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
 import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
+import type { LookView, MeetingSpeakers, RecDiag, RecordingSettings, RecorderView, RecSources, RecStatus, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -93,7 +94,33 @@ export const api = {
   headshot: (id: string, scope: string): Promise<string> => app().Headshot(id, scope),
   personPage: (id: string, scope: string): Promise<PersonPage | null> => app().PersonPage(id, scope),
   peopleNames: (scope: string): Promise<Record<string, string> | null> => app().PeopleNames(scope),
+  recorderState: (): Promise<RecorderView> => app().RecorderState(),
+  recorderStart: (): Promise<RecStatus> => app().RecorderStart(),
+  recorderStop: (): Promise<RecStatus> => app().RecorderStop(),
+  recorderSources: (): Promise<RecSources> => app().RecorderSources(),
+  recorderSetSource: (kind: string, id: string): Promise<RecStatus> => app().RecorderSetSource(kind, id),
+  recorderTools: (): Promise<ToolStatus[] | null> => app().RecorderTools(),
+  recorderFixTool: (id: string): Promise<void> => app().RecorderFixTool(id),
+  copyText: (s: string): Promise<void> => app().CopyText(s),
+  recorderDiags: (): Promise<RecDiag[] | null> => app().RecorderDiags(),
+  recorderLiveLooks: (): Promise<{ session: string; looks: LookView[] | null }> => app().RecorderLiveLooks(),
+  recorderLooks: (session: string): Promise<LookView[] | null> => app().RecorderLooks(session),
+  voices: (): Promise<VoicesView> => app().Voices(),
+  recorderSpeaker: (op: string, session: string, label: string, name = ''): Promise<void> => app().RecorderSpeaker(op, session, label, name),
+  recorderVoice: (op: string, args: VoiceArgs): Promise<void> => app().RecorderVoice(op, args),
+  learnSaved: (): Promise<number> => app().LearnSaved(),
+  discardedClip: (model: string, id: string, session: string): Promise<VoiceClip> => app().DiscardedClip(model, id, session),
+  meetingSpeakers: (itemId: string): Promise<MeetingSpeakers | null> => app().MeetingSpeakers(itemId),
+  deleteMeeting: (itemId: string): Promise<void> => app().DeleteMeeting(itemId),
+  recordingSettings: (): Promise<RecordingSettings> => app().RecordingSettings(),
+  setRecordingSetting: (table: string, key: string, value: boolean | number | string): Promise<void> => app().SetRecordingSetting(table, key, value),
+  setOfRecord: (v: string): Promise<void> => app().SetOfRecord(v),
 };
+
+// Recorder media, served by the app (internal/gui recorderMedia).
+export const clipURL = (c: VoiceClip) => `/recorder-media/clip?session=${encodeURIComponent(c.session)}&start=${c.start}&end=${c.end}`;
+export const tileURL = (session: string, look: number) => `/recorder-media/tile/${encodeURIComponent(session)}/${look}`;
+export const thumbURL = (session: string, look: number) => `/recorder-media/thumb/${encodeURIComponent(session)}/${look}`;
 
 export function on<T>(event: string, fn: (data: T) => void): () => void {
   if (!window.runtime) return () => {};

@@ -172,9 +172,21 @@ func (p *Profile) LastHeard() time.Time {
 	return t
 }
 
-func (p *Profile) refresh() {
-	v := p.Voice()
+func (p *Profile) refresh(minLearn int) {
+	v := p.LearnedVoice(minLearn)
 	p.centroid, p.n = v.Centroid(), v.N
+}
+
+// LearnedVoice is the profile's voice from the meetings with at least
+// minLearn fingerprints (all of them with 0): what identifies it.
+func (p *Profile) LearnedVoice(minLearn int) Voice {
+	var v Voice
+	for _, h := range p.Meetings {
+		if h.Voice.N >= minLearn {
+			v.Merge(h.Voice)
+		}
+	}
+	return v
 }
 
 // Params are the rules for naming a voice from the profiles.
@@ -185,6 +197,13 @@ type Params struct {
 	Margin float64
 	// MinFingerprints is the least a voice, and a profile, must have.
 	MinFingerprints int
+	// MinLearn is the least a meeting's voice must have to teach a
+	// profile, and to count in its voice and its meetings. Fewer is a few
+	// seconds, whose average is noise: on 2026-11-12 every meeting at 8-9
+	// fingerprints scored badly against its own (correct) profile, none
+	// from 10 up did. Such a voice still names a speaker (MinFingerprints);
+	// it just doesn't teach. 8 (MinFingerprints): learn from any, as before.
+	MinLearn int
 	// MinMeetings is how many meetings a profile must be heard in before
 	// it names anyone, unless the user confirmed it (or named the person
 	// themselves in one): one meeting's misread tile shouldn't name
@@ -202,7 +221,7 @@ type Params struct {
 
 // DefaultParams are measured on saved meetings (see the package comment).
 func DefaultParams() Params {
-	return Params{Threshold: 0.7, Margin: 0.1, MinFingerprints: 8, MinMeetings: 2, LearnFloor: 0.5, LearnFloorAfter: 30}
+	return Params{Threshold: 0.7, Margin: 0.1, MinFingerprints: 8, MinLearn: 10, MinMeetings: 2, LearnFloor: 0.5, LearnFloorAfter: 30}
 }
 
 // Store is the profiles on disk. Safe for concurrent use.
@@ -237,7 +256,17 @@ func Open(path string, same func(a, b string) bool, params Params) (*Store, erro
 func (s *Store) SetParams(p Params) {
 	s.mu.Lock()
 	s.params = p
+	for _, pr := range s.profiles {
+		pr.refresh(p.MinLearn)
+	}
 	s.mu.Unlock()
+}
+
+// MinLearn is the store's MinLearn.
+func (s *Store) MinLearn() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.params.MinLearn
 }
 
 func (s *Store) load() error {
@@ -258,7 +287,7 @@ func (s *Store) load() error {
 		return fmt.Errorf("voice profiles %s: %w", s.path, err)
 	}
 	for _, p := range f.Profiles {
-		p.refresh()
+		p.refresh(s.params.MinLearn)
 	}
 	s.profiles, s.forgotten, s.modTime = f.Profiles, f.Forgotten, st.ModTime()
 	return nil
@@ -349,7 +378,7 @@ func (s *Store) Learn(sessionID string, at time.Time, learned []Learned) ([]stri
 	}
 	var done []string
 	for i, l := range learned {
-		if l.Name == "" || last[l.Name] != i || l.Voice.N < s.params.MinFingerprints || s.forgottenLocked(l.Name) {
+		if l.Name == "" || last[l.Name] != i || l.Voice.N < max(s.params.MinFingerprints, s.params.MinLearn) || s.forgottenLocked(l.Name) {
 			continue
 		}
 		p, ok := s.pickLocked(sessionID, l)
@@ -367,7 +396,7 @@ func (s *Store) Learn(sessionID string, at time.Time, learned []Learned) ([]stri
 			}
 		}
 		p.Meetings = append(kept, Heard{Session: sessionID, At: at, Source: l.Source, Voice: l.Voice, Clip: l.Clip})
-		p.refresh()
+		p.refresh(s.params.MinLearn)
 		done = append(done, p.Name)
 	}
 	if len(done) == 0 {
@@ -584,15 +613,17 @@ func (s *Store) inUseLocked(p *Profile) bool {
 	if p.n < s.params.MinFingerprints {
 		return false
 	}
-	if p.Confirmed || len(p.Meetings) >= s.params.MinMeetings {
-		return true
-	}
+	learnt := 0
 	for _, h := range p.Meetings {
+		if h.Voice.N < s.params.MinLearn {
+			continue
+		}
 		if h.Source == FromNamed {
 			return true
 		}
+		learnt++
 	}
-	return false
+	return p.Confirmed || learnt >= s.params.MinMeetings
 }
 
 // Confirm records that the profile is the person's voice.
@@ -656,7 +687,7 @@ func (s *Store) StartOver(id string) error {
 	}
 	p.Meetings = nil
 	p.Confirmed = false
-	p.refresh()
+	p.refresh(s.params.MinLearn)
 	return s.saveLocked()
 }
 
@@ -720,7 +751,7 @@ func (s *Store) Merge(into, from string) error {
 			}
 		}
 	}
-	a.refresh()
+	a.refresh(s.params.MinLearn)
 	s.removeLocked(from)
 	return s.saveLocked()
 }
@@ -792,7 +823,7 @@ func (s *Store) ForgetMeeting(id, sessionID string) error {
 	}
 	p.Meetings = kept
 	p.Excluded = appendOnce(p.Excluded, sessionID)
-	p.refresh()
+	p.refresh(s.params.MinLearn)
 	return s.saveLocked()
 }
 
@@ -981,7 +1012,7 @@ func (s *Store) Move(fromID, sessionID string, at time.Time, v Voice, toID, toNa
 	}
 	from.Meetings = kept
 	from.Excluded = appendOnce(from.Excluded, sessionID)
-	from.refresh()
+	from.refresh(s.params.MinLearn)
 
 	to.Excluded = removeString(to.Excluded, sessionID)
 	merged := false
@@ -995,7 +1026,7 @@ func (s *Store) Move(fromID, sessionID string, at time.Time, v Voice, toID, toNa
 	if !merged {
 		to.Meetings = append(to.Meetings, Heard{Session: sessionID, At: at, Source: FromNamed, Voice: v})
 	}
-	to.refresh()
+	to.refresh(s.params.MinLearn)
 	var keptForgotten []string
 	for _, f := range s.forgotten {
 		if !s.sameLocked(f, to.Name) {

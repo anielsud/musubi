@@ -3880,3 +3880,33 @@ The centroid change needs no undo (lossless), but a build from before it
 reads single-statement claims as having no centroid, and one from before
 f16 misreads f16 vectors: don't open an upgraded database with an older
 build.
+
+## 2026-11-12: a learning cutoff for voice profiles (fingerprints identify; enough of them teach)
+
+The owner listened to two meetings flagged "may be someone else" (Erik
+Hole, Joe Timko): both were the right person. Each had 8 fingerprints, a
+few seconds of voice. Agreement of each meeting with the rest of its
+profile, over the 300 meetings in profiles with 3+ meetings:
+
+| fingerprints | meetings | median agreement | below 0.6 |
+|---|---|---|---|
+| 8-9 | 3 | 0.59 | 2 |
+| 10-14 | 6 | 0.86 | 0 (min 0.73) |
+| 15-29 | 22 | 0.86-0.87 | 0 |
+| 30+ | 269 | 0.88-0.95 | 0 |
+
+The thin meeting barely moves its profile (Joe: cosine 1.00000 with and
+without it, 8 of 3,999 fingerprints; Erik: 0.99997) but its own average is
+noise (Joe's: 0.38 against the rest, his other meetings 0.80-0.95), and in
+a young profile it would count as a whole meeting towards MinMeetings.
+
+Change: `voices.Params.MinLearn` = 10 (`[meeting] voice_profile_min_learn`;
+8 restores learning from any voice). A voice under it still names a
+speaker (MinFingerprints 8 unchanged); it isn't learnt, and meetings
+already in a profile under it are left out of the profile's voice and its
+meeting count (kept on record, shown as "names the speaker, too little to
+learn from"). Effect on the 137 profiles: 5 meetings left out; one
+profile (two meetings, one of them 8 fingerprints) stops naming people
+until another meeting or the owner confirms it. 12 was considered and
+rejected: it would also drop five 11-fingerprint meetings the data shows
+are fine.

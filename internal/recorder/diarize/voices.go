@@ -191,6 +191,9 @@ func VoiceStore(m config.MeetingConfig, model string) (*voices.Store, error) {
 	if m.VoiceProfileMinMeetings > 0 {
 		params.MinMeetings = m.VoiceProfileMinMeetings
 	}
+	if m.VoiceProfileMinLearn > 0 {
+		params.MinLearn = m.VoiceProfileMinLearn
+	}
 	if s := voiceStores[model]; s != nil {
 		s.SetParams(params)
 		return s, nil

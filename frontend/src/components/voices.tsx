@@ -16,13 +16,11 @@ export const readOnlyWhy = 'Corrections work here once Musubi records your meeti
 // A meeting less like the profile's other meetings than this is flagged:
 // across saved meetings, 95% of one person's meetings agree at 0.68 or more.
 const agreeFlag = 0.6;
-// Below this many fingerprints (a few seconds of voice) a meeting's score
-// against the others is noise: it reads low even for the right person, so
-// it isn't flagged.
-const minJudge = 30;
-// odd: a meeting worth checking: unlike the others on enough voice, and
-// not already confirmed by the owner.
-const odd = (h: { agreement: number; fingerprints: number; confirmed?: boolean }, n: number) => n > 1 && !h.confirmed && h.fingerprints >= minJudge && h.agreement < agreeFlag;
+// odd: a meeting worth checking: one that teaches the profile (learned:
+// enough voice; a few seconds score low even for the right person, so
+// they name speakers but don't teach) and sounds unlike the rest, not
+// already confirmed by the owner.
+const odd = (h: { agreement: number; learned?: boolean; confirmed?: boolean }, n: number) => n > 1 && !h.confirmed && h.learned !== false && h.agreement < agreeFlag;
 
 export function useVoices() {
   const [view, setView] = useState<VoicesView | null>(null);
@@ -433,7 +431,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
         <div className="voice-meetings">
           {heard.map((h) => {
             const check = odd(h, heard.length);
-            const thin = heard.length > 1 && h.fingerprints < minJudge;
+            const thin = h.learned === false;
             return (
               <div key={h.session} className="voice-row">
                 <Play clip={h.clip} />
@@ -443,7 +441,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
                   <div className={'small ' + (check ? 'warn' : 'dim')}>
                     {heard.length <= 1 ? 'Only meeting'
                       : h.confirmed ? `${Math.round(h.agreement * 100)}% like the other meetings · confirmed by you`
-                      : thin ? `${Math.round(h.agreement * 100)}% like the other meetings · too little voice to judge`
+                      : thin ? 'A few seconds of voice: names the speaker, too little to learn from'
                       : `${Math.round(h.agreement * 100)}% like the other meetings${check ? ': may be someone else' : ''}`}
                   </div>
                 </div>

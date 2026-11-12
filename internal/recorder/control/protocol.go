@@ -230,6 +230,9 @@ type VoiceMeetingView struct {
 	Clip         VoiceClip `json:"clip"`
 	Tiles        []TileRef `json:"tiles"`
 	Confirmed    bool      `json:"confirmed,omitempty"`
+	// Learned: the meeting has enough voice to teach the profile; a
+	// shorter one names the speaker but isn't in the profile's voice.
+	Learned bool `json:"learned"`
 }
 
 type VoiceProfileView struct {

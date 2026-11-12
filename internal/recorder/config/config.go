@@ -196,6 +196,10 @@ type MeetingConfig struct {
 	// heard in this many meetings, unless the user confirmed it or named
 	// the person themselves (1: any profile names voices, as before).
 	VoiceProfileMinMeetings int `toml:"voice_profile_min_meetings"`
+	// VoiceProfileMinLearn: the least fingerprints a meeting's voice needs
+	// to teach a profile (voices.Params.MinLearn); fewer still names a
+	// speaker. 8: learn from any voice, as before.
+	VoiceProfileMinLearn int `toml:"voice_profile_min_learn"`
 	// RefineSpeakerCuts, after each meeting is saved, moves each cut
 	// between back-to-back speakers to where the voice changes, from short
 	// fingerprints across it (a low-priority job, about 2 minutes of one
@@ -376,6 +380,7 @@ func DefaultConfig() *Config {
 		VoiceProfileThreshold:   0.7,
 		VoiceProfileMargin:      0.1,
 		VoiceProfileMinMeetings: 2,
+		VoiceProfileMinLearn:    10,
 		SnapReadsToInvitees:     true,
 		AutoSave:                true,
 		AutoDetect:              true,

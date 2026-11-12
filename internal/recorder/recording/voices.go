@@ -95,14 +95,16 @@ func (a *Recorder) Voices() (*VoicesView, error) {
 		return nil, err
 	}
 	for model, s := range stores {
+		minLearn := s.MinLearn()
 		for _, p := range s.Profiles() {
-			v := VoiceProfileView{Model: model, ID: p.ID, Name: p.Name, Meetings: len(p.Meetings), Fingerprints: p.Voice().N, LastHeard: p.LastHeard(),
+			v := VoiceProfileView{Model: model, ID: p.ID, Name: p.Name, Meetings: len(p.Meetings), Fingerprints: p.LearnedVoice(minLearn).N, LastHeard: p.LastHeard(),
 				Heard: []VoiceMeetingView{}, Rejected: len(p.Rejected), StartedOver: len(p.Meetings) == 0 && len(p.Excluded) > 0,
 				InUse: s.InUse(&p), Confirmed: p.Confirmed}
 			for i, h := range p.Meetings {
+				// Against the meetings that teach the profile, as names are.
 				var rest voices.Voice
 				for j, o := range p.Meetings {
-					if j != i {
+					if j != i && o.Voice.N >= minLearn {
 						rest.Merge(o.Voice)
 					}
 				}
@@ -110,7 +112,7 @@ func (a *Recorder) Voices() (*VoicesView, error) {
 				if rest.N > 0 {
 					agree = voices.Similarity(h.Voice.Centroid(), rest.Centroid())
 				}
-				v.Heard = append(v.Heard, VoiceMeetingView{Session: h.Session, Title: titles[h.Session], At: h.At, Source: h.Source, Fingerprints: h.Voice.N, Agreement: agree, Confirmed: h.Confirmed, Clip: VoiceClip{Session: h.Session, Start: h.Clip.Start, End: h.Clip.End},
+				v.Heard = append(v.Heard, VoiceMeetingView{Session: h.Session, Title: titles[h.Session], At: h.At, Source: h.Source, Fingerprints: h.Voice.N, Agreement: agree, Confirmed: h.Confirmed, Learned: h.Voice.N >= minLearn, Clip: VoiceClip{Session: h.Session, Start: h.Clip.Start, End: h.Clip.End},
 					Tiles: tilesOf(h.Session, append([]string{p.Name}, p.Aliases...), tilesPerMeeting)})
 			}
 			sort.Slice(v.Heard, func(i, j int) bool { return v.Heard[i].At.After(v.Heard[j].At) })

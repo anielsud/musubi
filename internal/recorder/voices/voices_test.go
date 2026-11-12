@@ -114,7 +114,7 @@ func TestLearnReplacesTheMeetingAndKeepsUnlikeVoicesApart(t *testing.T) {
 	}
 	// A misread name, or another Ilse: the voice is nothing like the
 	// profile's, so it starts its own profile instead of being dropped.
-	names, _ := s.Learn("m3", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(10, unit(3, 2, 0))}})
+	names, _ := s.Learn("m3", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(14, unit(3, 2, 0))}})
 	ps = s.Profiles()
 	if len(names) != 1 || len(ps) != 2 {
 		t.Fatalf("an unlike voice should start a second profile: %v, %+v", names, ps)
@@ -134,8 +134,8 @@ func TestLearnPicksTheLikestSameNamedProfile(t *testing.T) {
 		t.Fatalf("%d profiles, want 2: a young profile also keeps an unlike voice out", n)
 	}
 	// Each later meeting joins the Ilse it sounds like.
-	_, _ = s.Learn("m3", time.Now(), []Learned{{Name: "ilse novak", Voice: voiceOf(10, unit(2, 3, 0.1))}})
-	_, _ = s.Learn("m4", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(10, unit(0, 1, 0.1))}})
+	_, _ = s.Learn("m3", time.Now(), []Learned{{Name: "ilse novak", Voice: voiceOf(14, unit(2, 3, 0.1))}})
+	_, _ = s.Learn("m4", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(14, unit(0, 1, 0.1))}})
 	ps := s.Profiles()
 	if len(ps) != 2 {
 		t.Fatalf("%d profiles, want 2", len(ps))
@@ -161,8 +161,8 @@ func TestLearnPicksTheLikestSameNamedProfile(t *testing.T) {
 	}
 	// A name given twice keeps the last voice (the user's naming wins).
 	_, _ = s.Learn("m5", time.Now(), []Learned{
-		{Name: "Ilse Novak", Source: FromTile, Voice: voiceOf(10, unit(3, 1, 0))},
-		{Name: "Ilse Novak", Source: FromNamed, Voice: voiceOf(10, unit(0, 1, 0.05))},
+		{Name: "Ilse Novak", Source: FromTile, Voice: voiceOf(14, unit(3, 1, 0))},
+		{Name: "Ilse Novak", Source: FromNamed, Voice: voiceOf(14, unit(0, 1, 0.05))},
 	})
 	if n := len(s.Profiles()); n != 2 {
 		t.Errorf("%d profiles after a name given twice, want 2", n)
@@ -491,5 +491,31 @@ func TestConfirmMeeting(t *testing.T) {
 	}
 	if err := s.ConfirmMeeting(p.ID, "m9"); err == nil {
 		t.Error("confirmed a meeting the profile never heard")
+	}
+}
+
+// A few seconds of voice names a speaker but doesn't teach: a voice under
+// MinLearn isn't learnt, and one already in a profile (learnt before the
+// cutoff) is left out of its voice and its meeting count.
+func TestThinVoicesDontTeach(t *testing.T) {
+	s, _ := open(t)
+	params := DefaultParams() // MinMeetings 2: does a thin meeting count?
+	s.SetParams(params)
+	if names, _ := s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(9, unit(0, 1, 0))}}); len(names) != 0 || len(s.Profiles()) != 0 {
+		t.Fatalf("learnt from 9 fingerprints: %v", names)
+	}
+	_, _ = s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(40, unit(0, 1, 0))}})
+	// An old thin meeting, as profiles learnt with the earlier floor hold.
+	s.mu.Lock()
+	p := s.profiles[0]
+	p.Meetings = append(p.Meetings, Heard{Session: "m2", At: time.Now(), Voice: voiceOf(8, unit(1, 0, 0))})
+	p.refresh(s.params.MinLearn)
+	s.mu.Unlock()
+	got := s.Profiles()[0]
+	if got.LearnedVoice(s.MinLearn()).N != 40 {
+		t.Errorf("thin meeting in the voice: %d fingerprints", got.LearnedVoice(s.MinLearn()).N)
+	}
+	if s.InUse(&got) {
+		t.Error("one learnt meeting and a thin one put the profile in use (MinMeetings 2)")
 	}
 }

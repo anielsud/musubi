@@ -837,7 +837,7 @@ export interface LookView {
 }
 export interface VoiceClip { session: string; start: number; end: number }
 export interface TileRef { session: string; look: number }
-export interface VoiceMeeting { session: string; title: string; at: string; source: string; fingerprints: number; agreement: number; clip: VoiceClip; tiles: TileRef[] | null; confirmed?: boolean }
+export interface VoiceMeeting { session: string; title: string; at: string; source: string; fingerprints: number; agreement: number; clip: VoiceClip; tiles: TileRef[] | null; confirmed?: boolean; learned?: boolean }
 export interface VoiceProfile {
   model: string; id: string; name: string; meetings: number; fingerprints: number; fromTiles: number; fromNamed: number;
   lastHeard: string; clip: VoiceClip; heard: VoiceMeeting[] | null; rejected: number; startedOver: boolean;

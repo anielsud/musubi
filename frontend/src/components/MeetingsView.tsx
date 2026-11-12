@@ -468,7 +468,7 @@ function MeetingRecording({ itemId }: { itemId: string }) {
   const reviews = openReviews(view, sp.session);
   const rename = (label: string, name: string) => {
     setRenaming(null);
-    a.act('rename/' + label, () => api.recorderSpeaker('rename_speaker', sp.session, label, name), `Named ${speakerName(label)} ${name}; the meeting is read again with the new name.`);
+    a.act('rename/' + label, () => api.recorderSpeaker('rename_speaker', sp.session, label, name), `Named ${speakerName(label)} ${name}.`);
   };
   return (
     <>

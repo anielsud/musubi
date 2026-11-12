@@ -88,7 +88,10 @@ type RecorderView struct {
 	Status   *control.Status `json:"status,omitempty"`
 	OfRecord string          `json:"ofRecord"`
 	Editable bool            `json:"editable"`
-	Error    string          `json:"error,omitempty"`
+	// Relabel: a renamed voice profile's name can go onto its meetings'
+	// labels ([recorder] relabel).
+	Relabel bool   `json:"relabel"`
+	Error   string `json:"error,omitempty"`
 }
 
 func (a *App) RecorderState() RecorderView {
@@ -97,7 +100,7 @@ func (a *App) RecorderState() RecorderView {
 		v.Error = a.err
 		return v
 	}
-	v.OfRecord, v.Editable = a.eng.Cfg.Recorder.OfRecord, a.eng.Cfg.MusubiRecords()
+	v.OfRecord, v.Editable, v.Relabel = a.eng.Cfg.Recorder.OfRecord, a.eng.Cfg.MusubiRecords(), a.eng.Cfg.Recorder.Relabel
 	var st control.Status
 	switch err := a.recCall(control.OpStatus, nil, &st); {
 	case errors.Is(err, control.ErrNotRunning):
@@ -212,8 +215,9 @@ var speakerOps = map[string]bool{
 }
 
 // RecorderSpeaker applies a speaker op to a session's label (session ""
-// for the recording in progress, rename only). A saved meeting's change
-// is then ingested, which re-extracts that meeting.
+// for the recording in progress, rename only). A saved meeting's rename
+// is relabelled in Musubi when it is only that ([recorder] relabel);
+// any other change is ingested, which re-extracts that meeting.
 func (a *App) RecorderSpeaker(op, session, label, name string) error {
 	if err := a.requireEditable(); err != nil {
 		return err
@@ -239,6 +243,11 @@ func (a *App) RecorderSpeaker(op, session, label, name string) error {
 	}
 	a.emit("voices:changed", nil)
 	if session != "" {
+		// A pure relabel is taken in without re-extracting the meeting
+		// ([recorder] relabel); anything else is imported again.
+		if op == control.OpRenameSpeaker && a.relabelRenamedSpeaker(session) {
+			return nil
+		}
 		a.updateSoon()
 	}
 	return nil

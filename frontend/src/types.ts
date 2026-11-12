@@ -824,7 +824,7 @@ export interface RecStatus {
   suggest_note?: string;
 }
 export interface RecorderWatch { down: boolean; since?: string; tried?: string; problem?: string }
-export interface RecorderView { running: boolean; status?: RecStatus; ofRecord: string; editable: boolean; error?: string }
+export interface RecorderView { running: boolean; status?: RecStatus; ofRecord: string; editable: boolean; relabel?: boolean; error?: string }
 export interface RecSources { mics: RecSource[] | null; system: RecSource[] | null }
 export interface ToolFix { kind: 'action' | 'command'; label: string; command?: string }
 export interface ToolStatus { id: string; name: string; group: string; ok: boolean; required: boolean; neededFor: string; detail: string; fix?: ToolFix }
@@ -841,7 +841,16 @@ export interface VoiceMeeting { session: string; title: string; at: string; sour
 export interface VoiceProfile {
   model: string; id: string; name: string; meetings: number; fingerprints: number; fromTiles: number; fromNamed: number;
   lastHeard: string; clip: VoiceClip; heard: VoiceMeeting[] | null; rejected: number; startedOver: boolean;
-  takenOut: VoiceMeeting[] | null; face?: TileRef; inUse: boolean; confirmed: boolean;
+  takenOut: VoiceMeeting[] | null; face?: TileRef; inUse: boolean; confirmed: boolean; aliases?: string[] | null;
+}
+// A speaker relabel (internal/engine RelabelResult): the recorder's part
+// and Musubi's, meeting by meeting.
+export interface RelabelChange { session: string; old_label: string; new_label: string; lines: number }
+export interface RelabelResult {
+  batch: string;
+  recorder?: { batch: string; changed: RelabelChange[] | null; left: { session: string; label: string; why: string }[] | null };
+  meetings: { item: string; lines: number }[] | null;
+  skipped?: Record<string, string> | null;
 }
 export interface NamedByVoice { session: string; title: string; at: string; label: string; name: string; model: string; profile: string; similarity: number; seconds: number; clip: VoiceClip; window?: string }
 export interface VoiceDoubt { session: string; title: string; at: string; label: string; window: string; name: string; similarity: number; seconds: number; clip: VoiceClip; noProfile: boolean }

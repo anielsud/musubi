@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, clipURL, on, tileURL } from '../api';
-import type { NamedByVoice, SameNamePair, TileRef, UnknownVoice, VoiceArgs, VoiceClip, VoiceDoubt, VoicePair, VoiceProfile, VoicesView } from '../types';
+import type { NamedByVoice, RelabelResult, SameNamePair, TileRef, UnknownVoice, VoiceArgs, VoiceClip, VoiceDoubt, VoicePair, VoiceProfile, VoicesView } from '../types';
 import { Spinner } from './common';
 import { MeetingLink, recordingItem, useItemsExist } from './nav';
 import { FullName } from './people';
@@ -46,6 +46,24 @@ export function useEditable() {
   }, []);
   return ok;
 }
+
+// useRelabel: a renamed profile's name can go onto its meetings' labels
+// ([recorder] relabel).
+export function useRelabel() {
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    const load = () => api.recorderState().then((r) => setOk(!!r.editable && !!r.relabel), () => setOk(false));
+    load();
+    return on('prefs:changed', load);
+  }, []);
+  return ok;
+}
+
+// relabelled is how many meetings a relabel changed.
+const relabelled = (r: RelabelResult) => new Set((r.recorder?.changed ?? []).map((c) => c.session)).size;
+
+// oldNames are a profile's earlier names still worth taking off labels.
+const oldNames = (p: VoiceProfile) => (p.aliases ?? []).filter((n) => n.trim() && n.trim().toLowerCase() !== p.name.trim().toLowerCase());
 
 // openReviews counts what waits for the owner's word.
 export function openReviews(v: VoicesView | null, session?: string) {
@@ -387,9 +405,24 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
   const [removing, setRemoving] = useState<string | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const relabel = useRelabel();
+  const [alsoMeetings, setAlsoMeetings] = useState(true);
+  const [done, setDone] = useState<RelabelResult | null>(null);
   const key = `r/${p.id}`;
   const busy = a.busy === key;
   const v = (op: string, extra: Partial<VoiceArgs>, done = '') => a.act(key, () => api.recorderVoice(op, { model: p.model, id: p.id, ...extra }), done);
+  // relabelMeetings puts the profile's name on its meetings' labels, in
+  // the recorder's files and Musubi's copies, with no model calls.
+  const relabelMeetings = async () => {
+    const r = await api.relabelProfileMeetings(p.model, p.id);
+    setDone(relabelled(r) > 0 ? r : null);
+    return r;
+  };
+  const rename = (n: string) => a.act(key, async () => {
+    await api.recorderVoice('rename_voice', { model: p.model, id: p.id, name: n });
+    if (relabel && alsoMeetings && p.meetings > 0) await relabelMeetings();
+  }, `Renamed to ${n}.`);
+  const undo = (r: RelabelResult) => a.act(key, async () => { await api.undoRelabel(r.batch); setDone(null); }, 'Put the old name back on those meetings.');
   const heard = p.heard ?? [], out = p.takenOut ?? [];
   // Which of its meetings Musubi has, asked once the meetings are open.
   const found = useItemsExist(open ? [...heard, ...out].map((h) => recordingItem(h.session)) : []);
@@ -404,7 +437,10 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
         <Play clip={p.clip} />
         <TileImg tile={p.face} size={44} title={`${p.name} as the meeting window showed them`} />
         <div className="voice-body">
-          {editing ? <NameForm busy={busy} start={p.name} button="Save" onName={(n) => { setEditing(false); v('rename_voice', { name: n }, `Renamed to ${n}.`); }} onCancel={() => setEditing(false)} /> : (
+          {editing ? <>
+            <NameForm busy={busy} start={p.name} button="Save" onName={(n) => { setEditing(false); rename(n); }} onCancel={() => setEditing(false)} />
+            {relabel && p.meetings > 0 && <label className="small"><input type="checkbox" checked={alsoMeetings} onChange={(e) => setAlsoMeetings(e.target.checked)} /> Also rename them in the {p.meetings} {p.meetings === 1 ? 'meeting' : 'meetings'} where their voice was recognised</label>}
+          </> : (
             <div><b>Voice: <FullName name={p.name} /></b>
               {flagged > 0 && <span className="badge warn-badge" title="A meeting sounds unlike the rest: open the meetings to check"> {flagged} to check</span>}
               {!p.inUse && !p.startedOver && p.meetings > 0 && <span className="badge" title="Heard in one meeting: it names nobody until heard in another, or you confirm the clip"> not used yet</span>}
@@ -420,11 +456,18 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
           <div className="voice-actions">
             {!p.inUse && !p.startedOver && p.meetings > 0 && <button className="primary" disabled={busy} title="The clip is them: use this profile now" onClick={() => v('confirm_voice', {}, `${p.name}'s voice now names speakers.`)}>Confirm</button>}
             <button disabled={busy} onClick={() => setEditing(true)}>Rename</button>
+            {relabel && oldNames(p).length > 0 && p.meetings > 0 && <button disabled={busy} title={`Put “${p.name}” on the speaker labels that still say ${oldNames(p).map((n) => `“${n}”`).join(' or ')}, in the meetings where this voice was recognised`} onClick={() => a.act(key, relabelMeetings)}>Rename in meetings</button>}
             <button disabled={busy || p.startedOver} onClick={() => setConfirming('startOver')}>Start over</button>
             <button disabled={busy} onClick={() => setConfirming('forget')}>Forget</button>
           </div>
         )}
       </div>
+      {done && (
+        <div className="confirm-row">
+          <span className="small">Renamed in {relabelled(done)} {relabelled(done) === 1 ? 'meeting' : 'meetings'}{(done.recorder?.left ?? []).length > 0 && ` · ${(done.recorder?.left ?? []).length} other ${(done.recorder?.left ?? []).length === 1 ? 'speaker' : 'speakers'} with the old name left as they were`}{Object.keys(done.skipped ?? {}).length > 0 && ` · ${Object.keys(done.skipped ?? {}).length} to take in at the next update`}</span>
+          <button disabled={busy} onClick={() => undo(done)}>Undo</button><button onClick={() => setDone(null)}>OK</button>
+        </div>
+      )}
       {confirming === 'forget' && confirmRow('Forget this voice for good? The name won’t be learnt again unless you name someone it.', 'Forget', () => { setConfirming(null); v('forget_voice', {}, `Forgot ${p.name}'s voice.`); }, () => setConfirming(null))}
       {confirming === 'startOver' && confirmRow('Drop what’s learnt so far and learn from new meetings only?', 'Start over', () => { setConfirming(null); v('start_over', {}, `${p.name} starts over.`); }, () => setConfirming(null))}
       {open && (

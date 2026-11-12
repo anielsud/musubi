@@ -10,6 +10,7 @@ import { SettingsView } from './components/SettingsView';
 import { PeopleProvider } from './components/people';
 import { SourceDrawer, type SourceRef } from './components/SourceDrawer';
 import { DiagPanel } from './components/DiagPanel';
+import { RecordButton } from './components/recorder';
 import { SelectionMenu, type Picked } from './components/SelectionMenu';
 
 type View = 'live' | 'meetings' | 'to-do' | 'explore' | 'status' | 'settings';
@@ -101,6 +102,7 @@ export function App() {
             {v}
           </button>
         ))}
+        <span className="tabs-end"><RecordButton /></span>
       </nav>
 
       <PeopleProvider scope={scope} onOpen={(id) => { setSource(null); openEntity(id); }}>

@@ -61,23 +61,47 @@ function elapsed(from: string | undefined, now: number) {
   return h ? `${h}:${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}` : `${m}:${String(s % 60).padStart(2, '0')}`;
 }
 
-// RecordingCard is the Status tab's recorder: recording or idle, which
-// meeting and for how long, Start and Stop, the sources, and its health
-// with each fix.
-export function RecordingCard() {
+// RecordButton sits at the right of the top tabs: Record for a meeting
+// the recorder didn't notice, and while recording, the time and Stop.
+export function RecordButton() {
   const rec = useRecorder();
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [stopping, setStopping] = useState(false);
+  const recording = !!rec?.status?.recording;
+  useEffect(() => {
+    if (!recording) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [recording]);
+  const run = (f: () => Promise<unknown>) => {
+    setBusy(true);
+    f().then(() => setBusy(false), (e) => { setBusy(false); alert(String(e)); });
+  };
+  if (!rec?.running || !rec.status) {
+    return <button className="rec-btn" disabled title="The recorder is not running (Status)">● Record</button>;
+  }
+  const st = rec.status;
+  if (!recording) {
+    return <button className="rec-btn" disabled={busy} title="Start recording: for a meeting it didn't notice" onClick={() => run(api.recorderStart)}>{busy ? <Spinner /> : '●'} Record</button>;
+  }
+  const stop = () => { if (confirm('Stop recording this meeting? What is recorded so far is saved.')) run(api.recorderStop); };
+  return (
+    <button className="rec-btn on" disabled={busy} title={`Recording ${st.session?.title || 'this meeting'}: click to stop`} onClick={stop}>
+      {busy ? <Spinner /> : '■'} {elapsed(st.started_at || st.session?.created_at, now) || 'Stop'}
+    </button>
+  );
+}
+
+// RecordingCard is the Status tab's recorder: recording or idle, which
+// meeting and for how long, the sources, and its health with each fix.
+// Start and Stop are the record button by the tabs.
+export function RecordingCard() {
+  const rec = useRecorder();
+  const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  const run = (f: () => Promise<unknown>) => {
-    setBusy(true); setErr(''); setStopping(false);
-    f().then(() => setBusy(false), (e) => { setBusy(false); setErr(String(e)); });
-  };
   if (!rec) return null;
   const st = rec.status;
   const from = rec.ofRecord === 'musubi' ? 'this recorder' : 'Tomoe';
@@ -101,18 +125,6 @@ export function RecordingCard() {
           <Row k="microphone" v={st.mic?.name || '—'} />
           <Row k="meeting audio" v={st.system?.name || '—'} />
           {st.busy && <div className="dim small"><Spinner /> {st.busy}</div>}
-          <div className="row-buttons">
-            {!st.recording && <button disabled={busy} onClick={() => run(api.recorderStart)} title="For a meeting it didn't notice">Start recording</button>}
-            {st.recording && !stopping && <button disabled={busy} onClick={() => setStopping(true)} title="For a recording started by mistake, or a meeting that is over">Stop</button>}
-            {stopping && (
-              <span className="confirm-row">
-                <span className="small">Stop recording this meeting? What is recorded so far is saved.</span>
-                <button className="primary" disabled={busy} onClick={() => run(api.recorderStop)}>Stop</button>
-                <button onClick={() => setStopping(false)}>Keep recording</button>
-              </span>
-            )}
-          </div>
-          {err && <div className="error small">{err}</div>}
           <Health health={st.health ?? []} />
         </>
       )}
@@ -174,7 +186,6 @@ export function LabellingPane() {
   }, []);
   return (
     <div className="labelling">
-      <div className="diag-title">Who&apos;s speaking</div>
       <div className="labelling-list">
         {ds.length === 0 && <div className="empty">While a meeting is recorded, each line&apos;s speaker and why show up here.</div>}
         {ds.slice().reverse().map((d, i) => (

@@ -30,7 +30,10 @@ export function RecordingTab() {
           {g.fields.map((f) => <Field key={f.table + '.' + f.key} f={f} src={src} />)}
         </section>
       ))}
-      <p className="dim small">Settings not changed here come from {s.tomoeConfig}. The recorder takes a change in at once, or from the next recording for what can&apos;t change mid-meeting.</p>
+      <p className="dim small">
+        Settings not changed here come from Tomoe&apos;s config ({s.tomoeConfig}), which the recorder reads with these on top. A change applies at once,
+        or from the next recording for what can&apos;t change mid-meeting; one marked &ldquo;after a restart&rdquo; waits until the recorder restarts (Status says when one is waiting).
+      </p>
     </>
   );
 }
@@ -138,7 +141,7 @@ function Field({ f, src }: { f: RecField; src: RecSources | null }) {
   return (
     <div className="pref">
       <label className="pref-main">
-        <span className="pref-label">{f.label}{!f.set && <span className="dim small" title="Not set here: Tomoe's value"> · as Tomoe</span>}</span>
+        <span className="pref-label">{f.label}{!f.set && <span className="dim small" title="Not set here: Tomoe's value"> · as Tomoe</span>}{f.restart && <span className="dim small" title="The recorder reads this when it starts"> · after a restart</span>}</span>
         <span className="pref-input">{input}{state === 'saving' ? <Spinner /> : state === 'saved' ? <span className="ok-text small"> ✓</span> : null}</span>
       </label>
       {f.help && <div className="dim small">{f.help}</div>}

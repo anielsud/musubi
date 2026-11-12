@@ -829,6 +829,6 @@ export interface VoiceArgs { model: string; id: string; other?: string; session?
 export interface SpeakerCount { label: string; lines: number; seconds: number }
 export interface MeetingSpeakers { session: string; speakers: SpeakerCount[]; editable: boolean; why?: string }
 export interface RecOption { value: string; label: string }
-export interface RecField { table: string; key: string; label: string; help?: string; type: 'bool' | 'int' | 'float' | 'string' | 'select'; step?: number; min: number; options?: RecOption[]; value: unknown; set: boolean }
+export interface RecField { table: string; key: string; label: string; help?: string; type: 'bool' | 'int' | 'float' | 'string' | 'select'; step?: number; min: number; options?: RecOption[]; value: unknown; set: boolean; restart?: boolean }
 export interface RecGroup { title: string; fields: RecField[] }
 export interface RecordingSettings { ofRecord: string; since: string; groups: RecGroup[]; tomoeConfig: string }

@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../api';
 import type { AppStatus, M365View, ProviderView, QueueView } from '../types';
 import { checkDoes, Spinner } from './common';
-import { LabellingPane, RecordingCard } from './recorder';
-import { DiagPanel } from './DiagPanel';
+import { RecordingCard } from './recorder';
 
 const levels = ['public', 'internal', 'confidential', 'restricted'];
 
@@ -56,13 +55,6 @@ export function StatusView({ status }: { status: AppStatus | null }) {
       </button>
       <p className="dim small">{checkDoes(status)}</p>
 
-      <section>
-        <div className="section-head"><span>Diagnostics</span><span className="dim small">the recorder&apos;s labelling, and Musubi&apos;s steps</span></div>
-        <div className="status-diag">
-          <LabellingPane />
-          <DiagPanel embedded />
-        </div>
-      </section>
     </div>
   );
 }

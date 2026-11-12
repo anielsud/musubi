@@ -33,6 +33,9 @@ type RecField struct {
 	Value   any         `json:"value"`
 	// Set: Musubi's config sets it; otherwise Value is Tomoe's.
 	Set bool `json:"set"`
+	// Restart: the recorder reads it only when it starts (its engines are
+	// built with it), so a change waits for a restart.
+	Restart bool `json:"restart,omitempty"`
 }
 
 type RecOption struct {
@@ -49,7 +52,7 @@ var recGroups = []RecGroup{
 	{"Sources", []RecField{
 		{Table: "audio", Key: "device", Label: "Microphone", Type: "string", Help: "The microphone a recording starts with; \"default\" is the system's."},
 		{Table: "meeting", Key: "monitor_device", Label: "Meeting audio", Type: "string", Help: "The second source a recording starts with: \"everything\" (all system audio) or \"none\" (microphone only)."},
-		{Table: "meeting", Key: "auto_detect", Label: "Notice meetings by themselves", Type: "bool", Help: "Start recording when an app starts using the microphone and speaker together."},
+		{Restart: true, Table: "meeting", Key: "auto_detect", Label: "Notice meetings by themselves", Type: "bool", Help: "Start recording when an app starts using the microphone and speaker together."},
 	}},
 	{"Meeting window", []RecField{
 		{Table: "meeting", Key: "video_hint_window", Label: "Watch", Type: "string", Help: "Which window to read the active speaker from: empty for the Teams or Zoom meeting window, \"none\" for off, or an app's name."},
@@ -57,18 +60,18 @@ var recGroups = []RecGroup{
 		{Table: "meeting", Key: "video_hint_check_interval", Label: "Look while checking", Type: "float", Step: 0.25, Min: 0.25, Help: "Seconds between looks when everyone speaking already has a name."},
 	}},
 	{"Voices", []RecField{
-		{Table: "meeting", Key: "mic_voices", Label: "Other voices on your microphone", Type: "bool", Help: "Tell your voice from others' on your own microphone (someone beside you, or an in-person meeting). Off: everything on the microphone is you."},
+		{Restart: true, Table: "meeting", Key: "mic_voices", Label: "Other voices on your microphone", Type: "bool", Help: "Tell your voice from others' on your own microphone (someone beside you, or an in-person meeting). Off: everything on the microphone is you."},
 		{Table: "meeting", Key: "voice_profiles", Label: "Voice profiles", Type: "bool", Help: "Learn each person's voice from meetings where their own tile was lit or you named them (fingerprints only, on this Mac), and name voices the meeting window can't."},
-		{Table: "meeting", Key: "speaker_model", Label: "Speaker voice model", Type: "select", Help: "Tells voices apart, live and after the meeting.", Options: []RecOption{
+		{Restart: true, Table: "meeting", Key: "speaker_model", Label: "Speaker voice model", Type: "select", Help: "Tells voices apart, live and after the meeting.", Options: []RecOption{
 			{"auto", "Automatic (English-trained for English)"}, {"eres2net-en", "ERes2Net, English-trained"}, {"eres2net-base", "ERes2Net base"}}},
 	}},
 	{"Transcription", []RecField{
-		{Table: "transcription", Key: "model", Label: "Transcription model", Type: "select", Help: "Automatic uses Cohere Transcribe for English, the most accurate there; Parakeet is about 3x faster.", Options: []RecOption{
+		{Restart: true, Table: "transcription", Key: "model", Label: "Transcription model", Type: "select", Help: "Automatic uses Cohere Transcribe for English, the most accurate there; Parakeet is about 3x faster.", Options: []RecOption{
 			{"auto", "Automatic"}, {"cohere-transcribe", "Cohere Transcribe"}, {"parakeet-v2-en", "Parakeet v2, English only"}, {"parakeet-v3", "Parakeet v3"}}},
-		{Table: "transcription", Key: "two_pass", Label: "Live text while people speak", Type: "bool", Help: "Shows English meetings' text as it is spoken, refined when each utterance ends."},
-		{Table: "transcription", Key: "decoding_method", Label: "Decoding", Type: "select", Options: []RecOption{
+		{Restart: true, Table: "transcription", Key: "two_pass", Label: "Live text while people speak", Type: "bool", Help: "Shows English meetings' text as it is spoken, refined when each utterance ends."},
+		{Restart: true, Table: "transcription", Key: "decoding_method", Label: "Decoding", Type: "select", Options: []RecOption{
 			{"greedy_search", "Greedy (fastest)"}, {"modified_beam_search", "Beam search"}}},
-		{Table: "transcription", Key: "max_active_paths", Label: "Beam width", Type: "int", Min: 1, Help: "With beam search."},
+		{Restart: true, Table: "transcription", Key: "max_active_paths", Label: "Beam width", Type: "int", Min: 1, Help: "With beam search."},
 	}},
 	{"Meeting speakers", []RecField{
 		{Table: "meeting", Key: "speaker_threshold", Label: "Speaker match threshold", Type: "float", Step: 0.01, Help: "Higher splits voices into more speakers (0–1)."},

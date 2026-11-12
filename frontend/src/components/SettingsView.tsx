@@ -19,16 +19,18 @@ export function SettingsView({ status }: { status: AppStatus | null }) {
   });
   const pick = (t: Tab) => { setTab(t); try { localStorage.setItem('settings-tab', t); } catch { /* not kept */ } };
   return (
-    <div className="view status-page">
+    <div className="view status-page settings-page">
       <nav className="subtabs">
         {tabs.map(([t, label]) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => pick(t)}>{label}</button>)}
       </nav>
+      <div className="settings-body">
       {tab === 'accounts' && <><M365Card status={status} /><Prefs tab="accounts" /></>}
       {tab === 'providers' && <ProvidersTab />}
       {tab === 'models' && <ModelsTab />}
       {tab === 'processing' && <ProcessingTab />}
       {tab === 'recording' && <RecordingTab />}
       {tab === 'dataset' && <><StorageCard /><Prefs tab="dataset" /></>}
+      </div>
     </div>
   );
 }

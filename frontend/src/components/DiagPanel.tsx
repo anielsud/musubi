@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { on } from '../api';
-import { LookTimeline } from './recorder';
+import { LabellingPane, LookTimeline } from './recorder';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface Trace {
@@ -20,8 +20,9 @@ const filters: Record<string, string[]> = {
   model: ['llm', 'summary'],
   search: ['rank', 'search', 'brief'],
   input: ['feed', 'line', 'cycle', 'entities', 'phrases'],
-  // window: what the recorder saw of the meeting window (its looks), not
-  // Musubi's own steps.
+  // speakers and window are the recorder's, not Musubi's own steps: its
+  // live labelling, and what it saw of the meeting window (its looks).
+  speakers: [],
   window: [],
 };
 
@@ -33,9 +34,9 @@ export function mmss(s: number): string {
 
 // DiagPanel shows how the live panel is processing the conversation, step
 // by step, grouped by suggestion cycle, newest first; and, under
-// "window", what the recorder saw of the meeting window. Embedded, it
-// sits in a page (Status) rather than beside the app.
-export function DiagPanel({ embedded }: { embedded?: boolean } = {}) {
+// "speakers" and "window", the recorder's live labelling and what it saw
+// of the meeting window.
+export function DiagPanel() {
   const [traces, setTraces] = useState<Trace[]>([]);
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState<Record<number, boolean>>({});
@@ -62,7 +63,7 @@ export function DiagPanel({ embedded }: { embedded?: boolean } = {}) {
   }, [traces, filter]);
 
   return (
-    <aside className={'diag' + (embedded ? ' diag-embedded' : '')}>
+    <aside className="diag">
       <header className="diag-head">
         <div className="diag-title">How Musubi is thinking</div>
         <div className="diag-filters">
@@ -72,7 +73,7 @@ export function DiagPanel({ embedded }: { embedded?: boolean } = {}) {
         </div>
       </header>
 
-      {filter === 'window' ? <div className="diag-list"><LookTimeline /></div> : <>
+      {filter === 'speakers' ? <div className="diag-list"><LabellingPane /></div> : filter === 'window' ? <div className="diag-list"><LookTimeline /></div> : <>
       <section className="diag-stats">
         <Stat label="model runs" v={String(stats.cycles)} />
         <Stat label="lines in" v={`${stats.finals} final · ${stats.drafts} draft`} />

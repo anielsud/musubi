@@ -100,7 +100,9 @@ function PersonVoice({ names }: { names: string[] }) {
   const a = useAct();
   const editable = useEditable();
   const fold = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
-  const want = new Set(names.map(fold));
+  // The person's own name and other full names only: a bare first name
+  // ("kevin") would put a "Kevin" profile on every Kevin's page.
+  const want = new Set(names.map(fold).filter((n, i) => i === 0 || n.includes(' ')));
   const profiles = (view?.profiles ?? []).filter((v) => want.has(fold(v.name)));
   if (err) return <><div className="section-head"><span>Voice</span></div><VoicesError err={err} /></>;
   if (!view || profiles.length === 0) return null;

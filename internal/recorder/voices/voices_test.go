@@ -451,3 +451,28 @@ func TestMove(t *testing.T) {
 		t.Error("a move with no profile to move to")
 	}
 }
+
+// A bare first name matches every full name starting with it for
+// learning, but three people called Kevin are never offered as one.
+func TestSameNamedNeedsTheSameName(t *testing.T) {
+	prefix := func(a, b string) bool {
+		a, b = strings.ToLower(a), strings.ToLower(b)
+		return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
+	}
+	s, err := Open(filepath.Join(t.TempDir(), "v.json"), prefix, DefaultParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = s.Learn("m1", time.Now(), []Learned{
+		{Name: "Kevin Li", Voice: voiceOf(20, unit(1, 0, 0))},
+		{Name: "Kevin Goldsmith", Voice: voiceOf(20, unit(0, 1, 0))},
+	})
+	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Kevin", Voice: voiceOf(20, unit(0, 0, 1))}})
+	if got := s.SameNamed(); len(got) != 0 {
+		t.Fatalf("Kevin, Kevin Li and Kevin Goldsmith offered as one: %v", got)
+	}
+	_, _ = s.Learn("m3", time.Now(), []Learned{{Name: "kevin  li", Voice: voiceOf(20, unit(0, 1, 1))}})
+	if got := s.SameNamed(); len(got) != 1 || got[0].Name != "Kevin Li" {
+		t.Errorf("two Kevin Lis: %v", got)
+	}
+}

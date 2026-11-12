@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -827,14 +828,25 @@ func (s *Store) SameNamed() []Pair {
 }
 
 // sharedNameLocked is a name of a's that b has too ("" if none), a's
-// own name first.
+// own name first. Only the same name, ignoring case and spacing: the
+// loose match learning uses (a cut-off "Kevin Gold" for "Kevin
+// Goldsmith") paired a bare "Kevin" with every Kevin, three different
+// people (2026-11-12).
 func (s *Store) sharedNameLocked(a, b *Profile) string {
 	for _, n := range append([]string{a.Name}, a.Aliases...) {
-		if s.hasNameLocked(b, n) {
-			return n
+		for _, m := range append([]string{b.Name}, b.Aliases...) {
+			if sameExactName(n, m) {
+				return n
+			}
 		}
 	}
 	return ""
+}
+
+// sameExactName: the same name once case and spacing are set aside.
+func sameExactName(a, b string) bool {
+	norm := func(x string) string { return strings.ToLower(strings.Join(strings.Fields(x), " ")) }
+	return a != "" && norm(a) == norm(b)
 }
 
 // Closest is the profile most like v and how alike (nil if none).

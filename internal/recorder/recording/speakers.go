@@ -86,7 +86,7 @@ func (a *Recorder) editVoice(op string, p control.VoiceArgs) error {
 	case control.OpRemoveVoiceMeeting:
 		return a.RemoveVoiceMeeting(p.Model, p.ID, p.Session)
 	case control.OpMoveVoiceMeeting:
-		return a.MoveVoiceMeeting(p.Model, p.ID, p.Session, p.Name)
+		return a.MoveVoiceMeeting(p.Model, p.ID, p.Session, p.To, p.Name)
 	}
 	return fmt.Errorf("%w %q", control.ErrUnknownOp, op)
 }

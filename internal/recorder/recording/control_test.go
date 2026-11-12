@@ -15,8 +15,11 @@ import (
 
 	"github.com/anielsud/musubi/internal/recorder/config"
 	"github.com/anielsud/musubi/internal/recorder/control"
+	"github.com/anielsud/musubi/internal/recorder/diarize"
 	"github.com/anielsud/musubi/internal/recorder/livefeed"
+	"github.com/anielsud/musubi/internal/recorder/models"
 	"github.com/anielsud/musubi/internal/recorder/session"
+	"github.com/anielsud/musubi/internal/recorder/voices"
 )
 
 // shortDir is a short temporary folder for sockets (macOS limits their
@@ -356,6 +359,64 @@ func TestControlVoicesWithoutProfiles(t *testing.T) {
 	}
 	if err := c.call(t, control.OpVoiceClip, control.VoiceClip{Session: "v-2", Start: 1, End: 3}, nil); err == nil {
 		t.Error("a clip from a meeting without audio gave no error")
+	}
+}
+
+func TestControlSameNamedProfilesAndMoveByID(t *testing.T) {
+	c := newControlled(t)
+	saveSession(t, c.Recorder, synthetic("v-3"))
+	model := models.SpeakerModels[0].ID
+	store, err := diarize.VoiceStore(c.config().Meeting, model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	voice := func(axis int) voices.Voice {
+		var v voices.Voice
+		emb := make([]float32, 4)
+		emb[axis] = 1
+		for range 20 {
+			v.Add(emb)
+		}
+		return v
+	}
+	// Two people named alike: the second voice is unlike the first, so
+	// it gets a profile of its own.
+	_, _ = store.Learn("v-1", time.Now(), []voices.Learned{{Name: "Ana Example", Source: voices.FromTile, Voice: voice(0)}})
+	_, _ = store.Learn("v-3", time.Now(), []voices.Learned{{Name: "Ana Example", Source: voices.FromTile, Voice: voice(1)}})
+	_, _ = store.Learn("v-1", time.Now(), []voices.Learned{{Name: "Bo Example", Source: voices.FromTile, Voice: voice(2)}})
+	var v control.VoicesView
+	c.must(t, control.OpVoices, nil, &v)
+	if len(v.SameName) != 1 || v.SameName[0].Name != "Ana Example" || v.SameName[0].MeetingsA != 1 || v.SameName[0].MeetingsB != 1 {
+		t.Fatalf("sameName = %+v", v.SameName)
+	}
+	pair := v.SameName[0]
+	c.must(t, control.OpKeepApart, control.VoiceArgs{Model: model, ID: pair.A, Other: pair.B}, nil)
+	c.must(t, control.OpVoices, nil, &v)
+	if len(v.SameName) != 0 {
+		t.Errorf("after keeping them apart, sameName = %+v", v.SameName)
+	}
+
+	// Move v-3's meeting from one Ana to Bo, by Bo's ID.
+	ids := map[string]string{}
+	var from string
+	for _, p := range v.Profiles {
+		ids[p.Name] = p.ID
+		if p.Name == "Ana Example" && len(p.Heard) == 1 && p.Heard[0].Session == "v-3" {
+			from = p.ID
+		}
+	}
+	c.must(t, control.OpMoveVoiceMeeting, control.VoiceArgs{Model: model, ID: from, Session: "v-3", To: ids["Bo Example"]}, nil)
+	c.must(t, control.OpVoices, nil, &v)
+	for _, p := range v.Profiles {
+		if p.ID == ids["Bo Example"] && p.Meetings != 2 {
+			t.Errorf("Bo after the move: %d meetings", p.Meetings)
+		}
+		if p.ID == from && p.Meetings != 0 {
+			t.Errorf("the Ana it left: %d meetings", p.Meetings)
+		}
+	}
+	if err := c.call(t, control.OpMoveVoiceMeeting, control.VoiceArgs{Model: model, ID: ids["Bo Example"], Session: "v-3", To: "ffffffffffffffff"}, nil); err == nil {
+		t.Error("a move to a profile that doesn't exist gave no error")
 	}
 }
 

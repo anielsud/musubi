@@ -72,7 +72,7 @@ const (
 	OpStartOver          = "start_over"           // VoiceArgs → -
 	OpConfirmVoice       = "confirm_voice"        // VoiceArgs → -
 	OpRemoveVoiceMeeting = "remove_voice_meeting" // VoiceArgs (Session) → -
-	OpMoveVoiceMeeting   = "move_voice_meeting"   // VoiceArgs (Session, Name = to) → -
+	OpMoveVoiceMeeting   = "move_voice_meeting"   // VoiceArgs (Session, To = profile ID, or Name = a new profile's) → -
 	OpLearnSaved         = "learn_saved"          // - → Count
 	OpVoiceClip          = "voice_clip"           // VoiceClip → Media (audio/mp4)
 	OpDiscardedClip      = "discarded_clip"       // VoiceArgs (Session) → VoiceClip
@@ -170,6 +170,9 @@ type VoiceArgs struct {
 	Other   string `json:"other,omitempty"`
 	Session string `json:"session,omitempty"`
 	Name    string `json:"name,omitempty"`
+	// To is the profile a meeting moves to (move_voice_meeting); empty
+	// moves it to a new profile named Name.
+	To string `json:"to,omitempty"`
 }
 
 type LookArgs struct {
@@ -270,6 +273,21 @@ type VoicePairView struct {
 	Similarity float64 `json:"similarity"`
 }
 
+// SameNameView is two profiles that share a name the user hasn't kept
+// apart: one person or two? Similarity is -2 when either has nothing
+// learnt.
+type SameNameView struct {
+	Model      string    `json:"model"`
+	A          string    `json:"a"`
+	B          string    `json:"b"`
+	Name       string    `json:"name"`
+	Similarity float64   `json:"similarity"`
+	MeetingsA  int       `json:"meetingsA"`
+	MeetingsB  int       `json:"meetingsB"`
+	ClipA      VoiceClip `json:"clipA"`
+	ClipB      VoiceClip `json:"clipB"`
+}
+
 type UnknownVoice struct {
 	Session    string    `json:"session"`
 	Title      string    `json:"title"`
@@ -288,6 +306,8 @@ type VoicesView struct {
 	Unknown      []UnknownVoice     `json:"unknown"`
 	NamedByVoice []NamedByVoiceView `json:"namedByVoice"`
 	Doubts       []VoiceDoubtView   `json:"doubts"`
+	// SameName: profiles sharing a name (pairs here aren't in Pairs).
+	SameName []SameNameView `json:"sameName"`
 }
 
 // LookView is one meeting-window look (Tomoe's hint timeline entry),

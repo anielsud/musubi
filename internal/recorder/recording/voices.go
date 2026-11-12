@@ -35,6 +35,7 @@ type (
 	NamedByVoiceView = control.NamedByVoiceView
 	VoiceDoubtView   = control.VoiceDoubtView
 	VoicePairView    = control.VoicePairView
+	SameNameView     = control.SameNameView
 	UnknownVoice     = control.UnknownVoice
 	VoicesView       = control.VoicesView
 )
@@ -87,7 +88,7 @@ func (a *Recorder) voiceStores() (map[string]*voices.Store, error) {
 // Voices is the Voices page: every profile, likest pairs, and nameless
 // voices from recent meetings.
 func (a *Recorder) Voices() (*VoicesView, error) {
-	view := &VoicesView{Enabled: a.config().Meeting.VoiceProfiles, Profiles: []VoiceProfileView{}, Pairs: []VoicePairView{}, Unknown: []UnknownVoice{}, NamedByVoice: []NamedByVoiceView{}, Doubts: []VoiceDoubtView{}}
+	view := &VoicesView{Enabled: a.config().Meeting.VoiceProfiles, Profiles: []VoiceProfileView{}, Pairs: []VoicePairView{}, Unknown: []UnknownVoice{}, NamedByVoice: []NamedByVoiceView{}, Doubts: []VoiceDoubtView{}, SameName: []SameNameView{}}
 	titles := a.sessionTitles()
 	stores, err := a.voiceStores()
 	if err != nil {
@@ -137,12 +138,33 @@ func (a *Recorder) Voices() (*VoicesView, error) {
 			}
 			view.Profiles = append(view.Profiles, v)
 		}
+		// A same-named pair is asked about once, as "Two profiles named
+		// X?", not again as "Same person?".
+		asked := map[[2]string]bool{}
+		byID := map[string]*VoiceProfileView{}
+		for i := range view.Profiles {
+			if view.Profiles[i].Model == model {
+				byID[view.Profiles[i].ID] = &view.Profiles[i]
+			}
+		}
+		for _, pr := range s.SameNamed() {
+			a, b := byID[pr.A], byID[pr.B]
+			if a == nil || b == nil {
+				continue
+			}
+			asked[[2]string{pr.A, pr.B}], asked[[2]string{pr.B, pr.A}] = true, true
+			view.SameName = append(view.SameName, SameNameView{Model: model, A: pr.A, B: pr.B, Name: pr.Name, Similarity: pr.Similarity,
+				MeetingsA: a.Meetings, MeetingsB: b.Meetings, ClipA: a.Clip, ClipB: b.Clip})
+		}
 		for _, pr := range s.LookAlike(voices.DefaultParams().Threshold) {
-			view.Pairs = append(view.Pairs, VoicePairView{Model: model, A: pr.A, B: pr.B, Similarity: pr.Similarity})
+			if !asked[[2]string{pr.A, pr.B}] {
+				view.Pairs = append(view.Pairs, VoicePairView{Model: model, A: pr.A, B: pr.B, Similarity: pr.Similarity})
+			}
 		}
 	}
 	sort.SliceStable(view.Profiles, func(i, j int) bool { return view.Profiles[i].LastHeard.After(view.Profiles[j].LastHeard) })
 	sort.SliceStable(view.Pairs, func(i, j int) bool { return view.Pairs[i].Similarity > view.Pairs[j].Similarity })
+	sort.SliceStable(view.SameName, func(i, j int) bool { return view.SameName[i].Similarity > view.SameName[j].Similarity })
 	view.Unknown, view.NamedByVoice, view.Doubts = a.recentVoices(stores)
 	return view, nil
 }
@@ -710,11 +732,12 @@ func tilesOf(sessionID string, names []string, n int) []TileRef {
 }
 
 // MoveVoiceMeeting says what a profile learnt from a meeting was someone
-// else's: it teaches toName's profile instead (see voices.Store.Move). A
-// meeting already taken out is worked out again from the saved meeting.
-func (a *Recorder) MoveVoiceMeeting(model, id, sessionID, toName string) error {
-	if toName == "" {
-		return fmt.Errorf("a name is needed")
+// else's: it teaches the profile toID instead, or a new profile named
+// toName when toID is "" (see voices.Store.Move). A meeting already
+// taken out is worked out again from the saved meeting.
+func (a *Recorder) MoveVoiceMeeting(model, id, sessionID, toID, toName string) error {
+	if toID == "" && toName == "" {
+		return fmt.Errorf("a profile or a name is needed")
 	}
 	store, err := a.voiceStore(model)
 	if err != nil {
@@ -736,7 +759,7 @@ func (a *Recorder) MoveVoiceMeeting(model, id, sessionID, toName string) error {
 	}
 	for _, h := range prof.Meetings {
 		if h.Session == sessionID {
-			return store.Move(id, sessionID, sess.CreatedAt, h.Voice, toName)
+			return store.Move(id, sessionID, sess.CreatedAt, h.Voice, toID, toName)
 		}
 	}
 	dir := filepath.Join(config.SessionDir(), sessionID)
@@ -748,7 +771,7 @@ func (a *Recorder) MoveVoiceMeeting(model, id, sessionID, toName string) error {
 	for _, l := range diarize.VoicesFromTiles(p, savedHints(dir, sess, a.config().Meeting.SnapReadsToInvitees), info.Offset) {
 		for _, n := range names {
 			if diarize.SameName(l.Name, n) {
-				return store.Move(id, sessionID, sess.CreatedAt, l.Voice, toName)
+				return store.Move(id, sessionID, sess.CreatedAt, l.Voice, toID, toName)
 			}
 		}
 	}

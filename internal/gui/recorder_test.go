@@ -234,6 +234,30 @@ func TestSpeakerEditQueuesUpdate(t *testing.T) {
 	if va.Name != "Ana Ruiz" || va.Session != sessB {
 		t.Errorf("move sent %+v", va)
 	}
+	// To a profile by ID.
+	if err := a.RecorderVoice(control.OpMoveVoiceMeeting, control.VoiceArgs{Model: "m", ID: "p1", Session: sessB, To: "0a1b2c3d4e5f6071"}); err != nil {
+		t.Fatal(err)
+	}
+	json.Unmarshal(f.last().Args, &va)
+	if va.To != "0a1b2c3d4e5f6071" || va.Session != sessB {
+		t.Errorf("move by id sent %+v", va)
+	}
+	n = len(f.ops())
+	for _, bad := range []control.VoiceArgs{
+		{Model: "m", ID: "p1", Session: sessB},                      // nowhere to move to
+		{Model: "m", ID: "p1", Session: sessB, To: "../x"},          // not a profile id
+		{Model: "m", ID: "p1", Session: sessB, To: "zz", Name: "x"}, // not a profile id
+	} {
+		if err := a.RecorderVoice(control.OpMoveVoiceMeeting, bad); err == nil {
+			t.Errorf("move %+v accepted", bad)
+		}
+	}
+	if err := a.RecorderVoice(control.OpRenameVoice, control.VoiceArgs{Model: "m", ID: "p1", To: "0a1b", Name: "x"}); err == nil {
+		t.Error("to passed with a rename")
+	}
+	if len(f.ops()) != n {
+		t.Errorf("refused moves reached the recorder: %v", f.ops()[n:])
+	}
 }
 
 func TestRecorderMedia(t *testing.T) {

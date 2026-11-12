@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, clipURL, on, tileURL } from '../api';
-import type { NamedByVoice, TileRef, UnknownVoice, VoiceArgs, VoiceClip, VoiceDoubt, VoicePair, VoiceProfile, VoicesView } from '../types';
+import type { NamedByVoice, SameNamePair, TileRef, UnknownVoice, VoiceArgs, VoiceClip, VoiceDoubt, VoicePair, VoiceProfile, VoicesView } from '../types';
 import { Spinner } from './common';
 
 // Voices and speakers from the recorder's voice store: the review queue
-// (named by voice, window or voice, who's this, same person) and voice
+// (named by voice, window or voice, who's this, same person, two profiles
+// of one name) and voice
 // profiles, with each clip and the person's tile. Edits go through the
 // recorder and are offered only once Musubi's recorder is of record.
 
@@ -41,7 +42,7 @@ export function useEditable() {
 export function openReviews(v: VoicesView | null, session?: string) {
   if (!v) return 0;
   const f = <T extends { session: string }>(xs: T[] | null) => (xs ?? []).filter((x) => !session || x.session === session).length;
-  return f(v.namedByVoice) + f(v.doubts) + f(v.unknown) + (session ? 0 : (v.pairs ?? []).length);
+  return f(v.namedByVoice) + f(v.doubts) + f(v.unknown) + (session ? 0 : (v.pairs ?? []).length + (v.sameName ?? []).length);
 }
 
 export function VoicesError({ err }: { err: string }) {
@@ -123,6 +124,9 @@ export function ReviewItems({ view, session, editable, a, showTitle = true }: {
   const mine = <T extends { session: string }>(xs: T[] | null) => (xs ?? []).filter((x) => !session || x.session === session);
   const named = mine(view.namedByVoice), doubts = mine(view.doubts), unknown = mine(view.unknown);
   const pairs = session ? [] : view.pairs ?? [];
+  const sameName = session ? [] : view.sameName ?? [];
+  // After "Different people", one of the two is offered a new name.
+  const [renaming, setRenaming] = useState<SameNamePair | null>(null);
   const byId: Record<string, VoiceProfile> = {};
   (view.profiles ?? []).forEach((p) => { byId[`${p.model}/${p.id}`] = p; });
   const sp = (op: string, s: string, label: string, name: string, done: string) => a.act(`${s}/${label}`, () => api.recorderSpeaker(op, s, label, name), done);
@@ -159,6 +163,16 @@ export function ReviewItems({ view, session, editable, a, showTitle = true }: {
           return pa && pb ? <PairRow key={`p/${pr.a}/${pr.b}`} pair={pr} a={pa} b={pb} editable={editable} act={a} /> : null;
         })}
       </>}
+      {sameName.length > 0 && <>
+        <div className="review-head">Two profiles, one name?</div>
+        <p className="dim small">These profiles have the same name but were learnt from voices unlike each other: one person, or two people with one name?</p>
+        {sameName.map((pr) => {
+          const pa = byId[`${pr.model}/${pr.a}`], pb = byId[`${pr.model}/${pr.b}`];
+          return pa && pb ? <SameNameRow key={`s/${pr.a}/${pr.b}`} pair={pr} a={pa} b={pb} editable={editable} act={a} onApart={() => setRenaming(pr)} /> : null;
+        })}
+      </>}
+      {renaming && byId[`${renaming.model}/${renaming.a}`] && byId[`${renaming.model}/${renaming.b}`] &&
+        <RenameOne pair={renaming} a={byId[`${renaming.model}/${renaming.a}`]} b={byId[`${renaming.model}/${renaming.b}`]} act={a} onDone={() => setRenaming(null)} />}
     </>
   );
 }
@@ -248,9 +262,86 @@ function PairRow({ pair, a, b, editable, act }: { pair: VoicePair; a: VoiceProfi
   );
 }
 
+// SameNameRow asks whether two profiles of one name are one person.
+function SameNameRow({ pair, a, b, editable, act, onApart }: { pair: SameNamePair; a: VoiceProfile; b: VoiceProfile; editable: boolean; act: Act; onApart: () => void }) {
+  const key = `s/${pair.a}/${pair.b}`;
+  const busy = act.busy === key;
+  // The one heard in more meetings keeps the other's.
+  const [into, from] = a.meetings >= b.meetings ? [a, b] : [b, a];
+  const meetings = (n: number) => `${n} ${n === 1 ? 'meeting' : 'meetings'}`;
+  return (
+    <div className="voice-row">
+      <div className="voice-body">
+        <div><b>Two profiles named {pair.name}?</b></div>
+        <div className="small"><Play clip={pair.clipA} /> {a.name} <span className="dim">({meetings(pair.meetingsA)}, last heard {day(a.lastHeard)})</span> · <Play clip={pair.clipB} /> {b.name} <span className="dim">({meetings(pair.meetingsB)}, last heard {day(b.lastHeard)})</span></div>
+        {pair.similarity > -2 && <div className="dim small">{Math.round(pair.similarity * 100)}% alike</div>}
+      </div>
+      {editable && (
+        <div className="voice-actions">
+          <button disabled={busy} onClick={() => act.act(key, () => api.recorderVoice('merge_voices', { model: pair.model, id: into.id, other: from.id }), `The two ${pair.name} profiles are now one.`)}>Same person</button>
+          <button disabled={busy} onClick={() => { onApart(); act.act(key, () => api.recorderVoice('keep_apart', { model: pair.model, id: pair.a, other: pair.b }), 'Kept apart.'); }}>Different people</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// RenameOne, after "Different people", offers to rename one of the two
+// so they can be told apart.
+function RenameOne({ pair, a, b, act, onDone }: { pair: SameNamePair; a: VoiceProfile; b: VoiceProfile; act: Act; onDone: () => void }) {
+  const [which, setWhich] = useState<VoiceProfile | null>(null);
+  const busy = act.busy !== null;
+  const meetings = (n: number) => `${n} ${n === 1 ? 'meeting' : 'meetings'}`;
+  return (
+    <div className="voice-row">
+      <div className="voice-body">
+        <div className="small">Two people named {pair.name}: rename one so you can tell them apart?</div>
+        {which
+          ? <NameForm busy={busy} start={which.name} button="Rename" onCancel={() => setWhich(null)}
+              onName={(n) => { act.act(`r/${which.id}`, () => api.recorderVoice('rename_voice', { model: which.model, id: which.id, name: n }), `Renamed to ${n}.`); onDone(); }} />
+          : <div className="voice-actions">
+              {[{ p: a, clip: pair.clipA, n: pair.meetingsA }, { p: b, clip: pair.clipB, n: pair.meetingsB }].map((x) => (
+                <span key={x.p.id}><Play clip={x.clip} /> <button disabled={busy} onClick={() => setWhich(x.p)}>Rename the one in {meetings(x.n)}…</button></span>
+              ))}
+              <button disabled={busy} onClick={onDone}>Leave both</button>
+            </div>}
+      </div>
+    </div>
+  );
+}
+
+// MoveForm picks where a meeting's voice goes: another profile (by ID,
+// so two of one name are told apart) or a new profile with a name.
+function MoveForm({ p, profiles, busy, onMove, onCancel }: {
+  p: VoiceProfile; profiles: VoiceProfile[]; busy: boolean; onMove: (to: { to?: string; name?: string }, label: string) => void; onCancel: () => void;
+}) {
+  const others = profiles.filter((x) => x.model === p.model && x.id !== p.id).sort((x, y) => x.name.localeCompare(y.name) || y.meetings - x.meetings);
+  const dup = new Set(others.filter((x, i) => others.some((y, j) => j !== i && y.name === x.name)).map((x) => x.name));
+  const [to, setTo] = useState('');
+  const [name, setName] = useState('');
+  const isNew = to === 'new';
+  const ok = isNew ? !!name.trim() : !!to;
+  const go = () => {
+    if (isNew) onMove({ name: name.trim() }, `a new profile, ${name.trim()}`);
+    else { const x = others.find((o) => o.id === to); if (x) onMove({ to: x.id }, x.name); }
+  };
+  return (
+    <form className="voice-name" onSubmit={(e) => { e.preventDefault(); if (ok) go(); }}>
+      <select value={to} autoFocus disabled={busy} onChange={(e) => setTo(e.target.value)} aria-label="Move to">
+        <option value="">Move to…</option>
+        {others.map((x) => <option key={x.id} value={x.id}>{x.name}{dup.has(x.name) ? ` (${x.meetings} ${x.meetings === 1 ? 'meeting' : 'meetings'}, last heard ${day(x.lastHeard)})` : ''}</option>)}
+        <option value="new">A new profile named…</option>
+      </select>
+      {isNew && <input value={name} placeholder="Who is it?" onChange={(e) => setName(e.target.value)} disabled={busy} />}
+      <button className="primary" type="submit" disabled={busy || !ok}>Move</button>
+      <button type="button" onClick={onCancel}>Cancel</button>
+    </form>
+  );
+}
+
 // VoiceProfileCard is one person's voice profile: its clip and tile, the
 // meetings it learnt from, and its edits.
-export function VoiceProfileCard({ p, names, editable, a }: { p: VoiceProfile; names: string[]; editable: boolean; a: Act }) {
+export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile; profiles: VoiceProfile[]; editable: boolean; a: Act }) {
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState<'forget' | 'startOver' | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -262,7 +353,6 @@ export function VoiceProfileCard({ p, names, editable, a }: { p: VoiceProfile; n
   const heard = p.heard ?? [], out = p.takenOut ?? [];
   const from = [p.fromTiles ? `own tile in ${p.fromTiles}` : '', p.fromNamed ? `named by you in ${p.fromNamed}` : ''].filter(Boolean).join(', ');
   const flagged = heard.filter((h) => heard.length > 1 && h.agreement < agreeFlag).length;
-  const listId = `names-${p.id}`;
   const confirmRow = (text: string, button: string, go: () => void, keep: () => void): ReactNode => (
     <div className="confirm-row"><span className="small">{text}</span><button className="primary" disabled={busy} onClick={go}>{button}</button><button onClick={keep}>Keep</button></div>
   );
@@ -308,7 +398,7 @@ export function VoiceProfileCard({ p, names, editable, a }: { p: VoiceProfile; n
                   <div className={'small ' + (odd ? 'warn' : 'dim')}>{heard.length > 1 ? `${Math.round(h.agreement * 100)}% like the other meetings${odd ? ': may be someone else' : ''}` : 'Only meeting'}</div>
                 </div>
                 {editable && (moving === h.session
-                  ? <NameForm busy={busy} list={listId} button="Move" onName={(to) => { setMoving(null); v('move_voice_meeting', { session: h.session, name: to }, `Moved that meeting to ${to}.`); }} onCancel={() => setMoving(null)} />
+                  ? <MoveForm p={p} profiles={profiles} busy={busy} onMove={(to, label) => { setMoving(null); v('move_voice_meeting', { session: h.session, ...to }, `Moved that meeting to ${label}.`); }} onCancel={() => setMoving(null)} />
                   : removing === h.session
                     ? confirmRow(`Not ${p.name}: discard what this meeting taught, for good?`, 'Discard', () => { setRemoving(null); v('remove_voice_meeting', { session: h.session }, 'Discarded that meeting.'); }, () => setRemoving(null))
                     : <div className="voice-actions">
@@ -323,11 +413,10 @@ export function VoiceProfileCard({ p, names, editable, a }: { p: VoiceProfile; n
               <DiscardedPlay p={p} session={h.session} />
               <div className="voice-body"><div className="small">{h.title || h.session.slice(0, 8)} <span className="dim">discarded: not learnt from</span></div></div>
               {editable && (moving === h.session
-                ? <NameForm busy={busy} list={listId} button="Move" onName={(to) => { setMoving(null); v('move_voice_meeting', { session: h.session, name: to }, `Moved that meeting to ${to}.`); }} onCancel={() => setMoving(null)} />
+                ? <MoveForm p={p} profiles={profiles} busy={busy} onMove={(to, label) => { setMoving(null); v('move_voice_meeting', { session: h.session, ...to }, `Moved that meeting to ${label}.`); }} onCancel={() => setMoving(null)} />
                 : <div className="voice-actions"><button disabled={busy} onClick={() => setMoving(h.session)}>Someone else…</button></div>)}
             </div>
           ))}
-          <datalist id={listId}>{names.filter((n) => n !== p.name).map((n) => <option key={n} value={n} />)}</datalist>
         </div>
       )}
     </div>
@@ -364,7 +453,6 @@ export function AllVoices({ voices }: { voices: ReturnType<typeof useVoices> }) 
   const [q, setQ] = useState('');
   const [show, setShow] = useState<'all' | 'confirmed' | 'unused' | 'check'>('all');
   const all = voices.view?.profiles ?? [];
-  const names = all.map((x) => x.name);
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const flaggedOf = (p: VoiceProfile) => { const h = p.heard ?? []; return h.filter((x) => h.length > 1 && x.agreement < agreeFlag).length; };
   const shown = all
@@ -384,7 +472,7 @@ export function AllVoices({ voices }: { voices: ReturnType<typeof useVoices> }) 
       </div>
       {!editable && <div className="dim small">{readOnlyWhy}</div>}
       {shown.length === 0 && <div className="dim small">No voice matches.</div>}
-      {shown.map((p) => <VoiceProfileCard key={p.model + '/' + p.id} p={p} names={names} editable={editable} a={a} />)}
+      {shown.map((p) => <VoiceProfileCard key={p.model + '/' + p.id} p={p} profiles={all} editable={editable} a={a} />)}
       <ActNotes a={a} />
     </section>
   );

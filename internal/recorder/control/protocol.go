@@ -412,3 +412,67 @@ type RecModel struct {
 type ModelArgs struct {
 	ID string `json:"id"`
 }
+
+// Voice samples: every stretch of a meeting a voice profile learnt from,
+// so a profile's blend can be heard and a stretch that isn't the person
+// taken out.
+const (
+	OpProfileSamples = "profile_samples" // VoiceArgs (Model, ID) → ProfileSamplesView
+	OpExcludeSample  = "exclude_sample"  // SampleArgs → -: that sample isn't the profile's person
+	OpIncludeSample  = "include_sample"  // SampleArgs → -: undoes exclude_sample
+)
+
+// SampleArgs addresses one sample of a profile's meeting, by its span as
+// ProfileSamplesView gave it.
+type SampleArgs struct {
+	Model   string  `json:"model"`
+	ID      string  `json:"id"`
+	Session string  `json:"session"`
+	Start   float64 `json:"start"`
+	End     float64 `json:"end"`
+}
+
+// VoiceSampleView is one stretch a profile learnt from. Similarity is
+// the sample's voice against the profile's (-2 when the profile has
+// nothing learnt), RestSimilarity against the meeting's other samples
+// (-2 when there are none). Label is the transcript's speaker over it.
+// Excluded: the owner said it isn't the person.
+type VoiceSampleView struct {
+	Session        string  `json:"session"`
+	Start          float64 `json:"start"`
+	End            float64 `json:"end"`
+	Fingerprints   int     `json:"fingerprints"`
+	Similarity     float64 `json:"similarity"`
+	RestSimilarity float64 `json:"restSimilarity"`
+	Label          string  `json:"label,omitempty"`
+	Excluded       bool    `json:"excluded,omitempty"`
+}
+
+// MeetingSamplesView is one meeting's samples, worst match first.
+// Fingerprints is what the profile holds from the meeting, Rebuilt how
+// many the saved meeting gives again (they differ when the meeting was
+// learnt live, from reads the saved meeting doesn't keep). Voices is how
+// many voices the samples sound like. NoDiarization: the meeting's
+// fingerprints aren't saved, so only its one Clip is known; Note says
+// why else there are no samples.
+type MeetingSamplesView struct {
+	Session       string            `json:"session"`
+	Fingerprints  int               `json:"fingerprints"`
+	Rebuilt       int               `json:"rebuilt"`
+	Voices        int               `json:"voices"`
+	NoDiarization bool              `json:"noDiarization,omitempty"`
+	Note          string            `json:"note,omitempty"`
+	Clip          VoiceClip         `json:"clip"`
+	Samples       []VoiceSampleView `json:"samples"`
+}
+
+// ProfileSamplesView is a profile's samples by meeting: Samples counts
+// those it learns from, Voices is the most voices any one meeting's
+// samples sound like.
+type ProfileSamplesView struct {
+	Model    string               `json:"model"`
+	ID       string               `json:"id"`
+	Samples  int                  `json:"samples"`
+	Voices   int                  `json:"voices"`
+	Meetings []MeetingSamplesView `json:"meetings"`
+}

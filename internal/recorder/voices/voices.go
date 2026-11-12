@@ -123,6 +123,11 @@ type Heard struct {
 	// theirs, so it isn't offered for checking however unlike the others
 	// it scores (a few seconds of voice score low against everything).
 	Confirmed bool `json:"confirmed,omitempty"`
+	// ExcludedSpans are stretches of the meeting the owner said aren't
+	// the profile's person ("Not them" on a sample): their fingerprints
+	// are left out of Voice, and out of it again when the meeting is
+	// learnt again (see samples.go).
+	ExcludedSpans []Clip `json:"excludedSpans,omitempty"`
 }
 
 // Profile is one person's voice.
@@ -356,6 +361,10 @@ type Learned struct {
 	Source string
 	Voice  Voice
 	Clip   Clip
+	// Parts are Voice's fingerprints and when each was heard, when the
+	// learner kept them (nil otherwise): a span the owner excluded is
+	// left out by them (samples.go).
+	Parts []Part
 }
 
 // Learn records what a meeting taught. Each name's voice goes to the
@@ -390,12 +399,16 @@ func (s *Store) Learn(sessionID string, at time.Time, learned []Learned) ([]stri
 			s.profiles = append(s.profiles, p)
 		}
 		var kept []Heard
+		var spans []Clip
 		for _, h := range p.Meetings {
 			if h.Session != sessionID {
 				kept = append(kept, h)
+			} else {
+				spans = h.ExcludedSpans
 			}
 		}
-		p.Meetings = append(kept, Heard{Session: sessionID, At: at, Source: l.Source, Voice: l.Voice, Clip: l.Clip})
+		l = withoutSpans(l, spans)
+		p.Meetings = append(kept, Heard{Session: sessionID, At: at, Source: l.Source, Voice: l.Voice, Clip: l.Clip, ExcludedSpans: spans})
 		p.refresh(s.params.MinLearn)
 		done = append(done, p.Name)
 	}

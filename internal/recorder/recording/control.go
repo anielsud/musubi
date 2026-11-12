@@ -188,6 +188,9 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 		}
 		return nil, a.DownloadModel(p.ID)
 	}
+	if r, ok, err := a.handleSamples(op, args); ok {
+		return r, err
+	}
 	return nil, fmt.Errorf("%w %q", control.ErrUnknownOp, op)
 }
 

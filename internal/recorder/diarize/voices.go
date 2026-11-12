@@ -91,8 +91,11 @@ func voicesBy(p *Prepared, offset float64, who func(t float64) string, source st
 	out := make([]voices.Learned, 0, len(by))
 	for name, idx := range by {
 		var v voices.Voice
+		parts := make([]voices.Part, 0, len(idx))
 		for _, i := range idx {
 			v.Add(p.Embeddings[i])
+			start, end, _ := p.pairSpan(i)
+			parts = append(parts, voices.Part{Start: start + offset, End: end + offset, Emb: p.Embeddings[i]})
 		}
 		// The clip: of the fingerprints with a few seconds of speech, the
 		// likest the voice as a whole; else the one with the most speech.
@@ -112,7 +115,7 @@ func voicesBy(p *Prepared, offset float64, who func(t float64) string, source st
 			best = mostSpeech
 		}
 		start, end, _ := p.pairSpan(best)
-		out = append(out, voices.Learned{Name: name, Source: source, Voice: v, Clip: voices.Clip{Start: start + offset, End: end + offset}})
+		out = append(out, voices.Learned{Name: name, Source: source, Voice: v, Clip: voices.Clip{Start: start + offset, End: end + offset}, Parts: parts})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -276,9 +279,7 @@ func LearnSaved(m config.MeetingConfig, dir string, sess *session.Session, hints
 	if err != nil {
 		return nil, err
 	}
-	learned := voicesFromTilesSkipping(p, hints, info.Offset, unsureAt(sess.Segments, unsureLabels(sess)))
-	learned = append(learned, VoicesFromSpeakers(p, info.Offset, SpeakerAt(sess.Segments, GivenName))...)
-	return store.Learn(sess.ID, sess.CreatedAt, learned)
+	return store.Learn(sess.ID, sess.CreatedAt, SavedLearning(p, info.Offset, sess, hints))
 }
 
 // learnableName reports whether a tile's name can be a person's: the

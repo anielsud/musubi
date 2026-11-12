@@ -419,8 +419,15 @@ func TestControlReloadConfig(t *testing.T) {
 	os.MkdirAll(filepath.Join(xdg, "tomoe"), 0o755)
 	os.WriteFile(filepath.Join(xdg, "tomoe", "config.toml"), []byte("[audio]\ndevice = \"Desk Mic\"\n"), 0o644)
 	musubi := filepath.Join(t.TempDir(), "config.toml")
-	os.WriteFile(musubi, []byte("[recorder.meeting]\nmonitor_device = \"everything\"\n[recorder.transcription]\ntwo_pass = true\n"), 0o644)
+	// As if the recorder had started from these files: its engines were
+	// built with what a reload of them gives.
+	os.WriteFile(musubi, []byte("[recorder.meeting]\nmonitor_device = \"everything\"\n"), 0o644)
 	c.SetMusubiConfig(musubi)
+	c.must(t, control.OpReloadConfig, nil, nil)
+	c.mu.Lock()
+	c.bootCfg = c.cfg
+	c.mu.Unlock()
+	os.WriteFile(musubi, []byte("[recorder.meeting]\nmonitor_device = \"everything\"\n[recorder.transcription]\ntwo_pass = true\n"), 0o644)
 
 	var st control.Status
 	c.must(t, control.OpReloadConfig, nil, &st)

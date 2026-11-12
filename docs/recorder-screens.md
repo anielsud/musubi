@@ -76,7 +76,10 @@ screen says so. The live feed socket stays as it is.
    video tile; rename a speaker from the transcript; delete the meeting.
 6. **Voices on the person page** (People): the person's voice profile with
    its meetings; rename, confirm, start over, forget, move or discard a
-   meeting; "Same person?" suggestions. Open reviews are counted on the
+   meeting (to a profile picked from a list, so two of one name are told
+   apart, or to a new profile); "Same person?" and "Two profiles named X?"
+   suggestions (the latter: same person merges them, different people
+   keeps them apart and offers to rename one). Open reviews are counted on the
    People tab and listed there.
 7. **Live**: Musubi follows the recorder's socket; rename a speaker during
    the meeting.

@@ -271,8 +271,15 @@ func (a *App) RecorderVoice(op string, args control.VoiceArgs) error {
 	if args.Model == "" || args.ID == "" || strings.ContainsAny(args.Name, "\n\r") || len(args.Name) > 200 {
 		return fmt.Errorf("a voice profile is needed")
 	}
-	if (op == control.OpRenameVoice || op == control.OpMoveVoiceMeeting) && args.Name == "" {
+	if op == control.OpRenameVoice && args.Name == "" {
 		return fmt.Errorf("a name is needed")
+	}
+	args.To = strings.TrimSpace(args.To)
+	if args.To != "" && (op != control.OpMoveVoiceMeeting || !validProfileID(args.To)) {
+		return fmt.Errorf("not a voice profile")
+	}
+	if op == control.OpMoveVoiceMeeting && args.To == "" && args.Name == "" {
+		return fmt.Errorf("a profile or a name is needed")
 	}
 	if args.Session != "" && !validSession(args.Session) {
 		return fmt.Errorf("not a session id")
@@ -282,6 +289,20 @@ func (a *App) RecorderVoice(op string, args control.VoiceArgs) error {
 	}
 	a.emit("voices:changed", nil)
 	return nil
+}
+
+// validProfileID: profile IDs are short hex (voices.newID); anything
+// else is refused before it reaches the recorder.
+func validProfileID(id string) bool {
+	if len(id) == 0 || len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 // LearnSaved teaches the voice profiles from every saved meeting.

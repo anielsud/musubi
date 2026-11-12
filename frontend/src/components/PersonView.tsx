@@ -92,8 +92,9 @@ export function PersonView({ id, scope, onPick, onOpenItem, onTopic }: {
   );
 }
 
-// PersonVoice is the recorder's voice profile for this person, matched by
-// name, with "Same person?" pairs it is in.
+// PersonVoice is the recorder's voice profiles for this person, matched by
+// name (all of them: two people can share a name), with the "Same
+// person?" and "Two profiles, one name?" pairs they are in.
 function PersonVoice({ names }: { names: string[] }) {
   const { view, err } = useVoices();
   const a = useAct();
@@ -104,13 +105,14 @@ function PersonVoice({ names }: { names: string[] }) {
   if (err) return <><div className="section-head"><span>Voice</span></div><VoicesError err={err} /></>;
   if (!view || profiles.length === 0) return null;
   const ids = new Set(profiles.map((x) => x.id));
-  const pairs: VoicesView = { ...view, namedByVoice: [], doubts: [], unknown: [], pairs: (view.pairs ?? []).filter((x) => ids.has(x.a) || ids.has(x.b)) };
-  const all = (view.profiles ?? []).map((x) => x.name);
+  const pairs: VoicesView = { ...view, namedByVoice: [], doubts: [], unknown: [], pairs: (view.pairs ?? []).filter((x) => ids.has(x.a) || ids.has(x.b)),
+    sameName: (view.sameName ?? []).filter((x) => ids.has(x.a) || ids.has(x.b)) };
+  const all = view.profiles ?? [];
   return (
     <>
       <div className="section-head"><span>Voice</span></div>
       {!editable && <div className="dim small">{readOnlyWhy}</div>}
-      {profiles.map((v) => <VoiceProfileCard key={v.model + '/' + v.id} p={v} names={all} editable={editable} a={a} />)}
+      {profiles.map((v) => <VoiceProfileCard key={v.model + '/' + v.id} p={v} profiles={all} editable={editable} a={a} />)}
       <ReviewItems view={pairs} editable={editable} a={a} />
       <ActNotes a={a} />
     </>

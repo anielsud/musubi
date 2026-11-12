@@ -185,11 +185,13 @@ type Params struct {
 	// themselves in one): one meeting's misread tile shouldn't name
 	// people in the next.
 	MinMeetings int
-	// LearnFloor: a meeting's voice that's less like the profile of the
-	// same name than this (once the profile has LearnFloorAfter
-	// fingerprints) isn't learnt: a misread name or a ring on the wrong
-	// tile, not a new side of the voice.
-	LearnFloor      float64
+	// LearnFloor: a meeting's voice that's less like a profile of the
+	// same name than this doesn't teach it: a misread name, a ring on
+	// the wrong tile or another person of that name, not a new side of
+	// the voice (Learn starts a new profile for it).
+	LearnFloor float64
+	// Deprecated: LearnFloorAfter was the size a profile needed before
+	// LearnFloor applied; Learn now applies it at any size (pickLocked).
 	LearnFloorAfter int
 }
 
@@ -322,37 +324,42 @@ type Learned struct {
 	Clip   Clip
 }
 
-// Learn records what a meeting taught: each name's voice replaces what
-// that meeting taught the name's profile before (a new profile if no name
-// matches). A voice unlike its profile is skipped (Params.LearnFloor).
-// Returns the names learnt.
+// Learn records what a meeting taught. Each name's voice goes to the
+// profile it sounds like among those with the name (or once named it,
+// or a name same says is the same): the likest one it's at least
+// Params.LearnFloor like, replacing what that meeting taught it before.
+// If it's like none of them, it starts a new profile with the name, so
+// two people with one name get a profile each and a misread name doesn't
+// spoil a profile; the Voices view asks whether same-named profiles are
+// one person (SameNamed). Profiles are never merged here. A name given
+// twice keeps the last voice (the speakers the user named come after
+// the tiles, and win). Returns the names learnt.
 func (s *Store) Learn(sessionID string, at time.Time, learned []Learned) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncLocked()
+	last := map[string]int{}
+	for i, l := range learned {
+		last[l.Name] = i
+	}
 	var done []string
-	for _, l := range learned {
-		if l.Name == "" || l.Voice.N < s.params.MinFingerprints || s.forgottenLocked(l.Name) {
+	for i, l := range learned {
+		if l.Name == "" || last[l.Name] != i || l.Voice.N < s.params.MinFingerprints || s.forgottenLocked(l.Name) {
 			continue
 		}
-		p := s.findLocked(l.Name)
-		if p != nil && contains(p.Excluded, sessionID) {
+		p, ok := s.pickLocked(sessionID, l)
+		if !ok {
 			continue
 		}
 		if p == nil {
 			p = &Profile{ID: newID(), Name: l.Name, Created: time.Now()}
 			s.profiles = append(s.profiles, p)
 		}
-		var others Voice
 		var kept []Heard
 		for _, h := range p.Meetings {
 			if h.Session != sessionID {
 				kept = append(kept, h)
-				others.Merge(h.Voice)
 			}
-		}
-		if others.N >= s.params.LearnFloorAfter && Similarity(others.Centroid(), l.Voice.Centroid()) < s.params.LearnFloor {
-			continue
 		}
 		p.Meetings = append(kept, Heard{Session: sessionID, At: at, Source: l.Source, Voice: l.Voice, Clip: l.Clip})
 		p.refresh()
@@ -364,24 +371,81 @@ func (s *Store) Learn(sessionID string, at time.Time, learned []Learned) ([]stri
 	return done, s.saveLocked()
 }
 
-// findLocked is the profile named name (or once named it), if any.
-func (s *Store) findLocked(name string) *Profile {
-	for _, p := range s.profiles {
-		if p.Name == name || contains(p.Aliases, name) {
-			return p
+// pickLocked is the profile a meeting's voice for a name teaches: of the
+// profiles with the name, the likest the voice that's at least
+// LearnFloor like it, by what its other meetings taught (or, if the
+// meeting is all it has, what the meeting taught it before). The bar is
+// the same for a young profile as for one with LearnFloorAfter
+// fingerprints: a profile is never merged with another automatically, so
+// a voice that doesn't fit one is better kept in its own (the user can
+// merge them, "Two profiles named X?") than mixed in. A profile with
+// nothing learnt (started over, or all its meetings taken out) takes a
+// voice none of the others fit. nil, true: a new profile. false: none,
+// as the user took this meeting out of a profile with the name and the
+// voice fits no other one.
+func (s *Store) pickLocked(sessionID string, l Learned) (*Profile, bool) {
+	c := l.Voice.Centroid()
+	var best, empty *Profile
+	bestSim, excluded := -2.0, false
+	for _, p := range s.namedLocked(l.Name) {
+		if contains(p.Excluded, sessionID) {
+			excluded = true
+			continue
 		}
-	}
-	for _, p := range s.profiles {
-		if s.sameLocked(p.Name, name) {
-			return p
-		}
-		for _, a := range p.Aliases {
-			if s.sameLocked(a, name) {
-				return p
+		var others, before Voice
+		for _, h := range p.Meetings {
+			if h.Session != sessionID {
+				others.Merge(h.Voice)
+			} else {
+				before.Merge(h.Voice)
 			}
 		}
+		if others.N == 0 {
+			others = before
+		}
+		if others.N == 0 {
+			if empty == nil {
+				empty = p
+			}
+			continue
+		}
+		if sim := Similarity(others.Centroid(), c); sim >= s.params.LearnFloor && sim > bestSim {
+			best, bestSim = p, sim
+		}
 	}
-	return nil
+	switch {
+	case best != nil:
+		return best, true
+	case empty != nil:
+		return empty, true
+	case excluded:
+		return nil, false
+	}
+	return nil, true
+}
+
+// namedLocked is every profile named name or once named it (an alias),
+// by same as well as exactly.
+func (s *Store) namedLocked(name string) []*Profile {
+	var out []*Profile
+	for _, p := range s.profiles {
+		if s.hasNameLocked(p, name) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (s *Store) hasNameLocked(p *Profile, name string) bool {
+	if s.sameLocked(p.Name, name) {
+		return true
+	}
+	for _, a := range p.Aliases {
+		if s.sameLocked(a, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) sameLocked(a, b string) bool {
@@ -489,13 +553,18 @@ func (s *Store) Likest(voices map[int]Voice) map[int]Matched {
 	return out
 }
 
-// Knows reports whether a profile in use (see InUse) has the name.
+// Knows reports whether any profile in use (see InUse) has the name (or
+// once had it).
 func (s *Store) Knows(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncLocked()
-	p := s.findLocked(name)
-	return p != nil && s.inUseLocked(p)
+	for _, p := range s.namedLocked(name) {
+		if s.inUseLocked(p) {
+			return true
+		}
+	}
+	return false
 }
 
 // InUse reports whether a profile names voices: enough fingerprints, and
@@ -632,9 +701,19 @@ func (s *Store) Merge(into, from string) error {
 	}
 	// A meeting in both keeps both: they were two voices then.
 	a.Meetings = append(a.Meetings, b.Meetings...)
-	a.Aliases = appendOnce(a.Aliases, b.Name)
-	for _, n := range b.Aliases {
-		a.Aliases = appendOnce(a.Aliases, n)
+	for _, n := range append([]string{b.Name}, b.Aliases...) {
+		if n != a.Name { // two profiles of one name: no alias needed
+			a.Aliases = appendOnce(a.Aliases, n)
+		}
+	}
+	// Whoever the user said from isn't, into isn't either.
+	for _, id := range b.Apart {
+		if id != a.ID {
+			a.Apart = appendOnce(a.Apart, id)
+			if o := s.byIDLocked(id); o != nil {
+				o.Apart = appendOnce(o.Apart, a.ID)
+			}
+		}
 	}
 	a.refresh()
 	s.removeLocked(from)
@@ -698,6 +777,7 @@ func (s *Store) ForgetMeeting(id, sessionID string) error {
 type Pair struct {
 	A, B       string // profile IDs
 	Similarity float64
+	Name       string // SameNamed: the name they share
 }
 
 // LookAlike lists pairs of profiles whose voices are at least min alike
@@ -714,12 +794,47 @@ func (s *Store) LookAlike(min float64) []Pair {
 				continue
 			}
 			if sim := Similarity(a.centroid, b.centroid); sim >= min {
-				out = append(out, Pair{a.ID, b.ID, sim})
+				out = append(out, Pair{A: a.ID, B: b.ID, Similarity: sim})
 			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Similarity > out[j].Similarity })
 	return out
+}
+
+// SameNamed lists pairs of profiles that share a name (or an alias, or
+// names same says are one) and that the user hasn't said are different
+// people, likest first: one person whose voice Learn kept in two
+// profiles, or two people with one name. Similarity is -2 when either
+// has nothing learnt.
+func (s *Store) SameNamed() []Pair {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	var out []Pair
+	for i, a := range s.profiles {
+		for _, b := range s.profiles[i+1:] {
+			if contains(a.Apart, b.ID) {
+				continue
+			}
+			if name := s.sharedNameLocked(a, b); name != "" {
+				out = append(out, Pair{A: a.ID, B: b.ID, Similarity: Similarity(a.centroid, b.centroid), Name: name})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Similarity > out[j].Similarity })
+	return out
+}
+
+// sharedNameLocked is a name of a's that b has too ("" if none), a's
+// own name first.
+func (s *Store) sharedNameLocked(a, b *Profile) string {
+	for _, n := range append([]string{a.Name}, a.Aliases...) {
+		if s.hasNameLocked(b, n) {
+			return n
+		}
+	}
+	return ""
 }
 
 // Closest is the profile most like v and how alike (nil if none).
@@ -793,11 +908,12 @@ func contains(xs []string, x string) bool {
 }
 
 // Move says what a profile learnt from one meeting was someone else's:
-// it leaves the profile (never learnt by it again) and teaches toName's
-// profile instead, as the user's naming (a new profile if none matches).
-// v is the meeting's voice for the profile: what it learnt, or, for a
-// meeting already taken out, the voice worked out again from the meeting.
-func (s *Store) Move(fromID, sessionID string, at time.Time, v Voice, toName string) error {
+// it leaves the profile (never learnt by it again) and teaches the
+// profile toID instead, as the user's naming, or, with toID "", a new
+// profile named toName. v is the meeting's voice for the profile: what
+// it learnt, or, for a meeting already taken out, the voice worked out
+// again from the meeting.
+func (s *Store) Move(fromID, sessionID string, at time.Time, v Voice, toID, toName string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncLocked()
@@ -808,13 +924,20 @@ func (s *Store) Move(fromID, sessionID string, at time.Time, v Voice, toName str
 	if v.N == 0 {
 		return fmt.Errorf("no voice to move")
 	}
-	to := s.findLocked(toName)
-	if to == from {
-		return fmt.Errorf("that's the same profile")
-	}
-	if to == nil {
+	var to *Profile
+	switch {
+	case toID != "":
+		if to = s.byIDLocked(toID); to == nil {
+			return fmt.Errorf("no voice profile %q", toID)
+		}
+		if to == from {
+			return fmt.Errorf("that's the same profile")
+		}
+	case toName != "":
 		to = &Profile{ID: newID(), Name: toName, Created: time.Now()}
 		s.profiles = append(s.profiles, to)
+	default:
+		return fmt.Errorf("no profile to move to")
 	}
 	kept := from.Meetings[:0]
 	for _, h := range from.Meetings {
@@ -841,7 +964,7 @@ func (s *Store) Move(fromID, sessionID string, at time.Time, v Voice, toName str
 	to.refresh()
 	var keptForgotten []string
 	for _, f := range s.forgotten {
-		if !s.sameLocked(f, toName) {
+		if !s.sameLocked(f, to.Name) {
 			keptForgotten = append(keptForgotten, f)
 		}
 	}

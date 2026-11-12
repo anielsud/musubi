@@ -16,7 +16,8 @@ on 2026-11-10). Authorship was read with `git blame` at that commit.
 Files with no upstream-authored lines, copied with import paths changed:
 
 - `audiosources`, `axtree`, `diarize`, `eval`, `livefeed`, `ocr`, `onnxrt`,
-  `teamsvideo`, `toolpath`, `voices`: whole packages.
+  `teamsvideo`, `toolpath`, `voices`: whole packages. `voices` has since
+  changed (below, "Changed since").
 - `cmd/musubi-recorder`: `replay.go`, `textdiff.go`, `pipeline.go` (edited
   only to drop the GPU, hotwords and multilingual settings) and
   `fingerprints.go` (`loadFingerprints`, from Tomoe's `cmd/tomoe/tune.go`).
@@ -72,6 +73,35 @@ Files with no upstream-authored lines, copied with import paths changed:
     `permissions_darwin.go` (all owner lines).
 - `control/server.go`: the private listen and stale-socket removal are
   the live feed's (`livefeed`, owner), adapted.
+
+## Changed since
+
+Behaviour that now differs from Tomoe at `8d0e659`, all in owner-authored
+code.
+
+- **Voice profiles learn by voice, not by name** (2026-11-12, owner's
+  decision). `voices.Store.Learn` used to put a named voice into the first
+  profile with that name, alias or `same` name, and drop it silently when
+  the profile had 30 or more fingerprints and the voice was less than
+  `LearnFloor` (0.5) like it. Now the voice joins the likest of all the
+  profiles with the name that it is at least `LearnFloor` like, at any
+  profile size (`LearnFloorAfter` is no longer used: a young profile is
+  held to the same bar, as a voice that doesn't fit is now kept in its own
+  profile rather than lost, and mixing it in would spoil a profile that
+  is just starting). A voice like none of them starts a new profile with
+  the same name; profiles are never merged automatically. A profile with
+  nothing learnt takes a voice none of the others fit, and a meeting the
+  user took out of a profile with the name still isn't learnt (no new
+  profile is made for it). A name given twice in one meeting keeps the
+  last voice (the user's naming, after the tiles). `Knows` is true when
+  any profile in use has the name; forgetting stays by name. `Move`
+  targets a profile by ID, or a new profile with a name, instead of the
+  first profile with a typed name. `Merge` no longer adds the kept
+  profile's own name as an alias, and carries the merged profile's
+  "different people" marks over. New: `SameNamed` (pairs of profiles
+  sharing a name the user hasn't kept apart), shown in the Voices view as
+  "Two profiles named X?". Existing profiles keep their IDs, aliases and
+  merges; there is no migration.
 
 ## Rewritten
 

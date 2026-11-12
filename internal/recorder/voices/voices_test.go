@@ -103,7 +103,7 @@ func TestMatchNeedsMargin(t *testing.T) {
 	}
 }
 
-func TestLearnReplacesTheMeetingAndSkipsUnlikeVoices(t *testing.T) {
+func TestLearnReplacesTheMeetingAndKeepsUnlikeVoicesApart(t *testing.T) {
 	s, _ := open(t)
 	_, _ = s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(40, unit(0, 1, 0))}})
 	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "ilse novak", Voice: voiceOf(10, unit(0, 1, 0.1))}})
@@ -112,10 +112,115 @@ func TestLearnReplacesTheMeetingAndSkipsUnlikeVoices(t *testing.T) {
 	if len(ps) != 1 || len(ps[0].Meetings) != 2 || ps[0].Voice().N != 52 {
 		t.Fatalf("relearning a meeting should replace it: %+v", ps)
 	}
-	// A misread name: the voice is nothing like the profile's.
+	// A misread name, or another Ilse: the voice is nothing like the
+	// profile's, so it starts its own profile instead of being dropped.
 	names, _ := s.Learn("m3", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(10, unit(3, 2, 0))}})
-	if len(names) != 0 || len(s.Profiles()[0].Meetings) != 2 {
-		t.Errorf("an unlike voice was learnt: %v", names)
+	ps = s.Profiles()
+	if len(names) != 1 || len(ps) != 2 {
+		t.Fatalf("an unlike voice should start a second profile: %v, %+v", names, ps)
+	}
+	for _, p := range ps {
+		if p.Name != "Ilse Novak" || len(p.Meetings) != map[bool]int{true: 1, false: 2}[p.Meetings[0].Session == "m3"] {
+			t.Errorf("profile %+v", p)
+		}
+	}
+}
+
+func TestLearnPicksTheLikestSameNamedProfile(t *testing.T) {
+	s, _ := open(t)
+	_, _ = s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))}})
+	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(2, 3, 0))}}) // another Ilse
+	if n := len(s.Profiles()); n != 2 {
+		t.Fatalf("%d profiles, want 2: a young profile also keeps an unlike voice out", n)
+	}
+	// Each later meeting joins the Ilse it sounds like.
+	_, _ = s.Learn("m3", time.Now(), []Learned{{Name: "ilse novak", Voice: voiceOf(10, unit(2, 3, 0.1))}})
+	_, _ = s.Learn("m4", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(10, unit(0, 1, 0.1))}})
+	ps := s.Profiles()
+	if len(ps) != 2 {
+		t.Fatalf("%d profiles, want 2", len(ps))
+	}
+	for _, p := range ps {
+		var sessions []string
+		for _, h := range p.Meetings {
+			sessions = append(sessions, h.Session)
+		}
+		got := strings.Join(sessions, ",")
+		if got != "m1,m4" && got != "m2,m3" {
+			t.Errorf("profile %s learnt %s", p.ID, got)
+		}
+	}
+	// Relearning a meeting replaces it in the profile it joined.
+	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(12, unit(2, 3, 0))}})
+	total := 0
+	for _, p := range s.Profiles() {
+		total += len(p.Meetings)
+	}
+	if total != 4 {
+		t.Errorf("relearning m2 left %d meetings, want 4", total)
+	}
+	// A name given twice keeps the last voice (the user's naming wins).
+	_, _ = s.Learn("m5", time.Now(), []Learned{
+		{Name: "Ilse Novak", Source: FromTile, Voice: voiceOf(10, unit(3, 1, 0))},
+		{Name: "Ilse Novak", Source: FromNamed, Voice: voiceOf(10, unit(0, 1, 0.05))},
+	})
+	if n := len(s.Profiles()); n != 2 {
+		t.Errorf("%d profiles after a name given twice, want 2", n)
+	}
+}
+
+func TestSameNamed(t *testing.T) {
+	s, _ := open(t)
+	_, _ = s.Learn("m1", time.Now(), []Learned{
+		{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))},
+		{Name: "Wayde Tyrrel", Voice: voiceOf(20, unit(1, 0, 0))},
+	})
+	if got := s.SameNamed(); len(got) != 0 {
+		t.Fatalf("SameNamed with one profile per name = %v", got)
+	}
+	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(2, 3, 0))}})
+	_, _ = s.Learn("m3", time.Now(), []Learned{{Name: "ilse novak", Voice: voiceOf(20, unit(3, 2, 0))}})
+	got := s.SameNamed()
+	if len(got) != 3 {
+		t.Fatalf("SameNamed = %v, want the three pairs of Ilses", got)
+	}
+	// Different people: the pair isn't offered again.
+	if err := s.Apart(got[0].A, got[0].B); err != nil {
+		t.Fatal(err)
+	}
+	if after := s.SameNamed(); len(after) != 2 {
+		t.Errorf("after keeping a pair apart: %v", after)
+	}
+	// Same person: one profile, no alias of its own name, and still apart
+	// from whoever the merged-away profile was kept apart from.
+	into, from := got[1].A, got[1].B
+	if err := s.Merge(into, from); err != nil {
+		t.Fatal(err)
+	}
+	if after := s.SameNamed(); len(after) != 0 {
+		t.Errorf("after merging, the pair kept apart is offered again: %v", after)
+	}
+	for _, p := range s.Profiles() {
+		if p.ID == into && contains(p.Aliases, p.Name) {
+			t.Errorf("merging same-named profiles added the name as an alias: %v", p.Aliases)
+		}
+	}
+}
+
+func TestKnowsAnySameNamedProfile(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "v.json"), sameFold, DefaultParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Source: FromTile, Voice: voiceOf(20, unit(0, 1, 0))}})
+	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Source: FromNamed, Voice: voiceOf(20, unit(2, 3, 0))}})
+	// The first Ilse (one meeting, from a tile) isn't in use; the second
+	// (named by the user) is.
+	if !s.Knows("ilse novak") {
+		t.Error("Knows missed the second, in-use profile of the name")
+	}
+	if s.Knows("Wayde Tyrrel") {
+		t.Error("Knows a name with no profile")
 	}
 }
 
@@ -282,33 +387,67 @@ func TestMove(t *testing.T) {
 		{Name: "Ilse Novak", Source: FromTile, Voice: voiceOf(20, unit(0, 1, 0))},
 		{Name: "Wayde Tyrrel", Source: FromTile, Voice: voiceOf(20, unit(1, 0, 0))},
 	})
-	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Source: FromTile, Voice: voiceOf(30, unit(1, 0, 0.05))}}) // Wayde, misread
-	var ilse Profile
+	// Wayde, under a misread name: unlike Ilse, so a second Ilse profile.
+	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Source: FromTile, Voice: voiceOf(30, unit(1, 0, 0.05))}})
+	var misread, wayde Profile
 	for _, p := range s.Profiles() {
-		if p.Name == "Ilse Novak" {
-			ilse = p
+		switch {
+		case p.Name == "Wayde Tyrrel":
+			wayde = p
+		case len(p.Meetings) == 1 && p.Meetings[0].Session == "m2":
+			misread = p
 		}
 	}
-	if err := s.Move(ilse.ID, "m2", time.Now(), ilse.Meetings[1].Voice, "wayde tyrrel"); err != nil {
+	if misread.ID == "" || wayde.ID == "" {
+		t.Fatalf("setup: %+v", s.Profiles())
+	}
+	if err := s.Move(misread.ID, "m2", time.Now(), misread.Meetings[0].Voice, misread.ID, ""); err == nil {
+		t.Error("moving a meeting to its own profile")
+	}
+	if err := s.Move(misread.ID, "m2", time.Now(), misread.Meetings[0].Voice, wayde.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range s.Profiles() {
-		switch p.Name {
-		case "Ilse Novak":
-			if len(p.Meetings) != 1 || !contains(p.Excluded, "m2") {
-				t.Errorf("Ilse after the move: %+v", p.Meetings)
+		switch p.ID {
+		case misread.ID:
+			if len(p.Meetings) != 0 || !contains(p.Excluded, "m2") {
+				t.Errorf("the misread profile after the move: %+v", p)
 			}
-		case "Wayde Tyrrel":
+		case wayde.ID:
 			if len(p.Meetings) != 2 || p.Voice().N != 50 {
 				t.Errorf("Wayde after the move: %d meetings, %d fingerprints", len(p.Meetings), p.Voice().N)
 			}
 		}
 	}
-	// Ilse never learns m2 again.
+	// No Ilse learns m2 again, and no new one is made for it.
 	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(30, unit(1, 0, 0.05))}})
+	n := len(s.Profiles())
 	for _, p := range s.Profiles() {
-		if p.Name == "Ilse Novak" && len(p.Meetings) != 1 {
-			t.Errorf("a moved meeting came back: %+v", p.Meetings)
+		for _, h := range p.Meetings {
+			if p.Name == "Ilse Novak" && h.Session == "m2" {
+				t.Errorf("a moved meeting came back: %+v", p.Meetings)
+			}
 		}
+	}
+	if n != 3 {
+		t.Errorf("%d profiles, want 3", n)
+	}
+	// To a new profile, by name: a profile of its own even when the name
+	// is taken.
+	ilse := s.Profiles()
+	var first Profile
+	for _, p := range ilse {
+		if p.Name == "Ilse Novak" && len(p.Meetings) == 1 {
+			first = p
+		}
+	}
+	if err := s.Move(first.ID, "m1", time.Now(), first.Meetings[0].Voice, "", "Wayde Tyrrel"); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(s.Profiles()); got != 4 {
+		t.Errorf("%d profiles after moving to a new one, want 4", got)
+	}
+	if err := s.Move(first.ID, "m1", time.Now(), first.Meetings[0].Voice, "", ""); err == nil {
+		t.Error("a move with no profile to move to")
 	}
 }

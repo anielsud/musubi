@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-
 	"github.com/anielsud/musubi/internal/sensitivity"
 	"github.com/anielsud/musubi/internal/vindex"
 )
@@ -206,13 +204,20 @@ func (s *Store) statements(where string, args ...any) ([]Statement, error) {
 }
 
 func (s *Store) PutStatementVec(id int64, model string, v []float32) error {
-	b, err := sqlite_vec.SerializeFloat32(v)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`INSERT INTO statement_vecs(statement_id, model, vec) VALUES (?,?,?)
+	b := s.encodeVec(v)
+	return s.tx(func(tx *sql.Tx) error {
+		// A claim of this one statement reads its centroid from the
+		// statement's vector: keep the old vector on the claim, as when
+		// centroids were always stored.
+		if _, err := tx.Exec(`UPDATE claims SET centroid = (SELECT vec FROM statement_vecs WHERE statement_id = ?1)
+			WHERE centroid IS NULL AND id IN (SELECT claim_id FROM statement_claims WHERE statement_id = ?1)
+			AND (SELECT vec FROM statement_vecs WHERE statement_id = ?1) IS NOT ?2`, id, b); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`INSERT INTO statement_vecs(statement_id, model, vec) VALUES (?,?,?)
 		ON CONFLICT(statement_id) DO UPDATE SET model = excluded.model, vec = excluded.vec`, id, model, b)
-	return err
+		return err
+	})
 }
 
 // StatementVecs loads statement vectors for one model.
@@ -230,15 +235,6 @@ func (s *Store) StatementVecs(model string) (map[int64][]float32, error) {
 		out[id] = decodeVec(b)
 	}
 	return out, rows.Err()
-}
-
-func decodeVec(b []byte) []float32 {
-	v := make([]float32, len(b)/4)
-	for i := range v {
-		u := uint32(b[4*i]) | uint32(b[4*i+1])<<8 | uint32(b[4*i+2])<<16 | uint32(b[4*i+3])<<24
-		v[i] = float32frombits(u)
-	}
-	return v
 }
 
 // ClaimRow is a claim as the linker keeps it.
@@ -260,7 +256,7 @@ type ClaimRow struct {
 
 // Claims loads every claim with its members, for linking and clustering.
 func (s *Store) Claims() ([]ClaimRow, error) {
-	rows, err := s.db.Query(`SELECT c.id, c.kind, c.centroid, sc.statement_id, st.text, st.holder, st.said_at,
+	rows, err := s.db.Query(`SELECT c.id, c.kind, ` + claimCentroid + `, sc.statement_id, st.text, st.holder, st.said_at,
 		st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, st.item_id, st.who
 		FROM claims c JOIN statement_claims sc ON sc.claim_id = c.id JOIN statements st ON st.id = sc.statement_id
 		ORDER BY c.id, st.said_at, st.id`)
@@ -291,12 +287,24 @@ func (s *Store) Claims() ([]ClaimRow, error) {
 	return out, rows.Err()
 }
 
-// NewClaim creates a claim holding one statement.
+// NewClaim creates a claim holding one statement. Its centroid is stored
+// only when vec isn't the statement's stored vector; otherwise it is read
+// from statement_vecs (claimCentroid).
 func (s *Store) NewClaim(st Statement, vec []float32) (int64, error) {
 	var id int64
 	err := s.tx(func(tx *sql.Tx) error {
-		b, _ := sqlite_vec.SerializeFloat32(vec)
-		res, err := tx.Exec(`INSERT INTO claims(kind, created_at, centroid) VALUES (?,?,?)`, st.Kind, st.SaidAt.Unix(), b)
+		b := s.encodeVec(vec)
+		var same int
+		if b != nil {
+			if err := tx.QueryRow(`SELECT count(*) FROM statement_vecs WHERE statement_id = ? AND vec = ?`, st.ID, b).Scan(&same); err != nil {
+				return err
+			}
+		}
+		var cen any = b
+		if same > 0 {
+			cen = nil
+		}
+		res, err := tx.Exec(`INSERT INTO claims(kind, created_at, centroid) VALUES (?,?,?)`, st.Kind, st.SaidAt.Unix(), cen)
 		if err != nil {
 			return err
 		}
@@ -318,8 +326,7 @@ func (s *Store) JoinClaim(statementID, claimID int64, sim float64, how string, c
 		if _, err := tx.Exec(`INSERT OR REPLACE INTO statement_claims(statement_id, claim_id, sim, how) VALUES (?,?,?,?)`, statementID, claimID, sim, how); err != nil {
 			return err
 		}
-		b, _ := sqlite_vec.SerializeFloat32(centroid)
-		if _, err := tx.Exec(`UPDATE claims SET centroid = ? WHERE id = ?`, b, claimID); err != nil {
+		if _, err := tx.Exec(`UPDATE claims SET centroid = ? WHERE id = ?`, s.encodeVec(centroid), claimID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(`INSERT OR REPLACE INTO claim_codes(claim_id, code) VALUES (?,?)`, claimID, vindex.Code(centroid))
@@ -423,7 +430,7 @@ func (s *Store) ReplaceTopics(ts []TopicRow, rels []TopicRelation, ents map[int6
 			return err
 		}
 		for _, t := range ts {
-			b, _ := sqlite_vec.SerializeFloat32(t.Centroid)
+			b := s.encodeVec(t.Centroid)
 			if _, err := tx.Exec(`INSERT INTO topics(id, label, summary, label_level, centroid, size) VALUES (?,?,?,?,?,?)`,
 				t.ID, t.Label, t.Summary, int(t.LabelLevel), b, len(t.Claims)); err != nil {
 				return err

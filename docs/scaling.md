@@ -205,6 +205,12 @@ above before it becomes a default.
     (the same weakness the card phrase lookup fixed).
 13. **Vector storage.** Keep float32 for recent and active items, int8 for
     the rest; nothing is lost that can't be re-derived.
+    *Done instead, 2026-11-12 (research log, "vector storage"):* claim
+    centroids stored only for claims of two or more statements (99.4%
+    repeated their statement's vector), and every vector as float16
+    (`store.vector_encoding`): 762.5 MB → 607.1 MB → 420.7 MB on the
+    all-t4 copy, with 0 of 500 top-1 results changed and 99.98% top-10
+    overlap for statement and passage search.
 
 **Rebuilds**
 14. **Forward-only changes by default.** A prompt or rule change applies
@@ -314,6 +320,10 @@ Coherence passes (C2) add model calls; budget them against what A saved.
    load), a card index updated as items are threaded rather than rebuilt,
    exact-hit priority for short search queries, and a topic map layout that
    shows clusters first when topics run into the thousands.
+3. *Done 2026-11-12 (research log, "vector storage"):* the vector bytes
+   halved and the duplicate claim centroids dropped (−45% file size on
+   the all-t4 copy); passage search on float16 vectors takes 8–10 ms
+   against 6–7 ms (warm), statement search unchanged.
 
 **C. Quality and coherence**
 

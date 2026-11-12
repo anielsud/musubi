@@ -54,6 +54,10 @@ func Open(cfgPath string) (*Engine, error) {
 		return nil, err
 	}
 	st.ReadWithRules = cfg.Knowledge.ApplySpellings
+	if err := st.SetVectorEncoding(cfg.Store.VectorEncoding); err != nil {
+		st.Close()
+		return nil, err
+	}
 	emb, err := provider.New(cfg.Embed)
 	if err != nil {
 		st.Close()

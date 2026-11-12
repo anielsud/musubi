@@ -644,7 +644,10 @@ between claims record how it bears on others:
 - supersedes: a decision changed;
 - answers: resolves an open question.
 
-A claim's centroid is the mean of its statements' vectors.
+A claim's centroid is the mean of its statements' vectors. It is stored
+only for claims of two or more statements; a claim of one reads its
+statement's vector (a NULL `claims.centroid`), written when a second
+statement joins (2026-11-12: 99.4% of claims hold one statement).
 
 ### Belief (computed when read, never stored)
 
@@ -1055,9 +1058,10 @@ stay cheap.
   statement, kind, holder, certainty, and a raw value. Entities, normalised
   values and sensitivity are derived in code. The JSON schema keeps replies
   well-formed, so a smaller model can be tried.
-- **Vectors are kept full** (float32). Re-embedding is the second costliest
-  recompute, and every compact form can be derived from full vectors without
-  it:
+- **Vectors were kept full** (float32) until 2026-11-12, when half precision
+  (float16) became the default after measuring no change in results (a lever
+  pulled: research log, 2026-11-12). Re-embedding is the second costliest
+  recompute; the compact forms below derive from stored vectors without it:
   - Matryoshka truncation;
   - int8;
   - binary codes for a first-pass scan with re-ranking.
@@ -1167,11 +1171,18 @@ its own (its `data_version` moves with every commit), not the writer's.
 Defaults: `mmap_mb = 2048`, `cache_mb = 0` (SQLite's own; no faster
 with mmap on), `read_conns = 4`; `mmap_mb = 0`, `read_conns = 1` restore
 one connection with SQLite's defaults. Mapped pages count in the app's
-resident memory. Measured: research log, 2026-11-12. Vectors are float32
-blobs (nomic-embed-text: 768 dimensions, 3 KB each) compared exactly by
-sqlite-vec, with the 1-bit codes above in front past 2,000.
+resident memory. Measured: research log, 2026-11-12. Vectors
+(nomic-embed-text: 768 dimensions) are blobs in one of two encodings, told
+apart by length (`internal/store/vecenc.go`): float32 (3 KB, sqlite-vec's
+format) or float16 (a tag byte and 1.5 KB, two to a page), written as
+`store.vector_encoding` says (default `"f16"`; `"f32"` is the earlier
+behaviour) and both always read as float32. `musubi vectors encode
+f16|f32` rewrites what is stored. While a database holds only float32
+passage vectors sqlite-vec compares them exactly, as before; once it holds
+float16 ones (`store_meta`), the candidates are decoded and compared in
+Go the same way. The 1-bit codes above stay in front past 2,000.
 
-**Schema** (`internal/store/schema.sql`, version 4; 34 tables), by layer:
+**Schema** (`internal/store/schema.sql`, version 4; 35 tables), by layer:
 
 | Layer | Tables |
 |---|---|
@@ -1181,7 +1192,7 @@ sqlite-vec, with the 1-bit codes above in front past 2,000.
 | Knowledge | `statements`, `statement_vecs`, `claims`, `claim_codes`, `statement_claims`, `claim_relations`, `statement_relations` |
 | Topics and threads | `topics`, `topic_relations`, `topic_entities`, `topic_events`, `thread_items`, `thread_runs`, `thread_status` |
 | Owner's decisions (kept across rebuilds) | `corrections`, `learned_aliases`, `thread_edits`, `owner_links`, `forgotten`, `audit`, `judgments` |
-| Stage bookkeeping | `stage_runs`, `global_runs` |
+| Stage bookkeeping | `stage_runs`, `global_runs`, `store_meta` (one-off data upgrades done, vector encodings present) |
 
 **Size, measured (the "All" dataset, 2026-10-21):** 268 MB for 165
 meetings and 55 other items (9,494 passages, 20,879 statements, 690
@@ -1191,7 +1202,10 @@ vectors 39 MB; statements 14 MB, passages 10 MB, items 10 MB, the
 FTS index 4 MB. 99.6% of claims hold a single statement, so their
 centroids repeat the statement's vector: a third of the file. Storing a
 centroid only for claims of two or more, and vectors as float16, would
-take it to about 120 MB, under half of today's size.
+take it to about 120 MB, under half of today's size. Done 2026-11-12
+(research log, "vector storage"): on the all-t4 copy (50,924 passages,
+38,439 statements) 762.5 MB became 607.1 MB with centroids stored once
+and 420.7 MB with float16 vectors.
 
 **Scaling.** `tools/scale-bench` times the read paths on a synthetic
 corpus shaped like the leadership meetings (research log, "Reads at

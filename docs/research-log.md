@@ -3778,3 +3778,105 @@ lines at all, how much of the 45% the graph scans were, and how the
 mapped memory sits beside the recorder. The diagnostics panel's "Record
 a 30 s profile" during a meeting answers the first and third: Live's
 steps carry pprof labels.
+
+## 2026-11-12: vector storage — claim centroids once, vectors as float16 (LEVER WE PULLED)
+
+**This is a lever we pulled.** Two storage changes, both on branch
+`vec-storage`; they take effect for a database when a build with them
+opens it (the centroid change) and when its vectors are re-encoded (the
+float16 change). The owner's live database is re-encoded by hand with
+`musubi vectors encode f16`; note the date here when that runs.
+
+What changed:
+1. **Claim centroids stored once.** A claim of one statement no longer
+   stores a centroid: it reads its statement's vector (a NULL
+   `claims.centroid`, read through `statement_vecs` by every centroid
+   read). A centroid is written when a second statement joins. Opening a
+   database converts it once (`store_meta` key `claim_centroids_dedup`),
+   NULLing only centroids equal byte for byte to their single statement's
+   vector, so every read returns the same bits: lossless.
+2. **Vectors as IEEE half precision.** `[store] vector_encoding = "f16"`
+   (the new default) writes passage, statement, claim and thread vectors
+   as float16 (a tag byte, then 2 bytes a component); `"f32"` writes them
+   as before. Both always read, decoded to float32 for scoring. Passage
+   search runs sqlite-vec's query exactly as before until a database holds
+   f16 passage vectors (`store_meta` key `chunk_vecs_f16`); then it scores
+   the candidates in Go, the way `vec_distance_cosine` does. Lossy: each
+   component keeps 11 significant bits.
+
+Measured on a copy of the `all-t4-pre-switch-20261112-100328` backup
+(stored vectors only, no model calls; nomic-embed-text, 768-d; 50,924
+passage vectors, 38,439 statement vectors, 38,310 claims):
+
+| File | Size | chunk_vecs | statement_vecs | claims |
+|---|---|---|---|---|
+| Before (VACUUMed: unchanged) | 762.5 MB | 209.1 MB | 157.8 MB | 157.3 MB |
+| After 1 (centroids once), VACUUM INTO | 607.1 MB (−20%) | 209.1 MB | 157.8 MB | 1.9 MB |
+| After 1 + 2 (f16), VACUUM | 420.7 MB (−45%) | 104.6 MB | 78.9 MB | 1.4 MB |
+
+38,062 of the 38,310 centroids (99.4%) repeated their statement's vector
+byte for byte; 248 stay stored (119 single-statement claims whose centroid
+differs from today's statement vector, and the claims of two or more).
+After the upgrade every centroid read (`ClaimCentroids`,
+`ClaimCentroidsOf`, `EachClaimCentroid`, `Claims`) returned identical bits
+for all 38,310 claims. A 3 KB vector took a whole 4 KB page; at 1.5 KB two
+fit, so f16 halves the vector tables exactly. Re-encoding the copy took
+9 s plus the VACUUM.
+
+Agreement, float16 against float32 (queries are float32, as from the
+embedder; each query is a stored vector of a held-out row):
+
+| Read | Queries | Top-1 changed | Top-10 overlap | Top-50 overlap | Spearman (common top-50) |
+|---|---|---|---|---|---|
+| `StatementsNear` (400 claims, own meeting excluded) | 500 | 0 | 99.98% | 99.99% | 1.0000 |
+| Passage search (code candidates + re-rank) | 500 | 0 | 99.98% | 99.99% | 1.0000 |
+| Passage, exact over all 50,924 | 500 | 0 | 99.98% | 99.99% | 1.0000 |
+
+Claim matching (1,000 statements against all 38,309 other claims, both
+the statement vector and the centroids as stored in each encoding): cosine
+similarity moved by 7.1e-6 on average, 5.0e-5 at most. The most similar
+candidate above `considerAt` (0.72) was the same claim for all 1,000; the
+three judged candidates differed for 2 (a near-tie swapped at the third
+place); no pair crossed `sameAt` (0.97) either way; 292 of 38.3 million
+pairs crossed `considerAt` (0.0008%, all within 5e-5 of it, where 91
+candidates a statement sit within ±0.001) and 645 crossed `rareFloor`
+(0.55), which only matters past the top three.
+
+What I would have called bad (and stopped on): top-1 changing for more
+than 1% of queries, top-10 overlap under 98%, or the joined claim or a
+`sameAt` decision flipping for more than 0.5% of statements. All are far
+below.
+
+Read time (warm OS file cache; a true cold read needs `purge`, which needs
+root; the machine was loaded, load average ~12, so ±30%): passage search
+6–7 ms a query in f32 against 8–10 ms in f16 (the f16 candidates are
+decoded and scored in Go); `StatementsNear` 6–13 ms against 6–7 ms (no
+change: it already scored in Go, and reads half the bytes); the exact
+scan over all passages 140–240 ms against 180–230 ms. On a cold disk f16
+reads half the pages.
+
+**Symptom to watch for:** Live briefings, topic cards or search showing
+off-topic or junk results, or claims that should have joined one another
+appearing as separate duplicates after new meetings are linked.
+
+**How to undo:**
+1. Set `[store] vector_encoding = "f32"` in `~/.config/musubi/config.toml`
+   (new vectors are written full precision again).
+2. `musubi vectors encode f32` (with `--db` for another file) rewrites
+   what is stored as float32 and returns passage search to sqlite-vec.
+   This only widens the rounded values; it does not bring back the
+   original precision.
+3. For the exact original vectors, restore the backup taken before the
+   re-encode, or re-embed. No command re-embeds stored vectors in place
+   today: `musubi update` embeds passages whose embed stamp is missing or
+   stale (`stages.EmbedVersion`), and `musubi knowledge` embeds statements
+   that have no vector, so re-embedding means clearing those first (the
+   `embed/…` rows of `stage_runs`, and `statement_vecs`) and running both
+   (the embedding model, no LLM). Single-statement claims follow their
+   statement's new vector; stored centroids keep the rounded values until
+   the claims are relinked (`musubi knowledge --redo links`).
+
+The centroid change needs no undo (lossless), but a build from before it
+reads single-statement claims as having no centroid, and one from before
+f16 misreads f16 vectors: don't open an upgraded database with an older
+build.

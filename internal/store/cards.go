@@ -51,7 +51,7 @@ func (s *Store) CardRows() ([]CardRow, error) {
 // ClaimCentroids loads every claim's centroid, for finding the claims
 // nearest a query.
 func (s *Store) ClaimCentroids() (map[int64][]float32, error) {
-	rows, err := s.rdb.Query(`SELECT id, centroid FROM claims WHERE centroid IS NOT NULL`)
+	rows, err := s.rdb.Query(`SELECT c.id, ` + claimCentroid + ` FROM claims c`)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,9 @@ func (s *Store) ClaimCentroids() (map[int64][]float32, error) {
 		var id int64
 		var b []byte
 		rows.Scan(&id, &b)
-		out[id] = decodeVec(b)
+		if b != nil {
+			out[id] = decodeVec(b)
+		}
 	}
 	return out, rows.Err()
 }

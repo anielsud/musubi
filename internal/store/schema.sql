@@ -529,3 +529,12 @@ CREATE TABLE IF NOT EXISTS prep_briefs (
 	categories INTEGER NOT NULL DEFAULT 0,
 	made_at    INTEGER NOT NULL
 );
+
+-- Facts about the stored data itself: one-off data upgrades done (claim
+-- centroids deduplicated: since then a NULL claims.centroid means the
+-- claim's one statement's vector) and which vector encodings are present
+-- (vecenc.go). Derived like the tables it describes.
+CREATE TABLE IF NOT EXISTS store_meta (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);

@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/sensitivity"
 	"github.com/anielsud/musubi/internal/vindex"
@@ -255,11 +253,13 @@ func (s *Store) PutVecs(itemID, stage, model, version, hash string, vecs map[int
 		if _, err := tx.Exec(`DELETE FROM chunk_codes WHERE model = ? AND chunk_id IN (SELECT id FROM chunks WHERE item_id = ?)`, model, itemID); err != nil {
 			return err
 		}
-		for id, v := range vecs {
-			b, err := sqlite_vec.SerializeFloat32(v)
-			if err != nil {
+		if s.VectorEncoding == VecF16 && len(vecs) > 0 {
+			if err := metaSet(tx, metaChunkF16, "1"); err != nil {
 				return err
 			}
+		}
+		for id, v := range vecs {
+			b := s.encodeVec(v)
 			if _, err := tx.Exec(`INSERT INTO chunk_vecs(chunk_id, model, vec) VALUES (?,?,?)`, id, model, b); err != nil {
 				return err
 			}

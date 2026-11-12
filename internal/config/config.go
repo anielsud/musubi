@@ -42,6 +42,7 @@ type Config struct {
 	Providers map[string]Provider `toml:"providers"`
 }
 
+// Store is how the database keeps what it derives.
 // M365 reads the owner's Microsoft 365 data through Microsoft Graph
 // (internal/m365) once the owner has connected from Settings or
 // `musubi m365 connect`. Until then nothing changes.
@@ -603,6 +604,11 @@ type Store struct {
 	// a 2.4 s backup took 78 ms instead of 2.3 s). 1: everything shares
 	// the single connection, as before.
 	ReadConns int `toml:"read_conns"`
+	// VectorEncoding is how embedding vectors are written: "f16" (half
+	// precision, half the space; measured 2026-11-12, docs/research-log.md)
+	// or "f32" (full precision, the earlier behaviour). Both always read;
+	// `musubi vectors encode` rewrites what is already stored.
+	VectorEncoding string `toml:"vector_encoding"`
 }
 
 // Diagnostics: tools in the diagnostics panel.
@@ -681,7 +687,7 @@ func DefaultConfig() Config {
 			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
 			Cache: true, SkipIdle: true,
 		},
-		Store:       Store{MmapMB: 2048, ReadConns: 4},
+		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16"},
 		Diagnostics: Diagnostics{Profiling: true},
 		Recorder:    Recorder{OfRecord: "tomoe", Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}

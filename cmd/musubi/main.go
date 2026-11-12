@@ -54,7 +54,7 @@ func root() *cobra.Command {
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
 	r.AddCommand(importItemsCmd(), extractLeanCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), aliasesCmd(), liveCmd(),
-		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd())
+		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd(), vectorsCmd())
 	return r
 }
 
@@ -64,6 +64,12 @@ func load() (config.Config, *store.Store, error) {
 		return cfg, nil, err
 	}
 	st, err := store.Open(cfg.DBPath())
+	if err == nil {
+		if err = st.SetVectorEncoding(cfg.Store.VectorEncoding); err != nil {
+			st.Close()
+			st = nil
+		}
+	}
 	return cfg, st, err
 }
 
@@ -450,6 +456,9 @@ the cases. Exits non-zero on any leak.`,
 				return err
 			}
 			defer st.Close()
+			if err := st.SetVectorEncoding(cfg.Store.VectorEncoding); err != nil {
+				return err
+			}
 			embs, err := parseEmbedders(embed, cfg)
 			if err != nil {
 				return err

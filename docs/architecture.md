@@ -301,6 +301,23 @@ cold lane like any other source.
   the menu shows those five, the rest a click away. Briefs are kept per scope, so one written in
   private doesn't show on a shared screen. Research log 2026-10-28:
   80–90% of cards on topic against 12%.
+- **Cost during a meeting** (research log 2026-11-12): with `live.cache`
+  (default on) the reads Live repeats are kept for the meeting in a
+  `store.ReadCache`: topic infos, each card's evidence, thread statuses,
+  entity graphs, and for statement lookups each claim's visible statements
+  and each statement's vector. Each result is kept under the whole scope
+  it was read in (so a toggle to the shared screen never sees what was
+  read in private) and everything is dropped when `KnowledgeSignature`
+  moves (any write: an import, a knowledge run, a correction). A new
+  cache starts with each meeting and each Reload. With `live.skip_idle`
+  (default on) a due pick, or a model suggestion run, whose input is what
+  the last one read (the conversation it reads, the scope and, for a
+  pick, its votes) is skipped and the cadence kept. Menu ranking already
+  runs only when the cards it ranks change. The diagnostics panel's
+  "Record a 30 s profile" (`[diagnostics] profiling`) writes a CPU profile
+  and a goroutine dump under the data folder's `profiles/`; Live's steps
+  carry pprof labels (`step` = pick, suggest, fastlane, cards; queue for
+  the work queue).
 - **Stepped replay** (`musubi live --replay ID --stepped`): the meeting
   line by line on its own clock, each line's work (lookups, cards,
   suggestions, summaries) done before the next, so the result doesn't
@@ -1136,8 +1153,21 @@ version.
 
 **Technology.** `mattn/go-sqlite3` (cgo, built with the `sqlite_fts5` tag)
 and `sqlite-vec`, in WAL mode with foreign keys on, a 10 s busy timeout and
-a single connection (one writer at a time is SQLite's model; it also keeps
-transactions from interleaving between goroutines). Vectors are float32
+a single connection for writing (one writer at a time is SQLite's model; it
+also keeps transactions from interleaving between goroutines). `[store]`
+(`store.Options`) adds, per connection, a page cache of `cache_mb` and
+memory-mapped reads up to `mmap_mb` (applied by a connect hook; sqlite-vec
+is an auto extension, so every connection has it), and `read_conns`
+read-only connections (`mode=ro` and `query_only`) for the read paths, so
+a screen or Live doesn't wait behind a long write. Only plain reads go to
+the pool (the list is in `internal/store/reads.go`); writes, reads inside
+a write transaction and reads made by a writing method stay on the
+writer. `KnowledgeSignature` is then read from a read-only connection of
+its own (its `data_version` moves with every commit), not the writer's.
+Defaults: `mmap_mb = 2048`, `cache_mb = 0` (SQLite's own; no faster
+with mmap on), `read_conns = 4`; `mmap_mb = 0`, `read_conns = 1` restore
+one connection with SQLite's defaults. Mapped pages count in the app's
+resident memory. Measured: research log, 2026-11-12. Vectors are float32
 blobs (nomic-embed-text: 768 dimensions, 3 KB each) compared exactly by
 sqlite-vec, with the 1-bit codes above in front past 2,000.
 

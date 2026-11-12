@@ -3708,3 +3708,73 @@ recording) any mic with signal is offered, as before. Off with
 Unverified: real rooms (webcam processing, AGC, reverb heavier than the
 model), the alignment of the two captures on this Mac, and the false-alarm
 rate on real speech. Needs a real meeting.
+
+## 2026-11-12: Live's CPU during a meeting — what it was, and what was cut
+
+**Seen:** in a live Zoom meeting on the all-t4 dataset (766 MB file) the
+app used about 45% of a core while the feed was quiet. `sample` showed
+SQLite stepping through scans with many page reads; the Go callers didn't
+show through cgo.
+
+**Measured** with `TestLivePerf` (`internal/live/perf_test.go`) on a copy
+of the 2026-11-12 backup. No model was called: the embedder and the
+classifier were stand-ins. Runs were niced, on a loaded Mac (load average
+8–12), so the numbers are ±20%. "Cold" is the first call on a freshly
+opened store (SQLite's cache empty, the OS's file cache warm); "warm" is
+the median of the next three.
+
+| Read | Before | After (defaults) |
+|---|---|---|
+| EntityGraph, most mentioned entity (1,249 items) | 42.7 s cold, 31.6 s warm | 14.0 s cold (mmap), 0.1 ms warm (cache) |
+| Card ×20 (largest topics) | 10.0 s cold, 9.0 s warm | 0.97 s cold, 0.74 s warm |
+| StatementsNear ×11 (400 claims) | 534–679 ms cold, 57–75 ms warm | 80–354 ms cold, 13.5 ms warm (cache) |
+| TopicInfos | 39–68 ms | 36 ms cold, 0 warm (cache) |
+| ThreadStatuses | 65–93 ms | 77 ms cold, 0 warm (cache) |
+| AllItems | 395–410 ms cold, 125–162 ms warm | 124–253 ms cold, 127–139 ms warm |
+| Work queue, person page | 245 ms, 250 ms | unchanged (234–278, 225 ms) |
+| A read while a backup holds the writer (2.4 s) | 2,278 ms (waits) | 78 ms (read pool) |
+| Synthetic meeting, CPU per meeting minute | 85.8 s (5 min) | 11.0 s (1 min) |
+
+**Where the time went:**
+
+- **Cards were Go CPU, not SQL.** A profile of Card ×20 put 5.8 of 7.8 s
+  in `dedupeLines`, which split both lines into words for every pair it
+  compared. Each line's words are now read once (identical output,
+  `TestDedupeLinesMatchesPairwise`). That took it from 9.2 to 2.5 s, and
+  the same for the Now-against-rules check to 1.75 s. Evidence was 0.12 s
+  of it. Every pick, focus refresh and finished brief rebuilds every card
+  on the panel (the 4 shown and up to `keep_topics` kept), so a meeting
+  paid this many times a minute.
+- **Entity graphs scan `mentions` once per item.** `EntityGraph` asks
+  each of an entity's items for its neighbours with
+  `WHERE c.item_id = ?`. Nothing indexes that through `mentions`, so
+  every item scans all 122k mentions: 1,249 scans for the most mentioned
+  entity. The fast lane builds up to six graphs whenever a line names
+  someone not looked up in the last 5 minutes. Memory-mapped reads took
+  it from 42.7 to 14.0 s, and the meeting cache makes the repeats free.
+  **Not changed (proposal):** adding `mm.item_id = ?` (always equal to
+  the chunk's item, 0 mismatches) uses the `mentions_item` index. Tried
+  on the copy, it took the most mentioned entity to 0.25 s and all 50 to
+  3.4 s (2.7 s with mmap).
+- **Page cache and mmap** (`[store]`): with the OS cache warm, `mmap_mb`
+  alone did as well as `cache_mb = 64` with mmap (StatementsNear cold
+  80 against 124 ms; AllItems 124 against 128 ms), and better than
+  `cache_mb = 64` alone on the graph scan (14.0 against 27.8 s). So the
+  defaults are `mmap_mb = 2048`, `cache_mb = 0`. The cost is resident
+  memory: mapped file pages count in it. The 1-minute meeting peaked at
+  1,398 MB with mmap against 512 MB without, and used 11.0 against 17.3 s
+  of CPU. The pages are clean and shared, so the OS reclaims them first,
+  but Activity Monitor shows them.
+- **Skipping idle runs** (`live.skip_idle`) skipped nothing in the
+  synthetic meeting. Drafts change the text and every said term adds a
+  vote, so no pick or model run had the same input twice. It only saves
+  work when a line arrives without changing what is read (a pending line
+  carrying its draft's text). Menu ranking already reran only when its
+  cards changed.
+
+**Only a real meeting can tell:** how often names and terms come up (they
+decide how many graphs and cards are built), whether quiet stretches send
+lines at all, how much of the 45% the graph scans were, and how the
+mapped memory sits beside the recorder. The diagnostics panel's "Record
+a 30 s profile" during a meeting answers the first and third: Live's
+steps carry pprof labels.

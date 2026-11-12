@@ -590,15 +590,18 @@ type Live struct {
 // Store tunes the database's connections (store.Options). Measured on
 // the all-t4 dataset (766 MB), docs/research-log.md, 2026-11-12.
 type Store struct {
-	// CacheMB is each connection's page cache, in MiB. 0: SQLite's
-	// default (2 MB), as before.
+	// CacheMB is each connection's page cache, in MiB. 0 (default):
+	// SQLite's own (2 MB), as before; with mmap_mb on, 64 measured no
+	// faster.
 	CacheMB int `toml:"cache_mb"`
-	// MmapMB maps up to this much of the database file for reads. 0: off,
-	// as before.
+	// MmapMB maps up to this much of the database file for reads (default
+	// 2048; the all-t4 file is 766 MB). It took the most mentioned
+	// entity's graph from 42.7 s to 14.0 s. 0: off, as before.
 	MmapMB int `toml:"mmap_mb"`
 	// ReadConns is how many read-only connections serve the screens' and
-	// Live's reads while the one writer writes. 1: everything shares the
-	// single connection, as before.
+	// Live's reads while the one writer writes (default 4: a read during
+	// a 2.4 s backup took 78 ms instead of 2.3 s). 1: everything shares
+	// the single connection, as before.
 	ReadConns int `toml:"read_conns"`
 }
 
@@ -678,9 +681,9 @@ func DefaultConfig() Config {
 			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
 			Cache: true, SkipIdle: true,
 		},
-		Store:       Store{CacheMB: 64, MmapMB: 2048, ReadConns: 4},
+		Store:       Store{MmapMB: 2048, ReadConns: 4},
 		Diagnostics: Diagnostics{Profiling: true},
-		Recorder: Recorder{OfRecord: "tomoe", Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
+		Recorder:    Recorder{OfRecord: "tomoe", Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}
 }
 

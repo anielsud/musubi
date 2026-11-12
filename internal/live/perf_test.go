@@ -162,6 +162,9 @@ func TestLivePerf(t *testing.T) {
 	if want("meeting") {
 		perfMeeting(t, eng, cs, samples)
 	}
+	var ru syscall.Rusage
+	syscall.Getrusage(syscall.RUSAGE_SELF, &ru)
+	fmt.Printf("%-44s %9.0f MB (macOS reports bytes)\n", "peak resident memory", float64(ru.Maxrss)/(1<<20))
 }
 
 func check(t *testing.T, err error) {

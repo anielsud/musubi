@@ -12,6 +12,11 @@ import { Play, type Act } from './voices';
 // fitWell: a sample at least this like the profile isn't listed until
 // asked for (the owner's choice, 2026-11-12).
 const fitWell = 0.85;
+// minJudge: a sample of fewer fingerprints (a second or two) scores low
+// against its own profile as often as not, like a thin meeting (the
+// recorder's MinLearn, 10): such samples are counted, not listed as
+// misfits.
+const minJudge = 10;
 // clipCap matches the recorder's voice_clip cap (clipSeconds).
 const clipCap = 8;
 
@@ -85,7 +90,8 @@ export function MeetingSamplesRow({ s, p, session, editable, a }: { s: SamplesSt
   const samples = m.samples ?? [];
   const kept = samples.filter((x) => !x.excluded), out = samples.filter((x) => x.excluded);
   if (samples.length === 0) return null;
-  const worse = kept.filter((x) => x.similarity < fitWell), fine = kept.filter((x) => x.similarity >= fitWell);
+  const judged = kept.filter((x) => x.fingerprints >= minJudge), short = kept.filter((x) => x.fingerprints < minJudge);
+  const worse = judged.filter((x) => x.similarity < fitWell), fine = judged.filter((x) => x.similarity >= fitWell);
   const head = worse.length === 0 ? `${kept.length} ${kept.length === 1 ? 'sample' : 'samples'}, all fit well` : `${kept.length} ${kept.length === 1 ? 'sample' : 'samples'}`;
   const key = `s/${p.id}`;
   const edit = (x: VoiceSample, exclude: boolean) =>
@@ -116,6 +122,9 @@ export function MeetingSamplesRow({ s, p, session, editable, a }: { s: SamplesSt
           {fine.length > 0 && (worse.length === 0 || all
             ? fine.map(row)
             : <button className="link small" onClick={() => setAll(true)}>+{fine.length} more that fit well</button>)}
+          {short.length > 0 && (all
+            ? <><div className="dim small">Too short to judge ({short.length})</div>{short.map(row)}</>
+            : <div className="dim small">+{short.length} too short to judge (under {minJudge} fingerprints)</div>)}
           {out.length > 0 && <><div className="dim small">Taken out ({out.length})</div>{out.map(row)}</>}
         </div>
       )}

@@ -124,3 +124,10 @@ func TestUnsureSpeechTeachesNoTile(t *testing.T) {
 		}
 	}
 }
+
+// The owner's own lines never teach a tile's profile.
+func TestUnsureLabelsIncludeTheOwner(t *testing.T) {
+	if !unsureLabels(&session.Session{})["You"] {
+		t.Error("the owner's lines can teach the profile of whoever's tile is lit")
+	}
+}

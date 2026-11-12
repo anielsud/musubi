@@ -30,14 +30,16 @@ export function useRecorder() {
 
 const srcName = (s: RecSource) => s.name || (s.kind === 'mic' ? 'the microphone' : 'the meeting audio');
 
-// SourceBanner suggests switching a silent source to one the recorder
-// heard sound on: one click.
+// SourceBanner says which source has gone quiet, in words that say what
+// it is (your microphone, or the meeting's audio), and suggests one the
+// recorder heard sound on instead: one click.
 export function SourceBanner({ rec }: { rec: RecorderView | null }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const st = rec?.status;
   if (!st?.recording || !st.silent) return null;
-  const sug = st.suggest;
+  const sil = st.silent, sug = st.suggest;
+  const mic = sil.kind === 'mic';
   const swap = () => {
     if (!sug) return;
     setBusy(true); setErr('');
@@ -45,8 +47,15 @@ export function SourceBanner({ rec }: { rec: RecorderView | null }) {
   };
   return (
     <div className="source-banner">
-      <span>No sound from {srcName(st.silent)}.</span>
-      {sug ? <> <span>{srcName(sug)} has sound.</span> <button className="primary" disabled={busy} onClick={swap}>{busy ? <Spinner /> : 'Switch'}</button></> : <span className="dim"> Nothing else has sound either.</span>}
+      <span>
+        {mic
+          ? <>Your microphone (<b>{srcName(sil)}</b>) has picked up nothing for 20 seconds: muted, or the wrong microphone?</>
+          : <>No meeting audio from <b>{srcName(sil)}</b> for a minute.</>}
+      </span>
+      {sug
+        ? <><span>{mic ? <>The <b>{srcName(sug)}</b> microphone hears sound.</> : <><b>{srcName(sug)}</b> is playing sound.</>}</span>
+            <button className="primary" disabled={busy} onClick={swap}>{busy ? <Spinner /> : `Use ${srcName(sug)}`}</button></>
+        : <span className="dim">{mic ? 'No other microphone hears anything either.' : 'Nothing else is playing either.'}</span>}
       {err && <div className="error small">{err}</div>}
     </div>
   );

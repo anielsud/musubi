@@ -484,6 +484,14 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
   .live-left, .live-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
   .view.live.idle-mode { display: flex; width: 100%; max-width: 760px; margin: 0 auto; }
   .live-right > .topics { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 10px; }
+  /* In a meeting each column scrolls on its own and the conversation takes
+     whatever height the left column has spare. */
+  .view.live:not(.idle-mode) { overflow: hidden; align-items: stretch; grid-template-rows: minmax(0, 1fr); padding-bottom: 12px; }
+  .view.live:not(.idle-mode) .live-left { min-height: 0; overflow-y: auto; }
+  .view.live:not(.idle-mode) .live-right { min-height: 0; overflow-y: auto; padding-right: 4px; }
+  .view.live:not(.idle-mode) .transcript { flex: 1 1 auto; min-height: 180px; display: flex; flex-direction: column; }
+  .view.live:not(.idle-mode) .transcript .lines,
+  .view.live:not(.idle-mode) .transcript .lines.all { flex: 1 1 auto; max-height: none; min-height: 0; }
   .cmp-row { grid-template-columns: minmax(0, 1fr) 80px minmax(0, 1.4fr); align-items: start; }
   .cmp-status { justify-content: center; }
   .cluster-cards { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
@@ -769,10 +777,11 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .slot-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; }
 .slot-row .slot-label { grid-column: 1 / -1; }
 .slot-row.rec-models { align-items: start; }
-.pick { display: grid; grid-template-columns: 1fr auto; gap: 4px; min-width: 0; }
-.pick .pick-label { grid-column: 1 / -1; }
-.pick select { min-width: 0; }
-.pick select.effort { width: 9.5em; }
+/* Model picker in Processing; not .pick, which is the Live tab's card. */
+.model-pick { display: grid; grid-template-columns: 1fr auto; gap: 4px; min-width: 0; }
+.model-pick .model-pick-label { grid-column: 1 / -1; }
+.model-pick select { min-width: 0; }
+.model-pick select.effort { width: 9.5em; }
 .provider { padding: 6px 0 10px; border-bottom: 1px dashed var(--line); }
 @media (max-width: 560px) { .slot-row { grid-template-columns: 1fr; } }
 

@@ -140,8 +140,8 @@ function Pick({ label, slot, value, effort, text, rows, fallback, onModel, onEff
   const unverified = cur?.row.note?.includes('unverified') || value === 'custom';
   const def = cur?.row.defaultEffort ? `default (${cur.row.defaultEffort})` : 'default';
   return (
-    <div className="pick">
-      <span className="dim small pick-label">{label}</span>
+    <div className="model-pick">
+      <span className="dim small model-pick-label">{label}</span>
       <select value={value} onChange={(e) => onModel(e.target.value)}>
         {(fallback || slot.kind !== 'local') && <option value="">{fallback ? 'none' : 'off'}</option>}
         {value === 'custom' && <option value="custom">{text ? `as set: ${text}` : 'as set in the config file'}</option>}
@@ -201,8 +201,8 @@ function RecModelPick({ f }: { f: RecModelField }) {
   };
   const nameOf = (id?: string) => opts.find((o) => o.value === id)?.label ?? id;
   return (
-    <div className="pick">
-      <span className="dim small pick-label">
+    <div className="model-pick">
+      <span className="dim small model-pick-label">
         {f.label}{!f.set && <span title="Not set in Musubi: Tomoe's value"> · as Tomoe</span>}
         {state === 'saving' ? <> <Spinner /></> : state === 'saved' ? <span className="ok-text"> ✓ saved; after a restart</span> : null}
       </span>
@@ -210,12 +210,12 @@ function RecModelPick({ f }: { f: RecModelField }) {
         {opts.map((o) => <option key={o.value} value={o.value}>{o.label}{missing.has(o.value) ? ' (not downloaded)' : ''}</option>)}
         {!opts.some((o) => o.value === v) && <option value={v}>{v} (not offered)</option>}
       </select>
-      <span className="dim small pick-label">
+      <span className="dim small model-pick-label">
         {f.help}
         {f.inUse && <> Now using {nameOf(f.inUse)}.</>}
         {missing.has(v) && <> Not downloaded yet: download it in Settings → Models.</>}
       </span>
-      {err && <span className="error small pick-label">{err}</span>}
+      {err && <span className="error small model-pick-label">{err}</span>}
     </div>
   );
 }

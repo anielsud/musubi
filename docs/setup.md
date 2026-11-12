@@ -99,7 +99,24 @@ min_p = 0.5
 ```
 
 Through the Optimizely AI Gateway, the same models take one personal
-gateway token. Until Musubi sets this up itself:
+gateway token. **Settings → Optimizely AI Gateway** sets it up: paste the
+token, and Musubi checks it with Cloudflare, keeps it in the Keychain and
+writes the gateway to the config:
+
+```toml
+[gateway]
+url = "https://<gateway worker>"
+account = "<account>"
+api_key = "keychain:ai-gateway-token"
+token_id = "<token id>"
+```
+
+Every model whose `url` is on the gateway (its worker, or the account's
+`/ai/run` catalog) then takes the gateway's `api_key` and headers for
+whatever it doesn't set itself, so a model needs only `provider`, `url`,
+`model` and prices. The card also lists the models the gateway serves,
+with live prices and Cloudflare's planned retirement dates. By hand,
+without the app:
 
 1. **Get a token** (`cfat_…`) from the gateway's mint workflow (a one-time
    link). It needs both of the permissions personal tokens are minted
@@ -165,6 +182,76 @@ the two needn't match (on 2026-11-11 the gateway served 1.13.0 and
 TypeSafe 1.14.0). Clef (`provider = "clef"`, `url` its own `/ai/run/@cf/
 cloudflare/clef` address) takes the same questions; on the labels sample
 it found fewer sensitive statements than Jev (research log, 2026-11-11).
+
+Settings is what is set up once and left alone; what to watch and act on
+is on Status. Its tabs:
+
+- **Accounts**: Microsoft 365, you (name, email) and what is synced
+  (mail and Teams chats are not offered yet: untested).
+- **AI providers**: where models come from, each on the same kind of
+  card (address, key, formats, used by, Test): the **AI Gateway**,
+  **other providers** such as Baseten, and **Ollama** on this Mac
+  (address, whether Musubi starts it and downloads the models in use).
+- **Models**: every model from every source in one table, sortable and
+  searchable: format, prices, context, thinking levels, retirement, what
+  uses it; local models are downloaded and removed here.
+- **Processing**: which model does what (below).
+- **Dataset**: where it is, its size on disk, **Back up now**, and the
+  settings that shape the app: when it checks for new meetings, the Live
+  panel's timings and cards, Ask, meeting prep.
+
+**Use recommended** on Processing writes `internal/config/recommended.toml`:
+Claude Haiku 5.5 at medium thinking through the gateway, GLM on Baseten
+behind it, local models for Live and search. It changes only model
+sections, providers and the gateway address; tokens and keys stay in the
+Keychain.
+
+A provider is an address, a key and headers; one address serves both
+formats (`/v1/chat/completions` and `/v1/messages`), and which one a
+model speaks is the model's `provider` ("openai" or "anthropic"). Its key
+goes in the Keychain as `musubi-provider-<name>` (or where its `api_key`
+says). Models name it with `via`; `via = "gateway"` is the AI Gateway,
+whose route follows the format:
+
+```toml
+[providers.baseten]
+url = "https://inference.baseten.co"
+api_key = "keychain:baseten-api-key"
+
+[knowledge.threads.model]
+via = "gateway"
+provider = "anthropic"
+model = "claude-haiku-5-5"
+
+[knowledge.threads.model.fallback]
+via = "baseten"
+provider = "openai"
+model = "zai-org/GLM-5.3-Flash"
+```
+
+**Processing** picks the model for each kind of work, writing the
+sections above in place (comments and other keys stay; the file before
+each change is kept as `config.toml.bak`):
+
+| Group | Sections |
+|---|---|
+| Extraction and threading | `knowledge.lean.model`, `knowledge.threads.model` |
+| Statuses, summaries and Live briefs | `knowledge.status.model`, `knowledge.digest.model`, `live.pick.brief` |
+| Ask | `ask.model` (fallback: `ask.fallback`) |
+| Labels | `knowledge.label.classifier` |
+| Live | `llm` (on this Mac), `live.relevance` |
+
+Each takes a preferred model and, for the chat groups, a fallback
+(`[<section>.fallback]`, used when the preferred one fails), each with
+its own thinking level (`reasoning_effort`): only the levels the model
+takes are offered (Cloudflare's catalog lists them; GLM-5.3-Flash, for
+one, runs "medium" as "max"; other providers don't say, so theirs are
+marked unverified). Each group shows its typical tokens in and out per
+meeting hour, and what they cost with the chosen models; the rates were
+measured with Claude Haiku 5.5 on 2026-11-11 and leave out thinking. A
+section set by hand to something else shows as "as set" and is left
+alone. With `[llm] pull_missing = true` (the default) the app downloads
+the local models in use, fallbacks aside.
 
 The full set of keys, each with what it does and how to restore the
 earlier behaviour, is in `internal/config/config.go`.

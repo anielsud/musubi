@@ -113,7 +113,7 @@ export function App() {
             onOpenItem={(id, sc) => setSource({ itemId: id, scope: sc })} />
         </div>
         <div hidden={view !== 'status'}><StatusView status={status} /></div>
-        <div hidden={view !== 'settings'}><SettingsView /></div>
+        <div hidden={view !== 'settings'}><SettingsView status={status} /></div>
       </main>
 
       {source && <SourceDrawer src={source} onClose={() => setSource(null)} />}

@@ -1,5 +1,5 @@
 import { Fragment, ReactNode } from 'react';
-import type { Hit, Label } from '../types';
+import type { AppStatus, Hit, Label } from '../types';
 import { fmtDate, kindIcon } from '../api';
 
 export function LabelBadge({ label, compact }: { label: Label; compact?: boolean }) {
@@ -69,4 +69,16 @@ export function Empty({ children }: { children: ReactNode }) {
 export function Spelled({ s }: { s: { text: string; original?: string } }) {
   if (!s.original) return <>{s.text}</>;
   return <span className="respelled" title={`Written as: ${s.original}`}>{s.text}</span>;
+}
+
+// checkDoes says what "Check for new meetings" does with this config.
+export function checkDoes(s: AppStatus | null): string {
+  if (!s) return '';
+  const steps = [];
+  if (s.m365) steps.push('syncs Microsoft 365 (calendar, Teams transcripts, people)');
+  steps.push('imports new Tomoe recordings');
+  if (s.onUpdate) steps.push(s.autoMax > 0 ? `then turns up to ${s.autoMax} new ${s.autoMax === 1 ? 'meeting' : 'meetings'} into knowledge` : 'then turns every new meeting into knowledge');
+  const t = steps.join(', ');
+  const own = s.updateEvery > 0 ? `when Tomoe saves a meeting and every ${s.updateEvery} minutes` : 'when Tomoe saves a meeting';
+  return t.charAt(0).toUpperCase() + t.slice(1) + `. It also runs on its own ${own}.`;
 }

@@ -28,7 +28,12 @@ type Anthropic struct {
 	o *OpenAI
 }
 
-var errRefused = errors.New("anthropic: the model declined the request")
+var (
+	errRefused = errors.New("anthropic: the model declined the request")
+	// errRequest: the endpoint refused the request itself (4xx other than
+	// a timeout or a rate limit).
+	errRequest = errors.New("refused")
+)
 
 // anthropicMaxTokens is the model's own output limit: the cap is required,
 // and set where it never cuts a reply (thinking counts against it).
@@ -48,7 +53,7 @@ func (a *Anthropic) Complete(ctx context.Context, msgs []Message, opt ChatOption
 			return out, nil
 		case ctx.Err() != nil:
 			return "", ctx.Err()
-		case errors.Is(err, ErrCutOff), errors.Is(err, errRefused):
+		case errors.Is(err, ErrCutOff), errors.Is(err, errRefused), errors.Is(err, errRequest):
 			// Asking again gets the same answer.
 			return "", err
 		case !rateLimited(err) && try >= hostedTries-1:
@@ -111,7 +116,10 @@ func (a *Anthropic) stream(ctx context.Context, msgs []Message, opt ChatOptions,
 	if key, err := a.o.resolveKey(); err != nil {
 		return "", err
 	} else if key != "" {
+		// Anthropic and the gateway read x-api-key; Baseten's Anthropic
+		// format wants the key as a bearer token.
 		req.Header.Set("x-api-key", key)
+		req.Header.Set("Authorization", "Bearer "+key)
 	}
 	for k, v := range a.o.headers {
 		req.Header.Set(k, v)
@@ -124,7 +132,11 @@ func (a *Anthropic) stream(ctx context.Context, msgs []Message, opt ChatOptions,
 	if resp.StatusCode != 200 {
 		var e bytes.Buffer
 		e.ReadFrom(resp.Body)
-		return "", fmt.Errorf("anthropic: %s: %s", resp.Status, strings.TrimSpace(e.String()))
+		err := fmt.Errorf("anthropic: %s: %s", resp.Status, strings.TrimSpace(e.String()))
+		if c := resp.StatusCode; c >= 400 && c < 500 && c != 408 && c != 429 {
+			err = fmt.Errorf("%w (%w)", err, errRequest)
+		}
+		return "", err
 	}
 	var text strings.Builder
 	var used usage

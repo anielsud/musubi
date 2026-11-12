@@ -33,6 +33,10 @@ type Config struct {
 	Prep        Prep        `toml:"prep"`
 	M365        M365        `toml:"m365"`
 	MCP         MCP         `toml:"mcp"`
+	Gateway     Gateway     `toml:"gateway"`
+	// Providers are hosted endpoints set up once and named, for models to
+	// use with `via` (Settings → AI providers).
+	Providers map[string]Provider `toml:"providers"`
 }
 
 // M365 reads the owner's Microsoft 365 data through Microsoft Graph
@@ -448,8 +452,16 @@ type LLM struct {
 	Provider string `toml:"provider"`
 	Model    string `toml:"model"`
 	URL      string `toml:"url"`
+	// Via names a [providers.<name>] to take the provider (its format),
+	// url, key and headers from, for whatever this section doesn't set.
+	// Empty: set here, the earlier way.
+	Via string `toml:"via"`
 	// StartOllama lets the app start `ollama serve` if it isn't running.
 	StartOllama bool `toml:"start_ollama"`
+	// PullMissing ([llm] only) has the app download the local models the
+	// dataset needs (this one and [embed]'s) when Ollama doesn't have
+	// them. false: they are pulled by hand, as before.
+	PullMissing bool `toml:"pull_missing"`
 	// APIKey says where a hosted endpoint's key is kept: "keychain:<service>"
 	// (macOS keychain) or "env:<VARIABLE>". Empty for local servers.
 	APIKey string `toml:"api_key"`
@@ -479,6 +491,10 @@ type LLM struct {
 	StallAfter float64 `toml:"stall_after"`
 	// StallRate (tokens a second): 0 is 20.
 	StallRate float64 `toml:"stall_rate"`
+	// Fallback answers when this model fails (unreachable, refused, out of
+	// retries): [<section>.fallback], set from Settings → Models. None:
+	// the call fails, as before. Ask keeps its own [ask.fallback].
+	Fallback *LLM `toml:"fallback"`
 }
 
 // Live configures the side panel during a meeting.
@@ -621,7 +637,7 @@ func DefaultConfig() Config {
 		MCP:           MCP{Enabled: true, MaxShare: "owner-only", Write: true},
 		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
 		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
-		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true},
+		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true, PullMissing: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
 			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
@@ -653,6 +669,10 @@ func Load(path string) (Config, error) {
 	if err := toml.Unmarshal(b, &c); err != nil {
 		return c, err
 	}
+	if err := c.applyProviders(); err != nil {
+		return c, err
+	}
+	c.applyGateway()
 	return c, nil
 }
 

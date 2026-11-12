@@ -160,7 +160,8 @@ So a Teams transcript fills a gap and otherwise stays the second copy.
 - **Settings → Microsoft 365** shows who is connected, the last sync and
   what it read, with these buttons:
   - **Connect to Microsoft 365**, which opens the sign-in in the browser;
-  - **Sync now**;
+  - **Check for new meetings** (the same as the Status tab's: sync, import
+    Tomoe recordings, process new meetings);
   - **Sign out**, which deletes the Keychain entry. What was read stays.
 - The CLI has the same: `musubi m365 connect|status|sync|signout`.
 - **Every update syncs first** (calendar, then later transcripts), then
@@ -242,7 +243,7 @@ through extraction (see the backfill queue).
 ### 3. When it runs
 
 On every update: the app's update every 30 minutes, the update after Tomoe
-saves a meeting, Sync now, and `musubi update`. It is network-bound and
+saves a meeting, Check for new meetings, and `musubi update`. It is network-bound and
 small; an unchanged event costs nothing (its file isn't rewritten).
 
 ## Security

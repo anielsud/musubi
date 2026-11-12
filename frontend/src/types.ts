@@ -876,3 +876,9 @@ export interface ResPart { name: string; pid: number; cpu: number; rss: number; 
 export interface ResReading { key: string; name: string; cpu: number; rss: number; footprint: number; parts: ResPart[] }
 export interface ResSample { at: string; components: ResReading[] | null }
 export interface ResSnapshot { supported: boolean; reason?: string; machine: { cores: number; memory: number }; intervalMs: number; history: ResSample[] | null }
+
+/* Voice samples: the stretches of each meeting a voice profile learnt from (recorder op profile_samples) */
+export interface VoiceSample { session: string; start: number; end: number; fingerprints: number; similarity: number; restSimilarity: number; label?: string; excluded?: boolean }
+export interface MeetingSamples { session: string; fingerprints: number; rebuilt: number; voices: number; noDiarization?: boolean; note?: string; clip: VoiceClip; samples: VoiceSample[] | null }
+export interface ProfileSamples { model: string; id: string; samples: number; voices: number; meetings: MeetingSamples[] | null }
+export interface SampleArgs { model: string; id: string; session: string; start: number; end: number }

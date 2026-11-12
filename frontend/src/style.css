@@ -961,3 +961,16 @@ input.search { width: 100%; margin: 6px 0; }
 .prep-card .answer-md { font-size: 13px; }
 .prep-draft { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .prep-actions { display: flex; gap: 14px; justify-content: flex-end; }
+
+/* Voice samples (voicesamples.tsx): a profile meeting's stretches, worst match first */
+.vs { margin-top: 2px; }
+.vs-list { margin-top: 4px; display: flex; flex-direction: column; gap: 2px; }
+.vs-row { display: flex; align-items: center; gap: 6px; font-size: 12px; min-width: 0; }
+.vs-row.taken-out { opacity: 0.6; }
+.vs-bar { flex: 0 0 48px; height: 5px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.vs-bar > span { display: block; height: 100%; background: var(--accent); }
+.vs-bar > span.low { background: #c8963e; }
+.vs-num { flex: 0 0 32px; text-align: right; font-variant-numeric: tabular-nums; }
+.vs-time { flex: 0 0 auto; font-family: var(--mono); color: var(--text-dim); }
+.vs-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-btn { flex: 0 0 auto; font-size: 11px; padding: 1px 7px; }

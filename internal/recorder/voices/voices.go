@@ -123,6 +123,11 @@ type Heard struct {
 	// theirs, so it isn't offered for checking however unlike the others
 	// it scores (a few seconds of voice score low against everything).
 	Confirmed bool `json:"confirmed,omitempty"`
+	// ExcludedSpans are stretches of the meeting the owner said aren't
+	// the profile's person ("Not them" on a sample): their fingerprints
+	// are left out of Voice, and out of it again when the meeting is
+	// learnt again (see samples.go).
+	ExcludedSpans []Clip `json:"excludedSpans,omitempty"`
 }
 
 // Profile is one person's voice.
@@ -294,10 +299,40 @@ func (s *Store) load() error {
 		return fmt.Errorf("voice profiles %s: %w", s.path, err)
 	}
 	for _, p := range f.Profiles {
+		// Merges before 2026-11-12 appended a meeting both profiles had
+		// twice; read as one.
+		p.Meetings = mergeMeetings(p.Meetings)
 		p.refresh(s.params.MinLearn)
 	}
 	s.profiles, s.forgotten, s.modTime = f.Profiles, f.Forgotten, st.ModTime()
 	return nil
+}
+
+// mergeMeetings folds meetings listed more than once (the same session)
+// into one: their voices summed, the earliest time, the longer clip, both
+// sets of taken-out stretches, confirmed if either was.
+func mergeMeetings(ms []Heard) []Heard {
+	at := map[string]int{}
+	out := ms[:0:0]
+	for _, h := range ms {
+		i, ok := at[h.Session]
+		if !ok {
+			at[h.Session] = len(out)
+			out = append(out, h)
+			continue
+		}
+		o := &out[i]
+		o.Voice.Merge(h.Voice)
+		if h.At.Before(o.At) {
+			o.At = h.At
+		}
+		if h.Clip.End-h.Clip.Start > o.Clip.End-o.Clip.Start {
+			o.Clip = h.Clip
+		}
+		o.ExcludedSpans = append(o.ExcludedSpans, h.ExcludedSpans...)
+		o.Confirmed = o.Confirmed || h.Confirmed
+	}
+	return out
 }
 
 // syncLocked rereads the file if another process changed it. A file that
@@ -363,6 +398,10 @@ type Learned struct {
 	Source string
 	Voice  Voice
 	Clip   Clip
+	// Parts are Voice's fingerprints and when each was heard, when the
+	// learner kept them (nil otherwise): a span the owner excluded is
+	// left out by them (samples.go).
+	Parts []Part
 }
 
 // Learn records what a meeting taught. Each name's voice goes to the
@@ -397,12 +436,16 @@ func (s *Store) Learn(sessionID string, at time.Time, learned []Learned) ([]stri
 			s.profiles = append(s.profiles, p)
 		}
 		var kept []Heard
+		var spans []Clip
 		for _, h := range p.Meetings {
 			if h.Session != sessionID {
 				kept = append(kept, h)
+			} else {
+				spans = h.ExcludedSpans
 			}
 		}
-		p.Meetings = append(kept, Heard{Session: sessionID, At: at, Source: l.Source, Voice: l.Voice, Clip: l.Clip})
+		l = withoutSpans(l, spans)
+		p.Meetings = append(kept, Heard{Session: sessionID, At: at, Source: l.Source, Voice: l.Voice, Clip: l.Clip, ExcludedSpans: spans})
 		p.refresh(s.params.MinLearn)
 		done = append(done, p.Name)
 	}
@@ -743,7 +786,7 @@ func (s *Store) Merge(into, from string) error {
 		return fmt.Errorf("can't merge voice profiles %q and %q", into, from)
 	}
 	// A meeting in both keeps both: they were two voices then.
-	a.Meetings = append(a.Meetings, b.Meetings...)
+	a.Meetings = mergeMeetings(append(a.Meetings, b.Meetings...))
 	for _, n := range append([]string{b.Name}, b.Aliases...) {
 		if n != a.Name { // two profiles of one name: no alias needed
 			a.Aliases = appendOnce(a.Aliases, n)

@@ -239,6 +239,29 @@ cold lane like any other source.
   override the keys of the same tables in Tomoe's config (with Tomoe
   off, the recorder's built-in defaults) for the recorder; Settings → Recording writes them and asks the recorder to
   reload (`reload_config`).
+- **Voice samples**: a voice profile keeps per meeting only the sum of
+  its fingerprints and one clip, so `profile_samples` works the rest out
+  again from each saved meeting (`diarization.gob`, no model run): the
+  windows learning picked for the profile (`diarize.SavedLearning`, what
+  `LearnSaved` teaches; each `voices.Learned` now carries its `Parts`,
+  fingerprint plus time), grouped into samples where the pauses are at
+  most 1.5 s. Each sample is scored against the profile's learnt voice
+  and against the meeting's other samples, and each meeting's sample
+  means are clustered as a meeting's fingerprints are, at the profile
+  threshold; a cluster counts as a voice only with at least `MinLearn`
+  fingerprints and 5% of the meeting's (a person's tail of odd seconds
+  stays under that: on 2026-11-12 one meeting room's profile counted 4
+  voices, matching the 4 speakers the diarizer heard under its tile, and
+  a single person's 10 meetings 1 each). Results are cached per profile
+  and meeting in the recorder until the meeting's voice, its session or
+  its fingerprints change. "Not them" on a sample (`exclude_sample`)
+  takes its fingerprints out of the meeting's voice and records the span
+  on it (`Heard.ExcludedSpans`), which `Store.Learn` leaves out whenever
+  the meeting is learnt again; `include_sample` puts it back. The
+  Voices card (`voicesamples.tsx`) lists per meeting the samples under
+  85% like the profile, the rest behind "+N more that fit well". A
+  meeting learnt live, from name reads the saved meeting doesn't keep,
+  can rebuild a slightly different set (shown as "N of M fingerprints").
 - **Models and providers** (Settings): AI providers lists the AI
   Gateway, custom providers (`[providers.*]`), Ollama and **ONNX (this
   Mac)**: the recorder's models (transcription, live text, speaker

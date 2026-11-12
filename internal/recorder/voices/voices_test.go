@@ -263,7 +263,8 @@ func TestMergeApartForget(t *testing.T) {
 	// Learning under a merged-away or old name teaches the same profile.
 	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "I. Novak (guest)", Voice: voiceOf(20, unit(0, 1, 0.05))}})
 	_, _ = s.Learn("m3", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0.05))}})
-	if ps := s.Profiles(); len(ps) != 1 || len(ps[0].Meetings) != 4 {
+	// m1 (both merged profiles learnt from it, once), m2, m3.
+	if ps := s.Profiles(); len(ps) != 1 || len(ps[0].Meetings) != 3 {
 		t.Errorf("old names should teach the profile they're part of: %+v", ps)
 	}
 	if err := s.Forget(ids["Ilse Novak"]); err != nil || len(s.Profiles()) != 0 {
@@ -517,5 +518,23 @@ func TestThinVoicesDontTeach(t *testing.T) {
 	}
 	if s.InUse(&got) {
 		t.Error("one learnt meeting and a thin one put the profile in use (MinMeetings 2)")
+	}
+}
+
+// Merging two profiles that both learnt from one meeting keeps one entry
+// for it, with both voices.
+func TestMergeFoldsTheSameMeeting(t *testing.T) {
+	s, _ := open(t)
+	_, _ = s.Learn("m1", time.Now(), []Learned{
+		{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))},
+		{Name: "Wayde Tyrrel", Voice: voiceOf(15, unit(0, 1, 0.1))},
+	})
+	ps := s.Profiles()
+	if err := s.Merge(ps[0].ID, ps[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	got := s.Profiles()
+	if len(got) != 1 || len(got[0].Meetings) != 1 || got[0].Meetings[0].Voice.N != 35 {
+		t.Fatalf("after merging: %+v", got)
 	}
 }

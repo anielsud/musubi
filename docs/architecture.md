@@ -627,7 +627,10 @@ between claims record how it bears on others:
 - supersedes: a decision changed;
 - answers: resolves an open question.
 
-A claim's centroid is the mean of its statements' vectors.
+A claim's centroid is the mean of its statements' vectors. It is stored
+only for claims of two or more statements; a claim of one reads its
+statement's vector (a NULL `claims.centroid`), written when a second
+statement joins (2026-11-12: 99.4% of claims hold one statement).
 
 ### Belief (computed when read, never stored)
 
@@ -1137,11 +1140,18 @@ version.
 **Technology.** `mattn/go-sqlite3` (cgo, built with the `sqlite_fts5` tag)
 and `sqlite-vec`, in WAL mode with foreign keys on, a 10 s busy timeout and
 a single connection (one writer at a time is SQLite's model; it also keeps
-transactions from interleaving between goroutines). Vectors are float32
-blobs (nomic-embed-text: 768 dimensions, 3 KB each) compared exactly by
-sqlite-vec, with the 1-bit codes above in front past 2,000.
+transactions from interleaving between goroutines). Vectors
+(nomic-embed-text: 768 dimensions) are blobs in one of two encodings, told
+apart by length (`internal/store/vecenc.go`): float32 (3 KB, sqlite-vec's
+format) or float16 (a tag byte and 1.5 KB, two to a page), written as
+`store.vector_encoding` says (default `"f16"`; `"f32"` is the earlier
+behaviour) and both always read as float32. `musubi vectors encode
+f16|f32` rewrites what is stored. While a database holds only float32
+passage vectors sqlite-vec compares them exactly, as before; once it holds
+float16 ones (`store_meta`), the candidates are decoded and compared in
+Go the same way. The 1-bit codes above stay in front past 2,000.
 
-**Schema** (`internal/store/schema.sql`, version 4; 34 tables), by layer:
+**Schema** (`internal/store/schema.sql`, version 4; 35 tables), by layer:
 
 | Layer | Tables |
 |---|---|
@@ -1151,7 +1161,7 @@ sqlite-vec, with the 1-bit codes above in front past 2,000.
 | Knowledge | `statements`, `statement_vecs`, `claims`, `claim_codes`, `statement_claims`, `claim_relations`, `statement_relations` |
 | Topics and threads | `topics`, `topic_relations`, `topic_entities`, `topic_events`, `thread_items`, `thread_runs`, `thread_status` |
 | Owner's decisions (kept across rebuilds) | `corrections`, `learned_aliases`, `thread_edits`, `owner_links`, `forgotten`, `audit`, `judgments` |
-| Stage bookkeeping | `stage_runs`, `global_runs` |
+| Stage bookkeeping | `stage_runs`, `global_runs`, `store_meta` (one-off data upgrades done, vector encodings present) |
 
 **Size, measured (the "All" dataset, 2026-10-21):** 268 MB for 165
 meetings and 55 other items (9,494 passages, 20,879 statements, 690
@@ -1161,7 +1171,10 @@ vectors 39 MB; statements 14 MB, passages 10 MB, items 10 MB, the
 FTS index 4 MB. 99.6% of claims hold a single statement, so their
 centroids repeat the statement's vector: a third of the file. Storing a
 centroid only for claims of two or more, and vectors as float16, would
-take it to about 120 MB, under half of today's size.
+take it to about 120 MB, under half of today's size. Done 2026-11-12
+(research log, "vector storage"): on the all-t4 copy (50,924 passages,
+38,439 statements) 762.5 MB became 607.1 MB with centroids stored once
+and 420.7 MB with float16 vectors.
 
 **Scaling.** `tools/scale-bench` times the read paths on a synthetic
 corpus shaped like the leadership meetings (research log, "Reads at

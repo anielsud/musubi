@@ -538,3 +538,133 @@ func TestMergeFoldsTheSameMeeting(t *testing.T) {
 		t.Fatalf("after merging: %+v", got)
 	}
 }
+
+// Learning a meeting whole again drops what it taught a profile
+// automatically and teaches it no longer; what the owner named,
+// confirmed or moved there stays. Plain Learn drops nothing.
+func TestLearnMeetingReplacesAutomaticContributions(t *testing.T) {
+	s, _ := open(t)
+	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	learn := func(name string, axis int, source string) {
+		t.Helper()
+		if _, err := s.Learn("m1", at, []Learned{{Name: name, Source: source, Voice: voiceOf(20, unit(axis, (axis+1)%4, 0.1))}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	learn("Tile Only", 0, FromTile)
+	learn("Confirmed Tile", 1, FromTile)
+	learn("Owner Named", 2, FromNamed)
+	learn("Moved From", 3, FromTile)
+	learn("Moved To", 0, FromTile)
+	learn("Kept By Relearn", 1, FromTile)
+	// Each also has another meeting, so a profile emptied of m1 shows.
+	for i, n := range []string{"Tile Only", "Confirmed Tile", "Owner Named", "Moved To", "Kept By Relearn"} {
+		if _, err := s.Learn("m2", at, []Learned{{Name: n, Source: FromTile, Voice: voiceOf(20, unit(i%4, (i%4+1)%4, 0.1))}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id := func(name string) string {
+		for _, p := range s.Profiles() {
+			if p.Name == name {
+				return p.ID
+			}
+		}
+		t.Fatalf("no profile %s", name)
+		return ""
+	}
+	if err := s.ConfirmMeeting(id("Confirmed Tile"), "m1"); err != nil {
+		t.Fatal(err)
+	}
+	moved := voiceOf(20, unit(3, 0, 0.1))
+	if err := s.Move(id("Moved From"), "m1", at, moved, id("Moved To"), ""); err != nil {
+		t.Fatal(err)
+	}
+	has := func(name string) bool {
+		for _, p := range s.Profiles() {
+			if p.Name == name {
+				for _, h := range p.Meetings {
+					if h.Session == "m1" {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+
+	// Plain Learn of nothing changes nothing.
+	if _, err := s.Learn("m1", at, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !has("Tile Only") {
+		t.Fatal("Learn dropped a contribution")
+	}
+
+	// The relearn teaches only Kept By Relearn.
+	names, err := s.LearnMeeting("m1", at, []Learned{{Name: "Kept By Relearn", Source: FromTile, Voice: voiceOf(12, unit(1, 2, 0.1))}})
+	if err != nil || len(names) != 1 {
+		t.Fatalf("LearnMeeting: %v %v", names, err)
+	}
+	for name, want := range map[string]bool{"Tile Only": false, "Confirmed Tile": true, "Owner Named": true, "Moved To": true, "Kept By Relearn": true} {
+		if has(name) != want {
+			t.Errorf("%s keeps m1: %v, want %v", name, has(name), want)
+		}
+	}
+	for _, p := range s.Profiles() {
+		if p.Name == "Kept By Relearn" {
+			for _, h := range p.Meetings {
+				if h.Session == "m1" && h.Voice.N != 12 {
+					t.Errorf("relearnt voice %d fingerprints, want 12", h.Voice.N)
+				}
+			}
+		}
+		if p.Name == "Tile Only" && p.LearnedVoice(10).N != 20 {
+			t.Errorf("Tile Only's learnt voice %d, want m2's 20", p.LearnedVoice(10).N)
+		}
+	}
+	// Persisted.
+	s2, err := Open(s.path, sameFold, s.Params())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range s2.Profiles() {
+		if p.Name == "Tile Only" && len(p.Meetings) != 1 {
+			t.Errorf("reopened: %+v", p.Meetings)
+		}
+	}
+}
+
+// The rules version: a new store is under today's rules; a file written
+// before the field is under rules 1; SetRules keeps the version and the
+// summary across opens.
+func TestLearnRulesVersion(t *testing.T) {
+	s, path := open(t)
+	if v, r := s.Rules(); v != LearnRules || r != nil {
+		t.Fatalf("new store: rules %d %+v", v, r)
+	}
+	old := filepath.Join(filepath.Dir(path), "old.json")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte(`{"version":1,"profiles":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o, err := Open(old, sameFold, DefaultParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := o.Rules(); v != 1 {
+		t.Fatalf("old file: rules %d, want 1", v)
+	}
+	at := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+	if err := o.SetRules(LearnRules, Relearned{At: at, Meetings: 3, Changed: 2, Added: 1}); err != nil {
+		t.Fatal(err)
+	}
+	o2, err := Open(old, sameFold, DefaultParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, r := o2.Rules(); v != LearnRules || r == nil || !r.At.Equal(at) || r.Meetings != 3 || r.Changed != 2 || r.Added != 1 {
+		t.Fatalf("reopened: rules %d %+v", v, r)
+	}
+}

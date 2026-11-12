@@ -861,6 +861,7 @@ export interface VoicesView {
   enabled: boolean; profiles: VoiceProfile[] | null; pairs: VoicePair[] | null; unknown: UnknownVoice[] | null;
   namedByVoice: NamedByVoice[] | null; doubts: VoiceDoubt[] | null; sameName?: SameNamePair[] | null;
   building?: boolean;
+  relearned?: { at: string; meetings: number; changed: number; added: number } | null;
 }
 export interface ReturnVoiceResult {
   recorder: { batch?: string; changed: RelabelChange[] | null; left: { session: string; label: string; why: string }[] | null } | null;

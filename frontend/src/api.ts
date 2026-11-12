@@ -120,7 +120,6 @@ export const api = {
   voices: (): Promise<VoicesView> => app().Voices(),
   recorderSpeaker: (op: string, session: string, label: string, name = ''): Promise<void> => app().RecorderSpeaker(op, session, label, name),
   recorderVoice: (op: string, args: VoiceArgs): Promise<void> => app().RecorderVoice(op, args),
-  learnSaved: (): Promise<number> => app().LearnSaved(),
   relabelProfileMeetings: (model: string, id: string): Promise<RelabelResult> => app().RelabelProfileMeetings(model, id),
   undoRelabel: (batch: string): Promise<RelabelResult> => app().UndoRelabel(batch),
   returnVoiceMeeting: (model: string, id: string, session: string): Promise<ReturnVoiceResult> => app().ReturnVoiceMeeting(model, id, session),

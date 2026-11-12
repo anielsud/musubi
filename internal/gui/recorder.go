@@ -308,17 +308,6 @@ func validProfileID(id string) bool {
 	return true
 }
 
-// LearnSaved teaches the voice profiles from every saved meeting.
-func (a *App) LearnSaved() (int, error) {
-	if err := a.requireEditable(); err != nil {
-		return 0, err
-	}
-	var n control.Count
-	err := a.recCall(control.OpLearnSaved, nil, &n)
-	a.emit("voices:changed", nil)
-	return n.N, err
-}
-
 // DiscardedClip is where a meeting taken out of a profile has the voice.
 func (a *App) DiscardedClip(model, id, session string) (*control.VoiceClip, error) {
 	if !validSession(session) {

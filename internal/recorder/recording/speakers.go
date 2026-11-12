@@ -98,14 +98,11 @@ func (a *Recorder) editVoice(op string, p control.VoiceArgs) error {
 // it runs (it reads every saved meeting's fingerprints), one at a time.
 func (a *Recorder) learnSaved() (int, error) {
 	const what = "Learning voices from saved meetings"
-	a.mu.Lock()
-	if a.busy == what {
-		a.mu.Unlock()
+	if !a.learnMu.TryLock() {
 		return 0, fmt.Errorf("already learning voices")
 	}
-	a.busy = what
-	a.publishStatusLocked()
-	a.mu.Unlock()
-	defer a.setBusy("")
+	defer a.learnMu.Unlock()
+	a.setBusy(what)
+	defer a.clearBusy(what)
 	return a.LearnVoicesFromSavedSessions()
 }

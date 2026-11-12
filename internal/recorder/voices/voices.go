@@ -241,6 +241,30 @@ type Store struct {
 	// modTime is the file's when last read or written: another process
 	// (the CLI's learn, the app) may have changed it since.
 	modTime time.Time
+	// rules is the LearnRules the profiles were last built under, and
+	// relearned what the last relearn for new rules changed.
+	rules     int
+	relearned *Relearned
+}
+
+// LearnRules is the version of the rules for what a meeting teaches a
+// profile. Bump it when they change so that profiles built under the old
+// rules are learnt again from every saved meeting (the recorder does that
+// once, in the background). A file without it was built under rules 1.
+//
+// 2 (2026-11-12): a lit tile doesn't teach while the transcript names
+// someone else as speaking; learning a whole meeting again drops what it
+// automatically taught a profile it no longer teaches (LearnMeeting).
+const LearnRules = 2
+
+// Relearned is what a relearn for new rules did.
+type Relearned struct {
+	At       time.Time `json:"at"`
+	Meetings int       `json:"meetings"`
+	// Changed: profiles whose learnt voice changed; Added: profiles the
+	// relearn started.
+	Changed int `json:"changed"`
+	Added   int `json:"added"`
 }
 
 // Path is where a speaker model's profiles are kept.
@@ -284,7 +308,8 @@ func (s *Store) MinLearn() int {
 func (s *Store) load() error {
 	st, err := os.Stat(s.path)
 	if errors.Is(err, os.ErrNotExist) {
-		s.profiles, s.modTime = nil, time.Time{}
+		// Nothing learnt yet: whatever is learnt is under today's rules.
+		s.profiles, s.modTime, s.rules, s.relearned = nil, time.Time{}, LearnRules, nil
 		return nil
 	}
 	if err != nil {
@@ -305,6 +330,7 @@ func (s *Store) load() error {
 		p.refresh(s.params.MinLearn)
 	}
 	s.profiles, s.forgotten, s.modTime = f.Profiles, f.Forgotten, st.ModTime()
+	s.rules, s.relearned = max(f.Rules, 1), f.Relearned
 	return nil
 }
 
@@ -349,11 +375,15 @@ type file struct {
 	Profiles []*Profile `json:"profiles"`
 	// Forgotten are names the user forgot, never learnt again.
 	Forgotten []string `json:"forgotten,omitempty"`
+	// Rules is the LearnRules the profiles were last built under (absent:
+	// 1), Relearned what the last relearn for new rules did.
+	Rules     int        `json:"rules,omitempty"`
+	Relearned *Relearned `json:"relearned,omitempty"`
 }
 
 // saveLocked writes the profiles atomically.
 func (s *Store) saveLocked() error {
-	b, err := json.Marshal(file{Version: 1, Profiles: s.profiles, Forgotten: s.forgotten})
+	b, err := json.Marshal(file{Version: 1, Profiles: s.profiles, Forgotten: s.forgotten, Rules: s.rules, Relearned: s.relearned})
 	if err != nil {
 		return err
 	}
@@ -418,6 +448,52 @@ func (s *Store) Learn(sessionID string, at time.Time, learned []Learned) ([]stri
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncLocked()
+	done, _ := s.learnLocked(sessionID, at, learned)
+	if len(done) == 0 {
+		return nil, nil
+	}
+	return done, s.saveLocked()
+}
+
+// LearnMeeting is Learn for all a meeting teaches (learning it whole,
+// again or for the first time): what it taught a profile automatically
+// before (from a tile, not confirmed, not named or moved there by the
+// owner) and teaches it no longer is dropped, so learning a meeting again
+// replaces its automatic contributions entirely. What the owner named,
+// confirmed or moved stays. Returns the names learnt.
+func (s *Store) LearnMeeting(sessionID string, at time.Time, learned []Learned) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	done, taught := s.learnLocked(sessionID, at, learned)
+	dropped := false
+	for _, p := range s.profiles {
+		if taught[p] {
+			continue
+		}
+		kept := p.Meetings[:0:0]
+		for _, h := range p.Meetings {
+			if h.Session == sessionID && h.Source == FromTile && !h.Confirmed {
+				dropped = true
+				continue
+			}
+			kept = append(kept, h)
+		}
+		if len(kept) != len(p.Meetings) {
+			p.Meetings = kept
+			p.refresh(s.params.MinLearn)
+		}
+	}
+	if len(done) == 0 && !dropped {
+		return nil, nil
+	}
+	return done, s.saveLocked()
+}
+
+// learnLocked records what a meeting taught (see Learn) without saving:
+// the names learnt and the profiles taught.
+func (s *Store) learnLocked(sessionID string, at time.Time, learned []Learned) ([]string, map[*Profile]bool) {
+	taught := map[*Profile]bool{}
 	last := map[string]int{}
 	for i, l := range learned {
 		last[l.Name] = i
@@ -447,12 +523,33 @@ func (s *Store) Learn(sessionID string, at time.Time, learned []Learned) ([]stri
 		l = withoutSpans(l, spans)
 		p.Meetings = append(kept, Heard{Session: sessionID, At: at, Source: l.Source, Voice: l.Voice, Clip: l.Clip, ExcludedSpans: spans})
 		p.refresh(s.params.MinLearn)
+		taught[p] = true
 		done = append(done, p.Name)
 	}
-	if len(done) == 0 {
-		return nil, nil
+	return done, taught
+}
+
+// Rules is the LearnRules the profiles were last built under, and what
+// the last relearn for new rules did (nil if none).
+func (s *Store) Rules() (int, *Relearned) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	if s.relearned == nil {
+		return s.rules, nil
 	}
-	return done, s.saveLocked()
+	r := *s.relearned
+	return s.rules, &r
+}
+
+// SetRules records that the profiles are built under rules version, and
+// what the relearn that did it changed.
+func (s *Store) SetRules(version int, r Relearned) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	s.rules, s.relearned = version, &r
+	return s.saveLocked()
 }
 
 // pickLocked is the profile a meeting's voice for a name teaches: of the

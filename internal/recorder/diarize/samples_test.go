@@ -169,3 +169,48 @@ func TestCountVoices(t *testing.T) {
 		t.Errorf("no samples: %d", n)
 	}
 }
+
+// A lit tile doesn't teach while the transcript names someone else as
+// speaking: the tile stays lit after its person stops.
+func TestTileNotLearntUnderAnotherNamedSpeaker(t *testing.T) {
+	fps := map[int][]float32{}
+	for c := range 30 {
+		if c < 15 {
+			fps[c] = tilted(0, 1+c%3, 0.1) // Wes
+		} else {
+			fps[c] = tilted(2, c%2, 0.1) // the next speaker, Wes's tile still lit
+		}
+	}
+	p := samplesPrepared(30, fps)
+	var hints []Hint
+	for s := 0.0; s < 34; s++ {
+		hints = append(hints, Hint{T: s + hintLag, Name: "Wes Example"})
+	}
+	sess := &session.Session{Segments: []session.Segment{
+		{Speaker: "Person 1 (Wes Example)", StartTime: 0, EndTime: 10}, // the window's name for Wes: learnt
+		{Speaker: "Person 3", StartTime: 10, EndTime: 15},              // unnamed: learnt
+		{Speaker: "Person 2 (nina.example)", StartTime: 15, EndTime: 40},
+	}}
+	saved := SavedLearning(p, 0, sess, hints)
+	if len(saved) != 1 || saved[0].Name != "Wes Example" {
+		t.Fatalf("learnt %+v", saved)
+	}
+	// Each chunk is placed by its first frame (PairTiles reads every 4th).
+	if saved[0].Voice.N != 15 {
+		t.Errorf("Wes learnt %d fingerprints, want 15 (chunks 0-14)", saved[0].Voice.N)
+	}
+	for _, pt := range saved[0].Parts {
+		if pt.Start >= 15 {
+			t.Errorf("learnt a fingerprint at %g-%g, under the next speaker's line", pt.Start, pt.End)
+		}
+	}
+	// Without the transcript's names, the whole lit stretch is Wes's.
+	if all := VoicesFromTiles(p, hints, 0); len(all) != 1 || all[0].Voice.N <= 20 {
+		t.Fatalf("by tiles alone %+v", all)
+	}
+	// A line the owner renamed to someone else counts too.
+	sess.Segments[2].Speaker = "Nina Example"
+	if saved := SavedLearning(p, 0, sess, hints); saved[0].Name != "Wes Example" || saved[0].Voice.N != 15 {
+		t.Errorf("under a renamed line: %+v", saved[0])
+	}
+}

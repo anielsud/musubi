@@ -24,6 +24,7 @@ import (
 	"github.com/anielsud/musubi/internal/recorder/speaker"
 	"github.com/anielsud/musubi/internal/recorder/transcribe"
 	"github.com/anielsud/musubi/internal/recorder/videohint"
+	"github.com/anielsud/musubi/internal/recorder/voices"
 )
 
 // meetingLanguages are the languages a meeting can be recorded in. The
@@ -133,6 +134,13 @@ type Recorder struct {
 
 	// review is the Voices page's review lists (reviewindex.go).
 	review reviewIndex
+
+	// learnMu is held while every saved meeting is learnt (learn_saved,
+	// the relearn for new rules: relearn.go), one at a time.
+	learnMu sync.Mutex
+	// relearnStores, when set (tests), lists the stores the relearn
+	// checks instead of voiceStores.
+	relearnStores func() (map[string]*voices.Store, error)
 }
 
 // activeRecording is what a recording in progress needs to be stopped.
@@ -209,6 +217,11 @@ func (a *Recorder) Start(ctx context.Context) error {
 	a.mu.Unlock()
 	if !ready {
 		return fmt.Errorf("no transcription engine: are the models in %s?", strings.Join(config.ModelDirs(cfg), " or "))
+	}
+	// Only the recorder's own profiles: while Tomoe's are copied over
+	// them they'd be learnt again at every start.
+	if cfg.Meeting.VoiceProfiles && cfg.Meeting.VoiceProfileRelearn && !cfg.CopiesTomoeVoices() {
+		go a.relearnForRules(ctx)
 	}
 	return nil
 }

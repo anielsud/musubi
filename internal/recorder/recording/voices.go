@@ -103,6 +103,9 @@ func (a *Recorder) Voices() (*VoicesView, error) {
 	view.Building = !ready
 	titles := a.reviewTitles()
 	for model, s := range stores {
+		if _, r := s.Rules(); r != nil {
+			view.Relearned = addRelearned(view.Relearned, r)
+		}
 		minLearn := s.MinLearn()
 		for _, p := range s.Profiles() {
 			v := VoiceProfileView{Model: model, ID: p.ID, Name: p.Name, Meetings: len(p.Meetings), Fingerprints: p.LearnedVoice(minLearn).N, LastHeard: p.LastHeard(),
@@ -176,6 +179,22 @@ func (a *Recorder) Voices() (*VoicesView, error) {
 	sort.SliceStable(view.Pairs, func(i, j int) bool { return view.Pairs[i].Similarity > view.Pairs[j].Similarity })
 	sort.SliceStable(view.SameName, func(i, j int) bool { return view.SameName[i].Similarity > view.SameName[j].Similarity })
 	return view, nil
+}
+
+// addRelearned adds a store's last relearn to the view's: the latest
+// time and most meetings, profile counts summed (one store per speaker
+// model).
+func addRelearned(v *control.RelearnedView, r *voices.Relearned) *control.RelearnedView {
+	if v == nil {
+		v = &control.RelearnedView{}
+	}
+	if r.At.After(v.At) {
+		v.At = r.At
+	}
+	v.Meetings = max(v.Meetings, r.Meetings)
+	v.Changed += r.Changed
+	v.Added += r.Added
+	return v
 }
 
 // Fingerprints are megabytes a meeting; the Voices page reads the same
@@ -259,13 +278,26 @@ func (a *Recorder) ForgetVoice(model, id string) error {
 // meeting with fingerprints (as `tomoe voices learn` does), returning how
 // many people it learnt.
 func (a *Recorder) LearnVoicesFromSavedSessions() (int, error) {
+	people, _, err := a.learnAllSaved(nil)
+	return people, err
+}
+
+// learnAllSaved teaches the profiles from every saved meeting, each
+// learnt whole (diarize.LearnSaved), returning how many people it learnt
+// and from how many meetings (those with fingerprints). before (nil:
+// none) is called before the i-th of n meetings; false stops there.
+func (a *Recorder) learnAllSaved(before func(i, n int) bool) (int, int, error) {
 	list, err := a.store.List()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	m := a.config().Meeting
 	people := map[string]bool{}
-	for _, s := range list {
+	learnt := 0
+	for i, s := range list {
+		if before != nil && !before(i, len(list)) {
+			return len(people), learnt, nil
+		}
 		full, err := a.store.Load(s.ID)
 		if err != nil {
 			continue
@@ -276,11 +308,12 @@ func (a *Recorder) LearnVoicesFromSavedSessions() (int, error) {
 		if err != nil {
 			continue
 		}
+		learnt++
 		for _, n := range names {
 			people[n] = true
 		}
 	}
-	return len(people), nil
+	return len(people), learnt, nil
 }
 
 // learnNamedLater teaches the profiles from a saved meeting after the

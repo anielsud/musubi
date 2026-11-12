@@ -248,8 +248,9 @@ cold lane like any other source.
   most 1.5 s. Each sample is scored against the profile's learnt voice
   and against the meeting's other samples, and each meeting's sample
   means are clustered as a meeting's fingerprints are, at the profile
-  threshold; a cluster counts as a voice only with at least `MinLearn`
-  fingerprints and 5% of the meeting's (a person's tail of odd seconds
+  threshold, leaving out samples under `MinLearn` fingerprints (specks of
+  crosstalk added up to a false second voice); a cluster counts as a
+  voice only with at least `MinLearn` fingerprints and 5% of the meeting's (a person's tail of odd seconds
   stays under that: on 2026-11-12 one meeting room's profile counted 4
   voices, matching the 4 speakers the diarizer heard under its tile, and
   a single person's 10 meetings 1 each). Results are cached per profile
@@ -262,6 +263,13 @@ cold lane like any other source.
   85% like the profile, the rest behind "+N more that fit well". A
   meeting learnt live, from name reads the saved meeting doesn't keep,
   can rebuild a slightly different set (shown as "N of M fingerprints").
+- **Voice learning rules**: tile learning skips windows where the
+  transcript names someone else; learning a whole meeting
+  (`Store.LearnMeeting`) replaces its automatic contributions; the voices
+  file records the `voices.LearnRules` its profiles were built under, and
+  the recorder relearns every saved meeting once, in the background
+  between recordings, when that is older (`recording/relearn.go`;
+  recorder-screens.md, "Voice learning rules and automatic relearn").
 - **Voices review index**: the recorder gathers the Voices page's review
   lists (who's this, 90 days, plus any voice taken out of a profile with
   "Not them"; named by voice and window or voice, 14 days) once in the

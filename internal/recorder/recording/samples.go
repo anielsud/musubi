@@ -254,8 +254,22 @@ func samplesOf(l *voices.Learned, spans []voices.Clip, segs []session.Segment, p
 		}
 		m.excluded = append(m.excluded, sampleSum{span: sp, voice: v, label: labelOver(segs, sp.Start, sp.End)})
 	}
-	m.voices = diarize.CountVoices(groups, params.Threshold, max(params.MinFingerprints, params.MinLearn), voiceShare)
+	m.voices = diarize.CountVoices(countable(groups, params.MinLearn), params.Threshold, max(params.MinFingerprints, params.MinLearn), voiceShare)
 	return m
+}
+
+// countable are the samples that can count as a voice of their own: at
+// least minLearn fingerprints. Specks of crosstalk (a profile's many
+// one- and two-fingerprint samples, 2026-11-12) added up to a second
+// voice that wasn't there.
+func countable(groups []diarize.Sample, minLearn int) []diarize.Sample {
+	var out []diarize.Sample
+	for _, g := range groups {
+		if len(g.Parts) >= minLearn {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 // labelOver is the speaker of the transcript lines covering most of

@@ -412,6 +412,43 @@ first call after start still takes 2.5 s: it reads every meeting's
 `looks.jsonl` for the profiles' tiles (2.4 s for 411 profile meetings),
 cached after; before, that came on top of the session reads (3.2–3.8 s).
 
+## Voice learning rules and automatic relearn (2026-11-12)
+
+**Known.** A tile stays lit a moment after its person stops, so tile
+learning took in the next speaker even where the transcript names them;
+specks of crosstalk (one- and two-fingerprint samples) added up to a
+"second voice" on the profile card; relearning a meeting kept whatever
+it had taught a profile before, even when it no longer does. Explore →
+Voices had a "Learn from saved meetings" button for after such fixes.
+
+**Agreed with the owner, built** (research-log.md, "voice learning rules
+2"):
+
+1. No tile learning while the transcript line names someone else (a name
+   the owner gave, or the window's in "Person N (Name)"): at save, in
+   `LearnSaved` and in the samples view's rebuild (`SavedLearning`).
+2. A sample counts towards a meeting's voices only with at least
+   `MinLearn` (10) fingerprints.
+3. Learning a whole meeting replaces its automatic contributions
+   (`voices.Store.LearnMeeting`): a profile it taught from a tile, not
+   confirmed, not named or moved there by the owner, and no longer
+   teaches, loses that meeting. Named, confirmed and moved stay.
+4. `voices.LearnRules` (now 2) is stored in the voices file (`rules`;
+   absent: 1). When the recorder starts, after its models load, a store
+   under older rules has every saved meeting learnt again in the
+   background (`learn_saved`'s loop), meeting by meeting, waiting while a
+   meeting records or saves, on a low-priority thread, with Status.Busy
+   "Updating voice profiles for new rules (n of N)". When done it stores
+   the version and a summary (`relearned`: when, meetings, profiles whose
+   learnt voice changed, profiles added); a run cut short starts again at
+   the next start. Only when the recorder's own voices are of record (with
+   Tomoe's copied over them it would run at every start) and voice
+   profiles are on; `[meeting] voice_profile_relearn = false` turns it off.
+5. The button is gone (the app's `LearnSaved` binding with it;
+   `learn_saved` stays in the protocol for tools). For 3 days after a
+   relearn Explore → Voices shows "Voice profiles updated for new rules
+   on <date>: N changed, M new." (`VoicesView.relearned`).
+
 ## Keeping the recorder running (2026-11-12)
 
 A recorder that isn't running loses meetings silently; an install left it

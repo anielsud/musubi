@@ -9,12 +9,13 @@ import (
 
 // SavedLearning is what LearnSaved teaches from a saved session, in the
 // order it teaches it: the voices heard while a person's own tile was
-// lit (except speakers the window and the voice disagree on), then the
-// speakers given a name (GivenName), which win. Each Learned keeps its
+// lit (except speakers the window and the voice disagree on, and while
+// the transcript names someone else), then the speakers given a name
+// (GivenName), which win. Each Learned keeps its
 // fingerprints (Parts), so a profile can show the samples it was learnt
 // from.
 func SavedLearning(p *Prepared, offset float64, sess *session.Session, hints []Hint) []voices.Learned {
-	learned := voicesFromTilesSkipping(p, hints, offset, unsureAt(sess.Segments, unsureLabels(sess)))
+	learned := voicesFromTilesSkipping(p, hints, offset, unsureAt(sess.Segments, unsureLabels(sess)), lineNames(sess.Segments))
 	return append(learned, VoicesFromSpeakers(p, offset, SpeakerAt(sess.Segments, GivenName))...)
 }
 

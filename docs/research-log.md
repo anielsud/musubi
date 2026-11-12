@@ -3910,3 +3910,74 @@ profile, built from a single 8-fingerprint meeting the owner named, stops
 naming people until a meeting with more voice or the owner confirms it. 12 was considered and
 rejected: it would also drop five 11-fingerprint meetings the data shows
 are fine.
+
+## 2026-11-12: voice learning rules 2 — a lit tile under someone else's line, specks of crosstalk, relearning replaces
+
+Two profiles the owner checked looked like a blend. In one, the person's
+tile was still lit while the transcript gave a stretch of 10
+fingerprints to another speaker ("Person 2 (<another name>)"), and the
+profile learnt it. In the other, many one- and two-fingerprint samples
+(crosstalk) added up to a "second voice". And learning a meeting again
+only replaced what it taught a profile it still taught: a contribution
+the meeting no longer gives stayed for good.
+
+Changes (`voices.LearnRules` 2):
+
+1. Tile learning skips a window when the transcript line over it names
+   someone (a name the owner gave, or the window's name in "Person N
+   (Name)") who isn't the tile's person (`diarize.SameName`). In every
+   learning path: at save, `LearnSaved`, and `SavedLearning`, which the
+   samples view rebuilds from, so samples and learning agree.
+2. A meeting's "voices" count (`profile_samples`) clusters only samples of
+   at least `MinLearn` (10) fingerprints.
+3. Learning a meeting whole (`Store.LearnMeeting`, used by `LearnSaved`
+   and save-time learning) drops what it taught a profile automatically
+   (from a tile, not confirmed, not named or moved there by the owner)
+   when it no longer teaches it. Plain `Learn` is unchanged.
+4. Profiles built under older rules are learnt again from every saved
+   meeting once, in the background after the recorder's models load,
+   only while nothing records or saves, at low priority; the version and
+   a summary are stored in the voices file (`rules`, `relearned`).
+   `[meeting] voice_profile_relearn = false` turns that off.
+
+**Measured** on an APFS clone of the recorder's 207 sessions (185 with
+fingerprints) and voices (144 profiles, 419 profile meetings), the
+originals only read; the relearn run as the recorder runs it
+(`relearnForRules`, utility QoS):
+
+- Time: 49 s for 185 meetings (the old `learn_saved` loop: 34 s at normal
+  priority).
+- Summary: 106 profiles' learnt voice changed, 2 new. Most of that is
+  relearning as such: relearning the same copy with the old code
+  (`learn_saved`) changed 75 profiles and added 2 (live learning at save
+  saw name reads and fingerprints the saved meeting rebuilds a little
+  differently; learnt fingerprints 159,912 before, 137,109 after the old
+  relearn, 134,426 after the new). Between the two relearns, 81 profiles
+  differ, 15 profile meetings are gone and 167 have different counts
+  (1,292 fewer fingerprints).
+- The tile case: its meetings went from 36/367/1,613/151/61 fingerprints
+  to 32/345/1,613/118/34, and its samples' count of voices from 2 to 1
+  (120 samples to 114).
+- The crosstalk case: 4 meetings to 3 (an 8-fingerprint meeting, under
+  `MinLearn` and kept on record until now, isn't taught, so the relearn
+  drops it), samples 35 to 30, voices still 2: in its largest meeting,
+  which the owner named, about 200 fingerprints in samples of 16-77 are
+  0.68-0.72 like the profile against 0.88-0.94 for the rest; that is a
+  second voice under the owner's name for the line, not specks, and these
+  rules don't touch named lines.
+- The 15 meetings dropped: 11 the saved meeting no longer gives the
+  profile at all, even under the old rules (4 of them under `MinLearn`);
+  4 (57-127 fingerprints) where every window under the person's tile is
+  under a line naming someone else (in one meeting the transcript has
+  just two remote speakers, both named, while two other people's tiles
+  were lit: either the diarizer merged them or the tiles were wrong; the
+  owner can listen).
+- Profiles left with no meeting: 6 (two weren't naming anyone: one with
+  only an 8-fingerprint meeting, one heard in a single meeting and never
+  confirmed); profiles that stop naming people (in use 136 →
+  132): 5, four of those with no meeting left and one down to a single
+  meeting; one new profile, from a speaker the owner named, starts naming.
+- Owner's word: the 55 named or moved profile meetings and the 3 with
+  samples taken out are all kept; no profile meeting was confirmed in
+  this copy. One named meeting's voice is replaced by its tile's, as the
+  old relearn did too (Learn's last-wins order).

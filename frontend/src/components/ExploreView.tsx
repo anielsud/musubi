@@ -6,7 +6,7 @@ import { Empty, HitRow, LabelBadge, Spinner } from './common';
 import { GraphView } from './GraphView';
 import { ClaimResults, TopicsPane } from './Knowledge';
 import { CorrectionsView } from './CorrectionsView';
-import { ActNotes, AllVoices, LearnButton, ReviewItems, VoicesError, openReviews, readOnlyWhy, useAct, useEditable, useVoices } from './voices';
+import { ActNotes, AllVoices, RelearnNote, ReviewItems, VoicesError, openReviews, readOnlyWhy, useAct, useEditable, useVoices } from './voices';
 
 interface Props {
   scope: string;
@@ -186,10 +186,10 @@ function VoiceReviews({ voices }: { voices: ReturnType<typeof useVoices> }) {
       <div className="section-head">
         <span>Voices to check ({n})</span>
         <span>
-          {editable && <LearnButton a={a} />}
           {n > 0 && <button className="link" onClick={() => setOpen(!open)}>{open ? 'hide' : 'show'}</button>}
         </span>
       </div>
+      <RelearnNote view={voices.view} />
       {!voices.view.enabled && <div className="dim small">Voice profiles are off (Settings → Recording): meetings don&apos;t teach them and nobody is named by voice.</div>}
       {!editable && n > 0 && <div className="dim small">{readOnlyWhy}</div>}
       {n === 0 && !voices.view.building && <div className="dim small">Nothing to check.</div>}

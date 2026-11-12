@@ -402,6 +402,18 @@ type VoicesView struct {
 	// still being gathered after the recorder started; they are empty
 	// until then.
 	Building bool `json:"building,omitempty"`
+	// Relearned: the last relearn for new learning rules (nil if none).
+	Relearned *RelearnedView `json:"relearned,omitempty"`
+}
+
+// RelearnedView is what the last relearn for new learning rules did:
+// when, from how many meetings, how many profiles' learnt voice changed
+// and how many profiles it started.
+type RelearnedView struct {
+	At       time.Time `json:"at"`
+	Meetings int       `json:"meetings"`
+	Changed  int       `json:"changed"`
+	Added    int       `json:"added"`
 }
 
 // LookView is one meeting-window look (Tomoe's hint timeline entry),

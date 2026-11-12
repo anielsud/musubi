@@ -26,12 +26,15 @@ const learnShare = 0.8
 // tile is lit for everyone in it). offset converts the fingerprints' time
 // to session time (StreamInfo.Offset).
 func VoicesFromTiles(p *Prepared, hints []Hint, offset float64) []voices.Learned {
-	return voicesFromTilesSkipping(p, hints, offset, nil)
+	return voicesFromTilesSkipping(p, hints, offset, nil, nil)
 }
 
 // voicesFromTilesSkipping is VoicesFromTiles, leaving out session times
-// skip says are unsure (nil: none).
-func voicesFromTilesSkipping(p *Prepared, hints []Hint, offset float64, skip func(t float64) bool) []voices.Learned {
+// skip says are unsure (nil: none) and those where line (nil: none) names
+// someone other than the lit tile as speaking: a tile stays lit a moment
+// after its person stops, and a profile learnt 10 fingerprints of the
+// next speaker that way (2026-11-12).
+func voicesFromTilesSkipping(p *Prepared, hints []Hint, offset float64, skip func(t float64) bool, line func(t float64) string) []voices.Learned {
 	at := TileTimeline(hints, hintLag)
 	display := tileDisplayNames(hints)
 	return voicesBy(p, offset, func(t float64) string {
@@ -42,8 +45,35 @@ func voicesFromTilesSkipping(p *Prepared, hints []Hint, offset float64, skip fun
 		if k == "" || IsRoomTile(k) || !learnableName(display[k]) {
 			return ""
 		}
+		if line != nil {
+			if n := line(t); n != "" && !SameName(n, display[k]) {
+				return ""
+			}
+		}
 		return display[k]
 	}, voices.FromTile)
+}
+
+// lineNames says who the transcript names as speaking at session time t
+// (see lineName), "" where nobody.
+func lineNames(segs []session.Segment) func(t float64) string {
+	return SpeakerAt(segs, lineName)
+}
+
+// lineName is the person a transcript label names: a name the user gave
+// (GivenName), or the window's name in "Person 2 (Ana)"; "" for an
+// unnamed or provisional label, the owner ("You") or a room.
+func lineName(label string) string {
+	if n := GivenName(label); n != "" {
+		return n
+	}
+	if isProvisional(label) {
+		return ""
+	}
+	if n := session.HintName(label); n != "" && !IsRoomTile(n) {
+		return n
+	}
+	return ""
 }
 
 // VoicesFromSpeakers is each named speaker's voice in a meeting: who(t)
@@ -265,8 +295,10 @@ func modelBySettings(threshold float64) string {
 
 // LearnSaved teaches the voice profiles from a saved session: the voices
 // heard while a person's own tile was lit (except speakers the window and
-// the voice disagree on), and the speakers given a name (GivenName).
-// hints are the session's name reads.
+// the voice disagree on, and while the transcript names someone else),
+// and the speakers given a name (GivenName). It replaces what the meeting
+// taught automatically before (voices.Store.LearnMeeting). hints are the
+// session's name reads.
 func LearnSaved(m config.MeetingConfig, dir string, sess *session.Session, hints []Hint) ([]string, error) {
 	p, info, err := LoadSaved(dir)
 	if err != nil {
@@ -279,7 +311,7 @@ func LearnSaved(m config.MeetingConfig, dir string, sess *session.Session, hints
 	if err != nil {
 		return nil, err
 	}
-	return store.Learn(sess.ID, sess.CreatedAt, SavedLearning(p, info.Offset, sess, hints))
+	return store.LearnMeeting(sess.ID, sess.CreatedAt, SavedLearning(p, info.Offset, sess, hints))
 }
 
 // learnableName reports whether a tile's name can be a person's: the

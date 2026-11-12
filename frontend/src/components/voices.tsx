@@ -574,13 +574,17 @@ function DiscardedPlay({ p, session }: { p: VoiceProfile; session: string }) {
   return clip ? <Play clip={clip} /> : <span className="icon-btn play dim">…</span>;
 }
 
-// LearnButton teaches the profiles from every saved meeting.
-export function LearnButton({ a }: { a: Act }) {
-  return (
-    <button disabled={a.busy !== null} onClick={() => a.act('learn', () => api.learnSaved(), 'Learnt from every saved meeting.')}>
-      {a.busy === 'learn' ? <><Spinner /> Learning…</> : 'Learn from saved meetings'}
-    </button>
-  );
+// relearnNoteDays is how long the note on a relearn for new rules shows.
+const relearnNoteDays = 3;
+
+// RelearnNote says, for a few days after one, that the profiles were
+// learnt again under new learning rules and what changed.
+export function RelearnNote({ view }: { view: VoicesView }) {
+  const r = view.relearned;
+  if (!r) return null;
+  const at = new Date(r.at);
+  if (isNaN(at.getTime()) || Date.now() - at.getTime() > relearnNoteDays * 86400e3) return null;
+  return <div className="dim small">Voice profiles updated for new rules on {at.toLocaleDateString()}: {r.changed} changed, {r.added} new.</div>;
 }
 
 // AllVoices is every voice profile the recorder has (Tomoe's Voices

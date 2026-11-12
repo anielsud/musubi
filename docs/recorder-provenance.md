@@ -105,6 +105,14 @@ code.
   sharing a name the user hasn't kept apart), shown in the Voices view as
   "Two profiles named X?". Existing profiles keep their IDs, aliases and
   merges; there is no migration.
+- **Learning rules 2** (2026-11-12, owner's decision). Tile learning
+  skips a window when the transcript line over it names someone other
+  than the tile's person; `Store.LearnMeeting` (learning a meeting whole)
+  drops a meeting's automatic contribution to a profile it no longer
+  teaches; the voices file records `rules` (`voices.LearnRules`) and the
+  last relearn's summary, and the recorder relearns every saved meeting
+  once when the rules are newer than the file's. A meeting's voice count
+  on the samples view ignores samples under `MinLearn` fingerprints.
 
 ## Rewritten
 

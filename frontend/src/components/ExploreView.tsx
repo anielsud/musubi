@@ -6,7 +6,7 @@ import { Empty, HitRow, LabelBadge, Spinner } from './common';
 import { GraphView } from './GraphView';
 import { ClaimResults, TopicsPane } from './Knowledge';
 import { CorrectionsView } from './CorrectionsView';
-import { ActNotes, LearnButton, ReviewItems, VoicesError, openReviews, readOnlyWhy, useAct, useEditable, useVoices } from './voices';
+import { ActNotes, AllVoices, LearnButton, ReviewItems, VoicesError, openReviews, readOnlyWhy, useAct, useEditable, useVoices } from './voices';
 
 interface Props {
   scope: string;
@@ -28,7 +28,7 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [trail, setTrail] = useState<EntityRef[]>([]);
-  const [mode, setMode] = useState<'topics' | 'search' | 'corrections' | 'people'>('topics');
+  const [mode, setMode] = useState<'topics' | 'search' | 'corrections' | 'people' | 'voices'>('topics');
   const [topicWant, setTopicWant] = useState<{ id: number; n: number } | null>(null);
   const openTopicHere = (id: number) => { setFocus(null); setTopicWant({ id, n: Date.now() }); setMode('topics'); };
   const [lastQ, setLastQ] = useState('');
@@ -78,7 +78,8 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
     <div className="view explore">
       <div className="segmented">
         <button className={mode === 'topics' ? 'on' : ''} onClick={() => { setMode('topics'); setFocus(null); }}>Topics</button>
-        {scope === 'owner' && <button className={mode === 'people' ? 'on' : ''} onClick={() => { setMode('people'); setFocus(null); }}>People{reviews > 0 && <span className="count" title="Voices to check"> {reviews}</span>}</button>}
+        {scope === 'owner' && <button className={mode === 'people' ? 'on' : ''} onClick={() => { setMode('people'); setFocus(null); }}>People</button>}
+        {scope === 'owner' && <button className={mode === 'voices' ? 'on' : ''} onClick={() => { setMode('voices'); setFocus(null); }} title="Voice profiles, and voices to name or check">Voices{reviews > 0 && <span className="count" title="Voices to check"> {reviews}</span>}</button>}
         <button className={mode === 'search' ? 'on' : ''} onClick={() => setMode('search')}>Search</button>
         {scope === 'owner' && <button className={mode === 'corrections' ? 'on' : ''} onClick={() => { setMode('corrections'); setFocus(null); }} title="Misheard or misspelled names and terms to confirm or reject">Corrections</button>}
       </div>
@@ -91,7 +92,8 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
           {graph && <div className="entity-name">{graph.entity.name}</div>}
           <PersonView id={focus} scope={scope} onPick={setFocus} onOpenItem={onOpenItem} onTopic={openTopicHere} />
         </section>
-      ) : <><VoiceReviews voices={voices} /><PeoplePane onPick={setFocus} /></>)}
+      ) : <PeoplePane onPick={setFocus} />)}
+      {mode === 'voices' && scope === 'owner' && <><VoiceReviews voices={voices} /><AllVoices voices={voices} /></>}
       {mode === 'corrections' && scope === 'owner' && <CorrectionsView onSource={openSource} start={correctReq} />}
       {mode === 'search' && <>
       <form className="lookup" onSubmit={(e) => { e.preventDefault(); run(q); }}>

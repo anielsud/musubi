@@ -354,3 +354,38 @@ export function LearnButton({ a }: { a: Act }) {
     </button>
   );
 }
+
+// AllVoices is every voice profile the recorder has (Tomoe's Voices
+// panel): find one by name, see which are confirmed or not used yet, and
+// open any to rename, confirm, start over, forget or fix its meetings.
+export function AllVoices({ voices }: { voices: ReturnType<typeof useVoices> }) {
+  const a = useAct();
+  const editable = useEditable();
+  const [q, setQ] = useState('');
+  const [show, setShow] = useState<'all' | 'confirmed' | 'unused' | 'check'>('all');
+  const all = voices.view?.profiles ?? [];
+  const names = all.map((x) => x.name);
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const flaggedOf = (p: VoiceProfile) => { const h = p.heard ?? []; return h.filter((x) => h.length > 1 && x.agreement < agreeFlag).length; };
+  const shown = all
+    .filter((p) => words.every((w) => p.name.toLowerCase().includes(w)))
+    .filter((p) => show === 'all' || (show === 'confirmed' ? p.confirmed : show === 'unused' ? !p.inUse : flaggedOf(p) > 0))
+    .sort((x, y) => (y.lastHeard || '').localeCompare(x.lastHeard || '') || x.name.localeCompare(y.name));
+  if (!voices.view) return null;
+  const count = (f: (p: VoiceProfile) => boolean) => all.filter(f).length;
+  return (
+    <section className="all-voices">
+      <div className="section-head"><span>All voices ({all.length})</span><span className="dim small">most recently heard first</span></div>
+      <input className="search" placeholder="Find a voice by name" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="chips">
+        {([['all', `all ${all.length}`], ['confirmed', `confirmed ${count((p) => p.confirmed)}`], ['unused', `not used yet ${count((p) => !p.inUse)}`], ['check', `to check ${count((p) => flaggedOf(p) > 0)}`]] as const).map(([k, label]) => (
+          <button key={k} className={'chip' + (show === k ? ' on' : '')} onClick={() => setShow(k)}>{label}</button>
+        ))}
+      </div>
+      {!editable && <div className="dim small">{readOnlyWhy}</div>}
+      {shown.length === 0 && <div className="dim small">No voice matches.</div>}
+      {shown.map((p) => <VoiceProfileCard key={p.model + '/' + p.id} p={p} names={names} editable={editable} a={a} />)}
+      <ActNotes a={a} />
+    </section>
+  );
+}

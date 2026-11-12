@@ -72,7 +72,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 
 .tabs { display: flex; gap: 2px; padding: 0 10px; border-bottom: 1px solid var(--line); }
 .tabs button {
-  padding: 8px 12px; color: var(--text-dim); text-transform: capitalize; position: relative;
+  padding: 8px 10px; color: var(--text-dim); text-transform: capitalize; position: relative;
   border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; align-items: center; gap: 6px; white-space: nowrap;
 }
 .tabs button:hover { color: var(--text); }

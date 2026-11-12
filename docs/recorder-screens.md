@@ -103,7 +103,8 @@ calendar).
 
 The recorder's settings move into Musubi's one config file under
 `[recorder]`, edited from Settings like the rest. A key set there wins;
-anything not set still comes from Tomoe's config until Tomoe is retired.
+anything not set still comes from Tomoe's config until Tomoe is retired
+(`[recorder] tomoe = "off"`, below).
 
 ### Shadow first, then the switch
 
@@ -119,6 +120,59 @@ While Tomoe is of record the recorder still copies Tomoe's voices at each
 recording, which would overwrite voice edits made in Musubi; that is why
 voice and speaker edits are offered only once the Musubi recorder is of
 record.
+
+### Standalone (2026-11-12)
+
+After the switch Musubi still read Tomoe in four places: the recorder's
+unset settings (Tomoe's `config.toml`), its models (Tomoe's folder as a
+fallback), the app's meeting files for meetings imported from Tomoe
+(headshots, voice clips, replay audio from `tomoe_sessions`), and the
+calendar context it wrote into Tomoe's sessions. `[recorder] tomoe`
+(`"on"`, the default, or `"off"`) ends that.
+
+- **Migration**: `musubi-recorder migrate-from-tomoe` copies Tomoe's data
+  in, then sets `tomoe = "off"` in Musubi's config. It never writes
+  Tomoe's folder or config and never overwrites a recorder session, so
+  it can be run again to repair. Sessions: every Tomoe session folder
+  created before `--until` (default `[recorder] since`; later ones Musubi's
+  recorder recorded itself) that the recorder lacks, into
+  `<data>/sessions/<same uuid>` as APFS clones (`cp -c`, else a plain
+  copy) through `<data>/migrate-tmp`, with the copy's `audio_path`
+  pointed at its own `audio.m4a` (Tomoe writes an absolute path into its
+  folder); the copy's `session.json` must parse before it is renamed into
+  place. Voices: Tomoe's `*.json` over the recorder's, except where the
+  recorder's file is newer (kept, and said), with what is replaced kept in
+  `<data>/voices.bak-<date>`. Models: each of Tomoe's not already in
+  `<data>/models`, cloned. Settings: every key Tomoe's config sets in
+  `[audio]`, `[transcription]` and `[meeting]` that the recorder reads and
+  `[recorder.*]` doesn't set, written with the app's comment-keeping
+  config editor, `model_path` set to `<data>/models`; the file is backed up
+  first as `<name>.bak-<date>-standalone`. `tomoe = "off"` is written only
+  if every step succeeded. `--session <uuid>` copies one session whatever
+  its date and does nothing else; `--dry-run` changes nothing. It refuses a
+  config still of record `"tomoe"`. Meetings already imported stay as
+  they are (`tomoe:<uuid>`); the copies are older than `since`, so ingest
+  does not take them again.
+- **Recorder with `tomoe = "off"`**: never reads Tomoe's `config.toml`
+  (built-in defaults with Musubi's `[recorder.*]` over them, models in
+  `<data>/models`), never searches Tomoe's models folder
+  (`config.ModelDirs`), never copies Tomoe's voices, and does not watch
+  Tomoe's config file. A change of the key through `reload_config` asks
+  for a restart. `shadow compare` still reads Tomoe's sessions, read-only:
+  it is a diagnostic. The offline `session replay` and `textdiff`
+  commands still default to Tomoe's folder and config, as before.
+- **App**: with `of_record = "musubi"`, calendar context
+  (`calendar.json`, `title.json`, `teams.json`) is written only into the
+  recorder's sessions, never Tomoe's, whatever `tomoe` says. These are
+  files the recorder only reads, so this is the one exception to "only
+  the recorder writes its folder". With `tomoe = "off"`, headshots, voice
+  clips and replay audio come only from the recorder's folder
+  (`Config.SessionDirs`). Status's live feed row and the header dot name
+  the feed of record ("Live feed · Musubi recorder", "L") once Musubi's
+  recorder is of record. Settings → Recording and Processing say that
+  unset values are the recorder's defaults ("· default") with Tomoe off.
+- `tomoe_sessions` stays in the config, for the migration's repairs and
+  for going back (`tomoe = "on"`).
 
 ### How Musubi talks to the recorder
 

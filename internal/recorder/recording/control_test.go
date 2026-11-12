@@ -668,6 +668,30 @@ func TestOfRecordStopsVoiceCopy(t *testing.T) {
 	}
 }
 
+// With Tomoe off ([recorder] tomoe = "off"), even while Tomoe is of
+// record, Tomoe's voices are not copied and its config file is not read.
+func TestTomoeOffStopsVoiceCopy(t *testing.T) {
+	c := newControlled(t)
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	os.MkdirAll(filepath.Join(xdg, "tomoe"), 0o700)
+	os.WriteFile(filepath.Join(xdg, "tomoe", "config.toml"), []byte("[audio]\ndevice = \"Tomoe Mic\"\n"), 0o600)
+	musubi := filepath.Join(t.TempDir(), "config.toml")
+	c.SetMusubiConfig(musubi)
+	defer config.SetTomoeOff(false)
+	os.WriteFile(musubi, []byte("[recorder]\ntomoe = \"off\"\n"), 0o644)
+	c.must(t, control.OpReloadConfig, nil, nil)
+	before := c.copies
+	c.must(t, control.OpStart, nil, nil)
+	c.must(t, control.OpStop, nil, nil)
+	if n := c.copies - before; n != 0 {
+		t.Errorf("tomoe off: voices copied %d times, want 0", n)
+	}
+	if cfg := c.config(); !cfg.TomoeOff || cfg.Audio.Device != "default" {
+		t.Errorf("tomoe off: TomoeOff %v, device %q (Tomoe's file read?)", cfg.TomoeOff, cfg.Audio.Device)
+	}
+}
+
 // reload_config naming the app's config file switches to it and keeps it
 // for the next start; of_record in that file then stops the voice copy.
 func TestReloadTakesAppConfig(t *testing.T) {

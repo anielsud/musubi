@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,7 +27,18 @@ type Config struct {
 	// Only Musubi's config sets it (OverlayMusubi); false ("tomoe", the
 	// default) keeps copying, as before.
 	MusubiOfRecord bool `toml:"-"`
+
+	// TomoeOff is Musubi's [recorder] tomoe = "off": the recorder stands
+	// alone, reading neither Tomoe's config file nor its models folder
+	// and copying none of its voices (LoadRecorder, ModelDirs). Only
+	// Musubi's config sets it; false ("on", the default) keeps reading
+	// Tomoe's, as before.
+	TomoeOff bool `toml:"-"`
 }
+
+// CopiesTomoeVoices reports whether the recorder starts each recording
+// from a copy of Tomoe's voices: only while Tomoe is of record and on.
+func (c *Config) CopiesTomoeVoices() bool { return !c.MusubiOfRecord && !c.TomoeOff }
 
 // AudioConfig picks the microphone.
 type AudioConfig struct {
@@ -422,7 +434,16 @@ func TomoeDataDir() string {
 var (
 	dataDirMu sync.RWMutex
 	dataDir   string // "" until SetDataDir: Tomoe's folder
+	tomoeOff  bool   // SetTomoeOff
 )
+
+// SetTomoeOff records the process's [recorder] tomoe = "off", for model
+// lookups made without a Config at hand (ModelDirs(nil)).
+func SetTomoeOff(off bool) {
+	dataDirMu.Lock()
+	defer dataDirMu.Unlock()
+	tomoeOff = off
+}
 
 // SetDataDir moves what the recorder writes (sessions, voices, the live
 // feed's socket, hint analysis) to dir, so a recorder running beside
@@ -469,16 +490,39 @@ func OwnModelDir() string {
 // ModelDirs are the folders models are looked for in, in order: the
 // recorder's own (OwnModelDir), then cfg's model_path (Tomoe's folder by
 // default; ModelDir when cfg is nil), so a model Tomoe downloaded is used
-// where it is. Downloads go to the first.
+// where it is. Downloads go to the first. With Tomoe off (cfg.TomoeOff or
+// SetTomoeOff) Tomoe's folder is never among them, whatever model_path
+// says.
 func ModelDirs(cfg *Config) []string {
+	dataDirMu.RLock()
+	off := tomoeOff
+	dataDirMu.RUnlock()
+	if cfg != nil && cfg.TomoeOff {
+		off = true
+	}
 	tomoe := ModelDir()
 	if cfg != nil && cfg.Transcription.ModelPath != "" {
 		tomoe = cfg.Transcription.ModelPath
+	}
+	if off {
+		var out []string
+		for _, d := range []string{OwnModelDir(), tomoe} {
+			if d != "" && !inside(d, ModelDir()) && (len(out) == 0 || filepath.Clean(out[0]) != filepath.Clean(d)) {
+				out = append(out, d)
+			}
+		}
+		return out
 	}
 	if own := OwnModelDir(); own != "" && filepath.Clean(own) != filepath.Clean(tomoe) {
 		return []string{own, tomoe}
 	}
 	return []string{tomoe}
+}
+
+// inside reports whether path is dir or within it, by name.
+func inside(path, dir string) bool {
+	rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(path))
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // SessionDir is where recorded sessions are saved (DataDir/sessions).

@@ -39,7 +39,8 @@ func (a *Recorder) StartSession(micDevice, monitorDevice, lang, platform string)
 	// voice match what Tomoe would use for the same meeting, until the
 	// recorder is of record (Musubi's [recorder] of_record): from then on
 	// its own voices, edited through the Musubi app, are the ones used.
-	if !a.cfg.MusubiOfRecord {
+	// With Tomoe off ([recorder] tomoe) its voices are never read.
+	if a.cfg.CopiesTomoeVoices() {
 		if err := a.copyVoices(); err != nil {
 			fmt.Printf("Warning: voices not copied from Tomoe: %v\n", err)
 		} else {

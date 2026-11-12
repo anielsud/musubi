@@ -80,3 +80,13 @@ and auto-paste, Tomoe's window and tray, its settings, tools and voices
 pages, session list/export/delete/re-transcribe, notifications,
 multilingual mode (language detection, Bengali, the multi-engine switcher),
 hotwords, GPU libraries, Linux meeting detection.
+
+## App screens (frontend)
+
+The recorder screens in the Musubi app (`frontend/src/components/voices.tsx`,
+`recorder.tsx`, `settings/RecordingTab.tsx`) port Tomoe's `VoicesPanel`,
+`DiagnosticsPane`, `HintTimeline` and `ToolsPanel`, owner-authored
+throughout at `8d0e659`, restyled for Musubi. From `SettingsPanel` only the
+owner-authored rows' labels and hints were taken (into
+`internal/gui/recorder_settings.go`); its upstream-authored lines (the
+panel's shell and loading) were not used.

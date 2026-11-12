@@ -89,7 +89,7 @@ Planned connectors, in order:
 
 | Connector | Access |
 |---|---|
-| `tomoe` | reads `~/.local/share/tomoe/sessions/*/session.json` |
+| `tomoe` | reads `*/session.json` in the sessions folder of the recorder of record: Tomoe's (`tomoe_sessions`, default) or, with `[recorder] of_record = "musubi"`, Musubi's recorder's (`[recorder] data`/sessions), then only sessions created after `[recorder] since` |
 | `calendar` | ICS or Graph; gives meetings their titles and attendees |
 | `mcpdrop` | an inbox directory that scheduled Claude Code jobs fill from the approved M365 / Salesforce / Zoom connectors, as JSON |
 | `graph` | direct Microsoft Graph (mail, chat), once an Entra app registration is approved; until then `internal/m365` signs in as Microsoft's already-consented Graph Command Line Tools client and writes calendar events (and, next, Teams transcripts) into the inbox: docs/teams-design.md |
@@ -194,7 +194,32 @@ cold lane like any other source.
 `cmd/musubi-gui` is a Wails app (`internal/gui` backend, React frontend in
 `frontend/`), installed with `make install-gui-mac`.
 
-- **Live** (`internal/live`): follows Tomoe's feed ([tomoe-live-feed.md](tomoe-live-feed.md)),
+- **Recorder** ([recorder-screens.md](recorder-screens.md)): `[recorder]`
+  `of_record` is `"tomoe"` (default: meetings from `tomoe_sessions`, Live
+  from `[live] tomoe_socket`, as before) or `"musubi"` (both from the
+  recorder's folder, `[recorder] data`, default
+  `~/.local/share/musubi/recorder`: `sessions/`, `live.sock`,
+  `control.sock`). Switching to `"musubi"` in Settings sets `since`;
+  ingest then takes only recorder sessions created after it, since
+  earlier ones shadowed meetings Tomoe already gave. Files (audio, looks)
+  of meetings imported from Tomoe before the switch are still read from
+  Tomoe's folder (`Config.SessionDirs`). The app always follows the
+  recorder's live feed for its `status`, `audio`, `diag` and `look`
+  messages (re-emitted as `recorder:*` events) and asks it everything
+  else over `control.sock` (`internal/recorder/control`): start, stop,
+  sources, tools and fixes, voices, speaker and voice edits, looks,
+  clips and tiles (served to the webview under `/recorder-media/`), and
+  delete. Musubi never writes the recorder's folder. Speaker and voice
+  edits and delete are offered only with `of_record = "musubi"`. A speaker
+  edit on a saved meeting changes its `session.json`, so an update is
+  queued and that meeting is re-extracted; delete removes the recording
+  through the recorder, then forgets the item (`knowledge.ForgetItem`:
+  its statements leave their threads, and it is never imported again).
+  `[recorder.audio]`, `[recorder.transcription]` and `[recorder.meeting]`
+  override the keys of the same tables in Tomoe's config for the
+  recorder; Settings → Recording writes them and asks the recorder to
+  reload (`reload_config`).
+- **Live** (`internal/live`): follows the recorder of record's feed ([tomoe-live-feed.md](tomoe-live-feed.md)),
   keeps the meeting so far, and every `suggest_every` seconds of new speech
   turns the last `window` seconds into suggestions from three sources:
   entities named (unambiguous aliases only), phrases that are rare in the

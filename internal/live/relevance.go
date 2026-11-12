@@ -44,7 +44,7 @@ func relevance(c provider.Classifier, provName string, chat *provider.Chat) (pro
 	switch provName {
 	case "":
 		return nil, nil
-	case "jev":
+	case "jev", "clef":
 		return c, nil
 	case "decider":
 		if chat == nil {

@@ -48,21 +48,72 @@ type Answer struct {
 	Confidence    float64            `json:"confidence,omitempty"`
 }
 
-// Jev calls TypeSafe's System One endpoint. Input is metered for the
-// spend ledger (output is free).
+// Jev calls TypeSafe's System One endpoint, or Cloudflare's Clef, which
+// takes the same questions and gives the same answers (NewClef). Input is
+// metered for the spend ledger (output is free).
 type Jev struct {
 	URL, Model string
 	APIKey     string // keychain:<service> or env:<VARIABLE>
 	PriceIn    float64
-	keyOnce    sync.Once
-	key        string
-	keyErr     error
-	client     *http.Client
+	// Endpoint is where requests go: URL's /v1/systemone, or Clef's URL.
+	Endpoint string
+	// catalog: Jev from Cloudflare's model catalog (the AI Gateway's
+	// /ai/run), which takes the question under "input" and wraps the
+	// answer twice.
+	catalog bool
+	Headers map[string]string
+	// kind names the provider in errors ("jev", "clef").
+	kind    string
+	keyOnce sync.Once
+	key     string
+	keyErr  error
+	client  *http.Client
 }
 
 func NewJev(url, model, apiKey string, priceIn float64) *Jev {
-	return &Jev{URL: strings.TrimRight(cmpOr(url, "https://api.typesafe.ai"), "/"), Model: cmpOr(model, "jev-latest"), APIKey: apiKey,
-		PriceIn: cmpOrF(priceIn, 0.042), client: &http.Client{Timeout: 60 * time.Second}}
+	u := strings.TrimRight(cmpOr(url, "https://api.typesafe.ai"), "/")
+	return &Jev{URL: u, Endpoint: u + "/v1/systemone", Model: cmpOr(model, "jev-latest"), APIKey: apiKey,
+		PriceIn: cmpOrF(priceIn, 0.042), kind: "jev", client: &http.Client{Timeout: 60 * time.Second}}
+}
+
+// NewClef calls Cloudflare's Clef at url, its Workers AI /ai/run address
+// (https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/clef),
+// with a Cloudflare or AI Gateway token. It is Jev's request; the answer
+// comes wrapped in Cloudflare's {"result": ...}. Input is $0.24 a million
+// tokens (clef-flash $0.09), output free.
+func NewClef(url, model, apiKey string, priceIn float64, headers map[string]string) *Jev {
+	u := strings.TrimRight(url, "/")
+	model = cmpOr(model, "clef")
+	price := 0.24
+	if model == "clef-flash" {
+		price = 0.09
+	}
+	return &Jev{URL: u, Endpoint: u, Model: model, APIKey: apiKey, PriceIn: cmpOrF(priceIn, price),
+		Headers: headers, kind: "clef", client: &http.Client{Timeout: 60 * time.Second}}
+}
+
+// NewClassifier makes the classifier a config names: "jev" or "clef". A
+// jev url ending in /ai/run is Cloudflare's model catalog (the AI
+// Gateway's route to Jev, with the organisation's key): the request names
+// model "typesafe/jev", and headers must route it into the gateway
+// (cf-aig-gateway-id) or Cloudflare refuses it (402).
+func NewClassifier(provider, url, model, apiKey string, priceIn float64, headers map[string]string) (*Jev, error) {
+	switch provider {
+	case "jev":
+		if u := strings.TrimRight(url, "/"); strings.HasSuffix(u, "/ai/run") {
+			return &Jev{URL: u, Endpoint: u, Model: cmpOr(model, "typesafe/jev"), APIKey: apiKey, PriceIn: cmpOrF(priceIn, 0.042),
+				Headers: headers, kind: "jev", catalog: true, client: &http.Client{Timeout: 60 * time.Second}}, nil
+		}
+		j := NewJev(url, model, apiKey, priceIn)
+		j.Headers = headers
+		return j, nil
+	case "clef":
+		if url == "" {
+			return nil, fmt.Errorf("clef needs url: its /ai/run address (…/accounts/<account>/ai/run/@cf/cloudflare/clef)")
+		}
+		return NewClef(url, model, apiKey, priceIn, headers), nil
+	}
+	return nil, fmt.Errorf("unknown classifier provider %q", provider)
 }
 
 func (j *Jev) Name() string { return j.Model }
@@ -95,7 +146,11 @@ func (j *Jev) Classify(ctx context.Context, state any, questions map[string]Ques
 		}
 		qs[id] = m
 	}
-	b, _ := json.Marshal(map[string]any{"model": j.Model, "state": state, "questions": qs})
+	req := map[string]any{"model": j.Model, "state": state, "questions": qs}
+	if j.catalog {
+		req = map[string]any{"model": j.Model, "input": map[string]any{"state": state, "questions": qs}}
+	}
+	b, _ := json.Marshal(req)
 	var lastErr error
 	for try := 0; try < 4; try++ {
 		if try > 0 {
@@ -106,12 +161,15 @@ func (j *Jev) Classify(ctx context.Context, state any, questions map[string]Ques
 			}
 		}
 		t0 := time.Now()
-		req, err := http.NewRequestWithContext(ctx, "POST", j.URL+"/v1/systemone", bytes.NewReader(b))
+		req, err := http.NewRequestWithContext(ctx, "POST", j.Endpoint, bytes.NewReader(b))
 		if err != nil {
 			return nil, err
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+j.key)
+		for k, v := range j.Headers {
+			req.Header.Set(k, v)
+		}
 		resp, err := j.client.Do(req)
 		if err != nil {
 			lastErr = err
@@ -121,11 +179,11 @@ func (j *Jev) Classify(ctx context.Context, state any, questions map[string]Ques
 		resp.Body.Close()
 		// Rate limited or overloaded: back off and try again.
 		if resp.StatusCode == 429 || resp.StatusCode == 529 || resp.StatusCode >= 500 {
-			lastErr = fmt.Errorf("jev: %s", resp.Status)
+			lastErr = fmt.Errorf("%s: %s", j.kind, resp.Status)
 			continue
 		}
 		if resp.StatusCode != 200 {
-			return nil, fmt.Errorf("jev: %s: %s", resp.Status, strings.TrimSpace(string(body)))
+			return nil, fmt.Errorf("%s: %s: %s", j.kind, resp.Status, strings.TrimSpace(string(body)))
 		}
 		var out struct {
 			Answers map[string]struct {
@@ -140,8 +198,20 @@ func (j *Jev) Classify(ctx context.Context, state any, questions map[string]Ques
 				Out int `json:"output_tokens"`
 			} `json:"usage"`
 		}
+		// Cloudflare wraps the answer: {"result": {...}, "success": true},
+		// and the catalog's Jev once more ({"result": {"state": ...,
+		// "result": {...}}}).
+		for range 2 {
+			var wrap struct {
+				Result json.RawMessage `json:"result"`
+			}
+			if json.Unmarshal(body, &wrap) != nil || len(wrap.Result) == 0 || wrap.Result[0] != '{' {
+				break
+			}
+			body = wrap.Result
+		}
 		if err := json.Unmarshal(body, &out); err != nil {
-			return nil, fmt.Errorf("jev reply: %w", err)
+			return nil, fmt.Errorf("%s reply: %w", j.kind, err)
 		}
 		recordRow(j.Model, out.Usage.In, out.Usage.Out, float64(out.Usage.In)*j.PriceIn/1e6, time.Since(t0), "classify")
 		ans := map[string]Answer{}
@@ -150,12 +220,12 @@ func (j *Jev) Classify(ctx context.Context, state any, questions map[string]Ques
 		}
 		for id := range questions {
 			if _, ok := ans[id]; !ok {
-				return nil, fmt.Errorf("jev: no answer to %q", id)
+				return nil, fmt.Errorf("%s: no answer to %q", j.kind, id)
 			}
 		}
 		return ans, nil
 	}
-	return nil, fmt.Errorf("jev: 4 tries: %w", lastErr)
+	return nil, fmt.Errorf("%s: 4 tries: %w", j.kind, lastErr)
 }
 
 // DeciderClassifier asks each question of a language model as one forward

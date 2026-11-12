@@ -332,11 +332,16 @@ type Label struct {
 
 // Classifier configures a typed classification model.
 type Classifier struct {
-	Provider string  `toml:"provider"` // "jev"
+	// Provider is "jev" (TypeSafe's API) or "clef" (Cloudflare's Clef, the
+	// same questions and answers, on Workers AI: URL is the model's /ai/run
+	// address, the key a Cloudflare or AI Gateway token).
+	Provider string  `toml:"provider"`
 	URL      string  `toml:"url"`
 	Model    string  `toml:"model"`
 	APIKey   string  `toml:"api_key"` // keychain:<service> or env:<VARIABLE>
 	PriceIn  float64 `toml:"price_in"`
+	// Headers are sent with every request (as for a hosted LLM).
+	Headers map[string]string `toml:"headers"`
 	// MinP for this classifier (0: 0.5, measured).
 	MinP float64 `toml:"min_p"`
 }
@@ -446,6 +451,10 @@ type LLM struct {
 	// APIKey says where a hosted endpoint's key is kept: "keychain:<service>"
 	// (macOS keychain) or "env:<VARIABLE>". Empty for local servers.
 	APIKey string `toml:"api_key"`
+	// Headers are sent with every request to a hosted endpoint, for one
+	// that wants more than the key: the Optimizely AI Gateway charges a call
+	// to its token's owner from cf-aig-metadata ({"token_id": ...}).
+	Headers map[string]string `toml:"headers"`
 	// ReasoningEffort is sent to hosted reasoning models ("low", "medium",
 	// "high"); empty leaves the model's default. Calls may ask for their own
 	// (threads ask for low on assign, as measured).

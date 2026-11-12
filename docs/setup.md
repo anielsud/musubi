@@ -13,7 +13,7 @@ dataset's config; the code's defaults are all local.
 |---|---|---|---|
 | Embeddings | search, threads, card lines | Ollama `nomic-embed-text` | the same |
 | Chat models | extraction, threading, statuses, Ask, prep, Live suggestions and summaries | Ollama `qwen3:8b` | GLM-5.3-Flash on Baseten for all but Live; Live stays on `qwen3:8b` for latency |
-| Typed classifier | sensitive-statement labels, Live relevance | the chat model's yes/no | Jev (TypeSafe) |
+| Typed classifier | sensitive-statement labels, Live relevance | the chat model's yes/no | Jev (TypeSafe), or Clef (Cloudflare) |
 
 Jev is cleared for testing, not for the product. The product path is the
 same `provider.Classifier` interface over GLM or the local model
@@ -97,6 +97,57 @@ provider = "jev"
 api_key = "keychain:jev-api-key"
 min_p = 0.5
 ```
+
+Through the Optimizely AI Gateway, the same models take one personal
+gateway token. Until Musubi sets this up itself:
+
+1. **Get a token** (`cfat_…`) from the gateway's mint workflow (a one-time
+   link). It needs both of the permissions personal tokens are minted
+   with, *AI Gateway Run* and *Workers AI Read*: without the second,
+   Claude works but GLM and Clef answer 401 "Authentication error".
+   A re-mint keeps a token's permissions, so a token missing one is
+   revoked and minted again.
+2. **Put it in the keychain** (Musubi only reads it; it prompts for the
+   token, so it never lands in a file or the shell history):
+   `security add-generic-password -s ai-gateway-token -a "$USER" -w`
+3. **Look up its `token_id`**, which isn't secret, for the header that
+   charges calls to you (without it they land as "unknown"):
+   ```sh
+   curl -s https://api.cloudflare.com/client/v4/accounts/<account>/tokens/verify \
+     -H "Authorization: Bearer $(security find-generic-password -s ai-gateway-token -w)" | jq -r .result.id
+   ```
+4. **Set the models** as below. `cf-aig-collect-log-payload: false` keeps
+   the prompt and the reply out of the gateway's logs (cost, tokens and
+   the `token_id` stay); send it until the gateway sets it on every
+   request itself. `cf-aig-skip-cache: true` skips the gateway's
+   5-minute response cache, so a retry after a bad reply gets a new one
+   rather than the same.
+
+```toml
+[knowledge.threads.model]  # and the other hosted models alike
+provider = "openai"
+url = "https://<gateway worker>/workers-ai-shim"
+model = "@cf/zai-org/glm-5.3-flash"
+api_key = "keychain:ai-gateway-token"
+headers = { "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","setup_version":"custom"}', "cf-aig-collect-log-payload" = "false", "cf-aig-skip-cache" = "true" }
+price_in = 0.15
+price_out = 0.50
+
+[knowledge.label.classifier] # Jev through the gateway (the organisation's key)
+provider = "jev"
+url = "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run"
+api_key = "keychain:ai-gateway-token"
+headers = { "cf-aig-gateway-id" = "ai-gw", "cf-aig-collect-log-payload" = "false", "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","setup_version":"custom"}' }
+# [live.relevance] takes the same provider, url, api_key and headers.
+```
+
+A Jev `url` ending in `/ai/run` is Cloudflare's model catalog: the request
+names `typesafe/jev`, and without `cf-aig-gateway-id` Cloudflare answers 402.
+The catalog's Jev version floats like TypeSafe's own `jev-latest`, and
+the two needn't match (on 2026-11-11 the gateway served 1.13.0 and
+TypeSafe 1.14.0). Clef (`provider = "clef"`, `url` its own `/ai/run/@cf/
+cloudflare/clef` address) takes the same questions; on the labels sample
+it found fewer sensitive statements than Jev (research log, 2026-11-11).
 
 The full set of keys, each with what it does and how to restore the
 earlier behaviour, is in `internal/config/config.go`.

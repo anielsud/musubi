@@ -3542,3 +3542,31 @@ Change: `knowledge.skip_failed_items` (default false, the earlier
 behaviour). On, such an item is logged and left unstamped, the run goes on,
 and the summary counts it; a run where no item extracts still fails.
 Default off until it has been run on a real dataset.
+
+## 2026-11-11: Decision models through the AI Gateway (labels)
+
+Question: can statement labels move to the Optimizely AI Gateway, and
+which decision model then? The labels sample (the 400 audited statements
+of 2026-10-20) was rerun on 385 of them still in the dataset, with their
+meeting titles, the production question (`labelQuestion`) and the same
+scorer (the 2026-10-20 adjudications as truth). All runs the same day.
+
+| At 0.5 | Recall | Precision | Missed | False flags | Unjudged disagreements |
+|---|---|---|---|---|---|
+| Jev via the gateway (jev-1.13.0) | 0.86 | 0.90 | 30 | 19 | 0 |
+| Jev direct, `jev-latest` (jev-1.14.0) | 0.81 | 0.92 | 40 | 15 | 0 |
+| Jev, October (same 385) | 0.86 | 0.91 | 30 | 18 | 0 |
+| Clef | 0.75 | 0.92 | 51 | 14 | 4 |
+| Clef Flash | 0.80 | 0.82 | 42 | 36 | 23 |
+| Clef Omni (30B, 3B active) | 0.59 | 0.90 | 84 | 13 | 22 |
+
+- TypeSafe's `jev-latest` moved to 1.14.0 and misses a third more
+  sensitive statements at the same precision; the gateway's catalog still
+  serves 1.13.0. Neither version is pinned, so this can change again.
+- Clef is behind Jev at every threshold from 0.3 to 0.9; Flash finds about
+  as many as Jev with twice the false flags (many unjudged, so that number
+  is soft); Omni is furthest behind. About 12 s per 385 calls each.
+- Cost per 385: Jev ~1¢, Clef ~5¢, Clef Flash ~2¢ (input only).
+- Labels move to Jev through the gateway (`provider = "jev"`, catalog
+  `url`), with `cf-aig-collect-log-payload: false` so the gateway logs
+  hold no statement text.

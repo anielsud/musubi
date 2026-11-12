@@ -194,12 +194,16 @@ func (l *Live) Reload() (err error) {
 	var rel provider.Classifier
 	if c := l.eng.Cfg.Live.Relevance; c.Provider != "" && l.eng.Cfg.Live.Focus {
 		var jev provider.Classifier
-		if c.Provider == "jev" {
+		if c.Provider == "jev" || c.Provider == "clef" {
 			// It reads the conversation: a hosted model needs the owner's leave.
 			if !l.eng.Cfg.Knowledge.AllowHosted {
 				return fmt.Errorf("live.relevance: a hosted classifier reads the meeting, so it needs knowledge.allow_hosted")
 			}
-			jev = provider.NewJev(c.URL, c.Model, c.APIKey, c.PriceIn)
+			j, err := provider.NewClassifier(c.Provider, c.URL, c.Model, c.APIKey, c.PriceIn, c.Headers)
+			if err != nil {
+				return fmt.Errorf("live.relevance: %w", err)
+			}
+			jev = j
 		}
 		if rel, err = relevance(jev, c.Provider, l.eng.Chat); err != nil {
 			return err

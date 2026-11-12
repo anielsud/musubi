@@ -83,3 +83,66 @@ func TestDeciderClassifier(t *testing.T) {
 		t.Errorf("answers %+v", a)
 	}
 }
+
+// Clef takes Jev's request at its own address, with the configured headers,
+// and answers inside Cloudflare's {"result": ...}.
+func TestClefClassify(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ai/run/@cf/cloudflare/clef" || r.Header.Get("Authorization") != "Bearer k" || r.Header.Get("cf-aig-metadata") != `{"token_id":"t1"}` {
+			http.Error(w, "bad", 401)
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&got)
+		fmt.Fprint(w, `{"result":{"answers":{"quiet":{"type":"noul","noul":0.7}},"usage":{"input_tokens":1000000,"output_tokens":0}},"success":true}`)
+	}))
+	defer srv.Close()
+	t.Setenv("MUSUBI_SPEND_LEDGER", filepath.Join(t.TempDir(), "spend.jsonl"))
+	t.Setenv("K", "k")
+	c, err := NewClassifier("clef", srv.URL+"/ai/run/@cf/cloudflare/clef", "", "env:K", 0, map[string]string{"cf-aig-metadata": `{"token_id":"t1"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := c.Classify(context.Background(), "it went quiet", map[string]Question{"quiet": {Type: "noul", Instructions: "Gone quiet?"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a["quiet"].Noul != 0.7 || got["model"] != "clef" {
+		t.Errorf("answers %+v, model %v", a, got["model"])
+	}
+	if f, _ := NewClassifier("clef", srv.URL, "clef-flash", "env:K", 0, nil); f.PriceIn != 0.09 || c.PriceIn != 0.24 {
+		t.Errorf("prices: clef %v, clef-flash %v", c.PriceIn, f.PriceIn)
+	}
+	if _, err := NewClassifier("clef", "", "", "env:K", 0, nil); err == nil {
+		t.Error("clef without its address was accepted")
+	}
+}
+
+// Jev from Cloudflare's model catalog (the AI Gateway): the questions go
+// under "input", the answer comes wrapped twice, and the headers go along.
+func TestJevCatalog(t *testing.T) {
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ai/run" || r.Header.Get("cf-aig-gateway-id") != "ai-gw" {
+			http.Error(w, "bad", 402)
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&got)
+		fmt.Fprint(w, `{"result":{"state":"Completed","result":{"model":"jev-1.13.0","answers":{"quiet":{"type":"noul","noul":0.4}},"usage":{"input_tokens":280,"output_tokens":20}}},"success":true}`)
+	}))
+	defer srv.Close()
+	t.Setenv("MUSUBI_SPEND_LEDGER", filepath.Join(t.TempDir(), "spend.jsonl"))
+	t.Setenv("K", "k")
+	c, err := NewClassifier("jev", srv.URL+"/ai/run/", "", "env:K", 0, map[string]string{"cf-aig-gateway-id": "ai-gw"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := c.Classify(context.Background(), "it went quiet", map[string]Question{"quiet": {Type: "noul", Instructions: "Gone quiet?"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, _ := got["input"].(map[string]any)
+	if a["quiet"].Noul != 0.4 || got["model"] != "typesafe/jev" || in["state"] != "it went quiet" || in["questions"] == nil {
+		t.Errorf("answers %+v, request %v", a, got)
+	}
+}

@@ -274,6 +274,13 @@ type MeetingConfig struct {
 	// at once; an edit to config.toml itself takes effect on the next
 	// launch.
 	LiveFeed bool `toml:"live_feed"`
+
+	// SourceCheck, while a recording's mic or system audio has had no
+	// signal for a while, listens briefly to the other inputs and
+	// sources and, if one has signal, offers it to the Musubi app
+	// (Status.Silent and Status.Suggest). false only logs the silent mic,
+	// as before.
+	SourceCheck bool `toml:"source_check"`
 }
 
 // VideoHintsOn reports whether video hints run: on macOS (the only platform
@@ -366,6 +373,8 @@ func DefaultConfig() *Config {
 
 		VideoHintLearnInterval: 1.0,
 		VideoHintCheckInterval: 1.0,
+
+		SourceCheck: true,
 	}
 	return cfg
 }

@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
+import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LivePrep, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
 import type { ResSnapshot } from './types';
 import type { LookView, MeetingSpeakers, RecDiag, RecordingModels, RecordingSettings, RecorderView, RecSources, RecStatus, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
 
@@ -72,6 +72,8 @@ export const api = {
   savedPrepBrief: (itemId: string, scope: string): Promise<SavedBrief | null> => app().SavedPrepBrief(itemId, scope),
   prep: (req: PrepRequest, scope: string): Promise<PrepView> => app().Prep(req, scope),
   prepBrief: (id: string, req: PrepRequest, scope: string): Promise<void> => app().PrepBrief(id, req, scope),
+  livePrep: (): Promise<LivePrep | null> => app().LivePrep(),
+  livePrepBrief: (id: string): Promise<void> => app().LivePrepBrief(id),
   m365: (): Promise<M365View> => app().M365(),
   m365Connect: (): Promise<void> => app().M365Connect(),
   m365SignOut: (): Promise<void> => app().M365SignOut(),

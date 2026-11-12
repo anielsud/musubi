@@ -7,6 +7,7 @@ import { Names } from './people';
 import { AskCard, askExamples, useAsk } from './AskView';
 import type { ThreadDetail } from '../types';
 import { SourceBanner, useRecorder } from './recorder';
+import { PrepCard } from './LivePrep';
 
 const kindGlyph: Record<string, string> = { llm: '✦', entity: '◉', phrase: '¶', typed: '›' };
 
@@ -188,6 +189,10 @@ export function LiveView({ status, onOpen, onEntity, onTopic, scope: askScope, p
       </div>
 
       <div className="live-right">
+      {active && status?.session?.eventId && (
+        <PrepCard sessionId={status.session.id} scope={scope} onOpen={onOpen} onTopic={onTopic} />
+      )}
+
       {ask.turns.length > 0 && (
         <section className="asked">
           {ask.turns.map((t) => <AskCard key={t.id} t={t} onOpen={onOpen} onTopic={onTopic} onClose={() => ask.dismiss(t.id)} />)}

@@ -948,3 +948,12 @@ input.search { width: 100%; margin: 6px 0; }
 .res-tip { position: absolute; top: 4px; pointer-events: none; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 11px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.35); z-index: 2; }
 .res-tip-row { display: flex; align-items: center; gap: 0; }
 .res-tip-row b { font-variant-numeric: tabular-nums; margin-right: 6px; min-width: 44px; }
+/* live.prep_card: the meeting's prep, pinned above the topic cards and
+   compact until "more". */
+.topic.prep-card { border-left-color: var(--accent); }
+.topic.prep-card.collapsed { padding-top: 7px; padding-bottom: 7px; }
+.topic.prep-card.collapsed .topic-title { cursor: pointer; }
+.prep-summary { font-weight: 400; font-size: 12px; }
+.prep-card .answer-md { font-size: 13px; }
+.prep-draft { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.prep-actions { display: flex; gap: 14px; justify-content: flex-end; }

@@ -669,23 +669,31 @@ func (s *Store) EntityNames() (map[string][2]string, error) {
 // one they organized or accepted comes first, then tentative ones, then the
 // latest to start.
 func (s *Store) EventAt(t time.Time) (string, []item.Participant, error) {
-	var title, ps string
-	err := s.rdb.QueryRow(`SELECT title, participants FROM items WHERE kind = 'event' AND occurred_at <= ? AND ended_at > ?
+	_, title, invited, err := s.EventMatchAt(t)
+	return title, invited, err
+}
+
+// EventMatchAt is EventAt with the event's item id, so the live panel can
+// load that event's prep. Owner-only display; the prep itself is read
+// through scoped reads.
+func (s *Store) EventMatchAt(t time.Time) (string, string, []item.Participant, error) {
+	var id, title, ps string
+	err := s.rdb.QueryRow(`SELECT id, title, participants FROM items WHERE kind = 'event' AND occurred_at <= ? AND ended_at > ?
 		AND ended_at - occurred_at <= 4 * 3600 AND native NOT LIKE '%"allDay":"true"%' AND native NOT LIKE '%"cancelled":"true"%'
 		AND native NOT LIKE '%"showAs":"free"%' AND native NOT LIKE '%"response":"declined"%'
 		ORDER BY (native LIKE '%"response":"organizer"%' OR native LIKE '%"response":"accepted"%') DESC,
-			native LIKE '%"response":"tentativelyAccepted"%' DESC, occurred_at DESC LIMIT 1`, t.Unix()+15*60, t.Unix()).Scan(&title, &ps)
+			native LIKE '%"response":"tentativelyAccepted"%' DESC, occurred_at DESC LIMIT 1`, t.Unix()+15*60, t.Unix()).Scan(&id, &title, &ps)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil, nil
+		return "", "", nil, nil
 	}
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	var invited []item.Participant
 	if err := json.Unmarshal([]byte(ps), &invited); err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
-	return title, invited, nil
+	return id, title, invited, nil
 }
 
 func textHash(s string) string {

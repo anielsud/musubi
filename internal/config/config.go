@@ -586,6 +586,12 @@ type Live struct {
 	// conversation it reads and, for a pick, its candidates) hasn't changed
 	// since the last; the cadence stays. false: run every time, as before.
 	SkipIdle bool `toml:"skip_idle"`
+	// PrepCard shows the meeting's prep at the top of the panel's cards
+	// while a meeting matched to a calendar event is under way: its
+	// drafted talking points and what is open with the people in it, read
+	// in the panel's scope; nothing is drafted unless asked. false: no
+	// prep card, as before.
+	PrepCard bool `toml:"prep_card"`
 }
 
 // Store tunes the database's connections (store.Options). Measured on
@@ -689,7 +695,7 @@ func DefaultConfig() Config {
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
 			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
-			Cache: true, SkipIdle: true,
+			Cache: true, SkipIdle: true, PrepCard: true,
 		},
 		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16"},
 		Diagnostics: Diagnostics{Profiling: true, Resources: true},

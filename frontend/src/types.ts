@@ -37,6 +37,8 @@ export interface Session {
   created_at: string;
   // The other people on the calendar event under way, when there is one.
   invited?: string[];
+  // That calendar event's item id (the prep card loads its prep).
+  eventId?: string;
 }
 
 export interface LiveStatus {
@@ -430,6 +432,16 @@ export interface PrepTarget {
   recordingId?: string;
 }
 
+// LivePrep is the prep for the meeting under way (live.prep_card), read in
+// the panel's scope.
+export interface LivePrep {
+  sessionId: string;
+  eventId: string;
+  scope: string;
+  view: PrepView | null;
+  brief?: SavedBrief | null;
+}
+
 // SavedBrief is talking points drafted ahead of a meeting (prep.auto_brief).
 export interface SavedBrief {
   itemId: string;
@@ -459,6 +471,8 @@ export interface PrepSubject {
 export interface PrepView {
   title: string;
   people: string[] | null;
+  // The people none of the owner's meetings had in them.
+  new?: string[] | null;
   since: string;
   met: number;
   subjects: PrepSubject[] | null;

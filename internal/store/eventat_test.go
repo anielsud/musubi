@@ -39,4 +39,7 @@ func TestEventAtPrefersAccepted(t *testing.T) {
 	if len(invited) != 1 || invited[0].Email != "robin@e1.example" {
 		t.Errorf("invited = %v, want the accepted event's", invited)
 	}
+	if id, _, _, _ := s.EventMatchAt(at.Add(20 * time.Minute)); id != "m365-calendar:e1" {
+		t.Errorf("EventMatchAt id = %q, want the accepted event's", id)
+	}
 }

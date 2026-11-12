@@ -262,6 +262,22 @@ cold lane like any other source.
   whenever the scope changes. A replay sees only what was known when the
   replayed meeting happened: its card index is built from what was said
   before it.
+- **Prep card** (`live.prep_card`, default on; false: no card, as
+  before): when a meeting starts, the calendar event the title and "With"
+  line come from (`store.EventMatchAt`, the same match as `EventAt`) is
+  kept on the session (`eventId`), and the top of the cards shows that
+  event's prep, read in the panel's scope (taken from Live, not from the
+  screen, so the shared screen gets what the Prep tab shows there): the
+  talking points drafted ahead (`prep_briefs`) with their sources, then
+  what is open with the people in it, what the last meeting of the series
+  left open, and who is new. It is compact (the first three talking
+  points, or the first three open items) until "more", and × collapses it
+  to one line for that meeting (remembered per viewer). Without drafted
+  talking points, "Draft prep" runs the Prep tab's path (`PrepBrief`,
+  same local/hosted rule); nothing is drafted unless pressed. Loading it
+  runs no chat model; like the Prep tab, finding the threads the event
+  is about embeds its title once. Talking points are not tracked against
+  what is said.
 - **Focus** (`live.focus`): each card is cut to the three lines closest
   to the last 90 s (embedding similarity), with the line of the
   conversation that raised it; lookups quote theirs too. Subjects last

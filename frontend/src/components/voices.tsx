@@ -437,6 +437,14 @@ const returnedNote = (name: string, r: ReturnVoiceResult) => (r.relabelled
 
 // VoiceProfileCard is one person's voice profile: its clip and tile, the
 // meetings it learnt from, and its edits.
+// forgetNames is every name Delete voice print blocks, quoted: the
+// profile's own and the old names it kept when renamed (deleting a
+// profile renamed from a person's name blocked that person's name too).
+const forgetNames = (p: VoiceProfile) => {
+  const all = [p.name, ...(p.aliases ?? [])].map((n) => `'${n}'`);
+  return all.length === 1 ? `the name ${all[0]}` : `the names ${all.slice(0, -1).join(', ')} and ${all[all.length - 1]}`;
+};
+
 export function VoiceProfileCard({ p, editable, a }: { p: VoiceProfile; editable: boolean; a: Act }) {
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState<'forget' | null>(null);
@@ -506,7 +514,7 @@ export function VoiceProfileCard({ p, editable, a }: { p: VoiceProfile; editable
           <button disabled={busy} title="Put the old name back on those meetings' speakers" onClick={() => undo(done)}>Undo</button><button title="Keep the new name in those meetings" onClick={() => setDone(null)}>OK</button>
         </div>
       )}
-      {confirming === 'forget' && confirmRow(`Delete ${p.name}'s voice print and never learn the name '${p.name}' again — for someone who asked not to have their voice kept. Recordings and transcripts are unchanged.`, 'Delete voice print', () => { setConfirming(null); v('forget_voice', {}, `Deleted ${p.name}'s voice print.`); }, () => setConfirming(null))}
+      {confirming === 'forget' && confirmRow(`Delete ${p.name}'s voice print and never learn ${forgetNames(p)} again — for someone who asked not to have their voice kept. Recordings and transcripts are unchanged.`, 'Delete voice print', () => { setConfirming(null); v('forget_voice', {}, `Deleted ${p.name}'s voice print.`); }, () => setConfirming(null))}
       {open && (
         <div className="voice-meetings">
           {heard.map((h) => {

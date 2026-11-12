@@ -46,12 +46,34 @@ func voicesFromTilesSkipping(p *Prepared, hints []Hint, offset float64, skip fun
 			return ""
 		}
 		if line != nil {
-			if n := line(t); n != "" && !SameName(n, display[k]) {
+			if n := line(t); n != "" && !samePerson(n, display[k]) {
 				return ""
 			}
 		}
 		return display[k]
 	}, voices.FromTile)
+}
+
+// samePerson: a and b are one person's names: the same name, or names
+// of one voice profile in any open store (a profile renamed from "Blean"
+// to its person's name: the window still shows Blean, the transcript the
+// new name, and treating them as two people dropped the meeting).
+func samePerson(a, b string) bool {
+	if SameName(a, b) {
+		return true
+	}
+	voiceStoreMu.Lock()
+	stores := make([]*voices.Store, 0, len(voiceStores))
+	for _, s := range voiceStores {
+		stores = append(stores, s)
+	}
+	voiceStoreMu.Unlock()
+	for _, s := range stores {
+		if s.SamePerson(a, b) {
+			return true
+		}
+	}
+	return false
 }
 
 // lineNames says who the transcript names as speaking at session time t

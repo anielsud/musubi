@@ -679,9 +679,37 @@ func (s *Store) sameLocked(a, b string) bool {
 	return a == b || (s.same != nil && s.same(a, b))
 }
 
+// forgottenLocked: name was forgotten (Delete voice print). The same
+// name only, ignoring case and spacing: the loose match learning uses
+// made forgetting "Nikhil Narayen2" also forget "Nikhil Narayen"
+// (2026-11-12).
 func (s *Store) forgottenLocked(name string) bool {
 	for _, f := range s.forgotten {
-		if s.sameLocked(f, name) {
+		if sameExactName(f, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// SamePerson reports whether a and b are the same name, or both names of
+// one profile (its name or an old name kept when it was renamed): after a
+// rename the meeting window still shows the old name while the transcript
+// says the new one.
+func (s *Store) SamePerson(a, b string) bool {
+	if sameExactName(a, b) {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.profiles {
+		names := append([]string{p.Name}, p.Aliases...)
+		ha, hb := false, false
+		for _, n := range names {
+			ha = ha || sameExactName(n, a)
+			hb = hb || sameExactName(n, b)
+		}
+		if ha && hb {
 			return true
 		}
 	}

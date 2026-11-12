@@ -668,3 +668,40 @@ func TestLearnRulesVersion(t *testing.T) {
 		t.Fatalf("reopened: rules %d %+v", v, r)
 	}
 }
+
+// Forgetting a name forgets that name only, not one it is a prefix of;
+// SamePerson joins a profile's name and its old names.
+func TestForgetExactAndSamePerson(t *testing.T) {
+	prefix := func(a, b string) bool {
+		a, b = strings.ToLower(a), strings.ToLower(b)
+		return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
+	}
+	s, err := Open(filepath.Join(t.TempDir(), "v.json"), prefix, DefaultParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = s.Learn("m1", time.Now(), []Learned{
+		{Name: "Ilse Novak2", Voice: voiceOf(20, unit(0, 1, 0))},
+		{Name: "Wayde Tyrrel", Voice: voiceOf(20, unit(1, 0, 0))},
+	})
+	var junk, wayde string
+	for _, p := range s.Profiles() {
+		if p.Name == "Ilse Novak2" {
+			junk = p.ID
+		} else {
+			wayde = p.ID
+		}
+	}
+	if err := s.Forget(junk); err != nil {
+		t.Fatal(err)
+	}
+	if names, _ := s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))}}); len(names) != 1 {
+		t.Fatalf("forgetting Ilse Novak2 also forgot Ilse Novak: %v", names)
+	}
+	if err := s.Rename(wayde, "Wayde T. Tyrrel"); err != nil {
+		t.Fatal(err)
+	}
+	if !s.SamePerson("Wayde Tyrrel", "Wayde T. Tyrrel") || s.SamePerson("Wayde Tyrrel", "Ilse Novak") {
+		t.Error("SamePerson: a renamed profile's old and new names should match, others not")
+	}
+}

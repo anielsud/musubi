@@ -35,9 +35,19 @@ type Config struct {
 	MCP         MCP         `toml:"mcp"`
 	Gateway     Gateway     `toml:"gateway"`
 	Recorder    Recorder    `toml:"recorder"`
+	Store       Store       `toml:"store"`
 	// Providers are hosted endpoints set up once and named, for models to
 	// use with `via` (Settings → AI providers).
 	Providers map[string]Provider `toml:"providers"`
+}
+
+// Store is how the database keeps what it derives.
+type Store struct {
+	// VectorEncoding is how embedding vectors are written: "f16" (half
+	// precision, half the space; measured 2026-11-12, docs/research-log.md)
+	// or "f32" (full precision, the earlier behaviour). Both always read;
+	// `musubi vectors encode` rewrites what is already stored.
+	VectorEncoding string `toml:"vector_encoding"`
 }
 
 // M365 reads the owner's Microsoft 365 data through Microsoft Graph
@@ -644,6 +654,7 @@ func DefaultConfig() Config {
 			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
 		},
 		Recorder: Recorder{OfRecord: "tomoe", Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
+		Store:    Store{VectorEncoding: "f16"},
 	}
 }
 

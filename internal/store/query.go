@@ -163,7 +163,15 @@ func (s *Store) vectorIDs(sc sensitivity.Scope, q SearchQuery, depth int) ([]int
 	}
 	vis, vargs := visSQL(sc, "il", "cl", "c.item_id")
 	ts, targs := timeSQL(q)
+	f16, err := s.metaGet(metaChunkF16)
+	if err != nil {
+		return nil, err
+	}
 	exact := func() ([]int64, error) {
+		if f16 != "" {
+			args := append([]any{q.Model}, vargs...)
+			return s.rankMixed(`WHERE v.model = ? AND `+vis+ts, append(args, targs...), q.Vec, depth)
+		}
 		query := `SELECT c.id FROM chunk_vecs v JOIN chunks c ON c.id = v.chunk_id JOIN items i ON i.id = c.item_id` + chunkVisJoin +
 			`WHERE v.model = ? AND ` + vis + ts + ` ORDER BY vec_distance_cosine(v.vec, ?) LIMIT ?`
 		args := append([]any{q.Model}, vargs...)
@@ -189,15 +197,21 @@ func (s *Store) vectorIDs(sc sensitivity.Scope, q SearchQuery, depth int) ([]int
 		}
 		cands := ix.Nearest(q.Vec, k)
 		ph := strings.TrimSuffix(strings.Repeat("?,", len(cands)), ",")
-		query := `SELECT c.id FROM chunk_vecs v JOIN chunks c ON c.id = v.chunk_id JOIN items i ON i.id = c.item_id` + chunkVisJoin +
-			`WHERE v.model = ? AND v.chunk_id IN (` + ph + `) AND ` + vis + ts + ` ORDER BY vec_distance_cosine(v.vec, ?)`
 		args := []any{q.Model}
 		for _, id := range cands {
 			args = append(args, id)
 		}
 		args = append(args, vargs...)
-		args = append(append(args, targs...), b)
-		ids, err := s.ids(query, args...)
+		args = append(args, targs...)
+		var ids []int64
+		var err error
+		if f16 != "" {
+			ids, err = s.rankMixed(`WHERE v.model = ? AND v.chunk_id IN (`+ph+`) AND `+vis+ts, args, q.Vec, 0)
+		} else {
+			query := `SELECT c.id FROM chunk_vecs v JOIN chunks c ON c.id = v.chunk_id JOIN items i ON i.id = c.item_id` + chunkVisJoin +
+				`WHERE v.model = ? AND v.chunk_id IN (` + ph + `) AND ` + vis + ts + ` ORDER BY vec_distance_cosine(v.vec, ?)`
+			ids, err = s.ids(query, append(args, b)...)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -205,6 +219,44 @@ func (s *Store) vectorIDs(sc sensitivity.Scope, q SearchQuery, depth int) ([]int
 			return ids[:depth], nil
 		}
 	}
+}
+
+// rankMixed orders the passages matching where (over chunk_vecs v, chunks
+// c, items i and the visibility join) nearest first, when some vectors are
+// f16, which sqlite-vec can't read: every vector is decoded and scored in
+// Go the way vec_distance_cosine scores it. limit 0 keeps all.
+func (s *Store) rankMixed(where string, args []any, q []float32, limit int) ([]int64, error) {
+	rows, err := s.db.Query(`SELECT c.id, v.vec FROM chunk_vecs v JOIN chunks c ON c.id = v.chunk_id JOIN items i ON i.id = c.item_id`+chunkVisJoin+where, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type scored struct {
+		id int64
+		d  float64
+	}
+	var all []scored
+	for rows.Next() {
+		var r scored
+		var b []byte
+		if err := rows.Scan(&r.id, &b); err != nil {
+			return nil, err
+		}
+		r.d = cosineDistance32(decodeVec(b), q)
+		all = append(all, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].d < all[j].d })
+	if limit > 0 && len(all) > limit {
+		all = all[:limit]
+	}
+	out := make([]int64, len(all))
+	for i, r := range all {
+		out[i] = r.id
+	}
+	return out, nil
 }
 
 func (s *Store) ids(query string, args ...any) ([]int64, error) {

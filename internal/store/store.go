@@ -41,6 +41,9 @@ type Store struct {
 	// read for showing or writing from (Corrector); set from
 	// knowledge.apply_spellings.
 	ReadWithRules bool
+	// VectorEncoding is how vectors are written: "f32" (or "") or "f16"
+	// (vecenc.go); set from store.vector_encoding. Both always read.
+	VectorEncoding string
 }
 
 func init() { sqlite_vec.Auto() }
@@ -92,6 +95,10 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("schema: %w", err)
 	}
 	if err := markReplacedAliases(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	if err := upgradeClaimCentroids(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}

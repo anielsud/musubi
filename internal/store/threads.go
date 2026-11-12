@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-
 	"github.com/anielsud/musubi/internal/sensitivity"
 )
 
@@ -366,7 +364,7 @@ func (s *Store) SetThreadLinks(l ThreadLinks) error {
 		for id, n := range l.Sizes {
 			var b []byte
 			if c := l.Centroids[id]; c != nil {
-				b, _ = sqlite_vec.SerializeFloat32(c)
+				b = s.encodeVec(c)
 			}
 			if _, err := tx.Exec(`UPDATE topics SET centroid = ?, size = ? WHERE id = ?`, b, n, id); err != nil {
 				return err

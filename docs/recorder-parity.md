@@ -71,3 +71,22 @@ don't commit the output):
 Per meeting: start and stop difference, durations, line counts, word
 error rate of the recorder's text against Tomoe's, the share of aligned
 words with the same speaker, and recordings only one side has.
+
+## 2026-11-12: first live shadow meeting
+
+A 19-minute Teams call (two speakers), recorded live by both, build
+3f1f677 beside Tomoe 8d0e659. `shadow compare --since 2026-11-12`:
+
+| | |
+|---|---|
+| start / stop | recorder +0.6 s / +0.2 s |
+| duration | 1134 s / 1135 s (recorder / Tomoe) |
+| lines | 164 / 162 |
+| WER against Tomoe | 3.6% |
+| same speaker | 100.0% of 2862 aligned words |
+
+Offline replays are byte-identical because both read the same file; live,
+each captures its own audio, starting 0.6 s apart, so chunk boundaries and
+some words differ. Speakers agreed everywhere. The recorder detected the
+call on its own and logged a 20 s mic silence (the owner muted). Load
+during the call: about 30% of one core, 2.5 GB resident.

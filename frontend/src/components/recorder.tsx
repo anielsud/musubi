@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, on, thumbURL } from '../api';
-import type { LookView, RecDiag, RecorderView, RecSource, RecStatus, ToolStatus } from '../types';
+import type { LookView, RecDiag, RecorderView, RecorderWatch, RecSource, RecStatus, ToolStatus } from '../types';
 import { Spinner } from './common';
 
 // The recorder's screens on Status, Live and the thinking view: its state
@@ -26,6 +26,14 @@ export function useRecorder() {
     return () => { clearTimeout(t0); clearInterval(t); offs.forEach((f) => f()); };
   }, []);
   return rec;
+}
+
+// useRecorderWatch follows the app's watchdog: while the recorder is
+// down, since when, and why the last start failed.
+export function useRecorderWatch() {
+  const [w, setW] = useState<RecorderWatch | null>(null);
+  useEffect(() => on<RecorderWatch>('recorder:watch', (v) => setW(v?.down ? v : null)), []);
+  return w;
 }
 
 const srcName = (s: RecSource) => s.name || (s.kind === 'mic' ? 'the microphone' : 'the meeting audio');
@@ -74,6 +82,7 @@ function elapsed(from: string | undefined, now: number) {
 // the recorder didn't notice, and while recording, the time and Stop.
 export function RecordButton() {
   const rec = useRecorder();
+  const watch = useRecorderWatch();
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const recording = !!rec?.status?.recording;
@@ -87,7 +96,13 @@ export function RecordButton() {
     f().then(() => setBusy(false), (e) => { setBusy(false); alert(String(e)); });
   };
   if (!rec?.running || !rec.status) {
-    return <button className="rec-btn" disabled title="The recorder is not running (Status)">● Record</button>;
+    // Loud on purpose: while it's down, meetings aren't recorded.
+    const start = () => run(api.restartRecorder);
+    return (
+      <button className="rec-btn off" disabled={busy} title={`The recorder isn't running, so meetings aren't being recorded. Musubi tries to start it by itself; click to try now.${watch?.problem ? ' Last try: ' + watch.problem : ''}`} onClick={start}>
+        {busy ? <Spinner /> : '⚠'} Recorder off
+      </button>
+    );
   }
   const st = rec.status;
   if (!recording) {
@@ -106,6 +121,7 @@ export function RecordButton() {
 // Start and Stop are the record button by the tabs.
 export function RecordingCard() {
   const rec = useRecorder();
+  const watch = useRecorderWatch();
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -120,8 +136,13 @@ export function RecordingCard() {
       {rec.error && <div className="error small">{rec.error}</div>}
       {!rec.running ? (
         <>
-          <div className="warn small">Recorder not running.</div>
-          <p className="dim small">It starts when you log in and restarts by itself after a crash. Its state, sources and health show here while it runs.</p>
+          <div className="error small">The recorder isn&apos;t running: meetings aren&apos;t being recorded.</div>
+          <p className="dim small">
+            It starts at login and launchd restarts it whenever it stops. While Musubi is open it also checks every 10 seconds and starts the
+            recorder itself after 30 seconds down{watch?.tried ? `; last tried ${new Date(watch.tried).toLocaleTimeString()}` : ''}.
+            {watch?.problem && <> Last problem: {watch.problem}</>}
+          </p>
+          <div className="row-buttons"><button className="primary" onClick={() => api.restartRecorder().catch(() => {})}>Start the recorder</button></div>
         </>
       ) : st && (
         <>

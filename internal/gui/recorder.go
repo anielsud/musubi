@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -125,15 +124,6 @@ func (a *App) RecorderStop() (*control.Status, error) {
 // recorderAgent is the recorder's LaunchAgent (scripts/install-recorder.sh).
 const recorderAgent = "com.anielsud.musubi.recorder"
 
-// kickstart restarts a LaunchAgent; a variable so tests don't.
-var kickstart = func(ctx context.Context, label string) error {
-	out, err := exec.CommandContext(ctx, "launchctl", "kickstart", "-k", fmt.Sprintf("gui/%d/%s", os.Getuid(), label)).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("restarting the recorder: %v: %s", err, bytes.TrimSpace(out))
-	}
-	return nil
-}
-
 // RestartRecorder restarts the recorder so settings it reads only at
 // start apply. Never during a recording: the restart would cut it off,
 // and the rest of the meeting wouldn't be recorded.
@@ -148,7 +138,7 @@ func (a *App) RestartRecorder() error {
 	case st.Recording:
 		return fmt.Errorf("the recorder is recording a meeting; restart it once the meeting is over")
 	}
-	return kickstart(a.ctx, recorderAgent)
+	return startRecorderAgent(a.ctx, true)
 }
 
 func (a *App) RecorderSources() (*control.Sources, error) {

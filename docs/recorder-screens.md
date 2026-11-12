@@ -222,3 +222,19 @@ and, if found, a source with signal), `diag` (live labelling) and `look`
 - **Decided 2026-11-11** (owner): manual start and the source picker stay;
   diagnostics move to Status; the hint timeline joins the thinking view;
   build all of it and refine from there.
+
+## Keeping the recorder running (2026-11-12)
+
+A recorder that isn't running loses meetings silently; an install left it
+stopped twice on 2026-11-12. Three guards:
+
+- launchd restarts it whenever it exits (`KeepAlive` true), not only after
+  a crash; only `launchctl bootout` stops it.
+- `scripts/install-recorder.sh` waits for the old recorder to finish
+  saving and leave, retries loading the new one, and exits non-zero unless
+  it is running at the end.
+- While Musubi is open (`[recorder] watchdog`, default true) it checks the
+  recorder every 10 s; after 30 s down it loads or starts the LaunchAgent
+  (at most every 2 minutes), shows a red "Recorder off" button by the tabs
+  and the reason on Status, and posts one macOS notification per outage
+  after 90 s.

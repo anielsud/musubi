@@ -21,7 +21,9 @@ export function useVoices() {
   const load = () => api.voices().then((v) => { setView(v); setErr(''); }, (e) => { setView(null); setErr(String(e)); });
   useEffect(() => {
     load();
-    const offs = [on('voices:changed', load), on('prefs:changed', load), on('update:done', load)];
+    // recorder:conn: the recorder came back (a restart, or Musubi opened
+    // while it was starting): what failed to load loads now.
+    const offs = [on('voices:changed', load), on('prefs:changed', load), on('update:done', load), on<boolean>('recorder:conn', (up) => { if (up) load(); })];
     return () => offs.forEach((f) => f());
   }, []);
   return { view, err, reload: load };

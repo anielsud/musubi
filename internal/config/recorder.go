@@ -31,6 +31,10 @@ type Recorder struct {
 	// copies Tomoe's data in and sets it. tomoe_sessions stays, for that
 	// command's repairs and for going back.
 	Tomoe string `toml:"tomoe"`
+	// Watchdog: while Musubi is open it checks the recorder every 10 s
+	// and, after 30 s down, starts it (launchd) and warns (a red button,
+	// a notification after 90 s). false: no checks, as before.
+	Watchdog bool `toml:"watchdog"`
 	// Audio, Transcription and Meeting override the keys of the same
 	// tables in Tomoe's config for the recorder (meanings in
 	// internal/recorder/config). Kept as raw values: the recorder reads

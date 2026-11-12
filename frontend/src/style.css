@@ -84,6 +84,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .tabs .rec-btn:hover:not(:disabled) { color: var(--text); border-color: var(--lvl-restricted); }
 .tabs .rec-btn.on { color: var(--lvl-restricted); border-color: var(--lvl-restricted); }
 .tabs .rec-btn:disabled { opacity: 0.5; cursor: default; }
+.tabs .rec-btn.off { color: #fff; background: var(--lvl-restricted); border-color: var(--lvl-restricted); font-weight: 600; }
 
 main { flex: 1; overflow: hidden; position: relative; }
 main > div { height: 100%; }

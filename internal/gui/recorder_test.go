@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http/httptest"
 	"os"
@@ -553,23 +554,32 @@ func TestOfRecordEditsSetSince(t *testing.T) {
 
 // The restart that applies start-only settings never cuts a recording.
 func TestRestartRecorder(t *testing.T) {
-	var kicked []string
-	old := kickstart
-	kickstart = func(_ context.Context, label string) error { kicked = append(kicked, label); return nil }
-	t.Cleanup(func() { kickstart = old })
+	var calls [][]string
+	old := launchctl
+	launchctl = func(_ context.Context, args ...string) ([]byte, error) { calls = append(calls, args); return nil, nil }
+	t.Cleanup(func() { launchctl = old })
+	kicked := func() int {
+		n := 0
+		for _, c := range calls {
+			if c[0] == "kickstart" {
+				n++
+			}
+		}
+		return n
+	}
 
 	a, f, _, _ := testApp(t, "tomoe")
-	if err := a.RestartRecorder(); err != nil || len(kicked) != 1 {
-		t.Fatalf("not running: err %v, kicked %v", err, kicked)
+	if err := a.RestartRecorder(); err != nil || kicked() != 1 {
+		t.Fatalf("not running: err %v, calls %v", err, calls)
 	}
 	f.results[control.OpStatus] = control.Status{Recording: true}
 	f.serve(t, a.eng.Cfg.RecorderControlSocket())
-	if err := a.RestartRecorder(); err == nil || len(kicked) != 1 {
-		t.Fatalf("recording: err %v, kicked %v", err, kicked)
+	if err := a.RestartRecorder(); err == nil || kicked() != 1 {
+		t.Fatalf("recording: err %v, calls %v", err, calls)
 	}
 	f.results[control.OpStatus] = control.Status{Restart: []string{"transcription"}}
-	if err := a.RestartRecorder(); err != nil || len(kicked) != 2 || kicked[1] != recorderAgent {
-		t.Fatalf("idle: err %v, kicked %v", err, kicked)
+	if err := a.RestartRecorder(); err != nil || kicked() != 2 || calls[len(calls)-1][1] != "-k" {
+		t.Fatalf("idle: err %v, calls %v", err, calls)
 	}
 }
 
@@ -585,5 +595,59 @@ func TestReloadNamesAppConfig(t *testing.T) {
 	json.Unmarshal(f.last().Args, &args)
 	if f.last().Op != control.OpReloadConfig || args.MusubiConfig != filepath.Join(dir, "config.toml") {
 		t.Errorf("asked %s %+v", f.last().Op, args)
+	}
+}
+
+// The watchdog leaves a recorder that answers alone, waits out a short
+// gap (an install), then starts it at most every watchRetry and warns
+// once per outage.
+func TestWatchRecorder(t *testing.T) {
+	var calls [][]string
+	loaded := false
+	oldL, oldN := launchctl, notify
+	launchctl = func(_ context.Context, args ...string) ([]byte, error) {
+		calls = append(calls, args)
+		if args[0] == "print" && !loaded {
+			return nil, fmt.Errorf("not loaded")
+		}
+		return nil, nil
+	}
+	warnings := 0
+	notify = func(string, string) { warnings++ }
+	t.Cleanup(func() { launchctl, notify = oldL, oldN })
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	os.MkdirAll(filepath.Join(home, "Library", "LaunchAgents"), 0o700)
+	os.WriteFile(filepath.Join(home, "Library", "LaunchAgents", recorderAgent+".plist"), []byte("<plist/>"), 0o600)
+
+	a, _, ev, _ := testApp(t, "musubi")
+	t0 := time.Date(2026, 11, 12, 13, 0, 0, 0, time.UTC)
+	var w RecorderWatch
+	warned := false
+	step := func(d time.Duration) { w, warned = a.watchStep(context.Background(), w, warned, t0.Add(d)) }
+
+	step(0)
+	step(20 * time.Second)
+	if len(calls) != 0 {
+		t.Fatalf("started within the grace: %v", calls)
+	}
+	step(40 * time.Second) // down 40 s: not loaded, so bootstrap
+	if len(calls) != 2 || calls[1][0] != "bootstrap" || !ev.has("recorder:watch") {
+		t.Fatalf("after the grace: %v", calls)
+	}
+	step(70 * time.Second) // within watchRetry: no second try
+	if len(calls) != 2 {
+		t.Fatalf("retried too soon: %v", calls)
+	}
+	step(100 * time.Second) // down 100 s: warned once
+	step(110 * time.Second)
+	if warnings != 1 {
+		t.Fatalf("warnings %d, want 1", warnings)
+	}
+	loaded = true
+	step(3 * time.Minute) // loaded but not answering: kickstart, no -k
+	last := calls[len(calls)-1]
+	if last[0] != "kickstart" || len(last) != 2 {
+		t.Fatalf("loaded: %v", last)
 	}
 }

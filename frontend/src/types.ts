@@ -823,6 +823,7 @@ export interface RecStatus {
   restart?: string[];
   suggest_note?: string;
 }
+export interface RecorderWatch { down: boolean; since?: string; tried?: string; problem?: string }
 export interface RecorderView { running: boolean; status?: RecStatus; ofRecord: string; editable: boolean; error?: string }
 export interface RecSources { mics: RecSource[] | null; system: RecSource[] | null }
 export interface ToolFix { kind: 'action' | 'command'; label: string; command?: string }

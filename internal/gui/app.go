@@ -110,6 +110,7 @@ func (a *App) openConfig(path string) error {
 	}()
 	go a.live.Run(lctx)
 	go a.followRecorder(lctx, e.Cfg.RecorderLiveSocket())
+	go a.watchRecorder(lctx)
 	if e.Cfg.Prep.AutoBrief && e.AskLLM != nil {
 		go a.draftBriefs(lctx)
 	}

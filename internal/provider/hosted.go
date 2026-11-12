@@ -21,8 +21,9 @@ import (
 // (tools/insights-eval/bt.py, research log 2026-10-15): a long reply that
 // isn't streamed can hang for many minutes, so replies stream, with a cap
 // on the wait for each chunk and on the whole reply, then a fresh try;
-// reasoning counts against the token cap, so a reply cut off there is
-// asked again with twice the room; strict schemas need every object closed.
+// replies have no token cap, since reasoning counts against it; a reply the
+// server still cuts off is asked again with low reasoning effort; strict
+// schemas need every object closed.
 const (
 	hostedChunkWait = 120 * time.Second
 	// hostedWall bounds a reply that keeps streaming; a stalled one is
@@ -30,13 +31,6 @@ const (
 	// cut and restarted from scratch (research log 2026-10-19).
 	hostedWall  = 6 * time.Minute
 	hostedTries = 3
-	// hostedMinTokens: hosted reasoning models spend thousands of tokens
-	// thinking; caps sized for a local model that doesn't would cut them
-	// off. Of 5,771 threading calls on GLM-5.3-Flash, reasoning reached
-	// 7.2k at p99 and 12.7k at p99.9; 8k cut 2% of calls, which then cost
-	// a second, longer call (research log 2026-10-19). A cap costs nothing
-	// unless it is used.
-	hostedMinTokens = 16000
 )
 
 // resolveKey reads the key named by api_key once.
@@ -63,7 +57,11 @@ func (o *OpenAI) resolveKey() (string, error) {
 }
 
 func (o *OpenAI) completeHosted(ctx context.Context, msgs []Message, opt ChatOptions, onToken func(string)) (string, error) {
-	maxTokens := max(opt.MaxTokens, hostedMinTokens)
+	// No cap: hosted reasoning models spend thousands of tokens thinking,
+	// and a cap only cuts a reply off and pays for it again. A 16k cap cut
+	// 3 of 7 extraction calls on GLM-5.3-Flash through the AI Gateway
+	// (2026-11-11); without one, the server's own limit applies.
+	maxTokens := 0
 	var lastErr error
 	cut := false
 	throttled := 0
@@ -95,9 +93,9 @@ func (o *OpenAI) completeHosted(ctx context.Context, msgs []Message, opt ChatOpt
 		case err != nil:
 			lastErr = err
 		case finish == "length" && cut:
-			return "", fmt.Errorf("openai: %w at %d tokens, also with low reasoning effort", ErrCutOff, maxTokens)
+			return "", fmt.Errorf("openai: %w, also with low reasoning effort", ErrCutOff)
 		case finish == "length":
-			lastErr = fmt.Errorf("openai: reply cut off at %d tokens", maxTokens)
+			lastErr = fmt.Errorf("openai: reply cut off")
 			cut = true
 		default:
 			return out, nil

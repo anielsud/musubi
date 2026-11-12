@@ -805,6 +805,7 @@ export interface RecStatus {
   health?: string[];
   busy?: string;
   restart?: string[];
+  suggest_note?: string;
 }
 export interface RecorderView { running: boolean; status?: RecStatus; ofRecord: string; editable: boolean; error?: string }
 export interface RecSources { mics: RecSource[] | null; system: RecSource[] | null }

@@ -55,7 +55,7 @@ export function SourceBanner({ rec }: { rec: RecorderView | null }) {
       {sug
         ? <><span>{mic ? <>The <b>{srcName(sug)}</b> microphone hears sound.</> : <><b>{srcName(sug)}</b> is playing sound.</>}</span>
             <button className="primary" disabled={busy} onClick={swap}>{busy ? <Spinner /> : `Use ${srcName(sug)}`}</button></>
-        : <span className="dim">{mic ? 'No other microphone hears anything either.' : 'Nothing else is playing either.'}</span>}
+        : <span className="dim">{st.suggest_note ? st.suggest_note + '.' : mic ? 'No other microphone hears anything either.' : 'Nothing else is playing either.'}</span>}
       {err && <div className="error small">{err}</div>}
     </div>
   );

@@ -80,13 +80,60 @@ func Ask(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question s
 // AskWith is Ask with hooks for showing progress.
 func AskWith(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question string, k int, exclude []string, h Hooks) (*Answer, error) {
 	onToken := h.Token
-	lim := limitsFor(e)
 	llm := e.AskLLM
 	// A hosted model reads only what the cloud scope allows, unless the
 	// owner allows hosted models to read meeting text.
 	if llm != nil && !llm.Local() && !e.Cfg.Knowledge.AllowHosted {
 		sc = narrower(sc, sensitivity.Cloud())
 	}
+	g, err := Gather(ctx, e, sc, question, k, exclude)
+	if err != nil {
+		return nil, err
+	}
+	ans, question := g.Answer, g.Question
+	if h.Found != nil {
+		h.Found(ans)
+	}
+	if llm == nil {
+		return ans, nil
+	}
+	if len(ans.Sources) == 0 {
+		ans.Text = "Nothing in your knowledge base matches that."
+		if onToken != nil {
+			onToken(ans.Text)
+		}
+		return ans, nil
+	}
+	msgs := []provider.Message{
+		{Role: "system", Content: system},
+		{Role: "user", Content: "Today: " + time.Now().Format("Mon 2 Jan 2006") + "\n\n" + g.Context + "Question: " + question},
+	}
+	ans.PromptChars = len(msgs[0].Content) + len(msgs[1].Content)
+	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.2, MaxTokens: 2000, Context: 16384, Timeout: askTimeout}, onToken)
+	if err != nil {
+		return ans, err
+	}
+	ans.Text = strings.TrimSpace(text)
+	return ans, nil
+}
+
+// Gathered is what an answer is written from.
+type Gathered struct {
+	// Answer holds the sources (numbered from 1 in order) and threads; its
+	// Text is empty.
+	Answer *Answer
+	// Context is the numbered material as a model reads it.
+	Context string
+	// Question is the question with confirmed spellings expanded.
+	Question string
+}
+
+// Gather finds what a question is about, in scope sc, without writing an
+// answer: the threads' statuses and current items, people's prep data and
+// passages found by search. Ask writes its answer from this; the MCP server
+// hands it to the caller's own model.
+func Gather(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, question string, k int, exclude []string) (*Gathered, error) {
+	lim := limitsFor(e)
 	// Confirmed spellings: a question with a misheard or variant name also
 	// finds the kept form.
 	passage := func(s string) string { return s }
@@ -131,30 +178,7 @@ func AskWith(ctx context.Context, e *engine.Engine, sc sensitivity.Scope, questi
 			fmt.Fprintf(&ctxt, "[%d] %s — %s (%s)\n%s\n\n", n, h.OccurredAt.Format("Mon 2 Jan 2006"), h.Title, h.Kind, clip(passage(h.Text), 1800))
 		}
 	}
-	if h.Found != nil {
-		h.Found(ans)
-	}
-	if llm == nil {
-		return ans, nil
-	}
-	if len(ans.Sources) == 0 {
-		ans.Text = "Nothing in your knowledge base matches that."
-		if onToken != nil {
-			onToken(ans.Text)
-		}
-		return ans, nil
-	}
-	msgs := []provider.Message{
-		{Role: "system", Content: system},
-		{Role: "user", Content: "Today: " + time.Now().Format("Mon 2 Jan 2006") + "\n\n" + ctxt.String() + "Question: " + question},
-	}
-	ans.PromptChars = len(msgs[0].Content) + len(msgs[1].Content)
-	text, err := llm.Complete(ctx, msgs, provider.ChatOptions{Temperature: 0.2, MaxTokens: 2000, Context: 16384, Timeout: askTimeout}, onToken)
-	if err != nil {
-		return ans, err
-	}
-	ans.Text = strings.TrimSpace(text)
-	return ans, nil
+	return &Gathered{Answer: ans, Context: ctxt.String(), Question: question}, nil
 }
 
 // threadContext writes the found threads' statuses and latest current
@@ -327,9 +351,11 @@ func clip(s string, n int) string {
 	return s[:n] + "…"
 }
 
-const prepSystem = `You help an executive prepare for a meeting. You get the people they are meeting, the subjects those people are part of (each with its written status and what is new since they last met), what is open between them, and what was said elsewhere that these people likely haven't heard. Sources are numbered.
+const prepSystem = `You help an executive prepare for a meeting. You get the meeting's title and calendar description, the people they are meeting (and which of them they have never met), the recap of this group's last meeting (with its to-dos and how each stands now), the subjects the meeting is about or those people are part of (each with its written status and what is new since they last met), what is open between them, and what was said elsewhere that these people likely haven't heard. Sources are numbered; refer to the recap as "last meeting".
 
-Write talking points: four to seven bullets, most important first. Each says what to raise and why now (a decision due, a change since last time, something they need to know, a commitment owed either way), in one or two sentences, citing sources like [3]. Prefer what changed recently and what needs them. Leave out anything that is only background. Never invent facts.`
+The title and description say what the meeting is for: an interview, a review, a 1:1, a customer call. Shape the talking points to that. Someone they have never met has no history here: say so if it matters, and never take what was said by or about someone else with the same first name as theirs.
+
+Write talking points: four to seven bullets, most important first. Each says what to raise and why now (a decision due, a change since last time, something they need to know, a commitment owed either way), in one or two sentences, citing sources like [3]. Start from what the last meeting left open (decisions deferred, to-dos still owed) and what has moved on it since, then add what changed elsewhere. Prefer what changed recently and what needs them. Leave out anything that is only background. Never invent facts.`
 
 // PrepBrief writes talking points for a prep view. Tokens stream to
 // onToken.
@@ -359,7 +385,40 @@ func PrepBrief(ctx context.Context, e *engine.Engine, v *knowledge.PrepView, onT
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Meeting: %s\nWith: %s\nLast met: %s\n\n", v.Title, strings.Join(v.People, ", "), v.Since.Format("Mon 2 Jan 2006"))
+	fmt.Fprintf(&b, "Meeting: %s\n", v.Title)
+	if v.Description != "" {
+		fmt.Fprintf(&b, "Description:\n%s\n", clip(v.Description, 2000))
+	}
+	fmt.Fprintf(&b, "With: %s\n", strings.Join(v.People, ", "))
+	if len(v.New) > 0 {
+		fmt.Fprintf(&b, "Never met before: %s\n", strings.Join(v.New, ", "))
+	}
+	fmt.Fprintf(&b, "Last met: %s\n\n", v.Since.Format("Mon 2 Jan 2006"))
+	if l := v.Last; l != nil {
+		fmt.Fprintf(&b, "Last meeting (%s, %s), recap:\n%s\n", l.Title, l.Start.Format("Mon 2 Jan"), l.Overview)
+		for _, sec := range l.Sections {
+			fmt.Fprintf(&b, "- %s: %s\n", sec.Subject, sec.Text)
+		}
+		var todos []string
+		for _, t := range l.ToDos {
+			if t.State == "not" || t.State == "declined" {
+				continue
+			}
+			who := strings.Join(t.Owners, ", ")
+			if who == "" {
+				who = "owner unclear"
+			}
+			line := fmt.Sprintf("- %s (%s; now %s", t.Text, who, t.State)
+			if t.Due != "" {
+				line += ", " + t.Due
+			}
+			todos = append(todos, line+")")
+		}
+		if len(todos) > 0 {
+			b.WriteString("To-dos from the last meeting, and how they stand now:\n" + strings.Join(todos, "\n") + "\n")
+		}
+		b.WriteString("\n")
+	}
 	for _, s := range v.Subjects {
 		c := cite(s.Items)
 		fmt.Fprintf(&b, "Subject: %s (%s)\n", s.Name, s.Why)

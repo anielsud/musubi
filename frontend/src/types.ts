@@ -35,6 +35,8 @@ export interface Session {
   title: string;
   platform: string;
   created_at: string;
+  // The other people on the calendar event under way, when there is one.
+  invited?: string[];
 }
 
 export interface LiveStatus {
@@ -205,8 +207,11 @@ export interface AppStatus {
   lastUpdate: string;
   stats?: Stats;
   live: LiveStatus;
-  config: Record<string, string>;
   dataset: string;
+  m365: boolean;
+  onUpdate: boolean;
+  autoMax: number;
+  updateEvery: number;
 }
 
 export interface Statement {
@@ -417,6 +422,10 @@ export interface PrepTarget {
   at: string;
   upcoming: boolean;
   people: number;
+  // past: a calendar event of the last week that has happened, with the
+  // recording matched to it, if any.
+  past?: boolean;
+  recordingId?: string;
 }
 
 // SavedBrief is talking points drafted ahead of a meeting (prep.auto_brief).
@@ -453,6 +462,8 @@ export interface PrepView {
   subjects: PrepSubject[] | null;
   open: { text: string; who?: string; due?: string; thread: number; name: string; items: ThreadItem[] | null; raised: string; quiet?: boolean; overdue?: boolean; private?: boolean }[] | null;
   share: { thread: number; name: string; item: ThreadItem }[] | null;
+  // last: the recap of this series' previous meeting, with its to-dos.
+  last?: MeetingPage | null;
 }
 
 export interface AliasView {
@@ -593,6 +604,124 @@ export interface M365View {
   connecting: boolean;
 }
 
+export interface GatewayView {
+  url: string;
+  account: string;
+  tokenId: string;
+  connected: boolean;
+  configured: boolean;
+}
+
+export interface GatewayModel {
+  id: string;
+  kind: 'chat' | 'decision';
+  provider: 'anthropic' | 'openai' | 'jev' | 'clef';
+  priceIn: number;
+  priceOut: number;
+  context: number;
+  retires: string;
+  note?: string;
+  efforts: string[] | null;
+  defaultEffort: string;
+}
+
+export interface ProviderView {
+  name: string;
+  kind: 'gateway' | 'custom' | 'ollama';
+  title: string;
+  url: string;
+  ready: boolean;
+  keyRef?: string;
+  hasKey: boolean;
+  formats: string[];
+  headers?: Record<string, string> | null;
+  usedBy: string[] | null;
+  configured: boolean;
+  tokenId?: string;
+  startOllama: boolean;
+  pullMissing: boolean;
+}
+
+export interface TestResult {
+  ok: boolean;
+  ms: number;
+  models: number;
+  error?: string;
+}
+
+export interface SlotView {
+  kind: 'chat' | 'decision' | 'local';
+  sections: string[];
+  current: string;
+  customText?: string;
+  effort: string;
+  fallback: string;
+  fallbackText?: string;
+  fallbackEffort: string;
+  hasFallback: boolean;
+}
+
+export interface Rate {
+  in: number;
+  out: number;
+  per: string;
+}
+
+export interface GroupView {
+  key: string;
+  title: string;
+  does: string;
+  slots: SlotView[];
+  rate?: Rate;
+}
+
+export interface ModelRow {
+  source: string;
+  id: string;
+  formats: string[] | null;
+  kind: 'chat' | 'decision';
+  priceIn: number;
+  priceOut: number;
+  context: number;
+  efforts: string[] | null;
+  defaultEffort: string;
+  retires: string;
+  note?: string;
+  usedBy: string[] | null;
+  size: number;
+}
+
+export interface ModelCatalog {
+  rows: ModelRow[] | null;
+  errors: Record<string, string> | null;
+  pulls: string[] | null;
+}
+
+export interface PrefField {
+  section: string;
+  key: string;
+  label: string;
+  help: string;
+  type: 'bool' | 'int' | 'string';
+  unit?: string;
+  value: boolean | number | string;
+}
+
+export interface PrefGroup {
+  title: string;
+  fields: PrefField[];
+}
+
+export interface StorageView {
+  dataset: string;
+  config: string;
+  data: string;
+  parts: { label: string; bytes: number }[] | null;
+  total: number;
+  backups: string;
+  lastBackup: string;
+}
+
 export interface DirectoryPerson {
   email: string;
   name: string;
@@ -643,6 +772,9 @@ export interface PersonPage {
   recent: MeetingRefP[] | null;
   upcoming: MeetingRefP[] | null;
   topics: { id: number; label: string; claims: number }[] | null;
+  // Threads linked to theirs that they aren't in, with why (the link to
+  // From, the closest of theirs).
+  nearby: { id: number; label: string; kind: string; via?: string[]; from: string; links: number }[] | null;
   todos: ToDo[] | null;
   names: string[];
   headshot?: string;

@@ -43,12 +43,29 @@ type Item struct {
 	Native map[string]string
 }
 
+// End is when the item ends: its end time, else its last line's (some
+// imported transcripts carry only a start).
+func (it *Item) End() time.Time {
+	if !it.EndedAt.IsZero() && it.EndedAt.After(it.OccurredAt) {
+		return it.EndedAt
+	}
+	end := 0.0
+	for _, s := range it.Segments {
+		end = max(end, s.End, s.Start)
+	}
+	return it.OccurredAt.Add(time.Duration(end * float64(time.Second)))
+}
+
 type Segment struct {
 	Speaker string  `json:"speaker,omitempty"` // display name; "You" is the owner
 	Email   string  `json:"email,omitempty"`
 	Start   float64 `json:"start,omitempty"` // seconds from OccurredAt
 	End     float64 `json:"end,omitempty"`
 	Text    string  `json:"text"`
+	// From is set on a line taken from another copy of the meeting to fill
+	// a stretch this recording missed ("teams": the Teams transcript, for
+	// before the owner joined or after they left).
+	From string `json:"from,omitempty"`
 }
 
 type Participant struct {

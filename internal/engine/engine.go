@@ -244,6 +244,24 @@ func (e *Engine) ThreadFinder() (*knowledge.ThreadFinder, error) {
 	return f, nil
 }
 
+// ThreadsAbout finds the threads a meeting's query (knowledge.MeetingQuery)
+// is about (see knowledge.ThreadFinder.About). nil for an empty query or
+// without an embedder.
+func (e *Engine) ThreadsAbout(ctx context.Context, sc sensitivity.Scope, query string) ([]knowledge.ThreadMatch, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, nil
+	}
+	f, err := e.ThreadFinder()
+	if err != nil || f == nil {
+		return nil, err
+	}
+	vec := e.Embed(ctx, query)
+	if vec == nil {
+		return nil, nil
+	}
+	return f.About(sc, vec, query), nil
+}
+
 // Embed embeds one query, nil when there is no embedder or it fails
 // (keyword search still works).
 func (e *Engine) Embed(ctx context.Context, text string) []float32 {

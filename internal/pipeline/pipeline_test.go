@@ -175,7 +175,7 @@ func TestLinkPrefersTitleThenResponse(t *testing.T) {
 		rec("tomoe:c", "Microsoft Teams — Kai Moreno"), // an ad-hoc call during the events
 		rec("tomoe:d", "Session 2026-03-04 10:02"),     // Tomoe's default with no meeting app
 	}
-	_, links := linkMeetings(items)
+	_, links := linkMeetings(items, "")
 	if links["tomoe:a"].id != "calendar:all-hands" {
 		t.Errorf("titled recording linked to %q", links["tomoe:a"].id)
 	}
@@ -187,5 +187,32 @@ func TestLinkPrefersTitleThenResponse(t *testing.T) {
 	}
 	if l, ok := links["tomoe:c"]; ok {
 		t.Errorf("ad-hoc call titled for someone else linked to %q", l.id)
+	}
+}
+
+// A call titled for the caller, who is the one other person invited,
+// stood in for the meeting: it links. One with someone from a bigger
+// meeting doesn't.
+func TestLinkCallWithTheInvitees(t *testing.T) {
+	at := time.Date(2026, 3, 4, 15, 0, 0, 0, time.UTC)
+	ps := func(names ...string) []item.Participant {
+		var out []item.Participant
+		for _, n := range names {
+			out = append(out, item.Participant{Name: n})
+		}
+		return out
+	}
+	ev := func(id string, names ...string) item.Item {
+		return item.Item{ID: id, Kind: item.KindEvent, Title: "Weekly", OccurredAt: at, EndedAt: at.Add(time.Hour), Participants: ps(names...)}
+	}
+	call := item.Item{ID: "tomoe:call", Kind: item.KindMeeting, Title: "Robin Vale", OccurredAt: at.Add(time.Minute), EndedAt: at.Add(45 * time.Minute),
+		Participants: append(ps("Robin Vale"), item.Participant{Name: "You", Owner: true})}
+	_, links := linkMeetings([]item.Item{ev("calendar:1on1", "Robin Vale", "Sam Owner"), call}, "Sam Owner")
+	if links["tomoe:call"].id != "calendar:1on1" {
+		t.Errorf("call with the one invitee linked to %q", links["tomoe:call"].id)
+	}
+	_, links = linkMeetings([]item.Item{ev("calendar:team", "Robin Vale", "Kai Moreno", "Sam Owner"), call}, "Sam Owner")
+	if l, ok := links["tomoe:call"]; ok {
+		t.Errorf("call with one of a meeting's invitees linked to %q", l.id)
 	}
 }

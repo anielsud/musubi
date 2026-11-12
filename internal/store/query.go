@@ -500,6 +500,25 @@ func (s *Store) Audit(sc sensitivity.Scope, op, detail string) error {
 	return err
 }
 
+// AuditCounts counts the audited reads made under a scope name, by op.
+func (s *Store) AuditCounts(scope string) (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT op, count(*) FROM audit WHERE scope = ? GROUP BY op`, scope)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var op string
+		var n int
+		if err := rows.Scan(&op, &n); err != nil {
+			return nil, err
+		}
+		out[op] = n
+	}
+	return out, rows.Err()
+}
+
 // ChunkLabel returns a chunk's effective label and its item's audience. It
 // is the eval harness's independent check on what Search returned, so it
 // reads labels directly rather than through visSQL.

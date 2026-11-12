@@ -303,6 +303,14 @@ cold lane like any other source.
   rest as gone quiet, and a passed due date is marked overdue. Subjects
   over the same 15% are marked for the owner alone and, with more than
   one other person attending, listed last (`prep.mark_private`).
+  The previous meeting of an event's series (`knowledge.LastOfSeries`: the
+  latest earlier event with the same subject, "Canceled: " aside, that has
+  a recording, the copy with a recap first) sets "since" and anchors the
+  prep: its recap and its to-dos, with how each stands now, come before
+  the subjects, and the talking points start from what it left open. On
+  the 12 Nov ELT meeting this took the talking points from none of the
+  last meeting's agenda to most of it, on 22,700 characters of input
+  (a naive prep from the raw transcripts filled 120,000 with one meeting).
   "Draft" writes talking points with the Ask model.
   With `prep.auto_brief` (on), the app drafts them ahead for the owner's
   calendar events in the rest of the week: every 15 minutes it builds each
@@ -396,6 +404,14 @@ statement has:
 Small talk and procedure are skipped. The stage is versioned by model and
 prompt like any other, so improving the prompt means re-running it.
 
+A reply that isn't valid JSON (e.g. cut off at the token limit) skips that
+passage only. An item whose every passage fails fails the run after
+extraction, so embedding, linking and threads don't run; with
+`knowledge.skip_failed_items` such an item is logged, left unstamped (tried
+again next run) and counted in the summary, and the run goes on. A run in
+which no item extracts still fails: that is a broken model or cache, not
+nothing worth extracting (research-log.md, 2026-11-05).
+
 Checks after extraction, all cheap and stored with the statement:
 - **quote and grounding**: the statement carries the words it came from;
   code checks the quote is in the cited line, its figures are in the
@@ -434,7 +450,25 @@ extracted or threaded isn't a backlog: re-extracted after its content
 changed (a speaker renamed in Tomoe), it goes back into the threads in its
 place. A meeting
 recorded twice (Tomoe and a transcript overlapping) is knowledge once
-(`prefer_source`). `Runner.Queue` reports the waiting work; the Status
+(`prefer_source`); two copies from one source count only when they share
+most of their words (a Teams transcript imported by hand and synced), never
+two Tomoe recordings. A recording without an end time (imported
+transcripts, Bluedot) ends at its last line for linking and duplicates
+(`item.End`), and an extracted item keeps the title its passages carry,
+so a later link to its calendar event doesn't re-extract it. With `knowledge.stitch` (on), a Tomoe recording whose
+calendar event also has a Teams transcript (sharing at least 0.6 of its
+words, `item.WordAgreement`) takes the transcript's lines for the
+stretches it missed (joined late, left early, between two parts of a
+split recording), marked "Teams transcript, not heard by you" in its
+passages; the Teams copy is then its duplicate. The stitched copy exists
+in memory only (chunking onward; stored items are untouched), and only
+for a recording not yet threaded when first stitched (stamp
+`stitch/<id>`), so a transcript arriving late never re-chunks a threaded
+meeting. A Teams meeting's recording waits up to
+`knowledge.stitch_wait_hours` (2) after the meeting for its transcript
+before threading; it is extracted and summarised meanwhile, and both are
+redone if the transcript stitches in (cheap, as nothing is threaded yet).
+`Runner.Queue` reports the waiting work; the Status
 tab shows it and starts "catch up" and "rethread" runs under a spend
 cap.
 
@@ -1190,6 +1224,7 @@ outside the company is included.
 | Side panel, screen shared | `internal` and below, no categories; set by the screen-safe toggle |
 | Drafted reply to X | items where X is in the audience, plus uncategorised `internal` (X an employee) or `public` (X external); never `personal` |
 | Sending text to a cloud provider | the per-source egress policy, e.g. no email to cloud |
+| The owner's assistant over MCP (`musubi mcp`) | the owner's (capped by `mcp.max_share`); nothing hidden, every result labelled with a share verdict and, for a named audience, whether it fits (docs/mcp-design.md) |
 
 Egress to a cloud LLM is just another scope, so provider policy and
 sensitivity are enforced by the same code. Scoped reads made for outbound

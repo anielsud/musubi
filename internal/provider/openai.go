@@ -28,6 +28,7 @@ type OpenAI struct {
 	// reasoning effort.
 	apiKey, effort    string
 	key               string // resolved on first use
+	headers           map[string]string
 	priceIn, priceOut float64
 	hedgeAfter        time.Duration // hosted: send a backup request after this (0: never)
 	stallAfter        time.Duration // hosted: check a stream's pace after this (0: never)
@@ -37,7 +38,7 @@ type OpenAI struct {
 func NewOpenAI(c config.LLM) *OpenAI {
 	// No client timeout: calls carry their own (withRetry), and a thinking
 	// pass legitimately runs for minutes.
-	return &OpenAI{URL: strings.TrimRight(c.URL, "/"), Model: c.Model, client: &http.Client{}, apiKey: c.APIKey, effort: c.ReasoningEffort,
+	return &OpenAI{URL: strings.TrimRight(c.URL, "/"), Model: c.Model, client: &http.Client{}, apiKey: c.APIKey, effort: c.ReasoningEffort, headers: c.Headers,
 		priceIn: c.PriceIn, priceOut: c.PriceOut, hedgeAfter: time.Duration(c.HedgeAfter * float64(time.Second)),
 		stallAfter: stallDefault(c.StallAfter), stallRate: cmpOrF(c.StallRate, 20)}
 }
@@ -154,6 +155,9 @@ func (o *OpenAI) post(ctx context.Context, body map[string]any, session string, 
 		return err
 	} else if key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	for k, v := range o.headers {
+		req.Header.Set(k, v)
 	}
 	if session != "" {
 		req.Header.Set("x-session-affinity", sessionHash(session))

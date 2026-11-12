@@ -5,8 +5,10 @@ TAGS := -tags sqlite_fts5
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 # The desktop app needs a webview (WKWebView on macOS, webkit2gtk on Linux),
-# so CI checks everything else; build-gui covers the app on a Mac.
-CORE := $(shell go list ./... | grep -v -e /cmd/musubi-gui -e /internal/gui)
+# so CI checks everything else; build-gui covers the app on a Mac. -e: the
+# app's package doesn't load without the built frontend (frontend/dist), and
+# without -e go list then lists nothing at all.
+CORE := $(shell go list -e ./... | grep -v -e /cmd/musubi-gui -e /internal/gui)
 
 APP_BUNDLE := build/darwin/Musubi.app
 

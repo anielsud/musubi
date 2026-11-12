@@ -3,9 +3,9 @@ import { api } from '../api';
 
 // Navigation from deep in a view (a voice card, a review row) without
 // passing handlers through every component: the app provides it.
-type Nav = { openMeeting: (itemId: string) => void; openPerson: (entityId: string) => void; scope: string };
+type Nav = { openMeeting: (itemId: string) => void; openPerson: (entityId: string) => void; openTranscript: (itemId: string, at?: number) => void; scope: string };
 
-export const NavContext = createContext<Nav>({ openMeeting: () => {}, openPerson: () => {}, scope: 'owner' });
+export const NavContext = createContext<Nav>({ openMeeting: () => {}, openPerson: () => {}, openTranscript: () => {}, scope: 'owner' });
 
 export function useNav() { return useContext(NavContext); }
 
@@ -30,13 +30,21 @@ export function useItemsExist(ids: string[]): Set<string> | undefined {
 
 // MeetingLink is a recording's meeting title: a link to the meeting on
 // the Meetings tab when Musubi has it, else plain text that says why.
-export function MeetingLink({ session, title, found }: { session: string; title: string; found: Set<string> | undefined }) {
-  const { openMeeting } = useNav();
+// With at (a clip's start, seconds), a "Transcript" link beside it opens
+// the meeting's transcript in the side panel at that moment.
+export function MeetingLink({ session, title, found, at }: { session: string; title: string; found: Set<string> | undefined; at?: number }) {
+  const { openMeeting, openTranscript } = useNav();
   const id = recordingItem(session);
   if (!found?.has(id)) {
     return <span title={found ? 'Not in Musubi: this recording was never imported (or isn’t shown in this scope)' : undefined}>{title}</span>;
   }
-  return <span className="person-link" role="link" tabIndex={0} title="Open this meeting"
-    onClick={(e) => { e.stopPropagation(); openMeeting(id); }}
-    onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); openMeeting(id); } }}>{title}</span>;
+  return (
+    <>
+      <span className="person-link" role="link" tabIndex={0} title="Open this meeting"
+        onClick={(e) => { e.stopPropagation(); openMeeting(id); }}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); openMeeting(id); } }}>{title}</span>
+      {' '}<button className="link small" title={at !== undefined ? 'Read the transcript around this clip' : 'Read the transcript'}
+        onClick={(e) => { e.stopPropagation(); openTranscript(id, at); }}>Transcript</button>
+    </>
+  );
 }

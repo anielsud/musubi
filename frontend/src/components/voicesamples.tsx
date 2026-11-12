@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, on } from '../api';
 import type { MeetingSamples, ProfileSamples, VoiceProfile, VoiceSample } from '../types';
 import { Play, type Act } from './voices';
+import { recordingItem, useNav } from './nav';
 
 // A voice profile's samples: the stretches of each meeting it learnt
 // from, worked out again by the recorder (op profile_samples). A card
@@ -81,6 +82,7 @@ const shortLabel = (l = '') => l.replace(/ \(.*\)$/, '');
 
 // MeetingSamplesRow is one meeting's samples under its row in the card.
 export function MeetingSamplesRow({ s, p, session, editable, a }: { s: SamplesState; p: VoiceProfile; session: string; editable: boolean; a: Act }) {
+  const { openTranscript } = useNav();
   const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
   const m: MeetingSamples | undefined = s.view?.meetings?.find((x) => x.session === session);
@@ -105,6 +107,7 @@ export function MeetingSamplesRow({ s, p, session, editable, a }: { s: SamplesSt
       <span className="vs-num">{pct(x.similarity)}</span>
       <span className="vs-time">{clock(x.start)}</span>
       <span className="vs-label dim" title={x.label}>{shortLabel(x.label)}</span>
+      <button className="link small" title="Read the transcript here" onClick={() => openTranscript(recordingItem(session), x.start)}>Transcript</button>
       {editable && (x.excluded
         ? <button className="vs-btn" disabled={a.busy === key} title="Put this sample back in the voice" onClick={() => edit(x, false)}>Put back</button>
         : <button className="vs-btn" disabled={a.busy === key} title="This stretch isn't them: leave it out of the voice" onClick={() => edit(x, true)}>Not them</button>)}

@@ -8,6 +8,9 @@ export interface SourceRef {
   itemId: string;
   chunkId?: number;
   scope: string;
+  // at, in seconds into the meeting: scroll to the passage it falls in
+  // (a voice clip's start), when no chunkId is given.
+  at?: number;
 }
 
 // SourceDrawer shows a source item's passages under the same scope the
@@ -22,9 +25,19 @@ export function SourceDrawer({ src, onClose }: { src: SourceRef; onClose: () => 
     api.item(src.itemId, src.scope).then(setItem, (e) => setErr(String(e)));
   }, [src.itemId, src.scope]);
 
+  // The passage to show: the cited one, or the last one starting at or
+  // before src.at (passages are in meeting order).
+  let cited = src.chunkId;
+  if (cited === undefined && src.at !== undefined && item) {
+    for (const c of item.chunks ?? []) {
+      if (c.start <= src.at + 0.5) cited = c.chunkId;
+      else break;
+    }
+  }
+
   useEffect(() => {
     target.current?.scrollIntoView({ block: 'center' });
-  }, [item]);
+  }, [item, cited]);
 
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -53,9 +66,9 @@ export function SourceDrawer({ src, onClose }: { src: SourceRef; onClose: () => 
           {item === undefined && !err && <Spinner />}
           {item === null && <div className="empty">Not visible in this scope.</div>}
           {item?.chunks.map((c) => (
-            <div key={c.chunkId} ref={c.chunkId === src.chunkId ? target : undefined}
+            <div key={c.chunkId} ref={c.chunkId === cited ? target : undefined}
               data-item={src.itemId} data-chunk={c.chunkId} data-title={item.title} data-at={item.occurredAt}
-              className={'passage' + (c.chunkId === src.chunkId ? ' cited' : '')}>
+              className={'passage' + (c.chunkId === cited ? ' cited' : '')}>
               <div className="passage-meta">
                 #{c.seq} {c.start > 0 && <>· {Math.floor(c.start / 60)}:{String(Math.floor(c.start % 60)).padStart(2, '0')}</>}
                 <LabelBadge label={c.label} compact />

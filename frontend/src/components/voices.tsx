@@ -196,8 +196,8 @@ export function ReviewItems({ view, session, editable, a, showTitle = true }: {
   const sp = (op: string, s: string, label: string, name: string, done: string) => a.act(`${s}/${label}`, () => api.recorderSpeaker(op, s, label, name), done);
   // Which rows' meetings Musubi has, asked once for the list.
   const found = useItemsExist(showTitle ? [...named, ...doubts, ...unknown].map((x) => recordingItem(x.session)) : []);
-  const where = (x: { session: string; title: string; at: string }, lead = ' in '): ReactNode => (showTitle
-    ? <>{lead}<MeetingLink session={x.session} title={x.title || x.session.slice(0, 8)} found={found} /> · {day(x.at)}</> : null);
+  const where = (x: { session: string; title: string; at: string; clip?: VoiceClip }, lead = ' in '): ReactNode => (showTitle
+    ? <>{lead}<MeetingLink session={x.session} title={x.title || x.session.slice(0, 8)} found={found} at={x.clip?.start} /> · {day(x.at)}</> : null);
   return (
     <>
       {view.building && <div className="dim small"><Spinner /> Gathering voices to check from recent meetings: building…</div>}
@@ -520,7 +520,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
                 <Play clip={h.clip} />
                 {(h.tiles ?? []).slice(0, 3).map((t) => <TileImg key={t.look} tile={t} size={40} title="Their tile while their voice was learnt" />)}
                 <div className="voice-body">
-                  <div className="small"><MeetingLink session={h.session} title={h.title || h.session.slice(0, 8)} found={found} /> <span className="dim">{day(h.at)} · {h.source === 'named' ? 'named by you' : 'own tile'}</span></div>
+                  <div className="small"><MeetingLink session={h.session} title={h.title || h.session.slice(0, 8)} found={found} at={h.clip?.start} /> <span className="dim">{day(h.at)} · {h.source === 'named' ? 'named by you' : 'own tile'}</span></div>
                   <div className={'small ' + (check ? 'warn' : 'dim')}>
                     {heard.length <= 1 ? 'Only meeting'
                       : h.confirmed ? `${Math.round(h.agreement * 100)}% like the other meetings · confirmed by you`

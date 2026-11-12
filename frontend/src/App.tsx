@@ -109,7 +109,7 @@ export function App() {
         <span className="tabs-end"><RecordButton /></span>
       </nav>
 
-      <NavContext.Provider value={{ openMeeting: (id) => { setSource(null); openMeeting(id); }, openPerson, scope }}>
+      <NavContext.Provider value={{ openMeeting: (id) => { setSource(null); openMeeting(id); }, openPerson, openTranscript: (id, at) => setSource({ itemId: id, scope, at }), scope }}>
       <PeopleProvider scope={scope} onOpen={openPerson}>
       <main>
         <div hidden={view !== 'live'}><LiveView status={live} onOpen={openHit} onEntity={openEntity} onTopic={openTopic} scope={scope} prefill={askReq} /></div>

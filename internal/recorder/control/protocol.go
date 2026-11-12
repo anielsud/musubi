@@ -114,6 +114,10 @@ type Status struct {
 	// Restart names the changed settings that wait for the recorder to
 	// restart (its engines were built with the old ones); empty if none.
 	Restart []string `json:"restart,omitempty"`
+	// PID is the recorder's process id, so Musubi's resource readout
+	// finds the recorder serving its socket rather than guessing by
+	// name. 0 from a recorder built before it.
+	PID int `json:"pid,omitempty"`
 }
 
 // SessionInfo identifies a session; the live feed's SessionInfo.

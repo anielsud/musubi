@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -360,7 +361,7 @@ func (a *Recorder) Status() control.Status {
 // statusLocked builds Status from what the recorder holds, without
 // looking at devices (callers hold mu, often on the recording's path).
 func (a *Recorder) statusLocked() control.Status {
-	st := control.Status{Version: Version, Recording: a.rec != nil, Busy: a.busy, Restart: slices.Clone(a.restart)}
+	st := control.Status{Version: Version, Recording: a.rec != nil, Busy: a.busy, Restart: slices.Clone(a.restart), PID: os.Getpid()}
 	if a.currentSess != nil {
 		info := control.SessionInfo(livefeed.InfoFor(a.currentSess))
 		st.Session, st.StartedAt = &info, a.currentSess.CreatedAt

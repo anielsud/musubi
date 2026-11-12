@@ -31,10 +31,14 @@ package store
 //     DigestedItems, MeetingTopics, scanDigestTodos, Meetings, EventAt,
 //     GivenTitles, PrepBriefFor.
 //   - Status: Stats, KnowledgeCounts, AuditCounts.
+//   - The owner's spelling rules, read with statements and statuses:
+//     ConfirmedSpellings, ScopedSpellings.
 //
 // Kept on the writer: everything that writes or reads inside a write
 // (UpsertItem, Judge, AddAlias, ConfirmAliasIn, TouchThread,
 // DeleteEmptyThreads, backfillCodes, ...), migrations, BackupTo, the code
 // indexes' loading (once per change, after their backfill), the pipeline's
-// bulk reads (statements, Claims, StatementVecs, ...), aliases and thread
-// edits. KnowledgeSignature reads its own connection (knowledge.go).
+// bulk reads (statements, Claims, StatementVecs, ...), the alias review
+// screen's reads and thread edits. KnowledgeSignature reads its own
+// connection (knowledge.go). TestReadsDontWaitForTheWriter holds the
+// writer and checks Live's reads still answer.

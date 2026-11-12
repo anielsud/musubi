@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"math"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 
 	"github.com/anielsud/musubi/internal/item"
+	"github.com/anielsud/musubi/internal/sensitivity"
 )
 
 // TestMain runs the package's tests twice: as Open has always opened the
@@ -72,5 +74,58 @@ func TestReadPool(t *testing.T) {
 	}
 	if err := s.db.QueryRow(`PRAGMA cache_size`).Scan(&cache); err != nil || cache != -4*1024 {
 		t.Errorf("cache_size on the writer: %d, %v", cache, err)
+	}
+}
+
+// TestReadsDontWaitForTheWriter: with the writer's connection held (as a
+// long write holds it), Live's reads and the signature their caches check
+// still answer. Runs in the read-pool pass of TestMain.
+func TestReadsDontWaitForTheWriter(t *testing.T) {
+	if openOptions.ReadConns <= 1 {
+		t.Skip("read pool pass only")
+	}
+	s := nearFixture(t)
+	defer s.Close()
+	sc := sensitivity.Owner()
+	q := []float32{1, 0, 0}
+	// Loaded once per change of the database, after a backfill that
+	// writes: not a read that waits each time.
+	if _, err := s.ClaimIndex(); err != nil {
+		t.Fatal(err)
+	}
+	hs, err := s.StatementsNear(sc, q, "m", 10, nil)
+	if err != nil || len(hs) == 0 {
+		t.Fatal(err)
+	}
+	conn, err := s.db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	reads := []struct {
+		name string
+		f    func() error
+	}{
+		{"KnowledgeSignature", func() error { _, err := s.KnowledgeSignature(); return err }},
+		{"ThreadStatuses", func() error { _, err := s.ThreadStatuses(sc); return err }},
+		{"TopicInfos", func() error { _, err := s.TopicInfos(); return err }},
+		{"StatementsNear", func() error { _, err := s.StatementsNear(sc, q, "m", 10, nil); return err }},
+		{"WithPassages", func() error { return s.WithPassages(sc, hs) }},
+		{"Evidence", func() error { _, err := s.Evidence(sc, []int64{hs[0].ClaimID}); return err }},
+		{"EntityGraph", func() error { _, err := s.EntityGraph(sc, "person:nobody", nil, 4); return err }},
+		{"AllItems", func() error { _, err := s.AllItems(); return err }},
+		{"WorkStamp", func() error { _, err := s.WorkStamp(); return err }},
+	}
+	for _, r := range reads {
+		done := make(chan error, 1)
+		go func() { done <- r.f() }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("%s: %v", r.name, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s waited for the writer's connection", r.name)
+		}
 	}
 }

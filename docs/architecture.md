@@ -323,6 +323,18 @@ cold lane like any other source.
   and a goroutine dump under the data folder's `profiles/`; Live's steps
   carry pprof labels (`step` = pick, suggest, fastlane, cards; queue for
   the work queue).
+  Its "resources" view (`[diagnostics] resources`, default on) shows CPU
+  (share of one core, from the change in each process's CPU time) and
+  memory (macOS footprint and resident) for Musubi, its web view, the
+  recorder, Ollama and Tomoe, with each one's child processes, over the
+  last 15 minutes (`internal/procstat`, libproc on macOS; other systems
+  say it isn't supported). It samples every 2 s only while the panel is
+  open: the panel holds a watch it renews, and sampling stops when it
+  closes or stops renewing. The recorder is the pid its control Status
+  reports (`pid`), else its app path or `musubi-recorder run`; the web
+  view is the WebKit web content process macOS holds responsible for the
+  app (left out where that can't be asked); a process counts in one
+  component only.
 - **Stepped replay** (`musubi live --replay ID --stepped`): the meeting
   line by line on its own clock, each line's work (lookups, cards,
   suggestions, summaries) done before the next, so the result doesn't

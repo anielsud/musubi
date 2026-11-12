@@ -846,3 +846,9 @@ export interface RecGroup { title: string; fields: RecField[] }
 export interface RecModelField extends RecField { missing?: string[] | null; inUse?: string }
 export interface RecordingModels { fields: RecModelField[]; error?: string; tomoe: 'on' | 'off' }
 export interface RecordingSettings { ofRecord: string; since: string; groups: RecGroup[]; tomoeConfig: string; tomoe: 'on' | 'off' }
+
+/* Resource readout (internal/procstat) */
+export interface ResPart { name: string; pid: number; cpu: number; rss: number; footprint: number }
+export interface ResReading { key: string; name: string; cpu: number; rss: number; footprint: number; parts: ResPart[] }
+export interface ResSample { at: string; components: ResReading[] | null }
+export interface ResSnapshot { supported: boolean; reason?: string; machine: { cores: number; memory: number }; intervalMs: number; history: ResSample[] | null }

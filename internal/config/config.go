@@ -617,6 +617,10 @@ type Diagnostics struct {
 	// goroutine dump under the data folder's profiles/). It only runs when
 	// pressed. false: no button.
 	Profiling bool `toml:"profiling"`
+	// Resources offers the "resources" view: CPU and memory of Musubi,
+	// its web view, the recorder, Ollama and Tomoe, sampled every 2 s only
+	// while the diagnostics panel is open. false: no view, never sampled.
+	Resources bool `toml:"resources"`
 }
 
 type Pick struct {
@@ -688,7 +692,7 @@ func DefaultConfig() Config {
 			Cache: true, SkipIdle: true,
 		},
 		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16"},
-		Diagnostics: Diagnostics{Profiling: true},
+		Diagnostics: Diagnostics{Profiling: true, Resources: true},
 		Recorder:    Recorder{OfRecord: "tomoe", Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}
 }

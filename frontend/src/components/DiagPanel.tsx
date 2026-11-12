@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, on } from '../api';
 import { LabellingPane, LookTimeline } from './recorder';
+import { ResourcesPane, useResources } from './ResourcesPane';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface Trace {
@@ -24,6 +25,8 @@ const filters: Record<string, string[]> = {
   // live labelling, and what it saw of the meeting window (its looks).
   speakers: [],
   window: [],
+  // resources: CPU and memory per component ([diagnostics] resources).
+  resources: [],
 };
 
 export function mmss(s: number): string {
@@ -35,11 +38,16 @@ export function mmss(s: number): string {
 // DiagPanel shows how the live panel is processing the conversation, step
 // by step, grouped by suggestion cycle, newest first; and, under
 // "speakers" and "window", the recorder's live labelling and what it saw
-// of the meeting window.
+// of the meeting window; under "resources", CPU and memory per component.
 export function DiagPanel() {
   const [traces, setTraces] = useState<Trace[]>([]);
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState<Record<number, boolean>>({});
+  const [resOn, setResOn] = useState(false);
+  useEffect(() => { api.resourcesOn().then(setResOn, () => {}); }, []);
+  // Sampled while the panel is open, whichever view shows, so the chart
+  // has the minutes before "resources" was picked.
+  const res = useResources(resOn);
 
   useEffect(() => {
     window.go?.gui?.App?.Traces().then((t: Trace[] | null) => setTraces(t ?? []));
@@ -68,13 +76,13 @@ export function DiagPanel() {
         <div className="diag-title">How Musubi is thinking</div>
         <ProfileButton />
         <div className="diag-filters">
-          {Object.keys(filters).map((f) => (
+          {Object.keys(filters).filter((f) => f !== 'resources' || resOn).map((f) => (
             <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>{f}</button>
           ))}
         </div>
       </header>
 
-      {filter === 'speakers' ? <div className="diag-list"><LabellingPane /></div> : filter === 'window' ? <div className="diag-list"><LookTimeline /></div> : <>
+      {filter === 'speakers' ? <div className="diag-list"><LabellingPane /></div> : filter === 'window' ? <div className="diag-list"><LookTimeline /></div> : filter === 'resources' ? <div className="diag-list"><ResourcesPane res={res} /></div> : <>
       <section className="diag-stats">
         <Stat label="model runs" v={String(stats.cycles)} />
         <Stat label="lines in" v={`${stats.finals} final · ${stats.drafts} draft`} />

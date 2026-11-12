@@ -911,3 +911,40 @@ input.search { width: 100%; margin: 6px 0; }
 :where(.voice-actions, .voice-name, .confirm-row, .voice-reviews .section-head, .tool-line, .tool-cmd, .row-buttons) button:where(:not(.primary, .icon-btn, .link)):hover:not(:disabled) { border-color: var(--accent); }
 .voice-actions button:disabled, .voice-name button:disabled { opacity: 0.5; cursor: default; }
 .voice-body .icon-btn.play { display: inline-grid; vertical-align: middle; }
+
+/* Resource readout. Series colours: the dataviz reference palette's first
+   five slots, dark steps for the app's dark surface (validated together on
+   #181e28: CVD ΔE ≥ 8.4, normal ≥ 19.3, all ≥ 3:1); light steps for a light
+   theme, which leans on the table and legend (three slots are under 3:1
+   on white). Assigned per component, in this fixed order. */
+:root {
+  --series-1: #3987e5; /* Musubi */
+  --series-2: #d95926; /* web view */
+  --series-3: #199e70; /* recorder */
+  --series-4: #c98500; /* Ollama */
+  --series-5: #d55181; /* Tomoe */
+  --series-6: #9aa4b5;
+}
+:root[data-theme="light"] {
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100; --series-5: #e87ba4; --series-6: #52514e;
+}
+.res { display: flex; flex-direction: column; gap: 12px; }
+.res-help { color: var(--text-dim); font-size: 11.5px; }
+.res-table td.num, .res-table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.res-table td { border-bottom-style: solid; }
+.res-group { cursor: pointer; }
+.res-part td { color: var(--text-dim); border-bottom: 0; padding-top: 1px; padding-bottom: 1px; }
+.res-part td:first-child { padding-left: 22px; }
+.res-key, .res-legend i, .res-tip-row i { display: inline-block; width: 12px; height: 2px; border-radius: 1px; vertical-align: middle; margin-right: 6px; }
+.res-chart { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.res-chart figcaption { font-size: 12px; font-weight: 600; }
+.res-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11px; color: var(--text-dim); }
+.res-plot { position: relative; width: 100%; touch-action: none; }
+.res-plot svg { display: block; overflow: visible; }
+.res-grid { stroke: var(--line); stroke-width: 1; shape-rendering: crispEdges; }
+.res-axis { fill: var(--text-dim); font-size: 10px; font-variant-numeric: tabular-nums; }
+.res-cross { stroke: var(--text-dim); stroke-width: 1; }
+.res-dot { stroke: var(--bg-2); stroke-width: 2; }
+.res-tip { position: absolute; top: 4px; pointer-events: none; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 11px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.35); z-index: 2; }
+.res-tip-row { display: flex; align-items: center; gap: 0; }
+.res-tip-row b { font-variant-numeric: tabular-nums; margin-right: 6px; min-width: 44px; }

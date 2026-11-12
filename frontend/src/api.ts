@@ -1,6 +1,7 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
 import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
+import type { ResSnapshot } from './types';
 import type { LookView, MeetingSpeakers, RecDiag, RecordingModels, RecordingSettings, RecorderView, RecSources, RecStatus, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -37,6 +38,9 @@ export const api = {
   setDiagnostics: (on: boolean): Promise<void> => app().SetDiagnostics(on),
   profilingOn: (): Promise<boolean> => app().ProfilingOn(),
   recordProfile: (): Promise<string> => app().RecordProfile(),
+  resourcesOn: (): Promise<boolean> => app().ResourcesOn(),
+  watchResources: (): Promise<ResSnapshot> => app().WatchResources(),
+  unwatchResources: (): Promise<void> => app().UnwatchResources(),
   knowledgeCounts: (): Promise<KnowledgeCounts> => app().KnowledgeCounts(),
   topics: (scope: string): Promise<TopicSummary[] | null> => app().Topics(scope),
   topic: (id: number, scope: string): Promise<TopicView | null> => app().Topic(id, scope),

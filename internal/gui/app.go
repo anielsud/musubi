@@ -53,6 +53,7 @@ type App struct {
 	// read it before the edit.
 	updateAgain bool
 	rec         recorderState
+	res         resourceState
 	// emitFn replaces the Wails event bus in tests.
 	emitFn func(string, any)
 }
@@ -139,6 +140,7 @@ func (a *App) openConfig(path string) error {
 }
 
 func (a *App) Shutdown(ctx context.Context) {
+	a.UnwatchResources()
 	if a.liveCancel != nil {
 		a.liveCancel()
 	}

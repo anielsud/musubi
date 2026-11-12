@@ -3,6 +3,7 @@ package gui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,13 +14,15 @@ import (
 	"time"
 
 	"github.com/anielsud/musubi/internal/config"
+	"github.com/anielsud/musubi/internal/recorder/control"
 )
 
 // ProviderView is one card in Settings → AI providers: the AI Gateway,
-// each custom provider, and Ollama on this Mac, shown alike.
+// each custom provider, Ollama and ONNX (the recorder's models) on this
+// Mac, shown alike.
 type ProviderView struct {
-	Name  string `json:"name"`  // "gateway", "ollama" or the provider's name
-	Kind  string `json:"kind"`  // "gateway", "custom" or "ollama"
+	Name  string `json:"name"`  // "gateway", "ollama", "onnx" or the provider's name
+	Kind  string `json:"kind"`  // "gateway", "custom", "ollama" or "onnx"
 	Title string `json:"title"` // what the card is called
 	URL   string `json:"url"`
 	// Ready: set up and reachable as far as is known without a call (a
@@ -36,6 +39,9 @@ type ProviderView struct {
 	// Ollama's: [llm] start_ollama and pull_missing.
 	StartOllama bool `json:"startOllama"`
 	PullMissing bool `json:"pullMissing"`
+	// ONNX's: the models installed, or why they aren't known.
+	Models []string `json:"models,omitempty"`
+	Error  string   `json:"error,omitempty"`
 }
 
 var providerNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
@@ -74,15 +80,15 @@ func (a *App) Providers() []ProviderView {
 	_, err := ollamaTags(url)
 	out = append(out, ProviderView{Name: "ollama", Kind: "ollama", Title: "Ollama on this Mac", URL: url, Ready: err == nil,
 		Formats: []string{"ollama"}, UsedBy: bySource["ollama"], StartOllama: cfg.LLM.StartOllama, PullMissing: cfg.LLM.PullMissing})
-	return out
+	return append(out, a.onnxProvider())
 }
 
 // SaveProvider writes [providers.<name>] and, when a key is given, keeps
 // it in the keychain under the provider's key reference.
 func (a *App) SaveProvider(name, url string, headers map[string]string, key string) error {
 	name, url, key = strings.TrimSpace(name), strings.TrimRight(strings.TrimSpace(url), "/"), strings.TrimSpace(key)
-	if !providerNameRe.MatchString(name) || name == config.GatewayProvider || name == "ollama" {
-		return fmt.Errorf("name: lower-case letters, digits and '-', starting with a letter (not gateway or ollama)")
+	if !providerNameRe.MatchString(name) || name == config.GatewayProvider || name == "ollama" || name == onnxSource {
+		return fmt.Errorf("name: lower-case letters, digits and '-', starting with a letter (not gateway, ollama or onnx)")
 	}
 	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://127.0.0.1") && !strings.HasPrefix(url, "http://localhost") {
 		return fmt.Errorf("the address must start with https:// (or be on this Mac)")
@@ -176,11 +182,22 @@ func (a *App) TestProvider(name string) TestResult {
 	t0 := time.Now()
 	var n int
 	var err error
-	if name == "ollama" {
+	switch name {
+	case "ollama":
 		var have map[string]int64
 		have, err = ollamaTags(ollamaURL(&a.eng.Cfg))
 		n = len(have)
-	} else {
+	case onnxSource:
+		var list []control.RecModel
+		if list, err = a.recModels(); err != nil {
+			err = errors.New(recModelsError(err))
+		}
+		for _, m := range list {
+			if m.Installed {
+				n++
+			}
+		}
+	default:
 		var ids []string
 		ids, err = a.listModels(name, true)
 		n = len(ids)

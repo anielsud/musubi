@@ -480,7 +480,7 @@ func TestRecordingSettings(t *testing.T) {
 // the type it is shown as.
 func TestRecFieldsExist(t *testing.T) {
 	c := recconfig.DefaultConfig()
-	for _, g := range recGroups {
+	for _, g := range append(recGroups, RecGroup{"Processing", recModelFields}) {
 		for _, f := range g.Fields {
 			v := tomlField(c, f.Table, f.Key)
 			ok := false

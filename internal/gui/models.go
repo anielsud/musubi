@@ -229,11 +229,11 @@ func (a *App) Groups() ([]GroupView, error) {
 
 // ModelRow is one model in Settings → Models.
 type ModelRow struct {
-	Source  string   `json:"source"` // "gateway", "ollama" or a provider's name
+	Source  string   `json:"source"` // "gateway", "ollama", "onnx" or a provider's name
 	ID      string   `json:"id"`
 	Formats []string `json:"formats"`
-	// Kind: "chat" or "decision" (a probability per option: labels and
-	// relevance).
+	// Kind: "chat", "decision" (a probability per option: labels and
+	// relevance) or "recording" (the recorder's ONNX models).
 	Kind          string   `json:"kind"`
 	PriceIn       float64  `json:"priceIn"`  // dollars a million tokens; 0 unknown or free
 	PriceOut      float64  `json:"priceOut"` // 0 for decision models
@@ -244,6 +244,13 @@ type ModelRow struct {
 	Note          string   `json:"note,omitempty"`
 	UsedBy        []string `json:"usedBy"`
 	Size          int64    `json:"size"` // bytes, on this Mac
+	// The recorder's models: shown name, task ("transcription", "live",
+	// "speaker", "vad", "segmentation", "ocr"), not downloaded yet, and
+	// loaded only when the recorder starts.
+	Name    string `json:"name,omitempty"`
+	Task    string `json:"task,omitempty"`
+	Missing bool   `json:"missing,omitempty"`
+	Restart bool   `json:"restart,omitempty"`
 }
 
 // ModelCatalog is every model the dataset can use, from every source.
@@ -295,6 +302,11 @@ func (a *App) Models() (ModelCatalog, error) {
 		for _, n := range sortedNames(have) {
 			add(ModelRow{Source: "ollama", ID: n, Kind: "chat", Formats: []string{"ollama"}, Size: have[n]})
 		}
+	}
+	if list, err := a.recModels(); err != nil {
+		cat.Errors[onnxSource] = recModelsError(err)
+	} else {
+		cat.Rows = append(cat.Rows, onnxRows(list)...)
 	}
 	// A model in use that its source doesn't list (not downloaded, or the
 	// listing failed) is shown all the same.

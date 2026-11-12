@@ -17,7 +17,9 @@ import (
 // settings carried over from Tomoe's window (hotkey, dictation, languages,
 // GPU and hotwords stay behind). Each is written to Musubi's config under
 // [recorder.<table>], which wins over Tomoe's config for the recorder; a
-// key not set there shows, and keeps, Tomoe's value.
+// key not set there shows, and keeps, Tomoe's value. The transcription and
+// speaker voice models are chosen in Settings → Processing instead
+// (recModelFields), written the same way.
 
 // RecField is one recorder setting. Type "bool", "int", "float",
 // "string" or "select" (one of Options).
@@ -62,12 +64,8 @@ var recGroups = []RecGroup{
 	{"Voices", []RecField{
 		{Restart: true, Table: "meeting", Key: "mic_voices", Label: "Other voices on your microphone", Type: "bool", Help: "Tell your voice from others' on your own microphone (someone beside you, or an in-person meeting). Off: everything on the microphone is you."},
 		{Table: "meeting", Key: "voice_profiles", Label: "Voice profiles", Type: "bool", Help: "Learn each person's voice from meetings where their own tile was lit or you named them (fingerprints only, on this Mac), and name voices the meeting window can't."},
-		{Restart: true, Table: "meeting", Key: "speaker_model", Label: "Speaker voice model", Type: "select", Help: "Tells voices apart, live and after the meeting.", Options: []RecOption{
-			{"auto", "Automatic (English-trained for English)"}, {"eres2net-en", "ERes2Net, English-trained"}, {"eres2net-base", "ERes2Net base"}}},
 	}},
 	{"Transcription", []RecField{
-		{Restart: true, Table: "transcription", Key: "model", Label: "Transcription model", Type: "select", Help: "Automatic uses Cohere Transcribe for English, the most accurate there; Parakeet is about 3x faster.", Options: []RecOption{
-			{"auto", "Automatic"}, {"cohere-transcribe", "Cohere Transcribe"}, {"parakeet-v2-en", "Parakeet v2, English only"}, {"parakeet-v3", "Parakeet v3"}}},
 		{Restart: true, Table: "transcription", Key: "two_pass", Label: "Live text while people speak", Type: "bool", Help: "Shows English meetings' text as it is spoken, refined when each utterance ends."},
 		{Restart: true, Table: "transcription", Key: "decoding_method", Label: "Decoding", Type: "select", Options: []RecOption{
 			{"greedy_search", "Greedy (fastest)"}, {"modified_beam_search", "Beam search"}}},
@@ -178,6 +176,12 @@ func findRecField(table, key string) *RecField {
 			if g.Fields[i].Table == table && g.Fields[i].Key == key {
 				return &g.Fields[i]
 			}
+		}
+	}
+	// The model choices are made in Settings → Processing (recorder_models.go).
+	for i := range recModelFields {
+		if recModelFields[i].Table == table && recModelFields[i].Key == key {
+			return &recModelFields[i]
 		}
 	}
 	return nil

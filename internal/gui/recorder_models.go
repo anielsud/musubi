@@ -149,14 +149,17 @@ type RecordingModels struct {
 	Fields []RecModelField `json:"fields"`
 	// Error: why the recorder didn't say which models are downloaded.
 	Error string `json:"error,omitempty"`
+	// Tomoe is [recorder] tomoe ("on" or "off"): whether a value not set
+	// in Musubi is Tomoe's or the recorder's default.
+	Tomoe string `json:"tomoe"`
 }
 
 func (a *App) RecordingModels() (*RecordingModels, error) {
 	if a.eng == nil {
 		return nil, fmt.Errorf("no dataset open")
 	}
-	tc, _ := tomoeConfig()
-	out := &RecordingModels{}
+	tc, _ := baseRecorderConfig(a.eng.Cfg)
+	out := &RecordingModels{Tomoe: tomoeKey(a.eng.Cfg)}
 	list, err := a.recModels()
 	if err != nil {
 		out.Error = recModelsError(err)

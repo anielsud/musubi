@@ -207,6 +207,8 @@ export interface AppStatus {
   lastUpdate: string;
   stats?: Stats;
   live: LiveStatus;
+  // The live feed of record: "Musubi recorder" or "Tomoe".
+  liveFrom: string;
   dataset: string;
   m365: boolean;
   onUpdate: boolean;
@@ -842,5 +844,5 @@ export interface RecOption { value: string; label: string }
 export interface RecField { table: string; key: string; label: string; help?: string; type: 'bool' | 'int' | 'float' | 'string' | 'select'; step?: number; min: number; options?: RecOption[]; value: unknown; set: boolean; restart?: boolean }
 export interface RecGroup { title: string; fields: RecField[] }
 export interface RecModelField extends RecField { missing?: string[] | null; inUse?: string }
-export interface RecordingModels { fields: RecModelField[]; error?: string }
-export interface RecordingSettings { ofRecord: string; since: string; groups: RecGroup[]; tomoeConfig: string }
+export interface RecordingModels { fields: RecModelField[]; error?: string; tomoe: 'on' | 'off' }
+export interface RecordingSettings { ofRecord: string; since: string; groups: RecGroup[]; tomoeConfig: string; tomoe: 'on' | 'off' }

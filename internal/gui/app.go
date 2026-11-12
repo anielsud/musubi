@@ -158,7 +158,10 @@ type AppStatus struct {
 	LastUpdate time.Time    `json:"lastUpdate"`
 	Stats      *store.Stats `json:"stats,omitempty"`
 	Live       live.Status  `json:"live"`
-	Dataset    string       `json:"dataset"`
+	// LiveFrom names the live feed of record: "Musubi recorder" or
+	// "Tomoe" ([recorder] of_record).
+	LiveFrom string `json:"liveFrom"`
+	Dataset  string `json:"dataset"`
 	// What "Check for new meetings" does: sync Microsoft 365 (when on),
 	// then process up to AutoMax new meetings (0: all) when OnUpdate; and
 	// how often it runs by itself (minutes, 0: never).
@@ -187,6 +190,10 @@ func (a *App) Status() AppStatus {
 	}
 	st.Stats, _ = a.eng.Store.Stats()
 	st.Live = a.live.Status()
+	st.LiveFrom = "Tomoe"
+	if a.eng.Cfg.MusubiRecords() {
+		st.LiveFrom = "Musubi recorder"
+	}
 	return st
 }
 

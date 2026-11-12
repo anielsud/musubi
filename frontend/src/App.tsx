@@ -78,7 +78,9 @@ export function App() {
       <header className="titlebar" style={{ ['--wails-draggable' as string]: 'drag' }}>
         <div className="brand"><span className="mark">結</span> Musubi</div>
         <div className="dots">
-          <span className={'dot ' + (live?.connected ? 'ok' : 'off')} title={live?.connected ? 'Tomoe feed connected' : 'Tomoe feed not connected'}>T</span>
+          {status?.liveFrom === 'Musubi recorder'
+            ? <span className={'dot ' + (live?.connected ? 'ok' : 'off')} title={live?.connected ? 'Live feed connected (Musubi recorder)' : 'Live feed not connected (Musubi recorder)'}>L</span>
+            : <span className={'dot ' + (live?.connected ? 'ok' : 'off')} title={live?.connected ? 'Tomoe feed connected' : 'Tomoe feed not connected'}>T</span>}
           <span className={'dot ' + (status?.ollamaUp ? 'ok' : 'off')} title={status?.ollamaUp ? 'Local models ready' : 'Ollama not reachable'}>M</span>
         </div>
         <div className="title-actions" style={{ ['--wails-draggable' as string]: 'no-drag' }}>

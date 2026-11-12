@@ -80,7 +80,9 @@ function Connections({ status }: { status: AppStatus }) {
       <Row k="AI Gateway" v={!gw ? '…' : gw.ready ? '✓ connected' : '✗ not connected: Settings → AI providers'} />
       {others.map((p) => <Row key={p.name} k={p.name} v={p.ready ? '✓ key in your Keychain' : '✗ no key: Settings → AI providers'} />)}
       <Row k="Ollama (this Mac)" v={status.ollamaUp ? '✓ running' : '✗ not running'} />
-      <Row k="Tomoe live feed" v={status.live.connected ? '✓ connected' : '✗ not connected'} />
+      {status.liveFrom === 'Musubi recorder'
+        ? <Row k="Live feed" v={(status.live.connected ? '✓ connected' : '✗ not connected') + ' · Musubi recorder'} />
+        : <Row k="Tomoe live feed" v={status.live.connected ? '✓ connected' : '✗ not connected'} />}
     </section>
   );
 }

@@ -18,7 +18,8 @@ import (
 // settings carried over from Tomoe's window (hotkey, dictation, languages,
 // GPU and hotwords stay behind). Each is written to Musubi's config under
 // [recorder.<table>], which wins over Tomoe's config for the recorder; a
-// key not set there shows, and keeps, Tomoe's value. The transcription and
+// key not set there shows, and keeps, Tomoe's value (with [recorder]
+// tomoe = "off", the recorder's built-in default). The transcription and
 // speaker voice models are chosen in Settings → Processing instead
 // (recModelFields), written the same way.
 
@@ -34,7 +35,8 @@ type RecField struct {
 	Min     float64     `json:"min"`
 	Options []RecOption `json:"options,omitempty"`
 	Value   any         `json:"value"`
-	// Set: Musubi's config sets it; otherwise Value is Tomoe's.
+	// Set: Musubi's config sets it; otherwise Value is Tomoe's (or with
+	// Tomoe off, the recorder's default).
 	Set bool `json:"set"`
 	// Restart: the recorder reads it only when it starts (its engines are
 	// built with it), so a change waits for a restart.
@@ -98,19 +100,41 @@ type RecordingSettings struct {
 	Groups   []RecGroup `json:"groups"`
 	// TomoeConfig: where unset values come from, or why they are defaults.
 	TomoeConfig string `json:"tomoeConfig"`
+	// Tomoe is [recorder] tomoe: "off" when unset values are the
+	// recorder's built-in defaults rather than Tomoe's.
+	Tomoe string `json:"tomoe"`
 }
 
 func (a *App) RecordingSettings() (*RecordingSettings, error) {
 	if a.eng == nil {
 		return nil, fmt.Errorf("no dataset open")
 	}
-	tc, note := tomoeConfig()
+	tc, note := baseRecorderConfig(a.eng.Cfg)
 	return &RecordingSettings{
 		OfRecord:    a.eng.Cfg.Recorder.OfRecord,
 		Since:       a.eng.Cfg.Recorder.Since,
 		Groups:      recordingGroups(a.eng.Cfg.Recorder, tc),
 		TomoeConfig: note,
+		Tomoe:       tomoeKey(a.eng.Cfg),
 	}, nil
+}
+
+// tomoeKey is [recorder] tomoe as the frontend shows it: "on" or "off".
+func tomoeKey(c config.Config) string {
+	if c.TomoeOff() {
+		return "off"
+	}
+	return "on"
+}
+
+// baseRecorderConfig is what the recorder reads under Musubi's
+// [recorder.*] tables: with Tomoe off, its built-in defaults (Tomoe's
+// file is not read); otherwise Tomoe's config (tomoeConfig).
+func baseRecorderConfig(c config.Config) (*recconfig.Config, string) {
+	if c.TomoeOff() {
+		return recconfig.DefaultConfig(), "the recorder's built-in defaults"
+	}
+	return tomoeConfig()
 }
 
 // tomoeConfig is Tomoe's config as the recorder reads it, or its

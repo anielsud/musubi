@@ -6,7 +6,8 @@ import { useRecorder } from '../recorder';
 
 // Recording: which recorder Musubi's meetings come from, and the
 // recorder's settings. A setting saved here wins over Tomoe's config for
-// the recorder; one never set here shows Tomoe's value.
+// the recorder; one never set here shows Tomoe's value, or with Tomoe off
+// ([recorder] tomoe = "off") the recorder's built-in default.
 export function RecordingTab() {
   const [s, setS] = useState<RecordingSettings | null>(null);
   const [src, setSrc] = useState<RecSources | null>(null);
@@ -28,11 +29,13 @@ export function RecordingTab() {
       {s.groups.map((g) => (
         <section key={g.title} className="kv">
           <div className="section-head"><span>{g.title}</span></div>
-          {g.fields.map((f) => <Field key={f.table + '.' + f.key} f={f} src={src} />)}
+          {g.fields.map((f) => <Field key={f.table + '.' + f.key} f={f} src={src} tomoeOff={s.tomoe === 'off'} />)}
         </section>
       ))}
       <p className="dim small">
-        Settings not changed here come from Tomoe&apos;s config ({s.tomoeConfig}), which the recorder reads with these on top. A change applies at once,
+        {s.tomoe === 'off'
+          ? <>Settings not changed here are the recorder&apos;s built-in defaults; it reads Musubi&apos;s config only, never Tomoe&apos;s. A change applies at once,</>
+          : <>Settings not changed here come from Tomoe&apos;s config ({s.tomoeConfig}), which the recorder reads with these on top. A change applies at once,</>}
         or from the next recording for what can&apos;t change mid-meeting; one marked &ldquo;after a restart&rdquo; waits until the recorder restarts (Apply, below, once one is waiting).
       </p>
       <RestartBar />
@@ -132,7 +135,7 @@ function choices(f: RecField, src: RecSources | null): { value: string; label: s
   return opts;
 }
 
-function Field({ f, src }: { f: RecField; src: RecSources | null }) {
+function Field({ f, src, tomoeOff }: { f: RecField; src: RecSources | null; tomoeOff: boolean }) {
   const [v, setV] = useState<unknown>(f.value);
   const [state, setState] = useState<'' | 'saving' | 'saved'>('');
   const [err, setErr] = useState('');
@@ -169,7 +172,9 @@ function Field({ f, src }: { f: RecField; src: RecSources | null }) {
   return (
     <div className="pref">
       <label className="pref-main">
-        <span className="pref-label">{f.label}{!f.set && <span className="dim small" title="Not set here: Tomoe's value"> · as Tomoe</span>}{f.restart && <span className="dim small" title="The recorder reads this when it starts"> · after a restart</span>}</span>
+        <span className="pref-label">{f.label}{!f.set && (tomoeOff
+          ? <span className="dim small" title="Not set here: the recorder's default"> · default</span>
+          : <span className="dim small" title="Not set here: Tomoe's value"> · as Tomoe</span>)}{f.restart && <span className="dim small" title="The recorder reads this when it starts"> · after a restart</span>}</span>
         <span className="pref-input">{input}{state === 'saving' ? <Spinner /> : state === 'saved' ? <span className="ok-text small"> ✓</span> : null}</span>
       </label>
       {f.help && <div className="dim small">{f.help}</div>}

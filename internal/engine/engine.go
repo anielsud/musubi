@@ -96,8 +96,8 @@ func (e *Engine) Runner(embs []provider.Embedder, log io.Writer) (*pipeline.Runn
 		return nil, err
 	}
 	var conns []source.Connector
-	if e.Cfg.TomoeSessions != "" {
-		conns = append(conns, tomoe.Connector{Dir: e.Cfg.TomoeSessions})
+	if d := e.Cfg.SessionsDir(); d != "" {
+		conns = append(conns, tomoe.Connector{Dir: d, Since: e.Cfg.SessionsSince()})
 	}
 	if e.Cfg.BluedotDir != "" {
 		conns = append(conns, bluedot.Connector{Dir: e.Cfg.BluedotDir, Since: e.Cfg.BluedotSince, Known: func(ref string) bool {

@@ -340,7 +340,7 @@ func (l *Live) Run(ctx context.Context) {
 	if err := l.Reload(); err != nil {
 		l.emit("live:error", err.Error())
 	}
-	go Follow(ctx, l.eng.Cfg.Live.TomoeSocket, func(ev Event) { l.handle(ev, "live") }, func(up bool) {
+	go Follow(ctx, l.eng.Cfg.LiveSocket(), func(ev Event) { l.handle(ev, "live") }, func(up bool) {
 		l.mu.Lock()
 		l.connected = up
 		l.mu.Unlock()
@@ -1044,8 +1044,9 @@ func (l *Live) SessionAudio(sessionID string) (string, bool) {
 	if !validSessionID(sessionID) {
 		return "", false
 	}
-	p := filepath.Join(l.eng.Cfg.TomoeSessions, sessionID, "audio.m4a")
-	if _, err := os.Stat(p); err != nil {
+	dir := l.eng.Cfg.SessionDir(sessionID)
+	p := filepath.Join(dir, "audio.m4a")
+	if _, err := os.Stat(p); dir == "" || err != nil {
 		return "", false
 	}
 	return p, true
@@ -1074,7 +1075,11 @@ func (l *Live) loadSession(sessionID string) (Session, []Segment, error) {
 	if !validSessionID(sessionID) {
 		return Session{}, nil, fmt.Errorf("not a session id: %q", sessionID)
 	}
-	b, err := os.ReadFile(filepath.Join(l.eng.Cfg.TomoeSessions, sessionID, "session.json"))
+	dir := l.eng.Cfg.SessionDir(sessionID)
+	if dir == "" {
+		return Session{}, nil, fmt.Errorf("no saved session %s", sessionID)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "session.json"))
 	if err != nil {
 		return Session{}, nil, err
 	}

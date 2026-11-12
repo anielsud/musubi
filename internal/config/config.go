@@ -34,6 +34,7 @@ type Config struct {
 	M365        M365        `toml:"m365"`
 	MCP         MCP         `toml:"mcp"`
 	Gateway     Gateway     `toml:"gateway"`
+	Recorder    Recorder    `toml:"recorder"`
 	// Providers are hosted endpoints set up once and named, for models to
 	// use with `via` (Settings → AI providers).
 	Providers map[string]Provider `toml:"providers"`
@@ -642,6 +643,7 @@ func DefaultConfig() Config {
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
 			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
 		},
+		Recorder: Recorder{OfRecord: "tomoe", Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}
 }
 

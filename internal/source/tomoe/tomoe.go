@@ -4,16 +4,24 @@ package tomoe
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/anielsud/musubi/internal/source"
 )
 
 const Name = "tomoe"
 
-type Connector struct{ Dir string }
+// Connector reads Dir's sessions; with Since set, only those created
+// after it (Musubi's recorder once it is of record: earlier sessions
+// shadowed meetings Tomoe already gave Musubi).
+type Connector struct {
+	Dir   string
+	Since time.Time
+}
 
 func (c Connector) Name() string { return Name }
 
@@ -38,6 +46,14 @@ func (c Connector) Fetch(ctx context.Context, emit func(source.Record) error) er
 		}
 		if err != nil {
 			return err
+		}
+		if !c.Since.IsZero() {
+			var h struct {
+				CreatedAt time.Time `json:"created_at"`
+			}
+			if json.Unmarshal(b, &h) != nil || !h.CreatedAt.After(c.Since) {
+				continue
+			}
 		}
 		if err := emit(source.Record{Source: Name, Ref: e.Name(), ContentType: "application/x-tomoe-session+json", Data: b}); err != nil {
 			return err

@@ -102,8 +102,8 @@ func runner(cfg config.Config, st *store.Store, embs []provider.Embedder, inbox,
 		return nil, err
 	}
 	var conns []source.Connector
-	if cfg.TomoeSessions != "" {
-		conns = append(conns, tomoe.Connector{Dir: cfg.TomoeSessions})
+	if d := cfg.SessionsDir(); d != "" {
+		conns = append(conns, tomoe.Connector{Dir: d, Since: cfg.SessionsSince()})
 	}
 	if cfg.BluedotDir != "" {
 		conns = append(conns, bluedot.Connector{Dir: cfg.BluedotDir, Since: cfg.BluedotSince, Known: func(ref string) bool {

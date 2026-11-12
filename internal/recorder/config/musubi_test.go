@@ -244,3 +244,16 @@ key = "F5"
 		}
 	}
 }
+
+// The owner's name comes from Musubi's [owner] table.
+func TestOverlayMusubiOwner(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.toml")
+	os.WriteFile(p, []byte("[owner]\nname = \"Ilse Novak\"\n"), 0o600)
+	cfg := DefaultConfig()
+	if _, err := OverlayMusubi(cfg, p); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OwnerName != "Ilse Novak" {
+		t.Errorf("OwnerName = %q", cfg.OwnerName)
+	}
+}

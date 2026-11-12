@@ -189,7 +189,7 @@ func (a *Recorder) computeMeetingSamples(dir, model string, names []string, h vo
 	if info.Model != "" && info.Model != model {
 		return &meetingSamples{note: "the meeting's fingerprints are from another speaker model"}
 	}
-	learned := diarize.SavedLearning(p, info.Offset, sess, savedHints(dir, sess, a.config().Meeting.SnapReadsToInvitees))
+	learned := diarize.SavedLearning(p, info.Offset, sess, savedHints(dir, sess, a.config().Meeting.SnapReadsToInvitees, a.config().OwnerName))
 	return samplesOf(pickLearned(learned, names, h.Source), h.ExcludedSpans, sess.Segments, params)
 }
 

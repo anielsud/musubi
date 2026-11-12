@@ -93,17 +93,19 @@ func (a *Recorder) onLook(hs *hintSession, l videohint.Look) {
 	if err := hs.log.Write(l); err != nil {
 		fmt.Printf("videohint: recording look %d: %v\n", l.ID, err)
 	}
-	if l.Usable && l.Name != "" {
+	// The owner's own tile never names a speaker (they're "You").
+	name, candidates := diarize.WithoutOwner(a.config().OwnerName, l.Name, l.Candidates)
+	if l.Usable && name != "" {
 		if hs.changes != nil && hs.coordinator != nil {
-			hs.changes.NameSeen(hs.coordinator.SessionTime(l.Time), l.Name)
+			hs.changes.NameSeen(hs.coordinator.SessionTime(l.Time), name)
 		}
 		if hs.diar != nil {
-			hs.diar.AddHint(hs.coordinator.SessionTime(l.Time), l.Name)
+			hs.diar.AddHint(hs.coordinator.SessionTime(l.Time), name)
 		} else if a.tracker != nil {
-			a.tracker.SetHintForRecent(l.Name, videohint.HintAttachMaxAge)
+			a.tracker.SetHintForRecent(name, videohint.HintAttachMaxAge)
 		}
-	} else if hs.diar != nil && len(l.Candidates) > 1 {
-		hs.diar.AddCandidates(hs.coordinator.SessionTime(l.Time), l.Candidates)
+	} else if hs.diar != nil && len(candidates) > 1 {
+		hs.diar.AddCandidates(hs.coordinator.SessionTime(l.Time), candidates)
 	}
 	meta := l
 	meta.Thumb = nil

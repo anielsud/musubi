@@ -165,4 +165,3 @@ func (s *Store) heardLocked(id, sessionID string) (*Heard, *Profile, error) {
 	}
 	return nil, nil, fmt.Errorf("%s didn't learn from that meeting", p.Name)
 }
-

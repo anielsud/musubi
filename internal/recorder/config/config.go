@@ -28,6 +28,12 @@ type Config struct {
 	// default) keeps copying, as before.
 	MusubiOfRecord bool `toml:"-"`
 
+	// OwnerName is Musubi's [owner] name: the owner is always "You" (the
+	// mic), so a meeting window showing their own tile never names anyone
+	// else (Zoom lights the owner's tile as they speak, and a late look
+	// put their name on the next remote speaker).
+	OwnerName string `toml:"-"`
+
 	// TomoeOff is Musubi's [recorder] tomoe = "off": the recorder stands
 	// alone, reading neither Tomoe's config file nor its models folder
 	// and copying none of its voices (LoadRecorder, ModelDirs). Only

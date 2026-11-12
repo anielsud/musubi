@@ -95,6 +95,23 @@ func musubiRecorder(path string) (map[string]any, error) {
 	return rec, nil
 }
 
+// musubiOwner is the Musubi config's [owner] name ("" if none).
+func musubiOwner(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var doc struct {
+		Owner struct {
+			Name string `toml:"name"`
+		} `toml:"owner"`
+	}
+	if toml.Unmarshal(b, &doc) != nil {
+		return ""
+	}
+	return doc.Owner.Name
+}
+
 // tomoeKeyOff reads [recorder] tomoe: "on" (or unset) or "off".
 func tomoeKeyOff(path string, rec map[string]any) (bool, error) {
 	switch v := rec["tomoe"]; v {
@@ -154,8 +171,9 @@ func OverlayMusubi(cfg *Config, path string) (bool, error) {
 			sub[name] = t
 		}
 	}
+	owner := musubiOwner(path)
 	if len(sub) == 0 {
-		cfg.MusubiOfRecord, cfg.TomoeOff = ofRecord, off
+		cfg.MusubiOfRecord, cfg.TomoeOff, cfg.OwnerName = ofRecord, off, owner
 		return ofRecord || off, nil
 	}
 	// Re-encoding the tables and decoding them onto a copy sets exactly
@@ -166,7 +184,7 @@ func OverlayMusubi(cfg *Config, path string) (bool, error) {
 		return false, fmt.Errorf("%s [recorder]: %w", path, err)
 	}
 	next := *cfg
-	next.MusubiOfRecord, next.TomoeOff = ofRecord, off
+	next.MusubiOfRecord, next.TomoeOff, next.OwnerName = ofRecord, off, owner
 	if err := toml.NewDecoder(bytes.NewReader(enc)).Decode(&next); err != nil {
 		return false, fmt.Errorf("%s [recorder]: %w", path, err)
 	}

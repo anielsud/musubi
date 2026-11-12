@@ -85,6 +85,8 @@ func (a *Recorder) editVoice(op string, p control.VoiceArgs) error {
 		return a.ConfirmVoice(p.Model, p.ID)
 	case control.OpRemoveVoiceMeeting:
 		return a.RemoveVoiceMeeting(p.Model, p.ID, p.Session)
+	case control.OpConfirmVoiceMeeting:
+		return a.ConfirmVoiceMeeting(p.Model, p.ID, p.Session)
 	case control.OpMoveVoiceMeeting:
 		return a.MoveVoiceMeeting(p.Model, p.ID, p.Session, p.To, p.Name)
 	}

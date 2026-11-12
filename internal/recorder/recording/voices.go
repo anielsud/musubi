@@ -110,7 +110,7 @@ func (a *Recorder) Voices() (*VoicesView, error) {
 				if rest.N > 0 {
 					agree = voices.Similarity(h.Voice.Centroid(), rest.Centroid())
 				}
-				v.Heard = append(v.Heard, VoiceMeetingView{Session: h.Session, Title: titles[h.Session], At: h.At, Source: h.Source, Fingerprints: h.Voice.N, Agreement: agree, Clip: VoiceClip{Session: h.Session, Start: h.Clip.Start, End: h.Clip.End},
+				v.Heard = append(v.Heard, VoiceMeetingView{Session: h.Session, Title: titles[h.Session], At: h.At, Source: h.Source, Fingerprints: h.Voice.N, Agreement: agree, Confirmed: h.Confirmed, Clip: VoiceClip{Session: h.Session, Start: h.Clip.Start, End: h.Clip.End},
 					Tiles: tilesOf(h.Session, append([]string{p.Name}, p.Aliases...), tilesPerMeeting)})
 			}
 			sort.Slice(v.Heard, func(i, j int) bool { return v.Heard[i].At.After(v.Heard[j].At) })
@@ -648,6 +648,15 @@ func (a *Recorder) RemoveVoiceMeeting(model, id, sessionID string) error {
 		return err
 	}
 	return s.ForgetMeeting(id, sessionID)
+}
+
+// ConfirmVoiceMeeting records that a meeting's voice is the profile's.
+func (a *Recorder) ConfirmVoiceMeeting(model, id, sessionID string) error {
+	s, err := a.voiceStore(model)
+	if err != nil {
+		return err
+	}
+	return s.ConfirmMeeting(id, sessionID)
 }
 
 // StartVoiceOver clears what a profile learnt, keeping its name; it learns

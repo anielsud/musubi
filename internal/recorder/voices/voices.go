@@ -119,6 +119,10 @@ type Heard struct {
 	Source  string    `json:"source"`
 	Voice   Voice     `json:"voice"`
 	Clip    Clip      `json:"clip"`
+	// Confirmed: the owner listened and said this meeting's voice is
+	// theirs, so it isn't offered for checking however unlike the others
+	// it scores (a few seconds of voice score low against everything).
+	Confirmed bool `json:"confirmed,omitempty"`
 }
 
 // Profile is one person's voice.
@@ -754,6 +758,24 @@ func (s *Store) Forget(id string) error {
 
 // ForgetMeeting drops what one meeting taught a profile, and it's never
 // learnt from that meeting again.
+// ConfirmMeeting marks what a meeting taught a profile as theirs.
+func (s *Store) ConfirmMeeting(id, sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	p := s.byIDLocked(id)
+	if p == nil {
+		return fmt.Errorf("no voice profile %q", id)
+	}
+	for i := range p.Meetings {
+		if p.Meetings[i].Session == sessionID {
+			p.Meetings[i].Confirmed = true
+			return s.saveLocked()
+		}
+	}
+	return fmt.Errorf("%s didn't learn from that meeting", p.Name)
+}
+
 func (s *Store) ForgetMeeting(id, sessionID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

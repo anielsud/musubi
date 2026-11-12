@@ -476,3 +476,20 @@ func TestSameNamedNeedsTheSameName(t *testing.T) {
 		t.Errorf("two Kevin Lis: %v", got)
 	}
 }
+
+// A confirmed meeting stays in the profile and is marked; a meeting the
+// profile didn't learn from can't be confirmed.
+func TestConfirmMeeting(t *testing.T) {
+	s, _ := open(t)
+	_, _ = s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))}})
+	p := s.Profiles()[0]
+	if err := s.ConfirmMeeting(p.ID, "m1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Profiles()[0]; len(got.Meetings) != 1 || !got.Meetings[0].Confirmed {
+		t.Errorf("after confirming: %+v", got.Meetings)
+	}
+	if err := s.ConfirmMeeting(p.ID, "m9"); err == nil {
+		t.Error("confirmed a meeting the profile never heard")
+	}
+}

@@ -64,18 +64,19 @@ const (
 	OpSkipVoiceName  = "skip_voice_name"  // SpeakerArgs → -
 	OpSkipVoiceDoubt = "skip_voice_doubt" // SpeakerArgs → -
 
-	OpVoices             = "voices"               // - → VoicesView
-	OpRenameVoice        = "rename_voice"         // VoiceArgs (Name) → -
-	OpMergeVoices        = "merge_voices"         // VoiceArgs (ID = into, Other = from) → -
-	OpKeepApart          = "keep_apart"           // VoiceArgs (ID, Other) → -
-	OpForgetVoice        = "forget_voice"         // VoiceArgs → -
-	OpStartOver          = "start_over"           // VoiceArgs → -
-	OpConfirmVoice       = "confirm_voice"        // VoiceArgs → -
-	OpRemoveVoiceMeeting = "remove_voice_meeting" // VoiceArgs (Session) → -
-	OpMoveVoiceMeeting   = "move_voice_meeting"   // VoiceArgs (Session, To = profile ID, or Name = a new profile's) → -
-	OpLearnSaved         = "learn_saved"          // - → Count
-	OpVoiceClip          = "voice_clip"           // VoiceClip → Media (audio/aac, ADTS)
-	OpDiscardedClip      = "discarded_clip"       // VoiceArgs (Session) → VoiceClip
+	OpVoices              = "voices"                // - → VoicesView
+	OpRenameVoice         = "rename_voice"          // VoiceArgs (Name) → -
+	OpMergeVoices         = "merge_voices"          // VoiceArgs (ID = into, Other = from) → -
+	OpKeepApart           = "keep_apart"            // VoiceArgs (ID, Other) → -
+	OpForgetVoice         = "forget_voice"          // VoiceArgs → -
+	OpStartOver           = "start_over"            // VoiceArgs → -
+	OpConfirmVoice        = "confirm_voice"         // VoiceArgs → -
+	OpRemoveVoiceMeeting  = "remove_voice_meeting"  // VoiceArgs (Session) → -
+	OpConfirmVoiceMeeting = "confirm_voice_meeting" // VoiceArgs (Session) → -: that meeting's voice is theirs
+	OpMoveVoiceMeeting    = "move_voice_meeting"    // VoiceArgs (Session, To = profile ID, or Name = a new profile's) → -
+	OpLearnSaved          = "learn_saved"           // - → Count
+	OpVoiceClip           = "voice_clip"            // VoiceClip → Media (audio/aac, ADTS)
+	OpDiscardedClip       = "discarded_clip"        // VoiceArgs (Session) → VoiceClip
 
 	OpLooks     = "looks"      // SessionArgs → []LookView
 	OpLookTile  = "look_tile"  // LookArgs → Media (image/jpeg): the speaker's tile
@@ -228,6 +229,7 @@ type VoiceMeetingView struct {
 	Agreement    float64   `json:"agreement"`
 	Clip         VoiceClip `json:"clip"`
 	Tiles        []TileRef `json:"tiles"`
+	Confirmed    bool      `json:"confirmed,omitempty"`
 }
 
 type VoiceProfileView struct {

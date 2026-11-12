@@ -16,6 +16,13 @@ export const readOnlyWhy = 'Corrections work here once Musubi records your meeti
 // A meeting less like the profile's other meetings than this is flagged:
 // across saved meetings, 95% of one person's meetings agree at 0.68 or more.
 const agreeFlag = 0.6;
+// Below this many fingerprints (a few seconds of voice) a meeting's score
+// against the others is noise: it reads low even for the right person, so
+// it isn't flagged.
+const minJudge = 30;
+// odd: a meeting worth checking: unlike the others on enough voice, and
+// not already confirmed by the owner.
+const odd = (h: { agreement: number; fingerprints: number; confirmed?: boolean }, n: number) => n > 1 && !h.confirmed && h.fingerprints >= minJudge && h.agreement < agreeFlag;
 
 export function useVoices() {
   const [view, setView] = useState<VoicesView | null>(null);
@@ -389,7 +396,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
   // Which of its meetings Musubi has, asked once the meetings are open.
   const found = useItemsExist(open ? [...heard, ...out].map((h) => recordingItem(h.session)) : []);
   const from = [p.fromTiles ? `own tile in ${p.fromTiles}` : '', p.fromNamed ? `named by you in ${p.fromNamed}` : ''].filter(Boolean).join(', ');
-  const flagged = heard.filter((h) => heard.length > 1 && h.agreement < agreeFlag).length;
+  const flagged = heard.filter((h) => odd(h, heard.length)).length;
   const confirmRow = (text: string, button: string, go: () => void, keep: () => void): ReactNode => (
     <div className="confirm-row"><span className="small">{text}</span><button className="primary" disabled={busy} onClick={go}>{button}</button><button onClick={keep}>Keep</button></div>
   );
@@ -425,20 +432,27 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
       {open && (
         <div className="voice-meetings">
           {heard.map((h) => {
-            const odd = heard.length > 1 && h.agreement < agreeFlag;
+            const check = odd(h, heard.length);
+            const thin = heard.length > 1 && h.fingerprints < minJudge;
             return (
               <div key={h.session} className="voice-row">
                 <Play clip={h.clip} />
                 {(h.tiles ?? []).slice(0, 3).map((t) => <TileImg key={t.look} tile={t} size={40} title="Their tile while their voice was learnt" />)}
                 <div className="voice-body">
                   <div className="small"><MeetingLink session={h.session} title={h.title || h.session.slice(0, 8)} found={found} /> <span className="dim">{day(h.at)} · {h.source === 'named' ? 'named by you' : 'own tile'}</span></div>
-                  <div className={'small ' + (odd ? 'warn' : 'dim')}>{heard.length > 1 ? `${Math.round(h.agreement * 100)}% like the other meetings${odd ? ': may be someone else' : ''}` : 'Only meeting'}</div>
+                  <div className={'small ' + (check ? 'warn' : 'dim')}>
+                    {heard.length <= 1 ? 'Only meeting'
+                      : h.confirmed ? `${Math.round(h.agreement * 100)}% like the other meetings · confirmed by you`
+                      : thin ? `${Math.round(h.agreement * 100)}% like the other meetings · too little voice to judge`
+                      : `${Math.round(h.agreement * 100)}% like the other meetings${check ? ': may be someone else' : ''}`}
+                  </div>
                 </div>
                 {editable && (moving === h.session
                   ? <MoveForm p={p} profiles={profiles} busy={busy} onMove={(to, label) => { setMoving(null); v('move_voice_meeting', { session: h.session, ...to }, `Moved that meeting to ${label}.`); }} onCancel={() => setMoving(null)} />
                   : removing === h.session
                     ? confirmRow(`Not ${p.name}: discard what this meeting taught, for good?`, 'Discard', () => { setRemoving(null); v('remove_voice_meeting', { session: h.session }, 'Discarded that meeting.'); }, () => setRemoving(null))
                     : <div className="voice-actions">
+                        {check && <button className="primary" disabled={busy} title="You listened: this meeting's voice is theirs" onClick={() => v('confirm_voice_meeting', { session: h.session }, `Kept: that meeting is ${p.name}.`)}>Right, it&apos;s them</button>}
                         <button disabled={busy} title="This meeting's voice is someone else: teach their profile instead" onClick={() => setMoving(h.session)}>Someone else…</button>
                         <button disabled={busy} title="Not them, and you can't tell who (or noise): throw it away" onClick={() => setRemoving(h.session)}>Discard</button>
                       </div>)}
@@ -491,7 +505,7 @@ export function AllVoices({ voices }: { voices: ReturnType<typeof useVoices> }) 
   const [show, setShow] = useState<'all' | 'confirmed' | 'unused' | 'check'>('all');
   const all = voices.view?.profiles ?? [];
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const flaggedOf = (p: VoiceProfile) => { const h = p.heard ?? []; return h.filter((x) => h.length > 1 && x.agreement < agreeFlag).length; };
+  const flaggedOf = (p: VoiceProfile) => { const h = p.heard ?? []; return h.filter((x) => odd(x, h.length)).length; };
   const shown = all
     .filter((p) => words.every((w) => p.name.toLowerCase().includes(w)))
     .filter((p) => show === 'all' || (show === 'confirmed' ? p.confirmed : show === 'unused' ? !p.inUse : flaggedOf(p) > 0))

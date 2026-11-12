@@ -246,7 +246,7 @@ func (a *App) RecorderSpeaker(op, session, label, name string) error {
 
 var voiceOps = map[string]bool{
 	control.OpRenameVoice: true, control.OpMergeVoices: true, control.OpKeepApart: true, control.OpForgetVoice: true,
-	control.OpStartOver: true, control.OpConfirmVoice: true, control.OpRemoveVoiceMeeting: true, control.OpMoveVoiceMeeting: true,
+	control.OpStartOver: true, control.OpConfirmVoice: true, control.OpRemoveVoiceMeeting: true, control.OpConfirmVoiceMeeting: true, control.OpMoveVoiceMeeting: true,
 }
 
 // RecorderVoice applies a voice profile op.
@@ -273,6 +273,9 @@ func (a *App) RecorderVoice(op string, args control.VoiceArgs) error {
 	}
 	if args.Session != "" && !validSession(args.Session) {
 		return fmt.Errorf("not a session id")
+	}
+	if op == control.OpConfirmVoiceMeeting && args.Session == "" {
+		return fmt.Errorf("a meeting is needed")
 	}
 	if err := a.recCall(op, args, nil); err != nil {
 		return err

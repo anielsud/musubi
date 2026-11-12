@@ -99,7 +99,7 @@ func (a *Recorder) Voices() (*VoicesView, error) {
 		for _, p := range s.Profiles() {
 			v := VoiceProfileView{Model: model, ID: p.ID, Name: p.Name, Meetings: len(p.Meetings), Fingerprints: p.LearnedVoice(minLearn).N, LastHeard: p.LastHeard(),
 				Heard: []VoiceMeetingView{}, Rejected: len(p.Rejected), StartedOver: len(p.Meetings) == 0 && len(p.Excluded) > 0,
-				InUse: s.InUse(&p), Confirmed: p.Confirmed}
+				InUse: s.InUse(&p), Confirmed: p.Confirmed, Aliases: p.Aliases}
 			for i, h := range p.Meetings {
 				// Against the meetings that teach the profile, as names are.
 				var rest voices.Voice

@@ -262,6 +262,13 @@ func (s *Store) SetParams(p Params) {
 	s.mu.Unlock()
 }
 
+// Params are the naming rules in use.
+func (s *Store) Params() Params {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.params
+}
+
 // MinLearn is the store's MinLearn.
 func (s *Store) MinLearn() int {
 	s.mu.Lock()

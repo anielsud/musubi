@@ -120,6 +120,18 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 			return nil, err
 		}
 		return nil, a.editVoice(op, p)
+	case control.OpRelabelProfileMeetings:
+		var p control.RelabelArgs
+		if err := decode(args, &p); err != nil {
+			return nil, err
+		}
+		return a.RelabelProfileMeetings(p.Model, p.ID)
+	case control.OpUndoRelabel:
+		var p control.RelabelArgs
+		if err := decode(args, &p); err != nil {
+			return nil, err
+		}
+		return a.UndoRelabel(p.Batch)
 	case control.OpLearnSaved:
 		n, err := a.learnSaved()
 		if err != nil {

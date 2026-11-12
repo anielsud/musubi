@@ -77,6 +77,11 @@ const (
 	OpLearnSaved          = "learn_saved"           // - → Count
 	OpVoiceClip           = "voice_clip"            // VoiceClip → Media (audio/aac, ADTS)
 	OpDiscardedClip       = "discarded_clip"        // VoiceArgs (Session) → VoiceClip
+	// OpRelabelProfileMeetings puts a profile's current name on the
+	// speaker labels that still carry one of its old names, in the saved
+	// sessions it identified; OpUndoRelabel reverses one such batch.
+	OpRelabelProfileMeetings = "relabel_profile_meetings" // RelabelArgs (Model, ID) → RelabelResult
+	OpUndoRelabel            = "undo_relabel"             // RelabelArgs (Batch) → RelabelResult
 
 	OpLooks     = "looks"      // SessionArgs → []LookView
 	OpLookTile  = "look_tile"  // LookArgs → Media (image/jpeg): the speaker's tile
@@ -186,6 +191,37 @@ type VoiceArgs struct {
 	To string `json:"to,omitempty"`
 }
 
+// RelabelArgs names a voice profile (relabel_profile_meetings) or a batch
+// of relabels to reverse (undo_relabel).
+type RelabelArgs struct {
+	Model string `json:"model,omitempty"`
+	ID    string `json:"id,omitempty"`
+	Batch string `json:"batch,omitempty"`
+}
+
+// RelabelResult is what a relabel (or its undo) changed, and the labels
+// it left alone and why.
+type RelabelResult struct {
+	Batch   string          `json:"batch"`
+	Changed []RelabelChange `json:"changed"`
+	Left    []RelabelLeft   `json:"left"`
+}
+
+// RelabelChange is one label renamed in one session.
+type RelabelChange struct {
+	Session  string `json:"session"`
+	OldLabel string `json:"old_label"`
+	NewLabel string `json:"new_label"`
+	Lines    int    `json:"lines"`
+}
+
+// RelabelLeft is a label carrying an old name that wasn't renamed.
+type RelabelLeft struct {
+	Session string `json:"session"`
+	Label   string `json:"label"`
+	Why     string `json:"why"`
+}
+
 type LookArgs struct {
 	Session string `json:"session"`
 	Look    int    `json:"look"`
@@ -252,6 +288,9 @@ type VoiceProfileView struct {
 	Face         *TileRef           `json:"face,omitempty"`
 	InUse        bool               `json:"inUse"`
 	Confirmed    bool               `json:"confirmed"`
+	// Aliases are the profile's earlier names (renamed from, or merged
+	// in): what relabel_profile_meetings takes off meeting labels.
+	Aliases []string `json:"aliases,omitempty"`
 }
 
 type NamedByVoiceView struct {

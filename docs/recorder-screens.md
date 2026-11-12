@@ -185,8 +185,9 @@ rename_speaker, not_them, skip_voice_name, skip_voice_doubt, voices,
 rename_voice, merge_voices, keep_apart, forget_voice, start_over,
 confirm_voice, remove_voice_meeting, move_voice_meeting, learn_saved,
 voice_clip, discarded_clip, looks, look_tile, delete_session, tools,
-fix_tool, reload_config, and (2026-11-12, for Settings → Models)
-models and download_model. Types and a client are in
+fix_tool, reload_config, (2026-11-12, for Settings → Models)
+models and download_model, and (2026-11-12) relabel_profile_meetings and
+undo_relabel. Types and a client are in
 `internal/recorder/control`.
 
 The live feed gains message types old readers ignore: `status`
@@ -210,7 +211,9 @@ and, if found, a source with signal), `diag` (live labelling) and `look`
 - **Re-extraction cost.** A renamed speaker changes the session file, so
   that meeting is re-extracted (one meeting's hosted calls), rather than
   only relabelling existing statements whose wording may assume the wrong
-  speaker. Statement counts are checked after, as for any re-run.
+  speaker. Statement counts are checked after, as for any re-run. A pure
+  label change is relabelled instead, with no model calls (`[recorder]
+  relabel`; "Renaming a voice profile renames its speakers", below).
 - **Control socket vs Musubi writing files.** The socket is a small
   protocol to maintain; writing files directly would race the recorder
   during a meeting and could lose a voice edit or a recording.
@@ -222,6 +225,111 @@ and, if found, a source with signal), `diag` (live labelling) and `look`
 - **Decided 2026-11-11** (owner): manual start and the source picker stay;
   diagnostics move to Status; the hint timeline joins the thinking view;
   build all of it and refine from there.
+
+## Renaming a voice profile renames its speakers (2026-11-12)
+
+**Known.** Renaming a profile (`rename_voice`) changes only the profile;
+its old name is kept in `Profile.Aliases`. The meetings it identified
+keep the old name in their speaker labels ("Person 3 (Corner Room 2)", a
+meeting room's tile, after the profile became "Ana Example"), and so do
+Musubi's copies: the item's lines, its passages ("Corner Room 2: ..."),
+statement holders and the
+prose written from them, digest people and to-do owners. Re-extracting
+those meetings would fix it at hosted cost, for a change that is only a
+label.
+
+**Proposal** (agreed with the owner; `[recorder] relabel`, default true;
+false keeps today's behaviour, profile rename only):
+
+1. **Recorder: `relabel_profile_meetings`** (model, profile id). In every
+   saved session the profile identified (its heard meetings, and sessions
+   whose `voice_names` or lines' `voice_match` name it by id), the labels
+   that carry one of its old names become the new name: "Person 3 (Corner
+   Room 2)" → "Person 3 (Ana Example)", a plain "ana@vendor.example" →
+   the new name.
+   Labels only; line text is never touched. A label the profile named
+   (voice name or voice match) qualifies by itself. In a session the
+   profile only heard, one label carrying the old name is it; when
+   several do (a room tile covers everyone in the room), only those whose
+   voice in the session's fingerprints is as like the profile as naming
+   requires (`Threshold`) qualify, or, with no fingerprints, the one
+   speaking during the profile's clip; the others are listed as left
+   alone, as are the others once one speaker there has the profile's name.
+   Only the recorder's own sessions are written, never the one
+   recording or being saved. Each relabel (batch, session, old label, new
+   label) is appended to `relabels.jsonl` in the recorder's folder;
+   `undo_relabel` (batch) reverses a batch. The reply lists what changed
+   and what was left. It works for a rename made earlier, too.
+2. **Musubi: a relabel of its stored copies with no model calls**
+   (`pipeline.Runner.RelabelSpeaker`, applied by
+   `store.RelabelSpeaker` in one transaction). The item is taken as ingest
+   will translate the rewritten `session.json` (or, without the file, by
+   name); it must differ from the stored one in speakers only and give the
+   same passage boundaries, else nothing is changed and the meeting is
+   left to a normal update. Rewritten: the item's lines, participants and
+   `content_hash`; passages' speaker prefixes, speaker lists and text
+   hashes (judgements anchored to them follow); statement holders (by the
+   speaker of the line each cites; a name gone from the meeting
+   everywhere), `holder_id`, `who`; digest section people, to-do owners
+   and requester. Prose written from the label (statement text, section
+   and to-do text, the overview, and a thread's name, summary and status
+   when no statement of the thread still has the old name) changes only
+   for an old name that is gone from the meeting and never spoken in it,
+   as a whole word. Stamps: the chunk stamp is rewritten, and the stamp it
+   replaces is kept (`chunk-relabelled`) so the knowledge stages see that
+   their stored output came from the same passages before the relabel and
+   restamp instead of extracting or digesting again (or, for output kept
+   from an earlier version, restamp its input, so it stays kept rather
+   than counting as changed input); thread statuses are
+   restamped in the transaction. Changed passages and statements are
+   re-embedded with the local embedder afterwards (left to the next update
+   if it is down). `raw_manifest` is not touched: the next import of the
+   rewritten file translates to the same `content_hash`, so ingest sees no
+   change. A before-and-after record of every field (`speaker_relabels`)
+   makes it undoable. Then the deterministic local steps run as on any
+   import that brings a new name (registry, links, classify, resolve):
+   entities follow the speakers, so the old name's speaker-only entity
+   goes when no meeting has that speaker any more, and the new name
+   joins a directory person when it matches exactly one.
+   The CLI does the same: `musubi relabel --profile MODEL/ID`, `--item ID
+   --session FILE` or `--from X --to Y`, and `--undo BATCH`.
+3. **App.** After a profile rename: "Also rename them in the N meetings
+   where their voice was recognised" (checked). A profile whose aliases
+   hold an old name gets "Rename in meetings". Refused while an update
+   runs; shows "Renamed in N meetings" with Undo (the recorder's batch,
+   then Musubi's records). Renaming a speaker on a saved meeting uses the
+   same relabel when it is a pure label change.
+
+**Trade-offs.** A label is the evidence a statement's holder came from,
+so relabelling statements keeps them true to the transcript; prose that
+names the old label is rewritten only where the old name cannot mean
+anything else (gone from the meeting, never spoken). Where it is still
+in use (another speaker kept it) prose is left and counted. Passages
+whose boundaries would move need a re-extraction, so the relabel refuses
+them: two speakers merged, or one split, as when a room's tile named two
+voices alike and only one is the profile's (Musubi's copy had them as one
+speaker; the dry run below). The recorder has then already relabelled its
+file: Undo puts it back, or a later import re-extracts that meeting.
+
+**Dry run (2026-11-12),** on a copy of the all-t4 backup and of the one
+affected session, for a profile renamed from a room tile: the recorder
+relabelled 84 lines of one diarized speaker and left the other speaker
+with the tile's name, whose voice was 0.39 like the profile (the
+transcript suggests that one is the person the new name belongs to, so the
+profile may be someone else's voice: the owner checks its clip first).
+Musubi refused that relabel (the passages would break at the new speaker
+change) and wrote nothing. Relabelling every line with the tile's name
+instead (the session file rewritten that way, or by name): 115 lines, 37
+passages, 54 holders, 49 statement texts, 12 digest sections, 1 to-do, 1
+thread name and summary and its status, 37 passages and 49 statements
+embedded again locally; statements 38,696 and thread items 36,512 before
+and after; the import of the rewritten file then fetched 1, changed 0
+and ran no stage; the knowledge plan was the same before and after (820
+items waiting, from the dataset's held backlog); no hosted call (the
+spend ledger stayed empty). The registry, links, classify and resolve
+re-ran for all 1,593 items (local, part of the 27 s run). The old name's
+speaker-only entity went; the new name joined one directory person. The
+room's calendar resource, which has the tile's name, was left as it is.
 
 ## Keeping the recorder running (2026-11-12)
 

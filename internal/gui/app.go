@@ -24,11 +24,12 @@ import (
 
 type App struct {
 	ctx context.Context
-	// qcache: see queueCache.
-	qcache queueCache
-	eng    *engine.Engine
-	live   *live.Live
-	err    string
+	// qcache: see queueCache. recMedia: see mediaCache.
+	qcache   queueCache
+	recMedia mediaCache
+	eng      *engine.Engine
+	live     *live.Live
+	err      string
 
 	// cfgPath is the open dataset's config; liveCancel stops its live lane
 	// when another dataset is opened in this window.

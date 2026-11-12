@@ -497,7 +497,7 @@ func (a *App) updateSoon() {
 }
 
 // recorderMedia serves /recorder-media/clip?session=&start=&end= (a
-// voice clip, audio/mp4) and /recorder-media/{tile,thumb}/<session>/<look>
+// voice clip, audio/aac) and /recorder-media/{tile,thumb}/<session>/<look>
 // (image/jpeg) from the recorder, to the app's own webview. Ids are
 // checked before anything is asked; types are fixed, not taken from the
 // reply.
@@ -515,7 +515,7 @@ func (a *App) recorderMedia(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		op, ctype, args = control.OpVoiceClip, "audio/mp4", control.VoiceClip{Session: sid, Start: s, End: e}
+		op, ctype, args = control.OpVoiceClip, "audio/aac", control.VoiceClip{Session: sid, Start: s, End: e}
 	default:
 		parts := strings.Split(rest, "/")
 		if len(parts) != 3 || (parts[0] != "tile" && parts[0] != "thumb") || !validSession(parts[1]) {
@@ -533,15 +533,58 @@ func (a *App) recorderMedia(w http.ResponseWriter, r *http.Request) {
 		}
 		ctype, args = "image/jpeg", control.LookArgs{Session: parts[1], Look: look}
 	}
-	var m control.Media
-	if err := a.recCall(op, args, &m); err != nil || len(m.Data) == 0 {
-		http.NotFound(w, r)
-		return
+	// The webview asks for a clip in several range requests; each was a
+	// fresh cut by the recorder. A small cache answers the rest.
+	key := op + "|" + r.URL.RequestURI()
+	data, ok := a.recMedia.get(key)
+	if !ok {
+		var m control.Media
+		if err := a.recCall(op, args, &m); err != nil || len(m.Data) == 0 {
+			http.NotFound(w, r)
+			return
+		}
+		data = m.Data
+		a.recMedia.put(key, data)
 	}
 	w.Header().Set("Content-Type", ctype)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, max-age=300")
-	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(m.Data))
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
+}
+
+// mediaCache keeps the last few clips and tiles the webview asked for.
+// Recordings don't change under a clip or a look once saved, and an
+// edit that would (a speaker renamed) doesn't change their audio or
+// images.
+type mediaCache struct {
+	mu    sync.Mutex
+	order []string
+	items map[string][]byte
+}
+
+const mediaCacheSize = 64
+
+func (c *mediaCache) get(k string) ([]byte, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	b, ok := c.items[k]
+	return b, ok
+}
+
+func (c *mediaCache) put(k string, b []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.items == nil {
+		c.items = map[string][]byte{}
+	}
+	if _, ok := c.items[k]; !ok {
+		c.order = append(c.order, k)
+	}
+	c.items[k] = b
+	for len(c.order) > mediaCacheSize {
+		delete(c.items, c.order[0])
+		c.order = c.order[1:]
+	}
 }
 
 // validClip: a clip of at most a minute, within a meeting's first day.

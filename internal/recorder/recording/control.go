@@ -135,7 +135,7 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 		if err != nil {
 			return nil, err
 		}
-		return control.Media{Type: "audio/mp4", Data: b}, nil
+		return control.Media{Type: "audio/aac", Data: b}, nil
 	case control.OpDiscardedClip:
 		var p control.VoiceArgs
 		if err := decode(args, &p); err != nil {

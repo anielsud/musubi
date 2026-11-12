@@ -272,8 +272,14 @@ func TestRecorderMedia(t *testing.T) {
 		return w
 	}
 	w := get("/recorder-media/clip?session=" + sessA + "&start=12.5&end=20")
-	if w.Code != 200 || w.Body.String() != "clip-bytes" || w.Header().Get("Content-Type") != "audio/mp4" {
+	if w.Code != 200 || w.Body.String() != "clip-bytes" || w.Header().Get("Content-Type") != "audio/aac" {
 		t.Errorf("clip: %d %q %q", w.Code, w.Header().Get("Content-Type"), w.Body.String())
+	}
+	// The webview's next range request is answered from the cache, not by
+	// cutting the clip again.
+	asked := len(f.ops())
+	if w := get("/recorder-media/clip?session=" + sessA + "&start=12.5&end=20"); w.Code != 200 || w.Body.String() != "clip-bytes" || len(f.ops()) != asked {
+		t.Errorf("second ask: %d %q, recorder asked again: %v", w.Code, w.Body.String(), len(f.ops()) != asked)
 	}
 	if w := get("/recorder-media/tile/" + sessA + "/42"); w.Code != 200 || w.Header().Get("Content-Type") != "image/jpeg" {
 		t.Errorf("tile: %d", w.Code)

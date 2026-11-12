@@ -74,7 +74,7 @@ const (
 	OpRemoveVoiceMeeting = "remove_voice_meeting" // VoiceArgs (Session) → -
 	OpMoveVoiceMeeting   = "move_voice_meeting"   // VoiceArgs (Session, To = profile ID, or Name = a new profile's) → -
 	OpLearnSaved         = "learn_saved"          // - → Count
-	OpVoiceClip          = "voice_clip"           // VoiceClip → Media (audio/mp4)
+	OpVoiceClip          = "voice_clip"           // VoiceClip → Media (audio/aac, ADTS)
 	OpDiscardedClip      = "discarded_clip"       // VoiceArgs (Session) → VoiceClip
 
 	OpLooks     = "looks"      // SessionArgs → []LookView

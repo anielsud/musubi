@@ -470,10 +470,12 @@ func (a *Recorder) cutVoiceClip(clip VoiceClip) ([]byte, error) {
 	// A meeting with a mic has three tracks: the mix, the mic, the meeting
 	// (session.SaveAudioM4A); one with a single source has just it.
 	for _, track := range []string{"0:a:2", "0:a:0"} {
-		// A fragmented MP4 needs no seeking back, so it can go to a pipe.
+		// Raw AAC in ADTS frames: it streams from a pipe like the fragmented
+		// MP4 did, but WebKit starts playing it at once, where a fragmented
+		// MP4 made the app's webview lag before a clip played.
 		cmd := exec.Command(ffmpeg, "-v", "error", "-ss", fmt.Sprintf("%.2f", clip.Start), "-t", fmt.Sprintf("%.2f", dur),
 			"-i", path, "-map", track, "-ac", "1", "-ar", "16000", "-c:a", "aac", "-b:a", "48k",
-			"-f", "mp4", "-movflags", "frag_keyframe+empty_moov+default_base_moof", "pipe:1")
+			"-f", "adts", "pipe:1")
 		var out bytes.Buffer
 		cmd.Stdout = &out
 		if cmd.Run() == nil && out.Len() > minClipBytes {
@@ -483,8 +485,8 @@ func (a *Recorder) cutVoiceClip(clip VoiceClip) ([]byte, error) {
 	return nil, fmt.Errorf("couldn't cut the clip")
 }
 
-// minClipBytes is more than an MP4's headers alone: an ffmpeg run that
-// found no audio for the track writes those and nothing else.
+// minClipBytes is more than a few stray frames: an ffmpeg run that found
+// no audio for the track writes little or nothing.
 const minClipBytes = 1024
 
 // unforgetVoice lets a name the user just gave be learnt again, if it

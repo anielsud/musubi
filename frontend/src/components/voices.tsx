@@ -79,13 +79,20 @@ export function Play({ clip }: { clip: VoiceClip }) {
     if (on) { el.current?.pause(); setOn(false); return; }
     playing?.pause();
     stopPlaying?.();
-    const a = new Audio(clipURL(clip));
-    el.current = a;
-    playing = a;
-    stopPlaying = () => setOn(false);
-    a.onended = () => setOn(false);
-    a.onpause = () => setOn(false);
-    a.play().then(() => setOn(true), () => setOn(false));
+    // One fetch, played from memory: WebKit otherwise streams the clip in
+    // range requests and waits on each before it starts.
+    setOn(true);
+    fetch(clipURL(clip)).then((r) => (r.ok ? r.blob() : Promise.reject(r.status))).then((b) => {
+      const url = URL.createObjectURL(b);
+      const a = new Audio(url);
+      el.current = a;
+      playing = a;
+      stopPlaying = () => setOn(false);
+      const done = () => { setOn(false); URL.revokeObjectURL(url); };
+      a.onended = done;
+      a.onpause = done;
+      return a.play();
+    }).catch(() => setOn(false));
   };
   return <button className="icon-btn play" title="Play a few seconds" onClick={toggle}>{on ? '■' : '▶'}</button>;
 }

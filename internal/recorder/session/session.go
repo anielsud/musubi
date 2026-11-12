@@ -31,6 +31,23 @@ type Session struct {
 	// any name Tomoe finds for it (the meeting window's, a calendar
 	// event's).
 	TitleSet bool `json:"title_set,omitempty"`
+	// Returned are speakers the user took out of a voice profile ("Not
+	// them" on one of its meetings): their labels went back to unnamed,
+	// and the Voices page asks who they are whatever their age or length.
+	// Musubi's recorder only; Tomoe ignores the key.
+	Returned []ReturnedVoice `json:"returned_voices,omitempty"`
+}
+
+// ReturnedVoice is a speaker a voice profile named until the user said
+// it wasn't them.
+type ReturnedVoice struct {
+	Label   string    `json:"label"` // the speaker's label now ("Person 3")
+	Name    string    `json:"name"`  // the profile's name when it was taken out
+	Profile string    `json:"profile"`
+	Model   string    `json:"model"`
+	At      time.Time `json:"at"`
+	// Skipped: the user couldn't tell who it is; not asked again.
+	Skipped bool `json:"skipped,omitempty"`
 }
 
 // VoiceName is a speaker a voice profile named.

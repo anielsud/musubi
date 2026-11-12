@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/anielsud/musubi/internal/engine"
 	"github.com/anielsud/musubi/internal/pipeline"
+	"github.com/anielsud/musubi/internal/recorder/control"
 )
 
 // Speaker relabels (docs/recorder-screens.md, "Renaming a voice profile
@@ -112,4 +114,92 @@ func (a *App) relabelRenamedSpeaker(session string) bool {
 	}
 	a.afterRelabel()
 	return true
+}
+
+// ReturnVoiceResult is what "Not them" on a profile's meeting did.
+type ReturnVoiceResult struct {
+	Recorder *control.ReturnResult `json:"recorder"`
+	// Relabelled: the speakers went back to unnamed (Recorder.Changed),
+	// in the recorder's file and Musubi's copy. Why, when not, says why
+	// the labels were left as they were.
+	Relabelled bool                  `json:"relabelled"`
+	Why        string                `json:"why,omitempty"`
+	Musubi     *engine.RelabelResult `json:"musubi,omitempty"`
+}
+
+// ReturnVoiceMeeting is "Not them" on one of a voice profile's meetings
+// (docs/recorder-screens.md, "Not them sends the voice back"): the
+// recorder takes the meeting out of the profile and, when Musubi can take
+// the change in without re-extracting the meeting, puts the speakers the
+// profile named there back to unnamed, so they are asked about again;
+// Musubi's copy is relabelled to match. When Musubi would have to
+// re-extract, the labels stay as they are and Why says so.
+func (a *App) ReturnVoiceMeeting(model, id, session string) (*ReturnVoiceResult, error) {
+	if err := a.requireEditable(); err != nil {
+		return nil, err
+	}
+	if model == "" || len(model) > 100 || !validProfileID(id) {
+		return nil, fmt.Errorf("a voice profile is needed")
+	}
+	if !validSession(session) {
+		return nil, fmt.Errorf("not a session id")
+	}
+	args := control.ReturnArgs{Model: model, ID: id, Session: session}
+	out := &ReturnVoiceResult{}
+	if !a.eng.Cfg.Recorder.Relabel {
+		var rr control.ReturnResult
+		if err := a.recCall(control.OpReturnVoiceMeeting, args, &rr); err != nil {
+			return nil, err
+		}
+		a.emit("voices:changed", nil)
+		out.Recorder, out.Why = &rr, "renaming in meetings is off ([recorder] relabel = false)"
+		return out, nil
+	}
+	done, err := a.beginRelabel()
+	if err != nil {
+		return nil, err
+	}
+	reimport := false
+	defer func() {
+		done()
+		a.afterRelabel()
+		if reimport {
+			a.updateSoon()
+		}
+	}()
+
+	preview := args
+	preview.Relabel, preview.Preview = true, true
+	var pre control.ReturnResult
+	if err := a.recCall(control.OpReturnVoiceMeeting, preview, &pre); err != nil {
+		return nil, err
+	}
+	args.Relabel = len(pre.Changed) > 0
+	if args.Relabel {
+		// Asked before anything changes: a relabel Musubi refuses would
+		// leave the recorder's file and Musubi's copy apart until a
+		// re-extraction.
+		if err := a.eng.CheckRelabelSession(a.ctx, session, pre.Session); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			args.Relabel = false
+			out.Why = "Musubi would have to read that meeting again to take the change in, so its labels were left as they were (" + err.Error() + ")"
+		}
+	}
+	var rr control.ReturnResult
+	if err := a.recCall(control.OpReturnVoiceMeeting, args, &rr); err != nil {
+		return nil, err
+	}
+	rr.Session = nil
+	out.Recorder = &rr
+	if !args.Relabel || len(rr.Changed) == 0 {
+		return out, nil
+	}
+	out.Relabelled = true
+	res, err := a.eng.RelabelMeeting(a.ctx, io.Discard, session, rr.Batch)
+	out.Musubi = res
+	if err != nil {
+		// Not in Musubi yet, or changed since the check: the next import
+		// takes the file in.
+		reimport = true
+	}
+	return out, nil
 }

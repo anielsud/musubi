@@ -155,6 +155,13 @@ func TestRelabelSpeaker(t *testing.T) {
 	// The recorder relabels s-1's file; Musubi relabels its copies.
 	relabelled := writeRelabelSession(t, sessions, "s-1", "Person 3 (Ana Example)", "Person 4 (Bo Example)", "You", "Person 3 (Ana Example)")
 	calls := llm.calls.Load()
+	// A check says it holds and writes nothing.
+	if rep, err := r.RelabelSpeaker(ctx, RelabelRequest{ItemID: "tomoe:s-1", Session: relabelled, Check: true}); err != nil || rep.Lines != 2 {
+		t.Fatalf("check: %+v, %v", rep, err)
+	}
+	if n := count(t, db, `SELECT count(*) FROM items WHERE id = 'tomoe:s-1' AND segments LIKE '%Corner Tile%'`); n != 1 {
+		t.Error("the check wrote the item")
+	}
 	rep, err := r.RelabelSpeaker(ctx, RelabelRequest{ItemID: "tomoe:s-1", Session: relabelled, Batch: "b1"})
 	if err != nil {
 		t.Fatal(err)

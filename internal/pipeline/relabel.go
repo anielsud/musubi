@@ -40,6 +40,10 @@ type RelabelRequest struct {
 	Old, New string
 	// Batch ties the record to the recorder's relabel, for undo.
 	Batch string
+	// Check stops once the relabel is known to hold (the passages break
+	// the same), writing nothing: whether Session can be taken in
+	// without a re-extraction.
+	Check bool
 }
 
 // RelabelReport is what a relabel (or its undo) changed.
@@ -215,6 +219,9 @@ func (r *Runner) RelabelSpeaker(ctx context.Context, req RelabelRequest) (*Relab
 		}
 	}
 	rep.Passages = len(plan.Chunks)
+	if req.Check {
+		return rep, nil
+	}
 
 	// Who each passage line is, before and after (1-based, as statements
 	// cite them).

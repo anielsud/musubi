@@ -262,6 +262,16 @@ cold lane like any other source.
   85% like the profile, the rest behind "+N more that fit well". A
   meeting learnt live, from name reads the saved meeting doesn't keep,
   can rebuild a slightly different set (shown as "N of M fingerprints").
+- **Voices review index**: the recorder gathers the Voices page's review
+  lists (who's this, 90 days, plus any voice taken out of a profile with
+  "Not them"; named by voice and window or voice, 14 days) once in the
+  background at start and keeps them in memory, reading a session again
+  when it saves it or its files change on disk; the Voices op reads the
+  index (`reviewindex.go`; recorder-screens.md, "Voice profile edits
+  after samples"). "Not them" on a profile's meeting
+  (`return_voice_meeting`) takes the meeting out of the profile and puts
+  its profile-named speakers back to unnamed through the cheap relabel,
+  checked first with `pipeline.RelabelRequest.Check`.
 - **Models and providers** (Settings): AI providers lists the AI
   Gateway, custom providers (`[providers.*]`), Ollama and **ONNX (this
   Mac)**: the recorder's models (transcription, live text, speaker

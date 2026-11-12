@@ -3,7 +3,7 @@
 import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LivePrep, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
 import type { ResSnapshot } from './types';
 import type { ProfileSamples, SampleArgs } from './types';
-import type { LookView, MeetingSpeakers, RecDiag, RecordingModels, RecordingSettings, RecorderView, RecSources, RecStatus, RelabelResult, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
+import type { LookView, MeetingSpeakers, RecDiag, RecordingModels, RecordingSettings, RecorderView, RecSources, RecStatus, RelabelResult, ReturnVoiceResult, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -123,6 +123,7 @@ export const api = {
   learnSaved: (): Promise<number> => app().LearnSaved(),
   relabelProfileMeetings: (model: string, id: string): Promise<RelabelResult> => app().RelabelProfileMeetings(model, id),
   undoRelabel: (batch: string): Promise<RelabelResult> => app().UndoRelabel(batch),
+  returnVoiceMeeting: (model: string, id: string, session: string): Promise<ReturnVoiceResult> => app().ReturnVoiceMeeting(model, id, session),
   discardedClip: (model: string, id: string, session: string): Promise<VoiceClip> => app().DiscardedClip(model, id, session),
   meetingSpeakers: (itemId: string): Promise<MeetingSpeakers | null> => app().MeetingSpeakers(itemId),
   deleteMeeting: (itemId: string): Promise<void> => app().DeleteMeeting(itemId),

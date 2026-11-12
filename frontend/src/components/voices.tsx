@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, clipURL, on, tileURL } from '../api';
-import type { NamedByVoice, RelabelResult, SameNamePair, TileRef, UnknownVoice, VoiceArgs, VoiceClip, VoiceDoubt, VoicePair, VoiceProfile, VoicesView } from '../types';
+import type { NamedByVoice, RelabelResult, ReturnVoiceResult, SameNamePair, TileRef, UnknownVoice, VoiceArgs, VoiceClip, VoiceDoubt, VoicePair, VoiceProfile, VoicesView } from '../types';
 import { Spinner } from './common';
 import { MeetingLink, recordingItem, useItemsExist } from './nav';
 import { FullName } from './people';
@@ -27,6 +27,13 @@ export function useVoices() {
   const [view, setView] = useState<VoicesView | null>(null);
   const [err, setErr] = useState('');
   const load = () => api.voices().then((v) => { setView(v); setErr(''); }, (e) => { setView(null); setErr(String(e)); });
+  // The recorder gathers the review lists once after it starts: asked
+  // again until they are in.
+  useEffect(() => {
+    if (!view?.building) return;
+    const t = setTimeout(load, 2000);
+    return () => clearTimeout(t);
+  }, [view]);
   useEffect(() => {
     load();
     // recorder:conn: the recorder came back (a restart, or Musubi opened
@@ -83,9 +90,10 @@ export function useAct() {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [err, setErr] = useState('');
-  const act = (key: string, f: () => Promise<unknown>, done = '') => {
+  // done is the note, or makes it from what f returned.
+  const act = <T,>(key: string, f: () => Promise<T>, done: string | ((r: T) => string) = '') => {
     setBusy(key); setErr(''); setNote('');
-    f().then(() => { setBusy(null); setNote(done); }, (e) => { setBusy(null); setErr(String(e)); });
+    f().then((r) => { setBusy(null); setNote(typeof done === 'function' ? done(r) : done); }, (e) => { setBusy(null); setErr(String(e)); });
   };
   return { busy, note, err, act };
 }
@@ -192,6 +200,7 @@ export function ReviewItems({ view, session, editable, a, showTitle = true }: {
     ? <>{lead}<MeetingLink session={x.session} title={x.title || x.session.slice(0, 8)} found={found} /> · {day(x.at)}</> : null);
   return (
     <>
+      {view.building && <div className="dim small"><Spinner /> Gathering voices to check from recent meetings: building…</div>}
       {named.length > 0 && <>
         <div className="review-head">Named by voice</div>
         <p className="dim small">A voice profile named these speakers, not the meeting window or you. Play them and say if they&apos;re right: either answer teaches the profile.</p>
@@ -212,7 +221,8 @@ export function ReviewItems({ view, session, editable, a, showTitle = true }: {
         <div className="review-head">Who&apos;s this?</div>
         <p className="dim small">Voices nobody has named. Naming one names them in that meeting and teaches their profile.</p>
         {unknown.map((u) => <UnknownRow key={`u/${u.session}/${u.label}`} u={u} others={[clipOf(u.soundsLike)]} where={where(u, 'in ')} editable={editable} busy={a.busy === `${u.session}/${u.label}`}
-          onName={(name) => sp('rename_speaker', u.session, u.label, name, `Named ${bare(u.label)} ${name}.`)} />)}
+          onName={(name) => sp('rename_speaker', u.session, u.label, name, `Named ${bare(u.label)} ${name}.`)}
+          onSkip={() => sp('skip_returned_voice', u.session, u.label, '', 'Won’t ask about that one again.')} />)}
       </>}
       {pairs.length > 0 && <>
         <div className="review-head">Same person?</div>
@@ -282,12 +292,13 @@ function DoubtRow({ d, others, where, editable, busy, onName, onSkip }: {
   );
 }
 
-function UnknownRow({ u, others, where, editable, busy, onName }: { u: UnknownVoice; others: (Other | null)[]; where: ReactNode; editable: boolean; busy: boolean; onName: (n: string) => void }) {
+function UnknownRow({ u, others, where, editable, busy, onName, onSkip }: { u: UnknownVoice; others: (Other | null)[]; where: ReactNode; editable: boolean; busy: boolean; onName: (n: string) => void; onSkip: () => void }) {
   return (
     <div className="voice-row">
       <Heard clip={u.clip} others={others} />
       <div className="voice-body">
         <div><b>{bare(u.label)}</b> <span className="dim small">{where}{where ? ' · ' : ''}spoke {spoke(u.seconds)}</span></div>
+        {u.returned && <div className="dim small">You said this isn&apos;t {u.returnedFrom ? <FullName name={u.returnedFrom} /> : 'the voice profile that named them'}: who is it?</div>}
         {u.soundsLike && (
           <div className="dim small">
             {(u.similarity ?? 0) >= 0.7 ? 'Sounds like' : 'Sounds a little like'} <FullName name={u.soundsLike} /> ({Math.round((u.similarity ?? 0) * 100)}%)
@@ -295,7 +306,10 @@ function UnknownRow({ u, others, where, editable, busy, onName }: { u: UnknownVo
           </div>
         )}
       </div>
-      {editable && <NameForm busy={busy} onName={onName} />}
+      {editable && <div className="voice-actions">
+        <NameForm busy={busy} onName={onName} />
+        {u.returned && <button disabled={busy} onClick={onSkip} title="Noise, crosstalk or you don't know: stop asking; the speaker stays unnamed">Can&apos;t tell</button>}
+      </div>}
     </div>
   );
 }
@@ -398,11 +412,36 @@ function MoveForm({ p, profiles, busy, onMove, onCancel }: {
   );
 }
 
+// MoreMenu is a "⋯" button opening a short menu of rarer actions.
+function MoreMenu({ items, disabled }: { items: { label: string; onClick: () => void }[]; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+  return (
+    <span className="more-menu" ref={ref}>
+      <button disabled={disabled} title="More" aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}>⋯</button>
+      {open && <span className="sel-menu" role="menu">
+        {items.map((it) => <button key={it.label} role="menuitem" onClick={() => { setOpen(false); it.onClick(); }}>{it.label}</button>)}
+      </span>}
+    </span>
+  );
+}
+
+// returned says what "Not them" did.
+const returnedNote = (name: string, r: ReturnVoiceResult) => (r.relabelled
+  ? `Took that meeting out of ${name}'s voice; the speaker is unnamed again and waits under “Who's this?”.`
+  : `Took that meeting out of ${name}'s voice. Its speaker labels were left as they were${r.why ? `: ${r.why}` : '.'}`);
+
 // VoiceProfileCard is one person's voice profile: its clip and tile, the
 // meetings it learnt from, and its edits.
 export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile; profiles: VoiceProfile[]; editable: boolean; a: Act }) {
   const [editing, setEditing] = useState(false);
-  const [confirming, setConfirming] = useState<'forget' | 'startOver' | null>(null);
+  const [confirming, setConfirming] = useState<'forget' | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -460,8 +499,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
             {!p.inUse && !p.startedOver && p.meetings > 0 && <button className="primary" disabled={busy} title="The clip is them: use this profile now" onClick={() => v('confirm_voice', {}, `${p.name}'s voice now names speakers.`)}>Confirm</button>}
             <button disabled={busy} onClick={() => setEditing(true)}>Rename</button>
             {relabel && oldNames(p).length > 0 && p.meetings > 0 && <button disabled={busy} title={`Put “${p.name}” on the speaker labels that still say ${oldNames(p).map((n) => `“${n}”`).join(' or ')}, in the meetings where this voice was recognised`} onClick={() => a.act(key, relabelMeetings)}>Rename in meetings</button>}
-            <button disabled={busy || p.startedOver} onClick={() => setConfirming('startOver')}>Start over</button>
-            <button disabled={busy} onClick={() => setConfirming('forget')}>Forget</button>
+            <MoreMenu disabled={busy} items={[{ label: 'Delete voice print', onClick: () => setConfirming('forget') }]} />
           </div>
         )}
       </div>
@@ -471,8 +509,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
           <button disabled={busy} onClick={() => undo(done)}>Undo</button><button onClick={() => setDone(null)}>OK</button>
         </div>
       )}
-      {confirming === 'forget' && confirmRow('Forget this voice for good? The name won’t be learnt again unless you name someone it.', 'Forget', () => { setConfirming(null); v('forget_voice', {}, `Forgot ${p.name}'s voice.`); }, () => setConfirming(null))}
-      {confirming === 'startOver' && confirmRow('Drop what’s learnt so far and learn from new meetings only?', 'Start over', () => { setConfirming(null); v('start_over', {}, `${p.name} starts over.`); }, () => setConfirming(null))}
+      {confirming === 'forget' && confirmRow(`Delete ${p.name}'s voice print and never learn the name '${p.name}' again — for someone who asked not to have their voice kept. Recordings and transcripts are unchanged.`, 'Delete voice print', () => { setConfirming(null); v('forget_voice', {}, `Deleted ${p.name}'s voice print.`); }, () => setConfirming(null))}
       {open && (
         <div className="voice-meetings">
           {heard.map((h) => {
@@ -495,11 +532,14 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
                 {editable && (moving === h.session
                   ? <MoveForm p={p} profiles={profiles} busy={busy} onMove={(to, label) => { setMoving(null); v('move_voice_meeting', { session: h.session, ...to }, `Moved that meeting to ${label}.`); }} onCancel={() => setMoving(null)} />
                   : removing === h.session
-                    ? confirmRow(`Not ${p.name}: discard what this meeting taught, for good?`, 'Discard', () => { setRemoving(null); v('remove_voice_meeting', { session: h.session }, 'Discarded that meeting.'); }, () => setRemoving(null))
+                    ? confirmRow(`Not ${p.name}: take this meeting out of ${p.name}'s voice and ask who it is under “Who's this?”`, 'Not them', () => {
+                        setRemoving(null);
+                        a.act(key, () => api.returnVoiceMeeting(p.model, p.id, h.session), (r) => returnedNote(p.name, r));
+                      }, () => setRemoving(null))
                     : <div className="voice-actions">
                         {check && <button className="primary" disabled={busy} title="You listened: this meeting's voice is theirs" onClick={() => v('confirm_voice_meeting', { session: h.session }, `Kept: that meeting is ${p.name}.`)}>Right, it&apos;s them</button>}
                         <button disabled={busy} title="This meeting's voice is someone else: teach their profile instead" onClick={() => setMoving(h.session)}>Someone else…</button>
-                        <button disabled={busy} title="Not them, and you can't tell who (or noise): throw it away" onClick={() => setRemoving(h.session)}>Discard</button>
+                        <button disabled={busy} title="Not them: take it out of this voice and ask who it is" onClick={() => setRemoving(h.session)}>Not them</button>
                       </div>)}
               </div>
             );
@@ -507,7 +547,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
           {out.map((h) => (
             <div key={'out/' + h.session} className="voice-row taken-out">
               <DiscardedPlay p={p} session={h.session} />
-              <div className="voice-body"><div className="small"><MeetingLink session={h.session} title={h.title || h.session.slice(0, 8)} found={found} /> <span className="dim">discarded: not learnt from</span></div></div>
+              <div className="voice-body"><div className="small"><MeetingLink session={h.session} title={h.title || h.session.slice(0, 8)} found={found} /> <span className="dim">not them: not learnt from</span></div></div>
               {editable && (moving === h.session
                 ? <MoveForm p={p} profiles={profiles} busy={busy} onMove={(to, label) => { setMoving(null); v('move_voice_meeting', { session: h.session, ...to }, `Moved that meeting to ${label}.`); }} onCancel={() => setMoving(null)} />
                 : <div className="voice-actions"><button disabled={busy} onClick={() => setMoving(h.session)}>Someone else…</button></div>)}
@@ -542,7 +582,7 @@ export function LearnButton({ a }: { a: Act }) {
 
 // AllVoices is every voice profile the recorder has (Tomoe's Voices
 // panel): find one by name, see which are confirmed or not used yet, and
-// open any to rename, confirm, start over, forget or fix its meetings.
+// open any to rename, confirm, delete its voice print or fix its meetings.
 export function AllVoices({ voices }: { voices: ReturnType<typeof useVoices> }) {
   const a = useAct();
   const editable = useEditable();

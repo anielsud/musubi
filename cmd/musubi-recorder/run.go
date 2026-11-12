@@ -47,7 +47,7 @@ saves a recording in progress before exiting.`,
 
 func init() {
 	runCmd.Flags().String("data", defaultDataDir(), "the recorder's data folder (never Tomoe's)")
-	runCmd.Flags().String("musubi-config", config.MusubiPath(), "Musubi's config file, whose [recorder.*] tables override Tomoe's settings ($MUSUBI_CONFIG)")
+	runCmd.Flags().String("musubi-config", "", "Musubi's config file, whose [recorder.*] tables override Tomoe's settings (default: $MUSUBI_CONFIG, else the one the Musubi app last named, else ~/.config/musubi/config.toml)")
 	rootCmd.AddCommand(runCmd)
 }
 
@@ -58,6 +58,9 @@ func runRecorder(dataFlag, musubiConfig string) error {
 	}
 	if err := os.MkdirAll(config.SessionDir(), 0o700); err != nil {
 		return err
+	}
+	if musubiConfig == "" {
+		musubiConfig = config.ResolveMusubiPath(dir)
 	}
 	cfg, err := loadConfig(musubiConfig)
 	if err != nil {

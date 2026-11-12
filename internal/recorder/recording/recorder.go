@@ -203,7 +203,6 @@ func (a *Recorder) Start(ctx context.Context) error {
 
 // SetMusubiConfig points the recorder at Musubi's config file for
 // reload_config and the config watcher (config.MusubiPath by default).
-// Call before Start.
 func (a *Recorder) SetMusubiConfig(path string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

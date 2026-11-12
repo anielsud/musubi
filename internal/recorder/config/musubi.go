@@ -34,6 +34,39 @@ func MusubiPath() string {
 	return filepath.Join(home, ".config", "musubi", "config.toml")
 }
 
+// musubiPathFile, in the recorder's data folder, holds the config file the
+// Musubi app said it uses (reload_config): the app opens a dataset's own
+// config, not always ~/.config/musubi/config.toml, and the recorder must
+// read the same file after a restart too.
+const musubiPathFile = "musubi-config"
+
+// ResolveMusubiPath is the Musubi config the recorder reads: $MUSUBI_CONFIG
+// if set, else the one the app last named (StoreMusubiPath), else
+// MusubiPath's default.
+func ResolveMusubiPath(dataDir string) string {
+	if p := os.Getenv("MUSUBI_CONFIG"); p != "" {
+		return p
+	}
+	if b, err := os.ReadFile(filepath.Join(dataDir, musubiPathFile)); err == nil {
+		if p := string(bytes.TrimSpace(b)); p != "" {
+			return p
+		}
+	}
+	return MusubiPath()
+}
+
+// StoreMusubiPath records path (absolute, an existing .toml file) as the
+// Musubi config to read from now on.
+func StoreMusubiPath(dataDir, path string) error {
+	if !filepath.IsAbs(path) || filepath.Ext(path) != ".toml" {
+		return fmt.Errorf("not a Musubi config path: %q", path)
+	}
+	if st, err := os.Stat(path); err != nil || !st.Mode().IsRegular() {
+		return fmt.Errorf("no config file at %s", path)
+	}
+	return os.WriteFile(filepath.Join(dataDir, musubiPathFile), []byte(path+"\n"), 0o600)
+}
+
 // recorderSections are the [recorder.*] tables that overlay Tomoe's
 // sections of the same name. Of the top-level [recorder] keys only
 // of_record is read here (Config.MusubiOfRecord); data and since are the

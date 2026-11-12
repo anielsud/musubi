@@ -585,3 +585,22 @@ func TestOfRecordStopsVoiceCopy(t *testing.T) {
 		t.Errorf("back to Tomoe: voices copied %d times, want 1", n)
 	}
 }
+
+// reload_config naming the app's config file switches to it and keeps it
+// for the next start; of_record in that file then stops the voice copy.
+func TestReloadTakesAppConfig(t *testing.T) {
+	c := newControlled(t)
+	t.Setenv("MUSUBI_CONFIG", "")
+	app := filepath.Join(t.TempDir(), "config.toml")
+	os.WriteFile(app, []byte("[recorder]\nof_record = \"musubi\"\n"), 0o600)
+	c.must(t, control.OpReloadConfig, control.ReloadArgs{MusubiConfig: app}, nil)
+	if got := config.ResolveMusubiPath(config.DataDir()); got != app {
+		t.Errorf("stored path %s, want %s", got, app)
+	}
+	if !c.config().MusubiOfRecord {
+		t.Error("of_record from the app's file was not read")
+	}
+	if err := c.call(t, control.OpReloadConfig, control.ReloadArgs{MusubiConfig: "relative.toml"}, nil); err == nil {
+		t.Error("a relative path was taken")
+	}
+}

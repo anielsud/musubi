@@ -550,6 +550,11 @@ func (a *App) followRecorder(ctx context.Context, path string) {
 		a.rec.mu.Unlock()
 		if changed {
 			a.emit("recorder:conn", up)
+			if up {
+				// A recorder that just started may read another config
+				// file than this app's: tell it which one.
+				go a.reloadRecorder()
+			}
 		}
 	}
 	for ctx.Err() == nil {

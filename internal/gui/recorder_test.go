@@ -542,3 +542,18 @@ func TestRestartRecorder(t *testing.T) {
 		t.Fatalf("idle: err %v, kicked %v", err, kicked)
 	}
 }
+
+// The recorder is told which config file this app uses: a dataset's,
+// not the default it would find on its own.
+func TestReloadNamesAppConfig(t *testing.T) {
+	a, f, _, dir := testApp(t, "tomoe")
+	f.serve(t, a.eng.Cfg.RecorderControlSocket())
+	if err := a.reloadRecorder(); err != nil {
+		t.Fatal(err)
+	}
+	var args control.ReloadArgs
+	json.Unmarshal(f.last().Args, &args)
+	if f.last().Op != control.OpReloadConfig || args.MusubiConfig != filepath.Join(dir, "config.toml") {
+		t.Errorf("asked %s %+v", f.last().Op, args)
+	}
+}

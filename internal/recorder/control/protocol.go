@@ -54,7 +54,7 @@ const (
 	OpStop         = "stop"          // - → Status
 	OpSources      = "sources"       // - → Sources
 	OpSetSource    = "set_source"    // SetSourceArgs → Status (applies to the recording in progress, if any)
-	OpReloadConfig = "reload_config" // - → Status (re-read Musubi's [recorder] settings)
+	OpReloadConfig = "reload_config" // ReloadArgs (or none) → Status (re-read Musubi's [recorder] settings)
 
 	OpSession = "session"        // SessionArgs → session.Session as JSON (session.json, voice_names, voice_doubts included)
 	OpDelete  = "delete_session" // SessionArgs → - (refused for the recording in progress)
@@ -144,6 +144,12 @@ type StartArgs struct {
 type SetSourceArgs struct {
 	Kind string `json:"kind"` // "mic" or "system"
 	ID   string `json:"id"`
+}
+
+// ReloadArgs names the config file the Musubi app uses (its dataset's),
+// which the recorder reads from then on, restarts included.
+type ReloadArgs struct {
+	MusubiConfig string `json:"musubi_config,omitempty"`
 }
 
 type SessionArgs struct {

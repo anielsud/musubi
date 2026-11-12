@@ -58,6 +58,18 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 		}
 		return a.setSource(p)
 	case control.OpReloadConfig:
+		var p control.ReloadArgs
+		if len(args) > 0 {
+			if err := decode(args, &p); err != nil {
+				return nil, err
+			}
+		}
+		if p.MusubiConfig != "" {
+			if err := config.StoreMusubiPath(config.DataDir(), p.MusubiConfig); err != nil {
+				return nil, err
+			}
+			a.SetMusubiConfig(p.MusubiConfig)
+		}
 		return a.reloadConfig()
 
 	case control.OpSession:

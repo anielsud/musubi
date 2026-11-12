@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -284,9 +285,11 @@ func (a *App) afterRecorderEdit() error {
 }
 
 // reloadRecorder asks the recorder to read Musubi's [recorder] settings
-// again; not running is fine (it reads them when it starts).
+// again, from this app's config file (a dataset's, not necessarily the
+// default the recorder would find); not running is fine (it reads the
+// file it was last told when it starts).
 func (a *App) reloadRecorder() error {
-	err := a.recCall(control.OpReloadConfig, nil, nil)
+	err := a.recCall(control.OpReloadConfig, control.ReloadArgs{MusubiConfig: a.absCfgPath()}, nil)
 	if errors.Is(err, control.ErrNotRunning) {
 		return nil
 	}
@@ -294,4 +297,12 @@ func (a *App) reloadRecorder() error {
 		return fmt.Errorf("saved, but the recorder couldn't take it in: %w", err)
 	}
 	return nil
+}
+
+// absCfgPath is the app's config file as an absolute path.
+func (a *App) absCfgPath() string {
+	if p, err := filepath.Abs(a.cfgPath); err == nil {
+		return p
+	}
+	return a.cfgPath
 }

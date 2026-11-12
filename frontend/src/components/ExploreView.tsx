@@ -192,7 +192,7 @@ function VoiceReviews({ voices }: { voices: ReturnType<typeof useVoices> }) {
       </div>
       {!voices.view.enabled && <div className="dim small">Voice profiles are off (Settings → Recording): meetings don&apos;t teach them and nobody is named by voice.</div>}
       {!editable && n > 0 && <div className="dim small">{readOnlyWhy}</div>}
-      {n === 0 && <div className="dim small">Nothing to check.</div>}
+      {n === 0 && !voices.view.building && <div className="dim small">Nothing to check.</div>}
       {open && <ReviewItems view={voices.view} editable={editable} a={a} />}
       <ActNotes a={a} />
     </section>

@@ -186,8 +186,9 @@ rename_voice, merge_voices, keep_apart, forget_voice, start_over,
 confirm_voice, remove_voice_meeting, move_voice_meeting, learn_saved,
 voice_clip, discarded_clip, looks, look_tile, delete_session, tools,
 fix_tool, reload_config, (2026-11-12, for Settings → Models)
-models and download_model, and (2026-11-12) relabel_profile_meetings and
-undo_relabel. Types and a client are in
+models and download_model, (2026-11-12) relabel_profile_meetings and
+undo_relabel, and (2026-11-12) return_voice_meeting and
+skip_returned_voice. Types and a client are in
 `internal/recorder/control`.
 
 The live feed gains message types old readers ignore: `status`
@@ -330,6 +331,86 @@ spend ledger stayed empty). The registry, links, classify and resolve
 re-ran for all 1,593 items (local, part of the 27 s run). The old name's
 speaker-only entity went; the new name joined one directory person. The
 room's calendar resource, which has the tile's name, was left as it is.
+
+## Voice profile edits after samples (2026-11-12)
+
+**Known.** With samples on the profile card (a stretch that isn't the
+person is taken out one by one), "Start over" no longer earns its button;
+"Forget" is only needed when someone asks not to have their voice kept; a
+meeting row's "Discard" threw the meeting's voice away, so a speaker the
+profile wrongly named kept the profile's name in that meeting and was
+never asked about again. "Who's this?" covered 14 days. The Voices op read
+every session file twice per call (the titles of every meeting, then each
+recent one), 0.68 s warm and 3.2–3.4 s on the first call after start,
+on a copy of the recorder's 207 sessions (91 MB of `session.json`).
+
+**Agreed with the owner, built:**
+
+1. **Start over** leaves the profile card (`start_over` stays in the
+   protocol for compatibility).
+2. **Forget** becomes **Delete voice print**, behind a "⋯" menu on the
+   profile, confirmed with: "Delete <name>'s voice print and never learn
+   the name '<name>' again — for someone who asked not to have their voice
+   kept. Recordings and transcripts are unchanged." (`forget_voice`, as
+   before).
+3. **Not them sends the voice back.** A meeting row's "Discard" becomes
+   "Not them" (`return_voice_meeting`): the meeting is taken out of the
+   profile as before (`Store.ForgetMeeting`: never learnt from again),
+   and the speakers the profile gave a name there go back to unnamed
+   ("Person 3 (Ana)" → "Person 3"; a fresh "Person N" when another speaker
+   has that label or the label has no number, so two speakers never become
+   one). Which speakers: those the profile named by voice (`voice_names`,
+   lines' `voice_match`); in a meeting it learnt from the person's tile,
+   the label carrying its name, or of several (a room's tile) those whose
+   voice is the profile's, as a relabel picks them. Their voice names,
+   voice matches and doubts are dropped, and the session records them in
+   `returned_voices` (label, the profile's name, when), so "Who's this?"
+   shows them, with their clip and "You said this isn't <name>", whatever
+   their age or length. Naming one there renames the speaker (and, as any
+   rename, teaches the profiles: an existing one or a new one); "Can't
+   tell" (`skip_returned_voice`) stops asking and leaves it unnamed. The
+   labels change only through the cheap relabel: the app first asks the
+   recorder for the rewritten session without saving it (`preview`), asks
+   Musubi whether its copy can take it as a pure relabel
+   (`pipeline.RelabelRequest.Check`, which writes nothing), then has the
+   recorder save it (logged in `relabels.jsonl` under a batch) and
+   relabels Musubi's copy (`RelabelMeeting`), with no model calls. When
+   Musubi would refuse (passage boundaries would move) the recorder only
+   takes the meeting out of the profile, the labels stay, and the result
+   says so. A meeting Musubi hasn't imported yet is relabelled in the
+   recorder and imported as it is. With `[recorder] relabel = false` "Not
+   them" takes the meeting out and leaves the labels (Discard's
+   behaviour). "Someone else…" stays as the direct shortcut (move the
+   meeting to a profile or a new one).
+4. **"Who's this?" covers 90 days** (`unknownDays`); "Named by voice" and
+   "Window or voice?" stay at 14 (`reviewDays`): at 90 days the copy below
+   would list 26 voice-named speakers instead of none.
+5. **A review index in the recorder** (`reviewindex.go`). The review
+   lists are gathered once, in the background, when the recorder starts,
+   and kept in memory per session (title, date, the items, and each
+   nameless voice's fingerprint sum from `diarization.gob`, read uncached).
+   A session is read again when the recorder saves it (every save goes
+   through `saveSession`: answers, renames, relabels, a new recording, the
+   cut refinement), after the diarization worker rewrites it, and dropped
+   when deleted. Each Voices op stats the session folders and reads again
+   only a session whose `session.json` (or, with nameless voices, its
+   `diarization.gob`) changed on disk, which also catches writers outside
+   the recorder. What depends on the profiles ("sounds like", whether a
+   window's name has a profile) is worked out when the lists are read, so
+   a profile edit needs no update of the index. Until the first build is
+   done the Voices op returns `building: true` with empty lists, and the
+   app shows "building…" and asks again every 2 s. The index isn't
+   persisted.
+
+**Measured (2026-11-12)** on an APFS clone of the recorder's sessions and
+voices (207 sessions from 2026-09 to 2026-11, so 90 days is all of them;
+185 with fingerprints), warm disk cache, a test recorder pointed at the
+copy: the index builds in 0.73–0.78 s (10 nameless voices). The Voices op
+takes 14–15 ms after the build (stats and the profile view), against
+0.68 s before at 14 days and 0.81 s with the old code at 90 days. The
+first call after start still takes 2.5 s: it reads every meeting's
+`looks.jsonl` for the profiles' tiles (2.4 s for 411 profile meetings),
+cached after; before, that came on top of the session reads (3.2–3.8 s).
 
 ## Keeping the recorder running (2026-11-12)
 

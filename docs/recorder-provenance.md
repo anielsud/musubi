@@ -53,6 +53,9 @@ Files with no upstream-authored lines, copied with import paths changed:
     sessions are loaded by exact ID and edits refuse one still being
     saved, `cutVoiceClip` makes AAC in MP4 instead of WAV, and
     `PlayVoiceClip` and `GetLookTile` gave way to control ops.
+  - `reviewindex.go` (2026-11-12): reading a session's review items,
+    moved from `voices.go`'s `recentVoices` and `suggest` (owner
+    lines) into the review index; the index itself is new.
   - `speakers.go`: `RenameSpeaker` and `renameLines`, from
     `videohint.go` (owner lines; the upstream `a.fixSignals()` is not
     carried over), sending relabelled lines to the live feed instead of

@@ -96,6 +96,23 @@ func (e *Engine) RelabelMeeting(ctx context.Context, log io.Writer, sessionID, b
 	return res, nil
 }
 
+// CheckRelabelSession reports whether Musubi could take sessionJSON, a
+// rewrite of recording sessionID, in as a pure relabel, writing nothing:
+// nil if so; an error wrapping sql.ErrNoRows when Musubi doesn't have the
+// meeting yet (its next import takes the file as it is), else one saying
+// why not (pipeline.ErrNotLabelOnly: only a re-extraction could).
+func (e *Engine) CheckRelabelSession(ctx context.Context, sessionID string, sessionJSON []byte) error {
+	if sessionID == "" || sessionID == "." || sessionID == ".." || filepath.Base(sessionID) != sessionID || strings.ContainsAny(sessionID, `/\`) {
+		return fmt.Errorf("not a session id: %q", sessionID)
+	}
+	r, err := e.Runner(nil, io.Discard)
+	if err != nil {
+		return err
+	}
+	_, err = r.RelabelSpeaker(ctx, pipeline.RelabelRequest{ItemID: tomoe.Name + ":" + sessionID, Session: sessionJSON, Check: true})
+	return err
+}
+
 // RelabelByName relabels Musubi's copy of one item by speaker name (no
 // session file: the CLI's way, and for meetings imported from elsewhere).
 func (e *Engine) RelabelByName(ctx context.Context, log io.Writer, itemID, old, newName, batch string) (*RelabelResult, error) {

@@ -121,3 +121,82 @@ func TestRelabelProfileMeetings(t *testing.T) {
 		t.Errorf("item after the rename: %s", segs)
 	}
 }
+
+// "Not them" relabels the meeting's profile-named speakers back to
+// unnamed in the recorder and in Musubi's copy when Musubi can take it in
+// without re-extracting; otherwise the recorder only takes the meeting
+// out of the profile and the result says why the labels stayed.
+func TestReturnVoiceMeeting(t *testing.T) {
+	a, f, _, dir := testApp(t, "musubi")
+	st, err := store.Open(filepath.Join(dir, "musubi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	a.eng.Store = st
+	sessions := a.eng.Cfg.RecorderSessions()
+	writeRecSession(t, sessions, sessA, "Person 3 (Corner Tile)", "You", "Person 3 (Corner Tile)")
+	r, err := a.eng.Runner(nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s pipeline.Stats
+	if err := r.Ingest(context.Background(), &s); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Process(context.Background(), &s); err != nil {
+		t.Fatal(err)
+	}
+	f.serve(t, a.eng.Cfg.RecorderControlSocket())
+	const profile = "0a1b2c3d4e5f6071"
+	// The session as the recorder would write it.
+	writeRecSession(t, sessions, sessA, "Person 3", "You", "Person 3")
+	rewritten, err := os.ReadFile(filepath.Join(sessions, sessA, "session.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRecSession(t, sessions, sessA, "Person 3 (Corner Tile)", "You", "Person 3 (Corner Tile)")
+	f.results[control.OpReturnVoiceMeeting] = control.ReturnResult{Batch: "0123456789abcdef", Session: rewritten,
+		Changed: []control.RelabelChange{{Session: sessA, OldLabel: "Person 3 (Corner Tile)", NewLabel: "Person 3", Lines: 2}}}
+
+	if _, err := a.ReturnVoiceMeeting("eres2net-en", profile, "../x"); err == nil {
+		t.Error("a malformed session was sent")
+	}
+	if len(f.ops()) != 0 {
+		t.Fatalf("refused calls reached the recorder: %v", f.ops())
+	}
+
+	// Refused: the "rewrite" changes a line's words, not only a label.
+	changed := strings.Replace(string(rewritten), "words number a", "other words", 1)
+	f.results[control.OpReturnVoiceMeeting] = control.ReturnResult{Session: json.RawMessage(changed),
+		Changed: []control.RelabelChange{{Session: sessA, OldLabel: "Person 3 (Corner Tile)", NewLabel: "Person 3", Lines: 2}}}
+	res, err := a.ReturnVoiceMeeting("eres2net-en", profile, sessA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Relabelled || res.Why == "" || strings.Contains(string(f.last().Args), `"relabel":true`) {
+		t.Errorf("refused: %+v, last args %s", res, f.last().Args)
+	}
+	if segs := itemSegments(t, st, "tomoe:"+sessA); !strings.Contains(segs, "Corner Tile") {
+		t.Errorf("item after a refused relabel: %s", segs)
+	}
+
+	// Accepted.
+	f.results[control.OpReturnVoiceMeeting] = control.ReturnResult{Batch: "0123456789abcdef", Session: rewritten,
+		Changed: []control.RelabelChange{{Session: sessA, OldLabel: "Person 3 (Corner Tile)", NewLabel: "Person 3", Lines: 2}}}
+	writeRecSession(t, sessions, sessA, "Person 3", "You", "Person 3") // what the recorder does
+	n := len(f.ops())
+	res, err = a.ReturnVoiceMeeting("eres2net-en", profile, sessA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Relabelled || res.Why != "" || res.Recorder.Session != nil || len(f.ops()) != n+2 || !strings.Contains(string(f.last().Args), `"relabel":true`) {
+		t.Errorf("accepted: %+v, ops %v, last args %s", res, f.ops()[n:], f.last().Args)
+	}
+	if segs := itemSegments(t, st, "tomoe:"+sessA); strings.Contains(segs, "Corner Tile") || !strings.Contains(segs, `"speaker":"Person 3"`) {
+		t.Errorf("item after the relabel: %s", segs)
+	}
+	if a.updating {
+		t.Error("left updating")
+	}
+}

@@ -974,3 +974,5 @@ input.search { width: 100%; margin: 6px 0; }
 .vs-time { flex: 0 0 auto; font-family: var(--mono); color: var(--text-dim); }
 .vs-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vs-btn { flex: 0 0 auto; font-size: 11px; padding: 1px 7px; }
+.more-menu { position: relative; display: inline-block; }
+.more-menu .sel-menu { position: absolute; right: 0; top: calc(100% + 4px); min-width: 180px; }

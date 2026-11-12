@@ -212,6 +212,7 @@ func (a *App) Voices() (*control.VoicesView, error) {
 // speakerOps answer a review item or rename a speaker in a session.
 var speakerOps = map[string]bool{
 	control.OpRenameSpeaker: true, control.OpNotThem: true, control.OpSkipVoiceName: true, control.OpSkipVoiceDoubt: true,
+	control.OpSkipReturnedVoice: true,
 }
 
 // RecorderSpeaker applies a speaker op to a session's label (session ""

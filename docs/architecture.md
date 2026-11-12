@@ -203,7 +203,12 @@ cold lane like any other source.
   ingest then takes only recorder sessions created after it, since
   earlier ones shadowed meetings Tomoe already gave. Files (audio, looks)
   of meetings imported from Tomoe before the switch are still read from
-  Tomoe's folder (`Config.SessionDirs`). The app always follows the
+  Tomoe's folder (`Config.SessionDirs`), unless `[recorder] tomoe =
+  "off"`: then only the recorder's folder, into which `musubi-recorder
+  migrate-from-tomoe` copies Tomoe's sessions, voices, models and
+  settings (recorder-screens.md, "Standalone"); the recorder then reads
+  nothing of Tomoe's. After the switch, calendar context is written into
+  the recorder's sessions only (`Config.ContextSessionsDir`). The app always follows the
   recorder's live feed for its `status`, `audio`, `diag` and `look`
   messages (re-emitted as `recorder:*` events) and asks it everything
   else over `control.sock` (`internal/recorder/control`): start, stop,
@@ -216,8 +221,8 @@ cold lane like any other source.
   through the recorder, then forgets the item (`knowledge.ForgetItem`:
   its statements leave their threads, and it is never imported again).
   `[recorder.audio]`, `[recorder.transcription]` and `[recorder.meeting]`
-  override the keys of the same tables in Tomoe's config for the
-  recorder; Settings → Recording writes them and asks the recorder to
+  override the keys of the same tables in Tomoe's config (with Tomoe
+  off, the recorder's built-in defaults) for the recorder; Settings → Recording writes them and asks the recorder to
   reload (`reload_config`).
 - **Models and providers** (Settings): AI providers lists the AI
   Gateway, custom providers (`[providers.*]`), Ollama and **ONNX (this
@@ -230,8 +235,8 @@ cold lane like any other source.
   op, and a missing one is downloaded with `download_model`, into the
   recorder's own folder (`[recorder] data`/models). The recorder looks
   for models there first and then in Tomoe's folder
-  (`config.ModelDirs`), so nothing is downloaded twice, and never writes
-  Tomoe's. Settings → Processing chooses the transcription and speaker
+  (`config.ModelDirs`; not with `[recorder] tomoe = "off"`), so nothing
+  is downloaded twice, and never writes Tomoe's. Settings → Processing chooses the transcription and speaker
   voice models (`[recorder.transcription] model`,
   `[recorder.meeting] speaker_model`, read when the recorder starts);
   they are no longer in Settings → Recording.

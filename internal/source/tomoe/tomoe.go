@@ -17,10 +17,13 @@ const Name = "tomoe"
 
 // Connector reads Dir's sessions; with Since set, only those created
 // after it (Musubi's recorder once it is of record: earlier sessions
-// shadowed meetings Tomoe already gave Musubi).
+// shadowed meetings Tomoe already gave Musubi), plus earlier ones Known
+// reports Musubi already has: meetings migrated from Tomoe keep their
+// session ids, so a speaker fixed in one of them is taken in again.
 type Connector struct {
 	Dir   string
 	Since time.Time
+	Known func(ref string) bool
 }
 
 func (c Connector) Name() string { return Name }
@@ -51,7 +54,7 @@ func (c Connector) Fetch(ctx context.Context, emit func(source.Record) error) er
 			var h struct {
 				CreatedAt time.Time `json:"created_at"`
 			}
-			if json.Unmarshal(b, &h) != nil || !h.CreatedAt.After(c.Since) {
+			if json.Unmarshal(b, &h) != nil || (!h.CreatedAt.After(c.Since) && (c.Known == nil || !c.Known(e.Name()))) {
 				continue
 			}
 		}

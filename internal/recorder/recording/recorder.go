@@ -192,9 +192,9 @@ func (a *Recorder) Start(ctx context.Context) error {
 	}
 	// Before the owner voice is first read (and perhaps seeded), so it
 	// starts from Tomoe's; not once the recorder's own voices are of
-	// record.
-	if cfg.MusubiOfRecord {
-		fmt.Println("voices: the recorder is of record; Tomoe's voices are not copied")
+	// record, nor with Tomoe off.
+	if !cfg.CopiesTomoeVoices() {
+		fmt.Println("voices: the recorder is of record or Tomoe is off; Tomoe's voices are not copied")
 	} else if err := a.copyVoices(); err != nil {
 		fmt.Printf("Warning: voices not copied from Tomoe: %v\n", err)
 	}
@@ -245,17 +245,12 @@ func (a *Recorder) setupEngines(ctx context.Context, cfg *config.Config, status 
 	// rebuild, no relaunch. See MeetingConfig's doc comment for why this
 	// exists. tracker has its own internal lock (see speaker.Tracker), so
 	// this closure needs no synchronization against a.mu of its own.
-	configWatchStop := config.Watch(config.Path(), 2*time.Second, func(newCfg *config.Config) {
-		// Musubi's [recorder.*] keys still win over the edited file.
-		a.mu.Lock()
-		musubi := a.musubiConfig
-		a.mu.Unlock()
-		if _, err := config.OverlayMusubi(newCfg, musubi); err != nil {
-			fmt.Printf("config: %v; tuning from Tomoe's file alone\n", err)
-		}
-		tracker.SetTuning(tuningFromConfig(newCfg))
-		fmt.Printf("config: reloaded speaker clustering tuning: %+v\n", tracker.Tuning())
-	})
+	// With Tomoe off its file isn't watched (nor read): Musubi's settings
+	// arrive through reload_config.
+	configWatchStop := func() {}
+	if !cfg.TomoeOff {
+		configWatchStop = a.watchTomoeConfig(tracker)
+	}
 
 	detector := startDetector(ctx, cfg)
 
@@ -276,6 +271,28 @@ func (a *Recorder) setupEngines(ctx context.Context, cfg *config.Config, status 
 	a.configWatchStop = configWatchStop
 	a.detector = detector
 	a.mu.Unlock()
+}
+
+// watchTomoeConfig retunes tracker whenever Tomoe's config file changes,
+// with Musubi's [recorder.*] keys still over it; ignored once a
+// reload_config has turned Tomoe off.
+func (a *Recorder) watchTomoeConfig(tracker *speaker.Tracker) (stop func()) {
+	return config.Watch(config.Path(), 2*time.Second, func(newCfg *config.Config) {
+		a.mu.Lock()
+		musubi, off := a.musubiConfig, a.cfg.TomoeOff
+		a.mu.Unlock()
+		if off {
+			return
+		}
+		if _, err := config.OverlayMusubi(newCfg, musubi); err != nil {
+			fmt.Printf("config: %v; tuning from Tomoe's file alone\n", err)
+		}
+		if newCfg.TomoeOff {
+			return
+		}
+		tracker.SetTuning(tuningFromConfig(newCfg))
+		fmt.Printf("config: reloaded speaker clustering tuning: %+v\n", tracker.Tuning())
+	})
 }
 
 // engineBundle is everything built from the config and the downloaded

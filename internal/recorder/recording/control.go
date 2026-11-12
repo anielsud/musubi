@@ -660,7 +660,8 @@ func (a *Recorder) keepForNext(mic, system *string) {
 	}
 }
 
-// reloadConfig re-reads Tomoe's config with Musubi's [recorder.*] over it
+// reloadConfig re-reads Tomoe's config (unless [recorder] tomoe = "off")
+// with Musubi's [recorder.*] over it
 // and applies what can be applied now: speaker clustering tuning, the
 // live feed, and everything a recording reads when it starts (sources,
 // line cutting, video hints), from the next recording. Settings the
@@ -673,6 +674,7 @@ func (a *Recorder) reloadConfig() (control.Status, error) {
 	if err != nil {
 		return control.Status{}, err
 	}
+	config.SetTomoeOff(next.TomoeOff)
 	a.mu.Lock()
 	a.cfg = next
 	tracker := a.tracker
@@ -712,6 +714,11 @@ func needsRestart(old, next *config.Config) []string {
 	var parts []string
 	if old.Transcription != next.Transcription {
 		parts = append(parts, "transcription")
+	}
+	// The engines were built from models found with or without Tomoe's
+	// folder, and Tomoe's config file is watched only from the start.
+	if old.TomoeOff != next.TomoeOff {
+		parts = append(parts, "standalone")
 	}
 	if old.Meeting.SpeakerModel != next.Meeting.SpeakerModel || old.Meeting.MicVoices != next.Meeting.MicVoices {
 		parts = append(parts, "speaker model")

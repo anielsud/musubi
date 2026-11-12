@@ -23,6 +23,9 @@ func TestRecorderDefaultsKeepTomoe(t *testing.T) {
 	if d := c.SessionDirs(); len(d) != 1 || d[0] != c.TomoeSessions {
 		t.Errorf("session dirs = %v", d)
 	}
+	if c.TomoeOff() {
+		t.Error("tomoe off by default")
+	}
 	if filepath.Base(c.Recorder.Data) != "recorder" || filepath.Base(c.RecorderControlSocket()) != "control.sock" {
 		t.Errorf("recorder data %q control %q", c.Recorder.Data, c.RecorderControlSocket())
 	}
@@ -75,6 +78,30 @@ mic_voices = false
 	}
 	if got := c.SessionDir("cccc"); got != "" {
 		t.Errorf("missing session in %q", got)
+	}
+	// Calendar context goes only into the recorder's folder after the
+	// switch, Tomoe's before it.
+	if got := c.ContextSessionsDir(); got != c.RecorderSessions() {
+		t.Errorf("context into %q", got)
+	}
+	if d := DefaultConfig(); d.ContextSessionsDir() != d.TomoeSessions {
+		t.Errorf("before the switch, context into %q", d.ContextSessionsDir())
+	}
+
+	// Tomoe off: only the recorder's folder is searched, so a meeting not
+	// copied over (migrate-from-tomoe) has no files.
+	c.Recorder.Tomoe = "off"
+	if !c.TomoeOff() {
+		t.Fatal("not off")
+	}
+	if d := c.SessionDirs(); len(d) != 1 || d[0] != c.RecorderSessions() {
+		t.Errorf("session dirs = %v", d)
+	}
+	if got := c.SessionDir("aaaa"); got != "" {
+		t.Errorf("Tomoe's session found in %q with Tomoe off", got)
+	}
+	if got := c.SessionDir("bbbb"); got != filepath.Join(dir, "rec", "sessions", "bbbb") {
+		t.Errorf("new session in %q", got)
 	}
 }
 

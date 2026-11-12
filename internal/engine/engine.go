@@ -101,7 +101,10 @@ func (e *Engine) Runner(embs []provider.Embedder, log io.Writer) (*pipeline.Runn
 	}
 	var conns []source.Connector
 	if d := e.Cfg.SessionsDir(); d != "" {
-		conns = append(conns, tomoe.Connector{Dir: d, Since: e.Cfg.SessionsSince()})
+		conns = append(conns, tomoe.Connector{Dir: d, Since: e.Cfg.SessionsSince(), Known: func(ref string) bool {
+			_, ok, _ := e.Store.ManifestHash(tomoe.Name, ref)
+			return ok
+		}})
 	}
 	if e.Cfg.BluedotDir != "" {
 		conns = append(conns, bluedot.Connector{Dir: e.Cfg.BluedotDir, Since: e.Cfg.BluedotSince, Known: func(ref string) bool {

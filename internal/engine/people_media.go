@@ -239,7 +239,7 @@ func sortCandidates(cs []faceCandidate) {
 // "": a tile with the camera on when there is one (largest first),
 // otherwise the profile picture in the middle of a camera-off tile.
 func (e *Engine) headshot(p *person) string {
-	if e.Cfg.TomoeSessions == "" {
+	if len(e.Cfg.SessionDirs()) == 0 {
 		return ""
 	}
 	if shot, ok := e.cachedHeadshot(p); ok {
@@ -312,7 +312,7 @@ func (e *Engine) Headshot(entityID string, choose bool) (string, error) {
 		return "", err
 	}
 	p := ps[entityID]
-	if p == nil || e.Cfg.TomoeSessions == "" {
+	if p == nil || len(e.Cfg.SessionDirs()) == 0 {
 		return "", nil
 	}
 	if !choose {
@@ -549,7 +549,7 @@ type VoiceClip struct {
 // the person's between 5 and 15 seconds (long enough to recognise, short
 // enough to play at once), in a session whose audio is on disk.
 func (e *Engine) voiceClip(p *person, items []item.Item) *VoiceClip {
-	if e.Cfg.TomoeSessions == "" {
+	if len(e.Cfg.SessionDirs()) == 0 {
 		return nil
 	}
 	var recs []*item.Item

@@ -183,12 +183,12 @@ function RecordingGroup() {
         <span className="dim small">Transcribes meetings and tells voices apart, on this Mac (ONNX, in the recorder). Applies after a recorder restart.</span>
         {rm.error && <span className="dim small">Which models are downloaded isn&apos;t known: {rm.error}.</span>}
       </div>
-      <div className="slot-row rec-models">{rm.fields.map((f) => <RecModelPick key={f.table + '.' + f.key} f={f} />)}</div>
+      <div className="slot-row rec-models">{rm.fields.map((f) => <RecModelPick key={f.table + '.' + f.key} f={f} tomoeOff={rm.tomoe === 'off'} />)}</div>
     </div>
   );
 }
 
-function RecModelPick({ f }: { f: RecModelField }) {
+function RecModelPick({ f, tomoeOff }: { f: RecModelField; tomoeOff: boolean }) {
   const [v, setV] = useState(String(f.value ?? ''));
   const [state, setState] = useState<'' | 'saving' | 'saved'>('');
   const [err, setErr] = useState('');
@@ -203,7 +203,9 @@ function RecModelPick({ f }: { f: RecModelField }) {
   return (
     <div className="model-pick">
       <span className="dim small model-pick-label">
-        {f.label}{!f.set && <span title="Not set in Musubi: Tomoe's value"> · as Tomoe</span>}
+        {f.label}{!f.set && (tomoeOff
+          ? <span title="Not set in Musubi: the recorder's default"> · default</span>
+          : <span title="Not set in Musubi: Tomoe's value"> · as Tomoe</span>)}
         {state === 'saving' ? <> <Spinner /></> : state === 'saved' ? <span className="ok-text"> ✓ saved; after a restart</span> : null}
       </span>
       <select value={v} onChange={(e) => save(e.target.value)}>

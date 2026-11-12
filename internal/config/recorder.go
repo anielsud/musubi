@@ -23,6 +23,14 @@ type Recorder struct {
 	// created after it are imported, since earlier ones shadowed meetings
 	// Tomoe already gave Musubi.
 	Since time.Time `toml:"since"`
+	// Tomoe is "on" (the default, or unset: Tomoe's config, models and
+	// voices may be read, and its session folder searched for meetings'
+	// files) or "off": Musubi stands alone. The recorder then reads none
+	// of Tomoe's files, and the app looks for meetings' files only in the
+	// recorder's folder (SessionDirs). musubi-recorder migrate-from-tomoe
+	// copies Tomoe's data in and sets it. tomoe_sessions stays, for that
+	// command's repairs and for going back.
+	Tomoe string `toml:"tomoe"`
 	// Audio, Transcription and Meeting override the keys of the same
 	// tables in Tomoe's config for the recorder (meanings in
 	// internal/recorder/config). Kept as raw values: the recorder reads
@@ -34,6 +42,9 @@ type Recorder struct {
 
 // MusubiRecords reports whether Musubi's recorder is of record.
 func (c Config) MusubiRecords() bool { return c.Recorder.OfRecord == "musubi" }
+
+// TomoeOff reports whether Musubi stands alone ([recorder] tomoe = "off").
+func (c Config) TomoeOff() bool { return c.Recorder.Tomoe == "off" }
 
 func (c Config) RecorderSessions() string { return filepath.Join(c.Recorder.Data, "sessions") }
 
@@ -72,8 +83,13 @@ func (c Config) LiveSocket() string {
 
 // SessionDirs are the folders a saved session's files (audio, looks) may
 // be in, the recorder of record's first. After the switch, meetings
-// imported from Tomoe before it still have their files in Tomoe's folder.
+// imported from Tomoe before it still have their files in Tomoe's folder,
+// until they are copied over (migrate-from-tomoe): with Tomoe off, only
+// the recorder's folder is searched.
 func (c Config) SessionDirs() []string {
+	if c.TomoeOff() {
+		return []string{c.RecorderSessions()}
+	}
 	var out []string
 	for _, d := range []string{c.SessionsDir(), c.TomoeSessions} {
 		if d != "" && (len(out) == 0 || out[0] != d) {
@@ -81,6 +97,17 @@ func (c Config) SessionDirs() []string {
 		}
 	}
 	return out
+}
+
+// ContextSessionsDir is the session folder calendar.json and title.json
+// are written into (m365 tomoe_context): the recorder's once it is of
+// record, so Tomoe's folder is never written after the switch; Tomoe's
+// before it.
+func (c Config) ContextSessionsDir() string {
+	if c.MusubiRecords() {
+		return c.RecorderSessions()
+	}
+	return c.TomoeSessions
 }
 
 // SessionDir is the folder holding session id (a directory name, already

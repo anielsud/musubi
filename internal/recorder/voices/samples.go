@@ -166,9 +166,3 @@ func (s *Store) heardLocked(id, sessionID string) (*Heard, *Profile, error) {
 	return nil, nil, fmt.Errorf("%s didn't learn from that meeting", p.Name)
 }
 
-// Params is the store's rules.
-func (s *Store) Params() Params {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.params
-}

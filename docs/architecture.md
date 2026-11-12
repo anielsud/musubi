@@ -256,9 +256,20 @@ cold lane like any other source.
   a single person's 10 meetings 1 each). Results are cached per profile
   and meeting in the recorder until the meeting's voice, its session or
   its fingerprints change. "Not them" on a sample (`exclude_sample`)
-  takes its fingerprints out of the meeting's voice and records the span
-  on it (`Heard.ExcludedSpans`), which `Store.Learn` leaves out whenever
-  the meeting is learnt again; `include_sample` puts it back. The
+  takes its fingerprints out of the meeting's voice, records the span
+  on it (`Heard.ExcludedSpans`) and keeps it as a returned sample in the
+  voices file (`voices/returned.go`), which "Who's this?" asks about;
+  learning leaves both out whenever the meeting is learnt again, also
+  after the meeting's contribution was dropped. Naming a returned sample
+  (`name_returned_sample`) adds its fingerprints to a profile of that
+  name (`Heard.Assigned`, kept through relearns); "Can't tell"
+  (`skip_returned_sample`) stops asking. "Junk" (`junk_sample`) keeps
+  the span per meeting in the voices file, and no profile learns from
+  it. `include_sample` puts either back. `split_label_by_voice` gives each
+  line of one label in a saved session to the candidate profile its own
+  fingerprints match by `Margin`, logged per line in `relabels.jsonl`
+  (recorder-screens.md, "Not them and Junk on a sample; split a speaker
+  by voice"). The
   Voices card (`voicesamples.tsx`) lists per meeting the samples under
   85% like the profile, the rest behind "+N more that fit well". A
   meeting learnt live, from name reads the saved meeting doesn't keep,

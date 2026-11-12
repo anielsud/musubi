@@ -8,7 +8,8 @@ import { recordingItem, useNav } from './nav';
 // from, worked out again by the recorder (op profile_samples). A card
 // shows how many and whether they sound like more than one voice; each
 // meeting lists the samples that fit the profile worst, the rest behind
-// "+N more that fit well", each with Play and "Not them".
+// "+N more that fit well", each with Play, "Not them" (the sample goes to
+// "Who's this?") and "Junk" (no profile learns from it).
 
 // fitWell: a sample at least this like the profile isn't listed until
 // asked for (the owner's choice, 2026-11-12).
@@ -96,8 +97,10 @@ export function MeetingSamplesRow({ s, p, session, editable, a }: { s: SamplesSt
   const worse = judged.filter((x) => x.similarity < fitWell), fine = judged.filter((x) => x.similarity >= fitWell);
   const head = worse.length === 0 ? `${kept.length} ${kept.length === 1 ? 'sample' : 'samples'}, all fit well` : `${kept.length} ${kept.length === 1 ? 'sample' : 'samples'}`;
   const key = `s/${p.id}`;
-  const edit = (x: VoiceSample, exclude: boolean) =>
-    a.act(key, () => api.voiceSample(exclude, { model: p.model, id: p.id, session, start: x.start, end: x.end }), exclude ? `Took out the sample at ${clock(x.start)}.` : `Put back the sample at ${clock(x.start)}.`);
+  const edit = (x: VoiceSample, action: 'not_them' | 'junk' | 'put_back') =>
+    a.act(key, () => api.voiceSample(action, { model: p.model, id: p.id, session, start: x.start, end: x.end }),
+      action === 'not_them' ? `Took the sample at ${clock(x.start)} out of ${p.name}'s voice; it waits under “Who's this?”.`
+        : action === 'junk' ? `The sample at ${clock(x.start)} is junk: no voice learns from it.` : `Put back the sample at ${clock(x.start)}.`);
   const row = (x: VoiceSample) => (
     <div key={x.start + '-' + x.end} className={'vs-row' + (x.excluded ? ' taken-out' : '')}>
       <Play clip={{ session, start: x.start, end: Math.min(x.end, x.start + clipCap) }} />
@@ -108,9 +111,15 @@ export function MeetingSamplesRow({ s, p, session, editable, a }: { s: SamplesSt
       <span className="vs-time">{clock(x.start)}</span>
       <span className="vs-label dim" title={x.label}>{shortLabel(x.label)}</span>
       <button className="link small" title="Read the transcript here" onClick={() => openTranscript(recordingItem(session), x.start)}>Transcript</button>
+      {x.excluded && <span className="vs-tag dim">{x.junk ? 'junk' : 'not them'}</span>}
       {editable && (x.excluded
-        ? <button className="vs-btn" disabled={a.busy === key} title="Put this sample back in the voice" onClick={() => edit(x, false)}>Put back</button>
-        : <button className="vs-btn" disabled={a.busy === key} title="This stretch isn't them: leave it out of the voice" onClick={() => edit(x, true)}>Not them</button>)}
+        ? <button className="vs-btn" disabled={a.busy === key}
+            title={x.junk ? `Put this sample back in ${p.name}'s voice, and let voices learn from this stretch again` : `Put this sample back in ${p.name}'s voice and stop asking who it is under “Who's this?”`}
+            onClick={() => edit(x, 'put_back')}>Put back</button>
+        : <>
+            <button className="vs-btn" disabled={a.busy === key} title={`Someone else: take this sample out of ${p.name}'s voice and ask who it is under “Who's this?”. The rest of the meeting stays in the voice; the transcript is unchanged.`} onClick={() => edit(x, 'not_them')}>Not them</button>
+            <button className="vs-btn" disabled={a.busy === key} title="Noise, crosstalk or nobody: delete this sample from learning, so no voice learns from this stretch of the meeting. The recording and transcript are unchanged." onClick={() => edit(x, 'junk')}>Junk</button>
+          </>)}
     </div>
   );
   return (

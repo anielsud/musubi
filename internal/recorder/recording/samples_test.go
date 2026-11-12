@@ -137,7 +137,7 @@ func TestProfileSamples(t *testing.T) {
 	}
 
 	// Not them: B leaves the meeting's voice.
-	if err := r.sampleEdit(true, control.SampleArgs{Model: model, ID: pid, Session: id, Start: b.Start, End: b.End}); err != nil {
+	if err := r.sampleEdit(control.OpExcludeSample, control.SampleArgs{Model: model, ID: pid, Session: id, Start: b.Start, End: b.End}); err != nil {
 		t.Fatal(err)
 	}
 	heardN := func() int {
@@ -171,11 +171,11 @@ func TestProfileSamples(t *testing.T) {
 		t.Fatalf("relearnt: %d fingerprints", n)
 	}
 	// A span not shown is refused.
-	if err := r.sampleEdit(true, control.SampleArgs{Model: model, ID: pid, Session: id, Start: 1, End: 2}); err == nil {
+	if err := r.sampleEdit(control.OpExcludeSample, control.SampleArgs{Model: model, ID: pid, Session: id, Start: 1, End: 2}); err == nil {
 		t.Error("a made-up span was taken out")
 	}
 	// Undo.
-	if err := r.sampleEdit(false, control.SampleArgs{Model: model, ID: pid, Session: id, Start: 22, End: 37}); err != nil {
+	if err := r.sampleEdit(control.OpIncludeSample, control.SampleArgs{Model: model, ID: pid, Session: id, Start: 22, End: 37}); err != nil {
 		t.Fatal(err)
 	}
 	if n := heardN(); n != 30 {

@@ -2,7 +2,7 @@
 // window.runtime at load.
 import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LivePrep, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
 import type { ResSnapshot } from './types';
-import type { ProfileSamples, SampleArgs } from './types';
+import type { NamedSample, ProfileSamples, SampleArgs, SplitResult, SplitTarget } from './types';
 import type { LookView, MeetingSpeakers, RecDiag, RecordingModels, RecordingSettings, RecorderView, RecSources, RecStatus, RelabelResult, ReturnVoiceResult, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -132,7 +132,11 @@ export const api = {
   recordingModels: (): Promise<RecordingModels> => app().RecordingModels(),
   downloadRecorderModel: (id: string): Promise<void> => app().DownloadRecorderModel(id),
   profileSamples: (model: string, id: string): Promise<ProfileSamples> => app().ProfileSamples(model, id),
-  voiceSample: (exclude: boolean, args: SampleArgs): Promise<void> => app().VoiceSample(exclude, args),
+  voiceSample: (action: 'not_them' | 'junk' | 'put_back', args: SampleArgs): Promise<void> => app().VoiceSample(action, args),
+  nameReturnedSample: (args: SampleArgs, name: string): Promise<NamedSample> => app().NameReturnedSample(args, name),
+  skipReturnedSample: (args: SampleArgs): Promise<void> => app().SkipReturnedSample(args),
+  splitSpeakerByVoice: (session: string, label: string, into: SplitTarget[], preview: boolean): Promise<SplitResult> => app().SplitSpeakerByVoice(session, label, into, preview),
+  undoSplit: (batch: string): Promise<void> => app().UndoSplit(batch),
 };
 
 // Recorder media, served by the app (internal/gui recorderMedia).

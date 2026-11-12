@@ -29,7 +29,7 @@ func TestSampleVoicesIgnoreSpecks(t *testing.T) {
 			l.Parts = append(l.Parts, voices.Part{Start: at + float64(j)*0.5, End: at + float64(j)*0.5 + 1, Emb: axis(2, 3, 0.1)})
 		}
 	}
-	if m := samplesOf(l, nil, nil, params); m.voices != 1 || len(m.kept) != 8 {
+	if m := samplesOf(l, nil, nil, nil, params); m.voices != 1 || len(m.kept) != 8 {
 		t.Fatalf("%d voices in %d samples, want 1 in 8", m.voices, len(m.kept))
 	}
 	// The same 14 fingerprints in one stretch are a second voice.
@@ -37,7 +37,7 @@ func TestSampleVoicesIgnoreSpecks(t *testing.T) {
 	for j := range 14 {
 		l.Parts = append(l.Parts, voices.Part{Start: 100 + float64(j), End: 101 + float64(j), Emb: axis(2, 3, 0.1)})
 	}
-	if m := samplesOf(l, nil, nil, params); m.voices != 2 {
+	if m := samplesOf(l, nil, nil, nil, params); m.voices != 2 {
 		t.Fatalf("%d voices, want 2", m.voices)
 	}
 }

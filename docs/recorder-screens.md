@@ -449,6 +449,87 @@ Voices had a "Learn from saved meetings" button for after such fixes.
    relearn Explore → Voices shows "Voice profiles updated for new rules
    on <date>: N changed, M new." (`VoicesView.relearned`).
 
+## Not them and Junk on a sample; split a speaker by voice (2026-11-12)
+
+**Known.** "Not them" on a sample took it out of the profile for good
+but asked nobody who it was; a sample of noise or crosstalk could only
+be taken out the same way. A meeting row's "Someone else…" (move the
+meeting to another profile) duplicated "Not them" followed by naming
+under "Who's this?". The owner's review of the rules-2 relearn found
+that a tile's voice replaced a meeting the owner had named, that a
+meeting's Confirmed mark was lost when the meeting was learnt again, and
+that samples taken out came back when a dropped meeting was learnt
+again. And one owner-named label can cover two people (the diarizer
+merged them), which only a split of its lines can fix.
+
+**Agreed with the owner, built:**
+
+1. **Two actions on a sample.** "Not them" (`exclude_sample`): the
+   sample leaves the profile as before and is kept as a returned sample
+   in the voices file (`returned`: session, span, the profile it came
+   from, the transcript's label over it, its fingerprints). "Who's
+   this?" shows each pending one, whatever its age, with its clip, the
+   meeting and a Transcript link at the clip. Naming it
+   (`name_returned_sample`) adds its fingerprints to a profile of exactly
+   that name (case and spacing aside, not the one it came from) whose
+   voice it is at least `LearnFloor` like, else to a new profile with the
+   name; they are kept on that profile's meeting (`Heard.Assigned`) as
+   the owner's naming. "Can't tell" (`skip_returned_sample`) stops
+   asking; the sample stays out of the profile it came from. "Junk"
+   (`junk_sample`): the span is kept per meeting (`junk`), and no profile
+   learns from it again, in every learning path (save, `LearnSaved`, the
+   relearn). "Put back" (`include_sample`) undoes either; it is refused
+   for a sample already named as someone else. Junk is taken out of the
+   profile it was found in at once; another profile that learnt
+   fingerprints in the same span loses them the next time the meeting is
+   learnt. Labels in the meeting are unchanged, so Musubi's copy needs
+   nothing.
+2. **Migration.** Every sample taken out before (each
+   `Heard.ExcludedSpans` entry) becomes a pending returned sample when
+   the voices file is read; the recorder fills in its label and
+   fingerprints from the saved meeting once, after the review index is
+   built. On a copy of the recorder's voices file: 7 samples in 3
+   meetings.
+3. **Meeting rows** keep "Right, it's them" and "Not them"; "Someone
+   else…" and its form left the app (on taken-out meetings too);
+   `move_voice_meeting` stays in the protocol.
+4. **Tooltips** on every voice button say what happens and what is kept.
+5. **Learning rules 3** (`voices.LearnRules`, so stores under older rules
+   are learnt again once): a tile's voice never replaces a meeting the
+   owner named or moved to the profile; a meeting's Confirmed mark, its
+   samples named as the profile and junk are kept when it is learnt
+   again; samples taken out stay out even after the meeting's
+   contribution was dropped (learning reads the returned samples, not
+   only the meeting's spans). Dropping meetings the saved recording no
+   longer gives a profile stays as it is.
+6. **Split a speaker by voice** (`split_label_by_voice`; meeting page →
+   Speakers → "split by voice…", two or more profiles, a preview, then
+   "Split"). Each final line of the label in the saved session gets the
+   fingerprints most of whose speech falls in it
+   (`diarize.LineVoices`); the line goes to the candidate whose voice
+   they are likest, when it beats the next by `Margin` (0.1); lines
+   without fingerprints or too close to call keep the label. A
+   candidate's voice is what its other meetings taught (its whole learnt
+   voice when those hold too little), so a profile taught by the very
+   label being split doesn't vote for itself. Owner-named lines are
+   split too. Each moved line's start is logged in `relabels.jsonl` under
+   a batch; `undo_relabel` puts back exactly those lines ("Undo" in the
+   app). The profiles then learn the meeting again. Who said what
+   changes, so the app imports the meeting again as any changed meeting
+   (re-extraction); the confirm text says so.
+
+**Dry run (2026-11-12),** on copies of one session and of the voices
+file (the originals only read): a 163-line label the owner had named,
+which the transcript shows covers two people, split between that
+person's profile and a profile learnt from the second person's tile in
+the same meeting: 66 lines to the first, 35 to the second (all between
+34 and 54 minutes, where the second person asks and answers questions),
+62 left as they were (59 with no fingerprints: short interjections such
+as "Exactly.", 3 within the margin). Lines with 3 or more
+fingerprints scored about 0.8-0.96 against the profile they went to and
+0.3-0.5 against the other; some one- and two-fingerprint lines were
+decided on lower scores (0.40-0.67 against 0.09-0.30). In 0.1 s. Undo restored the file line for line (0 lines differing).
+
 ## Keeping the recorder running (2026-11-12)
 
 A recorder that isn't running loses meetings silently; an install left it

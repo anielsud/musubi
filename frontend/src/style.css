@@ -901,6 +901,9 @@ input.search { width: 100%; margin: 6px 0; }
 .speaker-list { list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
 .speaker-list li { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; padding: 3px 0; }
 .speaker-list .link { margin-left: auto; }
+.speaker-list .link + .link { margin-left: 0; }
+.split-form { flex: 1 1 100%; display: flex; flex-direction: column; gap: 6px; padding: 6px 0 4px; }
+.split-picks { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .line .who-edit { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 .rename-inline { display: inline-flex; gap: 6px; align-items: center; margin-right: 6px; }
 .rename-inline input { padding: 2px 6px; font-size: 12px; width: 11em; }
@@ -973,6 +976,8 @@ input.search { width: 100%; margin: 6px 0; }
 .vs-num { flex: 0 0 32px; text-align: right; font-variant-numeric: tabular-nums; }
 .vs-time { flex: 0 0 auto; font-family: var(--mono); color: var(--text-dim); }
 .vs-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-tag { flex: 0 0 auto; font-size: 11px; }
+.vs-row .link { flex: 0 0 auto; white-space: nowrap; }
 .vs-btn { flex: 0 0 auto; font-size: 11px; padding: 1px 7px; }
 .more-menu { position: relative; display: inline-block; }
 .more-menu .sel-menu { position: absolute; right: 0; top: calc(100% + 4px); min-width: 180px; }

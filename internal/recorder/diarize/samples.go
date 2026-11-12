@@ -2,6 +2,7 @@ package diarize
 
 import (
 	"sort"
+	"strconv"
 
 	"github.com/anielsud/musubi/internal/recorder/session"
 	"github.com/anielsud/musubi/internal/recorder/voices"
@@ -106,4 +107,40 @@ func CountVoices(samples []Sample, threshold float64, minFingerprints int, minSh
 		}
 	}
 	return n
+}
+
+// lineShare is how much of a fingerprint's speech must fall in one line
+// for it to count as that line's: a majority. Lines are often shorter
+// than a fingerprint's window, so learnShare's 0.8 would leave most of a
+// meeting's short lines with none.
+const lineShare = 0.5
+
+// LineVoices is the voice of each line in lines (indexes into segs): the
+// fingerprints most of whose speech falls within the line. Lines with
+// none are left out.
+func LineVoices(p *Prepared, offset float64, segs []session.Segment, lines []int) map[int]voices.Voice {
+	pick := map[int]bool{}
+	for _, i := range lines {
+		pick[i] = true
+	}
+	// Each picked line's label is its index; the rest have none.
+	byLine := make([]session.Segment, len(segs))
+	for i, s := range segs {
+		byLine[i] = session.Segment{StartTime: s.StartTime, EndTime: s.EndTime}
+		if pick[i] {
+			byLine[i].Speaker = strconv.Itoa(i)
+		}
+	}
+	names := p.PairTiles(SpeakerAt(byLine, func(l string) string { return l }), offset, lineShare)
+	out := map[int]voices.Voice{}
+	for i, n := range names {
+		line, err := strconv.Atoi(n)
+		if n == "" || err != nil {
+			continue
+		}
+		v := out[line]
+		v.Add(p.Embeddings[i])
+		out[line] = v
+	}
+	return out
 }

@@ -3981,3 +3981,33 @@ originals only read; the relearn run as the recorder runs it
   samples taken out are all kept; no profile meeting was confirmed in
   this copy. One named meeting's voice is replaced by its tile's, as the
   old relearn did too (Learn's last-wins order).
+
+## 2026-11-12: splitting a merged label by voice, first run (copy)
+
+One owner-named label in one meeting covered two people (the second
+person's samples matched the second person's profile at 1.00 and the
+named person's at 0.73). `split_label_by_voice`, run on copies of the
+session and of the voices file, gave each line to the profile its own
+fingerprints matched by the 0.1 margin (`Params.Margin`); a fingerprint
+counts for a line when most of its speech falls in the line (0.5; the
+learning share of 0.8 would leave most short lines with none):
+
+| | lines |
+|---|---|
+| to the named person | 66 |
+| to the second person | 35 (all 34-54 min) |
+| left: no fingerprints | 59 |
+| left: within the margin | 3 |
+
+Fingerprints per line: none 59, one 15, two 5, three 5, four 8, five or
+more 71. Lines with 3+ fingerprints scored about 0.8-0.96 against the
+profile they went to and 0.3-0.5 against the other; some one- and
+two-fingerprint lines were decided on 0.40-0.67 against 0.09-0.30
+(by the transcript, those read as the second person's). The candidate
+voice leaves out what the label itself taught a profile (the named
+person's profile had learnt 544 fingerprints from this label, both
+voices); the second person's profile, learnt only from their tile in
+this meeting, is compared whole. 0.1 s; undo restored every line. Not
+done: lines without fingerprints could follow their neighbours (a
+proposal, not built).
+

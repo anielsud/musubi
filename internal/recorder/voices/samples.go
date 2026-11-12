@@ -8,8 +8,8 @@ import (
 // A meeting's voice for a profile is many fingerprints, heard in
 // stretches (samples). The owner can say a sample isn't the person:
 // its fingerprints leave the meeting's voice, and its span is kept on
-// the meeting (Heard.ExcludedSpans) so learning the meeting again
-// leaves them out too.
+// the meeting (Heard.ExcludedSpans) and as a returned sample
+// (returned.go) so learning the meeting again leaves them out too.
 
 // Part is one fingerprint of a learnt voice and when its speaker talks
 // in it (session time, seconds).
@@ -94,10 +94,12 @@ func overlapsAny(c Clip, spans []Clip) bool {
 	return false
 }
 
-// ExcludeSpan takes a sample out of what a meeting taught a profile:
-// v (the sample's fingerprints) leaves the meeting's voice, and span is
-// recorded so learning the meeting again leaves it out.
-func (s *Store) ExcludeSpan(id, sessionID string, span Clip, v Voice) error {
+// ExcludeSpan is "Not them" on a sample: v (the sample's fingerprints)
+// leaves the meeting's voice, span is recorded so learning the meeting
+// again leaves it out, and the sample is returned (returned.go) to be
+// asked about under "Who's this?". label is the transcript's speaker
+// over it.
+func (s *Store) ExcludeSpan(id, sessionID string, span Clip, v Voice, label string) error {
 	if span.End <= span.Start || v.N == 0 {
 		return fmt.Errorf("no sample to take out")
 	}
@@ -120,6 +122,11 @@ func (s *Store) ExcludeSpan(id, sessionID string, span Clip, v Voice) error {
 	if overlapsAny(h.Clip, []Clip{span}) {
 		h.Clip = Clip{}
 	}
+	if i := s.returnedIndexLocked(sessionID, span, id); i >= 0 {
+		s.returned = slices.Delete(s.returned, i, i+1)
+	}
+	sv := Voice{Sum: slices.Clone(v.Sum), N: v.N}
+	s.returned = append(s.returned, ReturnedSample{Session: sessionID, Span: span, From: id, FromName: p.Name, Label: label, At: h.At, Voice: &sv})
 	p.refresh(s.params.MinLearn)
 	return s.saveLocked()
 }
@@ -138,6 +145,10 @@ func (s *Store) IncludeSpan(id, sessionID string, span Clip, v Voice) error {
 	if i < 0 {
 		return fmt.Errorf("that sample isn't taken out")
 	}
+	r := s.returnedIndexLocked(sessionID, span, id)
+	if r >= 0 && s.returned[r].To != "" {
+		return fmt.Errorf("that sample now teaches %s's voice", s.returned[r].ToName)
+	}
 	if v.N > 0 && len(h.Voice.Sum) > 0 && len(v.Sum) != len(h.Voice.Sum) {
 		return fmt.Errorf("that sample doesn't fit this voice")
 	}
@@ -145,6 +156,9 @@ func (s *Store) IncludeSpan(id, sessionID string, span Clip, v Voice) error {
 	nv.Merge(v)
 	h.Voice = nv
 	h.ExcludedSpans = slices.Delete(slices.Clone(h.ExcludedSpans), i, i+1)
+	if r >= 0 {
+		s.returned = slices.Delete(s.returned, r, r+1)
+	}
 	if h.Clip.End <= h.Clip.Start {
 		h.Clip = span
 	}

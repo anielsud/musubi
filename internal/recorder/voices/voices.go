@@ -126,8 +126,14 @@ type Heard struct {
 	// ExcludedSpans are stretches of the meeting the owner said aren't
 	// the profile's person ("Not them" on a sample): their fingerprints
 	// are left out of Voice, and out of it again when the meeting is
-	// learnt again (see samples.go).
+	// learnt again (see samples.go). Each is also a ReturnedSample, which
+	// keeps it out when the meeting's contribution is dropped and learnt
+	// again later.
 	ExcludedSpans []Clip `json:"excludedSpans,omitempty"`
+	// Assigned are samples of another profile's the owner named as this
+	// person under "Who's this?" (AssignReturned): their fingerprints are
+	// in Voice, and added again when the meeting is learnt again.
+	Assigned []AssignedSample `json:"assigned,omitempty"`
 }
 
 // Profile is one person's voice.
@@ -245,6 +251,10 @@ type Store struct {
 	// relearned what the last relearn for new rules changed.
 	rules     int
 	relearned *Relearned
+	// returned are samples the owner said aren't the profile that learnt
+	// them, and junk the stretches no profile learns from (returned.go).
+	returned []ReturnedSample
+	junk     []JunkSpan
 }
 
 // LearnRules is the version of the rules for what a meeting teaches a
@@ -255,7 +265,11 @@ type Store struct {
 // 2 (2026-11-12): a lit tile doesn't teach while the transcript names
 // someone else as speaking; learning a whole meeting again drops what it
 // automatically taught a profile it no longer teaches (LearnMeeting).
-const LearnRules = 2
+// 3 (2026-11-12): a tile's voice never replaces a meeting the owner
+// named or moved to the profile; a meeting's Confirmed mark, samples
+// taken out ("Not them", returned.go), samples named as the profile and
+// junk are kept when the meeting is learnt again.
+const LearnRules = 3
 
 // Relearned is what a relearn for new rules did.
 type Relearned struct {
@@ -309,7 +323,7 @@ func (s *Store) load() error {
 	st, err := os.Stat(s.path)
 	if errors.Is(err, os.ErrNotExist) {
 		// Nothing learnt yet: whatever is learnt is under today's rules.
-		s.profiles, s.modTime, s.rules, s.relearned = nil, time.Time{}, LearnRules, nil
+		s.profiles, s.modTime, s.rules, s.relearned, s.returned, s.junk = nil, time.Time{}, LearnRules, nil, nil, nil
 		return nil
 	}
 	if err != nil {
@@ -331,6 +345,8 @@ func (s *Store) load() error {
 	}
 	s.profiles, s.forgotten, s.modTime = f.Profiles, f.Forgotten, st.ModTime()
 	s.rules, s.relearned = max(f.Rules, 1), f.Relearned
+	s.returned, s.junk = f.Returned, f.Junk
+	s.migrateExcludedLocked()
 	return nil
 }
 
@@ -356,6 +372,7 @@ func mergeMeetings(ms []Heard) []Heard {
 			o.Clip = h.Clip
 		}
 		o.ExcludedSpans = append(o.ExcludedSpans, h.ExcludedSpans...)
+		o.Assigned = append(o.Assigned, h.Assigned...)
 		o.Confirmed = o.Confirmed || h.Confirmed
 	}
 	return out
@@ -379,11 +396,15 @@ type file struct {
 	// 1), Relearned what the last relearn for new rules did.
 	Rules     int        `json:"rules,omitempty"`
 	Relearned *Relearned `json:"relearned,omitempty"`
+	// Returned are samples taken out of a profile ("Not them"), Junk the
+	// stretches no profile learns from (returned.go).
+	Returned []ReturnedSample `json:"returned,omitempty"`
+	Junk     []JunkSpan       `json:"junk,omitempty"`
 }
 
 // saveLocked writes the profiles atomically.
 func (s *Store) saveLocked() error {
-	b, err := json.Marshal(file{Version: 1, Profiles: s.profiles, Forgotten: s.forgotten, Rules: s.rules, Relearned: s.relearned})
+	b, err := json.Marshal(file{Version: 1, Profiles: s.profiles, Forgotten: s.forgotten, Rules: s.rules, Relearned: s.relearned, Returned: s.returned, Junk: s.junk})
 	if err != nil {
 		return err
 	}
@@ -512,16 +533,41 @@ func (s *Store) learnLocked(sessionID string, at time.Time, learned []Learned) (
 			s.profiles = append(s.profiles, p)
 		}
 		var kept []Heard
-		var spans []Clip
-		for _, h := range p.Meetings {
+		var before *Heard
+		for i, h := range p.Meetings {
 			if h.Session != sessionID {
 				kept = append(kept, h)
 			} else {
-				spans = h.ExcludedSpans
+				before = &p.Meetings[i]
 			}
 		}
-		l = withoutSpans(l, spans)
-		p.Meetings = append(kept, Heard{Session: sessionID, At: at, Source: l.Source, Voice: l.Voice, Clip: l.Clip, ExcludedSpans: spans})
+		// The owner's naming beats a tile: a meeting the owner named or
+		// moved to the profile isn't replaced by what its tile showed (on
+		// 2026-11-12 a relearn replaced a named meeting's voice so).
+		if before != nil && before.Source == FromNamed && l.Source == FromTile {
+			taught[p] = true
+			continue
+		}
+		h := Heard{Session: sessionID, At: at, Source: l.Source}
+		var spans []Clip
+		if before != nil {
+			spans = before.ExcludedSpans
+			h.Confirmed, h.Assigned = before.Confirmed, before.Assigned
+		}
+		spans = appendSpans(spans, s.notThemLocked(p.ID, sessionID)...)
+		h.ExcludedSpans = spans
+		// Junk and samples named as the profile are left out of what the
+		// meeting gives (the latter are added back whole, once).
+		drop := appendSpans(append([]Clip(nil), spans...), s.junkLocked(sessionID)...)
+		for _, a := range h.Assigned {
+			drop = appendSpans(drop, a.Span)
+		}
+		l = withoutSpans(l, drop)
+		h.Voice, h.Clip = l.Voice, l.Clip
+		for _, a := range h.Assigned {
+			h.Voice.Merge(a.Voice)
+		}
+		p.Meetings = append(kept, h)
 		p.refresh(s.params.MinLearn)
 		taught[p] = true
 		done = append(done, p.Name)
@@ -900,6 +946,15 @@ func (s *Store) Merge(into, from string) error {
 	}
 	a.refresh(s.params.MinLearn)
 	s.removeLocked(from)
+	for i := range s.returned {
+		r := &s.returned[i]
+		if r.From == b.ID {
+			r.From = a.ID
+		}
+		if r.To == b.ID {
+			r.To = a.ID
+		}
+	}
 	return s.saveLocked()
 }
 
@@ -1050,7 +1105,11 @@ func sameExactName(a, b string) bool {
 }
 
 // Closest is the profile most like v and how alike (nil if none).
-func (s *Store) Closest(v Voice) (*Profile, float64) {
+func (s *Store) Closest(v Voice) (*Profile, float64) { return s.ClosestExcept(v, "") }
+
+// ClosestExcept is Closest leaving out profile skip (the one the owner
+// said a voice isn't).
+func (s *Store) ClosestExcept(v Voice, skip string) (*Profile, float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncLocked()
@@ -1058,6 +1117,9 @@ func (s *Store) Closest(v Voice) (*Profile, float64) {
 	var best *Profile
 	bestSim := -2.0
 	for _, p := range s.profiles {
+		if p.ID == skip {
+			continue
+		}
 		if sim := Similarity(c, p.centroid); sim > bestSim {
 			best, bestSim = p, sim
 		}

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -48,6 +49,9 @@ type relabelEntry struct {
 	OldName  string    `json:"old_name,omitempty"`
 	NewName  string    `json:"new_name,omitempty"`
 	Lines    int       `json:"lines,omitempty"`
+	// Starts, for a split by voice, are the start times of the lines
+	// relabelled: undo puts back those lines only.
+	Starts []float64 `json:"starts,omitempty"`
 	// Undone marks a line recording that the batch was reversed.
 	Undone bool `json:"undone,omitempty"`
 }
@@ -390,12 +394,12 @@ func (a *Recorder) UndoRelabel(batch string) (*control.RelabelResult, error) {
 			}
 			continue
 		}
-		changed := false
+		changed, split := false, false
 		for _, e := range bySession[sid] {
 			n := 0
 			for i := range sess.Segments {
 				seg := &sess.Segments[i]
-				if seg.Speaker != e.NewLabel {
+				if seg.Speaker != e.NewLabel || (len(e.Starts) > 0 && !slices.ContainsFunc(e.Starts, func(t float64) bool { return sameStart(t, seg.StartTime) })) {
 					continue
 				}
 				seg.Speaker = e.OldLabel
@@ -403,6 +407,18 @@ func (a *Recorder) UndoRelabel(batch string) (*control.RelabelResult, error) {
 					seg.LiveSpeaker = ""
 				}
 				n++
+			}
+			if len(e.Starts) > 0 {
+				// A split moved lines, not a speaker: voice names and
+				// doubts under the new label were there before.
+				split = split || n > 0
+				if n == 0 {
+					res.Left = append(res.Left, control.RelabelLeft{Session: sid, Label: e.NewLabel, Why: "relabelled again since"})
+					continue
+				}
+				changed = true
+				res.Changed = append(res.Changed, control.RelabelChange{Session: sid, OldLabel: e.NewLabel, NewLabel: e.OldLabel, Lines: n})
+				continue
 			}
 			for i := range sess.VoiceNames {
 				if vn := &sess.VoiceNames[i]; vn.Label == e.NewLabel {
@@ -427,6 +443,9 @@ func (a *Recorder) UndoRelabel(batch string) (*control.RelabelResult, error) {
 		if changed {
 			if err := a.saveSession(sess); err != nil {
 				return res, fmt.Errorf("session %s: %w", sid, err)
+			}
+			if split {
+				a.learnNamedLater(sess)
 			}
 		}
 	}

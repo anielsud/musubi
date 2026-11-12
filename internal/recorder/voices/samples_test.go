@@ -45,14 +45,14 @@ func TestExcludeAndIncludeASample(t *testing.T) {
 	}
 	span := Clip{Start: 12, End: 15}
 	other := voiceOf(3, b)
-	if err := s.ExcludeSpan(id, "m1", span, other); err != nil {
+	if err := s.ExcludeSpan(id, "m1", span, other, ""); err != nil {
 		t.Fatal(err)
 	}
 	h := heard()
 	if h.Voice.N != 12 || Similarity(h.Voice.Centroid(), a) < 0.9999 || len(h.ExcludedSpans) != 1 {
 		t.Fatalf("after taking the sample out: %+v", h)
 	}
-	if err := s.ExcludeSpan(id, "m1", span, other); err == nil {
+	if err := s.ExcludeSpan(id, "m1", span, other, ""); err == nil {
 		t.Error("taking a sample out twice was allowed")
 	}
 

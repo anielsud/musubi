@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, clipURL, on, tileURL } from '../api';
-import type { NamedByVoice, RelabelResult, ReturnVoiceResult, SameNamePair, TileRef, UnknownVoice, VoiceArgs, VoiceClip, VoiceDoubt, VoicePair, VoiceProfile, VoicesView } from '../types';
+import type { NamedByVoice, RelabelResult, ReturnVoiceResult, SameNamePair, SampleArgs, TileRef, UnknownVoice, VoiceArgs, VoiceClip, VoiceDoubt, VoicePair, VoiceProfile, VoicesView } from '../types';
 import { Spinner } from './common';
 import { MeetingLink, recordingItem, useItemsExist } from './nav';
 import { FullName } from './people';
@@ -159,15 +159,15 @@ const spoke = (s: number) => (s >= 60 ? `${Math.round(s / 60)} min` : `${Math.ro
 const bare = (label: string) => label.replace(/ \(.*\)$/, '');
 
 // NameForm asks who it is.
-function NameForm({ busy, onName, onCancel, list, start = '', button = 'Name' }: {
-  busy: boolean; onName: (n: string) => void; onCancel?: () => void; list?: string; start?: string; button?: string;
+function NameForm({ busy, onName, onCancel, list, start = '', button = 'Name', title }: {
+  busy: boolean; onName: (n: string) => void; onCancel?: () => void; list?: string; start?: string; button?: string; title?: string;
 }) {
   const [n, setN] = useState(start);
   return (
     <form className="voice-name" onSubmit={(e) => { e.preventDefault(); if (n.trim()) onName(n.trim()); }}>
       <input value={n} list={list} autoFocus={!!onCancel} placeholder="Who is it?" onChange={(e) => setN(e.target.value)} disabled={busy} />
-      <button className="primary" type="submit" disabled={busy || !n.trim()}>{button}</button>
-      {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
+      <button className="primary" type="submit" disabled={busy || !n.trim()} title={title}>{button}</button>
+      {onCancel && <button type="button" onClick={onCancel} title="Change nothing">Cancel</button>}
     </form>
   );
 }
@@ -221,10 +221,19 @@ export function ReviewItems({ view, session, editable, a, showTitle = true }: {
       </>}
       {unknown.length > 0 && <>
         <div className="review-head">Who&apos;s this?</div>
-        <p className="dim small">Voices nobody has named. Naming one names them in that meeting and teaches their profile.</p>
-        {unknown.map((u) => <UnknownRow key={`u/${u.session}/${u.label}`} u={u} others={[clipOf(u.soundsLike)]} where={where(u, 'in ')} editable={editable} busy={a.busy === `${u.session}/${u.label}`}
-          onName={(name) => sp('rename_speaker', u.session, u.label, name, `Named ${bare(u.label)} ${name}.`)}
-          onSkip={() => sp('skip_returned_voice', u.session, u.label, '', 'Won’t ask about that one again.')} />)}
+        <p className="dim small">Voices nobody has named, and samples you said aren&apos;t the voice they were in. Naming a speaker names them in that meeting and teaches their profile; naming a sample teaches the profile only.</p>
+        {unknown.map((u) => {
+          const k = unknownKey(u);
+          if (u.sample) {
+            const args: SampleArgs = { model: u.sample.model, id: u.sample.profile, session: u.session, start: u.sample.start, end: u.sample.end };
+            return <UnknownRow key={k} u={u} others={[clipOf(u.soundsLike)]} where={where(u, 'in ')} editable={editable} busy={a.busy === k}
+              onName={(name) => a.act(k, () => api.nameReturnedSample(args, name), (r) => (r.created ? `Started a voice profile for ${r.name} with that sample.` : `That sample now teaches ${r.name}'s voice.`))}
+              onSkip={() => a.act(k, () => api.skipReturnedSample(args), 'Won’t ask about that sample again; it stays out of the voice it was in.')} />;
+          }
+          return <UnknownRow key={k} u={u} others={[clipOf(u.soundsLike)]} where={where(u, 'in ')} editable={editable} busy={a.busy === `${u.session}/${u.label}`}
+            onName={(name) => sp('rename_speaker', u.session, u.label, name, `Named ${bare(u.label)} ${name}.`)}
+            onSkip={() => sp('skip_returned_voice', u.session, u.label, '', 'Won’t ask about that one again.')} />;
+        })}
       </>}
       {pairs.length > 0 && <>
         <div className="review-head">Same person?</div>
@@ -261,10 +270,10 @@ function NamedRow({ n, others, where, editable, busy, onRight, onNotThem, onName
       </div>
       {editable && (naming ? <NameForm busy={busy} onName={onName} onCancel={() => setNaming(false)} /> : (
         <div className="voice-actions">
-          <button disabled={busy} onClick={onRight}>Right</button>
-          <button disabled={busy} onClick={onNotThem}>Not them</button>
-          <button disabled={busy} onClick={() => setNaming(true)}>Someone else…</button>
-          <button disabled={busy} onClick={onSkip} title="Noise, crosstalk or too short: stop asking, and teach the profile nothing">Can&apos;t tell</button>
+          <button disabled={busy} onClick={onRight} title={`It is ${n.name}: the speaker keeps the name, and ${n.name}'s voice learns from this meeting`}>Right</button>
+          <button disabled={busy} onClick={onNotThem} title={`Not ${n.name}: the speaker loses the name, and ${n.name}'s voice won't name a voice like this again`}>Not them</button>
+          <button disabled={busy} onClick={() => setNaming(true)} title="Name who it is: the speaker gets that name, and that person's voice learns from this meeting">Someone else…</button>
+          <button disabled={busy} onClick={onSkip} title={`Noise, crosstalk or too short: stop asking; the speaker keeps the name, and ${n.name}'s voice learns nothing from it`}>Can&apos;t tell</button>
         </div>
       ))}
     </div>
@@ -284,9 +293,9 @@ function DoubtRow({ d, others, where, editable, busy, onName, onSkip }: {
       </div>
       {editable && (naming ? <NameForm busy={busy} onName={onName} onCancel={() => setNaming(false)} /> : (
         <div className="voice-actions">
-          <button disabled={busy} onClick={() => onName(d.window)}>It&apos;s {d.window}</button>
-          <button disabled={busy} onClick={() => onName(d.name)}>It&apos;s {d.name}</button>
-          <button disabled={busy} onClick={() => setNaming(true)}>Someone else…</button>
+          <button disabled={busy} onClick={() => onName(d.window)} title={`Name the speaker ${d.window}, as the window said; ${d.window}'s voice learns from this meeting`}>It&apos;s {d.window}</button>
+          <button disabled={busy} onClick={() => onName(d.name)} title={`Name the speaker ${d.name}, as the voice suggests; ${d.name}'s voice learns from this meeting`}>It&apos;s {d.name}</button>
+          <button disabled={busy} onClick={() => setNaming(true)} title="Name who it is: the speaker gets that name, and that person's voice learns from this meeting">Someone else…</button>
           <button disabled={busy} onClick={onSkip} title="Keep the window's name, stop asking, and teach no profile">Can&apos;t tell</button>
         </div>
       ))}
@@ -294,27 +303,43 @@ function DoubtRow({ d, others, where, editable, busy, onName, onSkip }: {
   );
 }
 
+// unknownKey tells "Who's this?" rows apart: a speaker, or one sample.
+const unknownKey = (u: UnknownVoice) => (u.sample ? `u/${u.session}/${u.sample.profile}/${u.sample.start}` : `u/${u.session}/${u.label}`);
+
 function UnknownRow({ u, others, where, editable, busy, onName, onSkip }: { u: UnknownVoice; others: (Other | null)[]; where: ReactNode; editable: boolean; busy: boolean; onName: (n: string) => void; onSkip: () => void }) {
+  const from = u.returnedFrom ? <FullName name={u.returnedFrom} /> : u.sample ? 'the voice it was in' : 'the voice profile that named them';
+  const nameTitle = u.sample
+    ? 'Name who it is: this sample teaches their voice (one already of that name it sounds like, or a new one). The transcript is unchanged.'
+    : 'Name who it is: the speaker gets that name in this meeting, and their voice learns from it';
   return (
     <div className="voice-row">
       <Heard clip={u.clip} others={others} />
       <div className="voice-body">
-        <div><b>{bare(u.label)}</b> <span className="dim small">{where}{where ? ' · ' : ''}spoke {spoke(u.seconds)}</span></div>
-        {u.returned && <div className="dim small">You said this isn&apos;t {u.returnedFrom ? <FullName name={u.returnedFrom} /> : 'the voice profile that named them'}: who is it?</div>}
+        {u.sample
+          ? <div><b>A sample at {clockOf(u.sample.start)}</b> <span className="dim small">{u.label && <>under {bare(u.label)} </>}{where}{where ? ' · ' : ''}{spoke(u.seconds)}</span></div>
+          : <div><b>{bare(u.label)}</b> <span className="dim small">{where}{where ? ' · ' : ''}spoke {spoke(u.seconds)}</span></div>}
+        {u.returned && <div className="dim small">You said this isn&apos;t {from}: who is it?</div>}
         {u.soundsLike && (
           <div className="dim small">
             {(u.similarity ?? 0) >= 0.7 ? 'Sounds like' : 'Sounds a little like'} <FullName name={u.soundsLike} /> ({Math.round((u.similarity ?? 0) * 100)}%)
-            {editable && <> <button className="link" disabled={busy} onClick={() => onName(u.soundsLike!)}>It&apos;s {u.soundsLike}</button></>}
+            {editable && <> <button className="link" disabled={busy} title={u.sample ? `It is ${u.soundsLike}: this sample teaches ${u.soundsLike}'s voice. The transcript is unchanged.` : `It is ${u.soundsLike}: the speaker gets that name in this meeting, and ${u.soundsLike}'s voice learns from it`} onClick={() => onName(u.soundsLike!)}>It&apos;s {u.soundsLike}</button></>}
           </div>
         )}
       </div>
       {editable && <div className="voice-actions">
-        <NameForm busy={busy} onName={onName} />
-        {u.returned && <button disabled={busy} onClick={onSkip} title="Noise, crosstalk or you don't know: stop asking; the speaker stays unnamed">Can&apos;t tell</button>}
+        <NameForm busy={busy} onName={onName} title={nameTitle} />
+        {u.returned && <button disabled={busy} onClick={onSkip}
+          title={u.sample ? 'Noise, crosstalk or you don\'t know: stop asking; the sample stays out of the voice it was in and teaches no one' : 'Noise, crosstalk or you don\'t know: stop asking; the speaker stays unnamed'}>Can&apos;t tell</button>}
       </div>}
     </div>
   );
 }
+
+const clockOf = (t: number) => {
+  const s = Math.max(0, Math.floor(t));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = String(s % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+};
 
 function PairRow({ pair, a, b, editable, act }: { pair: VoicePair; a: VoiceProfile; b: VoiceProfile; editable: boolean; act: Act }) {
   const key = `p/${pair.a}/${pair.b}`;
@@ -328,9 +353,9 @@ function PairRow({ pair, a, b, editable, act }: { pair: VoicePair; a: VoiceProfi
       </div>
       {editable && (
         <div className="voice-actions">
-          <button disabled={busy} onClick={() => same(a, b)}>Same: {a.name}</button>
-          <button disabled={busy} onClick={() => same(b, a)}>Same: {b.name}</button>
-          <button disabled={busy} onClick={() => act.act(key, () => api.recorderVoice('keep_apart', { model: pair.model, id: pair.a, other: pair.b }))}>Different people</button>
+          <button disabled={busy} onClick={() => same(a, b)} title={`One person, ${a.name}: ${b.name}'s voice joins ${a.name}'s, which keeps both voices' meetings and answers to both names`}>Same: {a.name}</button>
+          <button disabled={busy} onClick={() => same(b, a)} title={`One person, ${b.name}: ${a.name}'s voice joins ${b.name}'s, which keeps both voices' meetings and answers to both names`}>Same: {b.name}</button>
+          <button disabled={busy} title="Two people: both voices stay as they are, and these two aren't offered as one person again" onClick={() => act.act(key, () => api.recorderVoice('keep_apart', { model: pair.model, id: pair.a, other: pair.b }))}>Different people</button>
         </div>
       )}
     </div>
@@ -353,8 +378,8 @@ function SameNameRow({ pair, a, b, editable, act, onApart }: { pair: SameNamePai
       </div>
       {editable && (
         <div className="voice-actions">
-          <button disabled={busy} onClick={() => act.act(key, () => api.recorderVoice('merge_voices', { model: pair.model, id: into.id, other: from.id }), `The two ${pair.name} profiles are now one.`)}>Same person</button>
-          <button disabled={busy} onClick={() => { onApart(); act.act(key, () => api.recorderVoice('keep_apart', { model: pair.model, id: pair.a, other: pair.b }), 'Kept apart.'); }}>Different people</button>
+          <button disabled={busy} title={`One person: the two ${pair.name} voices become one, keeping both voices' meetings`} onClick={() => act.act(key, () => api.recorderVoice('merge_voices', { model: pair.model, id: into.id, other: from.id }), `The two ${pair.name} profiles are now one.`)}>Same person</button>
+          <button disabled={busy} title={`Two people named ${pair.name}: both voices stay as they are and aren't offered as one again; you can then rename one`} onClick={() => { onApart(); act.act(key, () => api.recorderVoice('keep_apart', { model: pair.model, id: pair.a, other: pair.b }), 'Kept apart.'); }}>Different people</button>
         </div>
       )}
     </div>
@@ -376,46 +401,17 @@ function RenameOne({ pair, a, b, act, onDone }: { pair: SameNamePair; a: VoicePr
               onName={(n) => { act.act(`r/${which.id}`, () => api.recorderVoice('rename_voice', { model: which.model, id: which.id, name: n }), `Renamed to ${n}.`); onDone(); }} />
           : <div className="voice-actions">
               {[{ p: a, clip: pair.clipA, n: pair.meetingsA }, { p: b, clip: pair.clipB, n: pair.meetingsB }].map((x) => (
-                <span key={x.p.id}><Play clip={x.clip} /> <button disabled={busy} onClick={() => setWhich(x.p)}>Rename the one in {meetings(x.n)}…</button></span>
+                <span key={x.p.id}><Play clip={x.clip} /> <button disabled={busy} title="Give this voice another name; what it learnt is kept" onClick={() => setWhich(x.p)}>Rename the one in {meetings(x.n)}…</button></span>
               ))}
-              <button disabled={busy} onClick={onDone}>Leave both</button>
+              <button disabled={busy} title="Keep both names as they are" onClick={onDone}>Leave both</button>
             </div>}
       </div>
     </div>
   );
 }
 
-// MoveForm picks where a meeting's voice goes: another profile (by ID,
-// so two of one name are told apart) or a new profile with a name.
-function MoveForm({ p, profiles, busy, onMove, onCancel }: {
-  p: VoiceProfile; profiles: VoiceProfile[]; busy: boolean; onMove: (to: { to?: string; name?: string }, label: string) => void; onCancel: () => void;
-}) {
-  const others = profiles.filter((x) => x.model === p.model && x.id !== p.id).sort((x, y) => x.name.localeCompare(y.name) || y.meetings - x.meetings);
-  const dup = new Set(others.filter((x, i) => others.some((y, j) => j !== i && y.name === x.name)).map((x) => x.name));
-  const [to, setTo] = useState('');
-  const [name, setName] = useState('');
-  const isNew = to === 'new';
-  const ok = isNew ? !!name.trim() : !!to;
-  const go = () => {
-    if (isNew) onMove({ name: name.trim() }, `a new profile, ${name.trim()}`);
-    else { const x = others.find((o) => o.id === to); if (x) onMove({ to: x.id }, x.name); }
-  };
-  return (
-    <form className="voice-name" onSubmit={(e) => { e.preventDefault(); if (ok) go(); }}>
-      <select value={to} autoFocus disabled={busy} onChange={(e) => setTo(e.target.value)} aria-label="Move to">
-        <option value="">Move to…</option>
-        {others.map((x) => <option key={x.id} value={x.id}>{x.name}{dup.has(x.name) ? ` (${x.meetings} ${x.meetings === 1 ? 'meeting' : 'meetings'}, last heard ${day(x.lastHeard)})` : ''}</option>)}
-        <option value="new">A new profile named…</option>
-      </select>
-      {isNew && <input value={name} placeholder="Who is it?" onChange={(e) => setName(e.target.value)} disabled={busy} />}
-      <button className="primary" type="submit" disabled={busy || !ok}>Move</button>
-      <button type="button" onClick={onCancel}>Cancel</button>
-    </form>
-  );
-}
-
 // MoreMenu is a "⋯" button opening a short menu of rarer actions.
-function MoreMenu({ items, disabled }: { items: { label: string; onClick: () => void }[]; disabled?: boolean }) {
+function MoreMenu({ items, disabled }: { items: { label: string; title?: string; onClick: () => void }[]; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement | null>(null);
   useEffect(() => {
@@ -428,7 +424,7 @@ function MoreMenu({ items, disabled }: { items: { label: string; onClick: () => 
     <span className="more-menu" ref={ref}>
       <button disabled={disabled} title="More" aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}>⋯</button>
       {open && <span className="sel-menu" role="menu">
-        {items.map((it) => <button key={it.label} role="menuitem" onClick={() => { setOpen(false); it.onClick(); }}>{it.label}</button>)}
+        {items.map((it) => <button key={it.label} role="menuitem" title={it.title} onClick={() => { setOpen(false); it.onClick(); }}>{it.label}</button>)}
       </span>}
     </span>
   );
@@ -441,11 +437,10 @@ const returnedNote = (name: string, r: ReturnVoiceResult) => (r.relabelled
 
 // VoiceProfileCard is one person's voice profile: its clip and tile, the
 // meetings it learnt from, and its edits.
-export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile; profiles: VoiceProfile[]; editable: boolean; a: Act }) {
+export function VoiceProfileCard({ p, editable, a }: { p: VoiceProfile; editable: boolean; a: Act }) {
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState<'forget' | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
-  const [moving, setMoving] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const relabel = useRelabel();
   const [alsoMeetings, setAlsoMeetings] = useState(true);
@@ -472,7 +467,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
   const from = [p.fromTiles ? `own tile in ${p.fromTiles}` : '', p.fromNamed ? `named by you in ${p.fromNamed}` : ''].filter(Boolean).join(', ');
   const flagged = heard.filter((h) => odd(h, heard.length)).length;
   const confirmRow = (text: string, button: string, go: () => void, keep: () => void): ReactNode => (
-    <div className="confirm-row"><span className="small">{text}</span><button className="primary" disabled={busy} onClick={go}>{button}</button><button onClick={keep}>Keep</button></div>
+    <div className="confirm-row"><span className="small">{text}</span><button className="primary" disabled={busy} title={text} onClick={go}>{button}</button><button title="Change nothing" onClick={keep}>Keep</button></div>
   );
   return (
     <div className="voice-profile">
@@ -498,17 +493,17 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
         </div>
         {editable && !editing && !confirming && (
           <div className="voice-actions">
-            {!p.inUse && !p.startedOver && p.meetings > 0 && <button className="primary" disabled={busy} title="The clip is them: use this profile now" onClick={() => v('confirm_voice', {}, `${p.name}'s voice now names speakers.`)}>Confirm</button>}
-            <button disabled={busy} onClick={() => setEditing(true)}>Rename</button>
+            {!p.inUse && !p.startedOver && p.meetings > 0 && <button className="primary" disabled={busy} title={`The clip is ${p.name}: this voice starts naming speakers now, without waiting to be heard in another meeting. What it learnt is kept.`} onClick={() => v('confirm_voice', {}, `${p.name}'s voice now names speakers.`)}>Confirm</button>}
+            <button disabled={busy} title={`Change the name on this voice. What it learnt is kept, and the old name stays known for it${relabel ? '; you can also rename them in the meetings where their voice was recognised' : ''}`} onClick={() => setEditing(true)}>Rename</button>
             {relabel && oldNames(p).length > 0 && p.meetings > 0 && <button disabled={busy} title={`Put “${p.name}” on the speaker labels that still say ${oldNames(p).map((n) => `“${n}”`).join(' or ')}, in the meetings where this voice was recognised`} onClick={() => a.act(key, relabelMeetings)}>Rename in meetings</button>}
-            <MoreMenu disabled={busy} items={[{ label: 'Delete voice print', onClick: () => setConfirming('forget') }]} />
+            <MoreMenu disabled={busy} items={[{ label: 'Delete voice print', title: `Delete ${p.name}'s voice print and never learn the name again (you'll be asked first). Recordings and transcripts are unchanged.`, onClick: () => setConfirming('forget') }]} />
           </div>
         )}
       </div>
       {done && (
         <div className="confirm-row">
           <span className="small">Renamed in {relabelled(done)} {relabelled(done) === 1 ? 'meeting' : 'meetings'}{(done.recorder?.left ?? []).length > 0 && ` · ${(done.recorder?.left ?? []).length} other ${(done.recorder?.left ?? []).length === 1 ? 'speaker' : 'speakers'} with the old name left as they were`}{Object.keys(done.skipped ?? {}).length > 0 && ` · ${Object.keys(done.skipped ?? {}).length} to take in at the next update`}</span>
-          <button disabled={busy} onClick={() => undo(done)}>Undo</button><button onClick={() => setDone(null)}>OK</button>
+          <button disabled={busy} title="Put the old name back on those meetings' speakers" onClick={() => undo(done)}>Undo</button><button title="Keep the new name in those meetings" onClick={() => setDone(null)}>OK</button>
         </div>
       )}
       {confirming === 'forget' && confirmRow(`Delete ${p.name}'s voice print and never learn the name '${p.name}' again — for someone who asked not to have their voice kept. Recordings and transcripts are unchanged.`, 'Delete voice print', () => { setConfirming(null); v('forget_voice', {}, `Deleted ${p.name}'s voice print.`); }, () => setConfirming(null))}
@@ -532,17 +527,14 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
                   </div>
                   <MeetingSamplesRow s={samples} p={p} session={h.session} editable={editable} a={a} />
                 </div>
-                {editable && (moving === h.session
-                  ? <MoveForm p={p} profiles={profiles} busy={busy} onMove={(to, label) => { setMoving(null); v('move_voice_meeting', { session: h.session, ...to }, `Moved that meeting to ${label}.`); }} onCancel={() => setMoving(null)} />
-                  : removing === h.session
+                {editable && (removing === h.session
                     ? confirmRow(`Not ${p.name}: take this meeting out of ${p.name}'s voice and ask who it is under “Who's this?”`, 'Not them', () => {
                         setRemoving(null);
                         a.act(key, () => api.returnVoiceMeeting(p.model, p.id, h.session), (r) => returnedNote(p.name, r));
                       }, () => setRemoving(null))
                     : <div className="voice-actions">
-                        {check && <button className="primary" disabled={busy} title="You listened: this meeting's voice is theirs" onClick={() => v('confirm_voice_meeting', { session: h.session }, `Kept: that meeting is ${p.name}.`)}>Right, it&apos;s them</button>}
-                        <button disabled={busy} title="This meeting's voice is someone else: teach their profile instead" onClick={() => setMoving(h.session)}>Someone else…</button>
-                        <button disabled={busy} title="Not them: take it out of this voice and ask who it is" onClick={() => setRemoving(h.session)}>Not them</button>
+                        {check && <button className="primary" disabled={busy} title={`You listened: this meeting's voice is ${p.name}'s. It stays in the voice and isn't flagged again, also after the voice is learnt again.`} onClick={() => v('confirm_voice_meeting', { session: h.session }, `Kept: that meeting is ${p.name}.`)}>Right, it&apos;s them</button>}
+                        <button disabled={busy} title={`Someone else: take this whole meeting out of ${p.name}'s voice for good and ask who it is under “Who's this?” (you'll be asked first). The other meetings stay.`} onClick={() => setRemoving(h.session)}>Not them</button>
                       </div>)}
               </div>
             );
@@ -551,9 +543,6 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
             <div key={'out/' + h.session} className="voice-row taken-out">
               <DiscardedPlay p={p} session={h.session} />
               <div className="voice-body"><div className="small"><MeetingLink session={h.session} title={h.title || h.session.slice(0, 8)} found={found} /> <span className="dim">not them: not learnt from</span></div></div>
-              {editable && (moving === h.session
-                ? <MoveForm p={p} profiles={profiles} busy={busy} onMove={(to, label) => { setMoving(null); v('move_voice_meeting', { session: h.session, ...to }, `Moved that meeting to ${label}.`); }} onCancel={() => setMoving(null)} />
-                : <div className="voice-actions"><button disabled={busy} onClick={() => setMoving(h.session)}>Someone else…</button></div>)}
             </div>
           ))}
         </div>
@@ -615,7 +604,7 @@ export function AllVoices({ voices }: { voices: ReturnType<typeof useVoices> }) 
       </div>
       {!editable && <div className="dim small">{readOnlyWhy}</div>}
       {shown.length === 0 && <div className="dim small">No voice matches.</div>}
-      {shown.map((p) => <VoiceProfileCard key={p.model + '/' + p.id} p={p} profiles={all} editable={editable} a={a} />)}
+      {shown.map((p) => <VoiceProfileCard key={p.model + '/' + p.id} p={p} editable={editable} a={a} />)}
       <ActNotes a={a} />
     </section>
   );

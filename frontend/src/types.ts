@@ -856,7 +856,9 @@ export interface NamedByVoice { session: string; title: string; at: string; labe
 export interface VoiceDoubt { session: string; title: string; at: string; label: string; window: string; name: string; similarity: number; seconds: number; clip: VoiceClip; noProfile: boolean }
 export interface VoicePair { model: string; a: string; b: string; similarity: number }
 export interface SameNamePair { model: string; a: string; b: string; name: string; similarity: number; meetingsA: number; meetingsB: number; clipA: VoiceClip; clipB: VoiceClip }
-export interface UnknownVoice { session: string; title: string; at: string; label: string; seconds: number; clip: VoiceClip; soundsLike?: string; similarity?: number; returned?: boolean; returnedFrom?: string }
+export interface UnknownVoice { session: string; title: string; at: string; label: string; seconds: number; clip: VoiceClip; soundsLike?: string; similarity?: number; returned?: boolean; returnedFrom?: string; sample?: SampleRef }
+// SampleRef: a single sample taken out of a profile with "Not them" (profile: the one it came from).
+export interface SampleRef { model: string; profile: string; start: number; end: number }
 export interface VoicesView {
   enabled: boolean; profiles: VoiceProfile[] | null; pairs: VoicePair[] | null; unknown: UnknownVoice[] | null;
   namedByVoice: NamedByVoice[] | null; doubts: VoiceDoubt[] | null; sameName?: SameNamePair[] | null;
@@ -884,7 +886,12 @@ export interface ResSample { at: string; components: ResReading[] | null }
 export interface ResSnapshot { supported: boolean; reason?: string; machine: { cores: number; memory: number }; intervalMs: number; history: ResSample[] | null }
 
 /* Voice samples: the stretches of each meeting a voice profile learnt from (recorder op profile_samples) */
-export interface VoiceSample { session: string; start: number; end: number; fingerprints: number; similarity: number; restSimilarity: number; label?: string; excluded?: boolean }
+export interface VoiceSample { session: string; start: number; end: number; fingerprints: number; similarity: number; restSimilarity: number; label?: string; excluded?: boolean; junk?: boolean }
 export interface MeetingSamples { session: string; fingerprints: number; rebuilt: number; voices: number; noDiarization?: boolean; note?: string; clip: VoiceClip; samples: VoiceSample[] | null }
 export interface ProfileSamples { model: string; id: string; samples: number; voices: number; meetings: MeetingSamples[] | null }
 export interface SampleArgs { model: string; id: string; session: string; start: number; end: number }
+export interface NamedSample { id: string; name: string; created?: boolean }
+export interface SplitTarget { model: string; id: string; label?: string }
+export interface SplitCount { profile: string; name: string; label: string; lines: number }
+export interface SplitLine { start: number; end: number; fingerprints: number; label?: string; best: number; second: number }
+export interface SplitResult { batch?: string; counts: SplitCount[] | null; undecided: number; lines: SplitLine[] | null }

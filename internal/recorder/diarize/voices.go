@@ -206,8 +206,10 @@ var (
 
 // VoiceStore is the process's voice profiles for a speaker model
 // (DataDir/voices/<model>.json: another model's fingerprints can't be
-// compared), with m's naming rules; one Store per model per process, so
-// the app's edits and a meeting's learning go through the same one.
+// compared), with m's naming rules; one Store per file per process, so
+// the app's edits and a meeting's learning go through the same one. Keyed
+// by the file, not the model: a different data folder (SetDataDir) is a
+// different set of profiles.
 func VoiceStore(m config.MeetingConfig, model string) (*voices.Store, error) {
 	if model == "" {
 		return nil, fmt.Errorf("no speaker model named")
@@ -227,15 +229,16 @@ func VoiceStore(m config.MeetingConfig, model string) (*voices.Store, error) {
 	if m.VoiceProfileMinLearn > 0 {
 		params.MinLearn = m.VoiceProfileMinLearn
 	}
-	if s := voiceStores[model]; s != nil {
+	path := voices.Path(config.DataDir(), model)
+	if s := voiceStores[path]; s != nil {
 		s.SetParams(params)
 		return s, nil
 	}
-	s, err := voices.Open(voices.Path(config.DataDir(), model), SameName, params)
+	s, err := voices.Open(path, SameName, params)
 	if err != nil {
 		return nil, err
 	}
-	voiceStores[model] = s
+	voiceStores[path] = s
 	return s, nil
 }
 

@@ -109,12 +109,11 @@ function PersonVoice({ names }: { names: string[] }) {
   const ids = new Set(profiles.map((x) => x.id));
   const pairs: VoicesView = { ...view, namedByVoice: [], doubts: [], unknown: [], pairs: (view.pairs ?? []).filter((x) => ids.has(x.a) || ids.has(x.b)),
     sameName: (view.sameName ?? []).filter((x) => ids.has(x.a) || ids.has(x.b)) };
-  const all = view.profiles ?? [];
   return (
     <>
       <div className="section-head"><span>Voice</span></div>
       {!editable && <div className="dim small">{readOnlyWhy}</div>}
-      {profiles.map((v) => <VoiceProfileCard key={v.model + '/' + v.id} p={v} profiles={all} editable={editable} a={a} />)}
+      {profiles.map((v) => <VoiceProfileCard key={v.model + '/' + v.id} p={v} editable={editable} a={a} />)}
       <ReviewItems view={pairs} editable={editable} a={a} />
       <ActNotes a={a} />
     </>

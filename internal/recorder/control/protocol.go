@@ -387,6 +387,10 @@ type UnknownVoice struct {
 	// length.
 	Returned     bool   `json:"returned,omitempty"`
 	ReturnedFrom string `json:"returnedFrom,omitempty"`
+	// Sample: a single sample taken out of a profile with "Not them"
+	// (Returned is set too), named with name_returned_sample, not by
+	// renaming the speaker.
+	Sample *SampleRef `json:"sample,omitempty"`
 }
 
 type VoicesView struct {
@@ -509,18 +513,99 @@ type ModelArgs struct {
 // taken out.
 const (
 	OpProfileSamples = "profile_samples" // VoiceArgs (Model, ID) → ProfileSamplesView
-	OpExcludeSample  = "exclude_sample"  // SampleArgs → -: that sample isn't the profile's person
-	OpIncludeSample  = "include_sample"  // SampleArgs → -: undoes exclude_sample
+	// OpExcludeSample is "Not them": the sample leaves the profile and is
+	// asked about under "Who's this?" (UnknownVoice.Sample).
+	OpExcludeSample = "exclude_sample" // SampleArgs → -
+	// OpJunkSample: the sample is noise; no profile learns from that
+	// stretch of the meeting again.
+	OpJunkSample    = "junk_sample"    // SampleArgs → -
+	OpIncludeSample = "include_sample" // SampleArgs → -: undoes exclude_sample or junk_sample ("Put back")
+	// OpNameReturnedSample names a sample taken out with "Not them" (ID is
+	// the profile it came from): its fingerprints teach the profile named
+	// Name (an existing one of exactly that name its voice fits, else a
+	// new one). OpSkipReturnedSample is "Can't tell" on it.
+	OpNameReturnedSample = "name_returned_sample" // SampleArgs (Name) → NamedSample
+	OpSkipReturnedSample = "skip_returned_sample" // SampleArgs → -
+	// OpSplitLabelByVoice gives each line of a label in one saved session
+	// to the candidate profile its voice matches best, by a margin.
+	OpSplitLabelByVoice = "split_label_by_voice" // SplitArgs → SplitResult
 )
 
 // SampleArgs addresses one sample of a profile's meeting, by its span as
-// ProfileSamplesView gave it.
+// ProfileSamplesView (or, for a returned sample, UnknownVoice.Sample)
+// gave it. Name is the name given (name_returned_sample).
 type SampleArgs struct {
 	Model   string  `json:"model"`
 	ID      string  `json:"id"`
 	Session string  `json:"session"`
 	Start   float64 `json:"start"`
 	End     float64 `json:"end"`
+	Name    string  `json:"name,omitempty"`
+}
+
+// NamedSample is the profile a returned sample now teaches.
+type NamedSample struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Created bool   `json:"created,omitempty"`
+}
+
+// SampleRef addresses a returned sample under "Who's this?": Profile is
+// the one it was taken out of.
+type SampleRef struct {
+	Model   string  `json:"model"`
+	Profile string  `json:"profile"`
+	Start   float64 `json:"start"`
+	End     float64 `json:"end"`
+}
+
+// SplitArgs asks split_label_by_voice to share Label's lines in Session
+// among Into (at least two). Preview works the split out without saving.
+type SplitArgs struct {
+	Session string        `json:"session"`
+	Label   string        `json:"label"`
+	Into    []SplitTarget `json:"into"`
+	Preview bool          `json:"preview,omitempty"`
+}
+
+// SplitTarget is a candidate: a profile by ID (of the session's speaker
+// model) or by exact name, and the label its lines get (default: the
+// profile's name).
+type SplitTarget struct {
+	ID    string `json:"id,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Label string `json:"label,omitempty"`
+}
+
+// SplitResult is what a split did (or, with Preview, would do): lines per
+// candidate, lines left as they were (Undecided: no fingerprints, or no
+// candidate ahead by the margin), each line's decision, and the batch in
+// the relabel log (undo_relabel undoes it).
+type SplitResult struct {
+	Batch     string       `json:"batch,omitempty"`
+	Counts    []SplitCount `json:"counts"`
+	Undecided int          `json:"undecided"`
+	Lines     []SplitLine  `json:"lines"`
+}
+
+// SplitCount is one candidate's share.
+type SplitCount struct {
+	Profile string `json:"profile"`
+	Name    string `json:"name"`
+	Label   string `json:"label"`
+	Lines   int    `json:"lines"`
+}
+
+// SplitLine is one line's decision: Label "" when left as it was; Best
+// and Second are its voice's similarity to the likest candidate and the
+// next (-2 without fingerprints).
+type SplitLine struct {
+	Start        float64 `json:"start"`
+	End          float64 `json:"end"`
+	Fingerprints int     `json:"fingerprints"`
+	Label        string  `json:"label,omitempty"`
+	Best         float64 `json:"best"`
+	Second       float64 `json:"second"`
 }
 
 // VoiceSampleView is one stretch a profile learnt from. Similarity is
@@ -537,6 +622,8 @@ type VoiceSampleView struct {
 	RestSimilarity float64 `json:"restSimilarity"`
 	Label          string  `json:"label,omitempty"`
 	Excluded       bool    `json:"excluded,omitempty"`
+	// Junk: taken out as junk (no profile learns from it), not "Not them".
+	Junk bool `json:"junk,omitempty"`
 }
 
 // MeetingSamplesView is one meeting's samples, worst match first.

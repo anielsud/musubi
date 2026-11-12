@@ -39,6 +39,7 @@ type reviewIndex struct {
 
 // sessionReview is what one saved session gives the review lists.
 type sessionReview struct {
+	id    string
 	title string
 	at    time.Time
 	// mod and gobMod are session.json's and diarization.gob's when read
@@ -95,6 +96,7 @@ func (a *Recorder) startReviewIndex() {
 		n := len(ix.sessions)
 		ix.mu.Unlock()
 		fmt.Printf("voices: review lists gathered from %d sessions in %v\n", n, ix.took.Round(time.Millisecond))
+		a.fillReturnedSamples()
 	}()
 }
 
@@ -245,7 +247,7 @@ func (a *Recorder) readReview(id string, sess *session.Session, prev *sessionRev
 			return nil
 		}
 	}
-	r := &sessionReview{title: sess.Title, at: sess.CreatedAt, mod: mod}
+	r := &sessionReview{id: id, title: sess.Title, at: sess.CreatedAt, mod: mod}
 	returned := map[string]session.ReturnedVoice{}
 	for _, rv := range sess.Returned {
 		returned[rv.Label] = rv
@@ -429,6 +431,7 @@ func assembleReviews(sessions []*sessionReview, stores map[string]*voices.Store,
 			unknown = append(unknown, v)
 		}
 	}
+	unknown = append(unknown, returnedSamples(sessions, stores)...)
 	newestFirst := func(ai, bi time.Time, as, bs float64) bool {
 		if !ai.Equal(bi) {
 			return ai.After(bi)
@@ -437,6 +440,9 @@ func assembleReviews(sessions []*sessionReview, stores map[string]*voices.Store,
 	}
 	sort.SliceStable(unknown, func(i, j int) bool {
 		if unknown[i].At.Equal(unknown[j].At) && unknown[i].Seconds == unknown[j].Seconds {
+			if unknown[i].Session+unknown[i].Label == unknown[j].Session+unknown[j].Label {
+				return unknown[i].Clip.Start < unknown[j].Clip.Start
+			}
 			return unknown[i].Session+unknown[i].Label < unknown[j].Session+unknown[j].Label
 		}
 		return newestFirst(unknown[i].At, unknown[j].At, unknown[i].Seconds, unknown[j].Seconds)

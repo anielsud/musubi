@@ -327,6 +327,7 @@ function MeetingPageView({ id, scope, onBack, onOpen, onTopic, onPrep }: {
       {page && (
         <>
           <h2 className="meeting-h">{page.title || page.itemId} <span className="dim small">{fmtDate(page.start)}</span></h2>
+          <MeetingExport page={page} scope={scope} />
           <p className="meeting-overview">{page.overview}</p>
           {(page.topics?.length ?? 0) > 0 && (
             <div className="chips" title="Threads this meeting's statements are in">
@@ -370,6 +371,77 @@ function MeetingPageView({ id, scope, onBack, onOpen, onTopic, onPrep }: {
         </>
       )}
       {scope === 'owner' && <MeetingRecording itemId={id} />}
+    </div>
+  );
+}
+
+// notesMarkdown is the meeting page as Markdown: what the page shows in
+// its scope (the speakers only where the page lists them, owner scope),
+// nothing more.
+function notesMarkdown(page: MeetingPage, speakers: string[]): string {
+  const one = (x: string) => x.replace(/\s+/g, ' ').trim();
+  const at = new Date(page.start);
+  const out: string[] = [`# ${one(page.title || page.itemId)}`];
+  if (!isNaN(at.getTime()) && at.getFullYear() >= 2000) {
+    out.push(at.toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }));
+  }
+  out.push('');
+  if (speakers.length) out.push(`**Speakers:** ${speakers.join(', ')}`);
+  if ((page.topics?.length ?? 0) > 0) out.push(`**Threads:** ${page.topics!.map((t) => one(t.label)).join(', ')}`);
+  if (speakers.length || (page.topics?.length ?? 0) > 0) out.push('');
+  if (page.overview) out.push(one(page.overview), '');
+  const sections = page.sections ?? [];
+  if (sections.length) {
+    out.push('## Summary', '');
+    for (const sec of sections) {
+      out.push(`### ${one(sec.subject)}`, one(sec.text));
+      if ((sec.people?.length ?? 0) > 0) out.push(`_${sec.people!.join(', ')}_`);
+      out.push('');
+    }
+  }
+  const todos = page.todos ?? [];
+  out.push(`## To-dos (${todos.length})`, '');
+  if (todos.length === 0) out.push('None listed.');
+  for (const t of todos) {
+    const bits = [(t.owners?.length ?? 0) > 0 ? t.owners!.join(', ') : 'owner unclear'];
+    if (t.due) bits.push(`due ${t.due}`); else if (t.dueText) bits.push(one(t.dueText));
+    bits.push(stateWords[t.state]);
+    if (agreedWords[t.agreed] && t.state !== 'declined') bits.push(agreedWords[t.agreed]);
+    out.push(`- [${t.state === 'done' ? 'x' : ' '}] ${one(t.text)} (${bits.join(' · ')})`);
+  }
+  return out.join('\n').trimEnd() + '\n';
+}
+
+// MeetingExport copies the page's notes and saves its transcript, each
+// under the page's scope.
+function MeetingExport({ page, scope }: { page: MeetingPage; scope: string }) {
+  const [note, setNote] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!note) return;
+    const t = setTimeout(() => setNote(''), 2500);
+    return () => clearTimeout(t);
+  }, [note]);
+  const copy = async () => {
+    setErr(''); setNote('');
+    try {
+      // The Speakers section is on the page in owner scope only.
+      const sp = scope === 'owner' ? await api.meetingSpeakers(page.itemId).catch(() => null) : null;
+      await api.copyText(notesMarkdown(page, (sp?.speakers ?? []).map((x) => speakerName(x.label))));
+      setNote('Copied');
+    } catch (e) { setErr(String(e)); }
+  };
+  const save = () => {
+    setErr(''); setNote(''); setBusy(true);
+    api.saveTranscript(page.itemId, scope).then((path) => { setBusy(false); if (path) setNote('Saved'); }, (e) => { setBusy(false); setErr(String(e)); });
+  };
+  return (
+    <div className="meeting-export">
+      <button className="link small" onClick={copy} title={scope === 'owner' ? 'Copy this page as Markdown' : 'Copy this page as Markdown: what the shared screen shows'}>Copy notes</button>
+      <button className="link small" onClick={save} disabled={busy} title={scope === 'owner' ? 'Save the transcript as a text file' : 'Save the transcript as a text file: the passages fine for a shared screen'}>Download transcript</button>
+      {note && <span className="ok-text small">{note}</span>}
+      {err && <span className="error small">{err}</span>}
     </div>
   );
 }

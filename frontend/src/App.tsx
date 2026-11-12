@@ -8,6 +8,7 @@ import { ExploreView } from './components/ExploreView';
 import { StatusView } from './components/StatusView';
 import { SettingsView } from './components/SettingsView';
 import { PeopleProvider } from './components/people';
+import { NavContext } from './components/nav';
 import { SourceDrawer, type SourceRef } from './components/SourceDrawer';
 import { DiagPanel } from './components/DiagPanel';
 import { RecordButton } from './components/recorder';
@@ -58,6 +59,7 @@ export function App() {
   const scope = sharing ? 'shared-screen' : 'owner';
   const openHit = (h: Hit, sc: string) => setSource({ itemId: h.itemId, chunkId: h.chunkId, scope: sc });
   const openEntity = (id: string) => { setFocus(id); setView('explore'); };
+  const openPerson = (id: string) => { setSource(null); openEntity(id); };
   const [topicReq, setTopicReq] = useState<{ id: number; n: number } | null>(null);
   const [meetingReq, setMeetingReq] = useState<{ id: string; n: number } | null>(null);
   const openMeeting = (id: string) => { setMeetingReq({ id, n: Date.now() }); setView('meetings'); };
@@ -107,7 +109,8 @@ export function App() {
         <span className="tabs-end"><RecordButton /></span>
       </nav>
 
-      <PeopleProvider scope={scope} onOpen={(id) => { setSource(null); openEntity(id); }}>
+      <NavContext.Provider value={{ openMeeting: (id) => { setSource(null); openMeeting(id); }, openPerson, scope }}>
+      <PeopleProvider scope={scope} onOpen={openPerson}>
       <main>
         <div hidden={view !== 'live'}><LiveView status={live} onOpen={openHit} onEntity={openEntity} onTopic={openTopic} scope={scope} prefill={askReq} /></div>
         <div hidden={view !== 'to-do'}><ToDoView onOpen={openHit} scope={scope} onTopic={openTopic} onMeeting={openMeeting} /></div>
@@ -124,6 +127,7 @@ export function App() {
       {toast && <div className="toast">{toast}</div>}
       <SelectionMenu onAsk={askAbout} onCorrect={correct} onSource={(itemId, chunkId) => setSource({ itemId, chunkId, scope })} />
       </PeopleProvider>
+      </NavContext.Provider>
       </div>
       {diag && <DiagPanel />}
     </div>

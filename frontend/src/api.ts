@@ -67,6 +67,8 @@ export const api = {
   toDos: (proposals: boolean, scope: string): Promise<ToDo[] | null> => app().ToDos(proposals, scope),
   meetingList: (scope: string, limit = 200): Promise<MeetingListItem[] | null> => app().MeetingList(scope, limit),
   meetingPage: (id: string, scope: string): Promise<MeetingPage | null> => app().MeetingPage(id, scope),
+  itemsExist: (ids: string[], scope: string): Promise<string[] | null> => app().ItemsExist(ids, scope),
+  saveTranscript: (id: string, scope: string): Promise<string> => app().SaveTranscript(id, scope),
   linkToDo: (id: number, rel: string, other: number, note = ''): Promise<number> => app().LinkToDo(id, rel, other, note),
   undoToDoLink: (id: number): Promise<void> => app().UndoToDoLink(id),
   savedPrepBrief: (itemId: string, scope: string): Promise<SavedBrief | null> => app().SavedPrepBrief(itemId, scope),

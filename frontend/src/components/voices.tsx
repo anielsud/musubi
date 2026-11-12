@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, clipURL, on, tileURL } from '../api';
 import type { NamedByVoice, SameNamePair, TileRef, UnknownVoice, VoiceArgs, VoiceClip, VoiceDoubt, VoicePair, VoiceProfile, VoicesView } from '../types';
 import { Spinner } from './common';
+import { MeetingLink, recordingItem, useItemsExist } from './nav';
+import { FullName } from './people';
 
 // Voices and speakers from the recorder's voice store: the review queue
 // (named by voice, window or voice, who's this, same person, two profiles
@@ -73,7 +75,8 @@ export function ActNotes({ a }: { a: Act }) {
 let playing: HTMLAudioElement | null = null;
 let stopPlaying: (() => void) | null = null;
 
-export function Play({ clip }: { clip: VoiceClip }) {
+// label names whose clip it is, where a row offers more than one.
+export function Play({ clip, label }: { clip: VoiceClip; label?: string }) {
   const [on, setOn] = useState(false);
   const el = useRef<HTMLAudioElement | null>(null);
   useEffect(() => () => { if (playing === el.current) { playing?.pause(); playing = null; } }, []);
@@ -96,7 +99,17 @@ export function Play({ clip }: { clip: VoiceClip }) {
       return a.play();
     }).catch(() => setOn(false));
   };
+  if (label) return <button className="icon-btn play labelled" title={`Play a few seconds: ${label}`} onClick={toggle}>{on ? '■' : '▶'} {label}</button>;
   return <button className="icon-btn play" title="Play a few seconds" onClick={toggle}>{on ? '■' : '▶'}</button>;
+}
+
+// Heard is a row's voice: one Play, or, when there are profiles to hear
+// it against, a labelled Play for it and for each profile.
+type Other = { clip: VoiceClip; label: string };
+function Heard({ clip, others }: { clip: VoiceClip; others: (Other | null)[] }) {
+  const os = others.filter((o, i): o is Other => !!o && others.findIndex((x) => x?.label === o.label) === i);
+  if (os.length === 0) return <Play clip={clip} />;
+  return <div className="voice-compare"><Play clip={clip} label="this voice" />{os.map((o) => <Play key={o.label} clip={o.clip} label={o.label} />)}</div>;
 }
 
 // TileImg is the person's tile in the meeting window, the height fixed
@@ -138,14 +151,27 @@ export function ReviewItems({ view, session, editable, a, showTitle = true }: {
   const [renaming, setRenaming] = useState<SameNamePair | null>(null);
   const byId: Record<string, VoiceProfile> = {};
   (view.profiles ?? []).forEach((p) => { byId[`${p.model}/${p.id}`] = p; });
+  // A profile's clip to hear a voice against: by profile id where the row
+  // has one, else by name when exactly one profile has it (two Kevins'
+  // profiles are two people: neither is offered).
+  const clipOf = (name?: string, model?: string, id?: string): Other | null => {
+    const p = (model && id ? byId[`${model}/${id}`] : undefined) ?? (() => {
+      const ps = (view.profiles ?? []).filter((x) => !!name && x.name === name && !x.startedOver);
+      return ps.length === 1 ? ps[0] : undefined;
+    })();
+    return p && !p.startedOver ? { clip: p.clip, label: p.name } : null;
+  };
   const sp = (op: string, s: string, label: string, name: string, done: string) => a.act(`${s}/${label}`, () => api.recorderSpeaker(op, s, label, name), done);
-  const where = (x: { title: string; at: string }) => (showTitle ? ` in ${x.title} · ${day(x.at)}` : '');
+  // Which rows' meetings Musubi has, asked once for the list.
+  const found = useItemsExist(showTitle ? [...named, ...doubts, ...unknown].map((x) => recordingItem(x.session)) : []);
+  const where = (x: { session: string; title: string; at: string }, lead = ' in '): ReactNode => (showTitle
+    ? <>{lead}<MeetingLink session={x.session} title={x.title || x.session.slice(0, 8)} found={found} /> · {day(x.at)}</> : null);
   return (
     <>
       {named.length > 0 && <>
         <div className="review-head">Named by voice</div>
         <p className="dim small">A voice profile named these speakers, not the meeting window or you. Play them and say if they&apos;re right: either answer teaches the profile.</p>
-        {named.map((n) => <NamedRow key={`n/${n.session}/${n.label}`} n={n} where={where(n)} editable={editable} busy={a.busy === `${n.session}/${n.label}`}
+        {named.map((n) => <NamedRow key={`n/${n.session}/${n.label}`} n={n} others={[clipOf(n.name, n.model, n.profile)]} where={where(n)} editable={editable} busy={a.busy === `${n.session}/${n.label}`}
           onRight={() => sp('rename_speaker', n.session, n.label, n.name, `Confirmed ${n.name}.`)}
           onNotThem={() => sp('not_them', n.session, n.label, '', `${n.name}'s profile won't name that voice again.`)}
           onName={(name) => sp('rename_speaker', n.session, n.label, name, `Named them ${name}.`)}
@@ -154,14 +180,14 @@ export function ReviewItems({ view, session, editable, a, showTitle = true }: {
       {doubts.length > 0 && <>
         <div className="review-head">Window or voice?</div>
         <p className="dim small">The meeting window named these speakers, but the voice sounds a little like someone else. Until you say, they keep the window&apos;s name.</p>
-        {doubts.map((d) => <DoubtRow key={`d/${d.session}/${d.label}`} d={d} where={where(d)} editable={editable} busy={a.busy === `${d.session}/${d.label}`}
+        {doubts.map((d) => <DoubtRow key={`d/${d.session}/${d.label}`} d={d} others={[clipOf(d.name), d.noProfile ? null : clipOf(d.window)]} where={where(d)} editable={editable} busy={a.busy === `${d.session}/${d.label}`}
           onName={(name) => sp('rename_speaker', d.session, d.label, name, `Named them ${name}.`)}
           onSkip={() => sp('skip_voice_doubt', d.session, d.label, '', 'Won’t ask about that one again; it keeps the window’s name.')} />)}
       </>}
       {unknown.length > 0 && <>
         <div className="review-head">Who&apos;s this?</div>
         <p className="dim small">Voices nobody has named. Naming one names them in that meeting and teaches their profile.</p>
-        {unknown.map((u) => <UnknownRow key={`u/${u.session}/${u.label}`} u={u} where={where(u)} editable={editable} busy={a.busy === `${u.session}/${u.label}`}
+        {unknown.map((u) => <UnknownRow key={`u/${u.session}/${u.label}`} u={u} others={[clipOf(u.soundsLike)]} where={where(u, 'in ')} editable={editable} busy={a.busy === `${u.session}/${u.label}`}
           onName={(name) => sp('rename_speaker', u.session, u.label, name, `Named ${bare(u.label)} ${name}.`)} />)}
       </>}
       {pairs.length > 0 && <>
@@ -186,16 +212,16 @@ export function ReviewItems({ view, session, editable, a, showTitle = true }: {
   );
 }
 
-function NamedRow({ n, where, editable, busy, onRight, onNotThem, onName, onSkip }: {
-  n: NamedByVoice; where: string; editable: boolean; busy: boolean; onRight: () => void; onNotThem: () => void; onName: (n: string) => void; onSkip: () => void;
+function NamedRow({ n, others, where, editable, busy, onRight, onNotThem, onName, onSkip }: {
+  n: NamedByVoice; others: (Other | null)[]; where: ReactNode; editable: boolean; busy: boolean; onRight: () => void; onNotThem: () => void; onName: (n: string) => void; onSkip: () => void;
 }) {
   const [naming, setNaming] = useState(false);
   return (
     <div className="voice-row">
-      <Play clip={n.clip} />
+      <Heard clip={n.clip} others={others} />
       <div className="voice-body">
-        <div><b>{n.name}</b> <span className="dim small">as {bare(n.label)}{where} · spoke {spoke(n.seconds)}</span></div>
-        <div className="dim small">{Math.round(n.similarity * 100)}% like {n.name}&apos;s profile{n.window && <> · the meeting window said {n.window}</>}</div>
+        <div><b><FullName name={n.name} /></b> <span className="dim small">as {bare(n.label)}{where} · spoke {spoke(n.seconds)}</span></div>
+        <div className="dim small">{Math.round(n.similarity * 100)}% like {n.name}&apos;s profile{n.window && <> · the meeting window said <FullName name={n.window} /></>}</div>
       </div>
       {editable && (naming ? <NameForm busy={busy} onName={onName} onCancel={() => setNaming(false)} /> : (
         <div className="voice-actions">
@@ -209,16 +235,16 @@ function NamedRow({ n, where, editable, busy, onRight, onNotThem, onName, onSkip
   );
 }
 
-function DoubtRow({ d, where, editable, busy, onName, onSkip }: {
-  d: VoiceDoubt; where: string; editable: boolean; busy: boolean; onName: (n: string) => void; onSkip: () => void;
+function DoubtRow({ d, others, where, editable, busy, onName, onSkip }: {
+  d: VoiceDoubt; others: (Other | null)[]; where: ReactNode; editable: boolean; busy: boolean; onName: (n: string) => void; onSkip: () => void;
 }) {
   const [naming, setNaming] = useState(false);
   return (
     <div className="voice-row">
-      <Play clip={d.clip} />
+      <Heard clip={d.clip} others={others} />
       <div className="voice-body">
-        <div><b>{d.window}?</b> <span className="dim small">as {bare(d.label)}{where} · spoke {spoke(d.seconds)}</span></div>
-        <div className="dim small">The window said {d.window}; the voice sounds {d.similarity >= 0.7 ? '' : 'a little '}like {d.name} ({Math.round(d.similarity * 100)}%){d.noProfile && <>, and {d.window} has no voice profile yet</>}</div>
+        <div><b><FullName name={d.window} />?</b> <span className="dim small">as {bare(d.label)}{where} · spoke {spoke(d.seconds)}</span></div>
+        <div className="dim small">The window said {d.window}; the voice sounds {d.similarity >= 0.7 ? '' : 'a little '}like <FullName name={d.name} /> ({Math.round(d.similarity * 100)}%){d.noProfile && <>, and {d.window} has no voice profile yet</>}</div>
       </div>
       {editable && (naming ? <NameForm busy={busy} onName={onName} onCancel={() => setNaming(false)} /> : (
         <div className="voice-actions">
@@ -232,15 +258,15 @@ function DoubtRow({ d, where, editable, busy, onName, onSkip }: {
   );
 }
 
-function UnknownRow({ u, where, editable, busy, onName }: { u: UnknownVoice; where: string; editable: boolean; busy: boolean; onName: (n: string) => void }) {
+function UnknownRow({ u, others, where, editable, busy, onName }: { u: UnknownVoice; others: (Other | null)[]; where: ReactNode; editable: boolean; busy: boolean; onName: (n: string) => void }) {
   return (
     <div className="voice-row">
-      <Play clip={u.clip} />
+      <Heard clip={u.clip} others={others} />
       <div className="voice-body">
-        <div><b>{bare(u.label)}</b> <span className="dim small">{where.replace(/^ in /, 'in ')} · spoke {spoke(u.seconds)}</span></div>
+        <div><b>{bare(u.label)}</b> <span className="dim small">{where}{where ? ' · ' : ''}spoke {spoke(u.seconds)}</span></div>
         {u.soundsLike && (
           <div className="dim small">
-            {(u.similarity ?? 0) >= 0.7 ? 'Sounds like' : 'Sounds a little like'} {u.soundsLike} ({Math.round((u.similarity ?? 0) * 100)}%)
+            {(u.similarity ?? 0) >= 0.7 ? 'Sounds like' : 'Sounds a little like'} <FullName name={u.soundsLike} /> ({Math.round((u.similarity ?? 0) * 100)}%)
             {editable && <> <button className="link" disabled={busy} onClick={() => onName(u.soundsLike!)}>It&apos;s {u.soundsLike}</button></>}
           </div>
         )}
@@ -360,6 +386,8 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
   const busy = a.busy === key;
   const v = (op: string, extra: Partial<VoiceArgs>, done = '') => a.act(key, () => api.recorderVoice(op, { model: p.model, id: p.id, ...extra }), done);
   const heard = p.heard ?? [], out = p.takenOut ?? [];
+  // Which of its meetings Musubi has, asked once the meetings are open.
+  const found = useItemsExist(open ? [...heard, ...out].map((h) => recordingItem(h.session)) : []);
   const from = [p.fromTiles ? `own tile in ${p.fromTiles}` : '', p.fromNamed ? `named by you in ${p.fromNamed}` : ''].filter(Boolean).join(', ');
   const flagged = heard.filter((h) => heard.length > 1 && h.agreement < agreeFlag).length;
   const confirmRow = (text: string, button: string, go: () => void, keep: () => void): ReactNode => (
@@ -372,7 +400,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
         <TileImg tile={p.face} size={44} title={`${p.name} as the meeting window showed them`} />
         <div className="voice-body">
           {editing ? <NameForm busy={busy} start={p.name} button="Save" onName={(n) => { setEditing(false); v('rename_voice', { name: n }, `Renamed to ${n}.`); }} onCancel={() => setEditing(false)} /> : (
-            <div><b>Voice: {p.name}</b>
+            <div><b>Voice: <FullName name={p.name} /></b>
               {flagged > 0 && <span className="badge warn-badge" title="A meeting sounds unlike the rest: open the meetings to check"> {flagged} to check</span>}
               {!p.inUse && !p.startedOver && p.meetings > 0 && <span className="badge" title="Heard in one meeting: it names nobody until heard in another, or you confirm the clip"> not used yet</span>}
             </div>
@@ -403,7 +431,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
                 <Play clip={h.clip} />
                 {(h.tiles ?? []).slice(0, 3).map((t) => <TileImg key={t.look} tile={t} size={40} title="Their tile while their voice was learnt" />)}
                 <div className="voice-body">
-                  <div className="small">{h.title || h.session.slice(0, 8)} <span className="dim">{day(h.at)} · {h.source === 'named' ? 'named by you' : 'own tile'}</span></div>
+                  <div className="small"><MeetingLink session={h.session} title={h.title || h.session.slice(0, 8)} found={found} /> <span className="dim">{day(h.at)} · {h.source === 'named' ? 'named by you' : 'own tile'}</span></div>
                   <div className={'small ' + (odd ? 'warn' : 'dim')}>{heard.length > 1 ? `${Math.round(h.agreement * 100)}% like the other meetings${odd ? ': may be someone else' : ''}` : 'Only meeting'}</div>
                 </div>
                 {editable && (moving === h.session
@@ -420,7 +448,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
           {out.map((h) => (
             <div key={'out/' + h.session} className="voice-row taken-out">
               <DiscardedPlay p={p} session={h.session} />
-              <div className="voice-body"><div className="small">{h.title || h.session.slice(0, 8)} <span className="dim">discarded: not learnt from</span></div></div>
+              <div className="voice-body"><div className="small"><MeetingLink session={h.session} title={h.title || h.session.slice(0, 8)} found={found} /> <span className="dim">discarded: not learnt from</span></div></div>
               {editable && (moving === h.session
                 ? <MoveForm p={p} profiles={profiles} busy={busy} onMove={(to, label) => { setMoving(null); v('move_voice_meeting', { session: h.session, ...to }, `Moved that meeting to ${label}.`); }} onCancel={() => setMoving(null)} />
                 : <div className="voice-actions"><button disabled={busy} onClick={() => setMoving(h.session)}>Someone else…</button></div>)}

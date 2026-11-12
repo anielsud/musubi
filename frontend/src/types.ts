@@ -207,8 +207,11 @@ export interface AppStatus {
   lastUpdate: string;
   stats?: Stats;
   live: LiveStatus;
-  config: Record<string, string>;
   dataset: string;
+  m365: boolean;
+  onUpdate: boolean;
+  autoMax: number;
+  updateEvery: number;
 }
 
 export interface Statement {
@@ -599,6 +602,124 @@ export interface M365View {
   lastError?: string;
   lastReport?: string;
   connecting: boolean;
+}
+
+export interface GatewayView {
+  url: string;
+  account: string;
+  tokenId: string;
+  connected: boolean;
+  configured: boolean;
+}
+
+export interface GatewayModel {
+  id: string;
+  kind: 'chat' | 'decision';
+  provider: 'anthropic' | 'openai' | 'jev' | 'clef';
+  priceIn: number;
+  priceOut: number;
+  context: number;
+  retires: string;
+  note?: string;
+  efforts: string[] | null;
+  defaultEffort: string;
+}
+
+export interface ProviderView {
+  name: string;
+  kind: 'gateway' | 'custom' | 'ollama';
+  title: string;
+  url: string;
+  ready: boolean;
+  keyRef?: string;
+  hasKey: boolean;
+  formats: string[];
+  headers?: Record<string, string> | null;
+  usedBy: string[] | null;
+  configured: boolean;
+  tokenId?: string;
+  startOllama: boolean;
+  pullMissing: boolean;
+}
+
+export interface TestResult {
+  ok: boolean;
+  ms: number;
+  models: number;
+  error?: string;
+}
+
+export interface SlotView {
+  kind: 'chat' | 'decision' | 'local';
+  sections: string[];
+  current: string;
+  customText?: string;
+  effort: string;
+  fallback: string;
+  fallbackText?: string;
+  fallbackEffort: string;
+  hasFallback: boolean;
+}
+
+export interface Rate {
+  in: number;
+  out: number;
+  per: string;
+}
+
+export interface GroupView {
+  key: string;
+  title: string;
+  does: string;
+  slots: SlotView[];
+  rate?: Rate;
+}
+
+export interface ModelRow {
+  source: string;
+  id: string;
+  formats: string[] | null;
+  kind: 'chat' | 'decision';
+  priceIn: number;
+  priceOut: number;
+  context: number;
+  efforts: string[] | null;
+  defaultEffort: string;
+  retires: string;
+  note?: string;
+  usedBy: string[] | null;
+  size: number;
+}
+
+export interface ModelCatalog {
+  rows: ModelRow[] | null;
+  errors: Record<string, string> | null;
+  pulls: string[] | null;
+}
+
+export interface PrefField {
+  section: string;
+  key: string;
+  label: string;
+  help: string;
+  type: 'bool' | 'int' | 'string';
+  unit?: string;
+  value: boolean | number | string;
+}
+
+export interface PrefGroup {
+  title: string;
+  fields: PrefField[];
+}
+
+export interface StorageView {
+  dataset: string;
+  config: string;
+  data: string;
+  parts: { label: string; bytes: number }[] | null;
+  total: number;
+  backups: string;
+  lastBackup: string;
 }
 
 export interface DirectoryPerson {

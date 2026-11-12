@@ -242,6 +242,9 @@ func (o *OpenAI) stream(ctx context.Context, msgs []Message, opt ChatOptions, ma
 	} else if key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
+	for k, v := range o.headers {
+		req.Header.Set(k, v)
+	}
 	if opt.Session != "" {
 		req.Header.Set("x-session-affinity", sessionHash(opt.Session))
 	}

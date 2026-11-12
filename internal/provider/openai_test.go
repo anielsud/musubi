@@ -82,11 +82,11 @@ func TestOpenAISessionAffinity(t *testing.T) {
 // low reasoning effort.
 func TestOpenAIHosted(t *testing.T) {
 	var calls int
-	var auth, effort string
+	var auth, effort, meta string
 	var strict, capped bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
-		auth = r.Header.Get("Authorization")
+		auth, meta = r.Header.Get("Authorization"), r.Header.Get("cf-aig-metadata")
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		_, capped = body["max_tokens"]
@@ -111,7 +111,8 @@ func TestOpenAIHosted(t *testing.T) {
 	if _, err := net.LookupHost("localtest.me"); err != nil {
 		t.Skip("needs localtest.me to resolve to 127.0.0.1")
 	}
-	llm, err := NewLLM(config.LLM{Provider: "openai", URL: url, Model: "m", APIKey: "env:TEST_KEY", ReasoningEffort: "medium", PriceIn: 0.15, PriceOut: 0.5})
+	llm, err := NewLLM(config.LLM{Provider: "openai", URL: url, Model: "m", APIKey: "env:TEST_KEY", ReasoningEffort: "medium", PriceIn: 0.15, PriceOut: 0.5,
+		Headers: map[string]string{"cf-aig-metadata": `{"token_id":"t1"}`}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,6 +128,9 @@ func TestOpenAIHosted(t *testing.T) {
 	// server: asked again with low effort.
 	if calls != 2 || capped || auth != "Bearer sekret" || effort != "low" || !strict {
 		t.Errorf("calls %d, capped %v, auth %q, effort %q, strict %v", calls, capped, auth, effort, strict)
+	}
+	if meta != `{"token_id":"t1"}` {
+		t.Errorf("configured header sent as %q", meta)
 	}
 	// Both calls metered: 2 × (1M in × $0.15 + 2M out × $0.50).
 	if got := ledgerTotal(ledger); got < 2.29 || got > 2.31 {

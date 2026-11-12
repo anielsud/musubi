@@ -90,6 +90,9 @@ func (a *App) openConfig(path string) error {
 		a.ollamaUp = up
 		a.mu.Unlock()
 		a.emit("app:status", a.Status())
+		if up {
+			a.pullRequired()
+		}
 	}()
 	go a.live.Run(lctx)
 	if e.Cfg.Prep.AutoBrief && e.AskLLM != nil {
@@ -133,17 +136,23 @@ func (a *App) Shutdown(ctx context.Context) {
 
 // AppStatus is shown in the header and the status view.
 type AppStatus struct {
-	Error      string            `json:"error,omitempty"`
-	Owner      string            `json:"owner"`
-	OllamaUp   bool              `json:"ollamaUp"`
-	ChatModel  string            `json:"chatModel"`
-	EmbedModel string            `json:"embedModel"`
-	Updating   bool              `json:"updating"`
-	LastUpdate time.Time         `json:"lastUpdate"`
-	Stats      *store.Stats      `json:"stats,omitempty"`
-	Live       live.Status       `json:"live"`
-	Config     map[string]string `json:"config"`
-	Dataset    string            `json:"dataset"`
+	Error      string       `json:"error,omitempty"`
+	Owner      string       `json:"owner"`
+	OllamaUp   bool         `json:"ollamaUp"`
+	ChatModel  string       `json:"chatModel"`
+	EmbedModel string       `json:"embedModel"`
+	Updating   bool         `json:"updating"`
+	LastUpdate time.Time    `json:"lastUpdate"`
+	Stats      *store.Stats `json:"stats,omitempty"`
+	Live       live.Status  `json:"live"`
+	Dataset    string       `json:"dataset"`
+	// What "Check for new meetings" does: sync Microsoft 365 (when on),
+	// then process up to AutoMax new meetings (0: all) when OnUpdate; and
+	// how often it runs by itself (minutes, 0: never).
+	M365        bool `json:"m365"`
+	OnUpdate    bool `json:"onUpdate"`
+	AutoMax     int  `json:"autoMax"`
+	UpdateEvery int  `json:"updateEvery"`
 }
 
 func (a *App) Status() AppStatus {
@@ -155,6 +164,8 @@ func (a *App) Status() AppStatus {
 	st.OllamaUp, st.Updating, st.LastUpdate = a.ollamaUp, a.updating, a.lastUpdate
 	a.mu.Unlock()
 	st.Owner = a.eng.Cfg.Owner.Name
+	st.M365, st.OnUpdate, st.AutoMax = a.eng.Cfg.M365.Enabled, a.eng.Cfg.Knowledge.OnUpdate, a.eng.Cfg.Knowledge.AutoMax
+	st.UpdateEvery = a.eng.Cfg.Live.UpdateEvery
 	if a.eng.Chat != nil {
 		st.ChatModel = a.eng.Chat.Model
 	}
@@ -163,13 +174,6 @@ func (a *App) Status() AppStatus {
 	}
 	st.Stats, _ = a.eng.Store.Stats()
 	st.Live = a.live.Status()
-	st.Config = map[string]string{
-		"config":        a.cfgPath,
-		"data":          a.eng.Cfg.DataDir,
-		"tomoe socket":  a.eng.Cfg.Live.TomoeSocket,
-		"suggest every": fmt.Sprintf("%ds", a.eng.Cfg.Live.SuggestEvery),
-		"auto briefs":   fmt.Sprint(a.eng.Cfg.Live.AutoBrief),
-	}
 	return st
 }
 

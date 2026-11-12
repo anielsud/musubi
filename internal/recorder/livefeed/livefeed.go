@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"github.com/anielsud/musubi/internal/recorder/config"
+	"github.com/anielsud/musubi/internal/recorder/control"
 	"github.com/anielsud/musubi/internal/recorder/session"
 )
 
@@ -102,9 +103,10 @@ type segmentMsg struct {
 }
 
 // Attach registers a newly connected client: sess is the session
-// recording now (nil if none) and segments its lines in order. See
-// SnapshotFunc.
-type Attach func(sess *SessionInfo, segments []session.Segment)
+// recording now (nil if none) and segments its lines in order; extra are
+// further messages (see StatusMessage) sent after them, before anything
+// live. See SnapshotFunc.
+type Attach func(sess *SessionInfo, segments []session.Segment, extra ...any)
 
 // SnapshotFunc gives a new client the current state. It must call attach
 // exactly once, while holding the same lock its owner holds when it
@@ -256,7 +258,7 @@ func (s *Server) acceptLoop() {
 // live messages.
 func (s *Server) attachClient(conn net.Conn) {
 	var c *client
-	attach := func(sess *SessionInfo, segments []session.Segment) {
+	attach := func(sess *SessionInfo, segments []session.Segment, extra ...any) {
 		if c != nil {
 			return // attach called twice; the first one counts
 		}
@@ -266,6 +268,9 @@ func (s *Server) attachClient(conn net.Conn) {
 			for _, seg := range segments {
 				buf = append(buf, encode(segmentMsg{V: ProtocolVersion, Type: "segment", SessionID: sess.ID, Segment: seg})...)
 			}
+		}
+		for _, m := range extra {
+			buf = append(buf, encode(m)...)
 		}
 		c = &client{conn: conn, snapshot: buf, ch: make(chan []byte, s.opts.Buffer)}
 		s.mu.Lock()
@@ -341,6 +346,75 @@ func (s *Server) Segment(sessionID string, seg session.Segment) {
 	}
 	s.publish(func() any {
 		return segmentMsg{V: ProtocolVersion, Type: "segment", SessionID: sessionID, Segment: seg}
+	})
+}
+
+// The messages below were added for the Musubi app (control.FeedStatus
+// and the rest); readers that don't know a type skip it, so hello,
+// session and segment are unchanged for older readers.
+
+type statusMsg struct {
+	V      int            `json:"v"`
+	Type   string         `json:"type"`
+	Status control.Status `json:"status"`
+}
+
+type diagMsg struct {
+	V         int          `json:"v"`
+	Type      string       `json:"type"`
+	SessionID string       `json:"session_id"`
+	Diag      control.Diag `json:"diag"`
+}
+
+type lookMsg struct {
+	V         int              `json:"v"`
+	Type      string           `json:"type"`
+	SessionID string           `json:"session_id"`
+	Look      control.LookView `json:"look"`
+}
+
+// StatusMessage is a "status" message for st, for Attach's extra: a new
+// client learns the recorder's state with its snapshot.
+func StatusMessage(st control.Status) any {
+	return statusMsg{V: ProtocolVersion, Type: control.FeedStatus, Status: st}
+}
+
+// Status sends the recorder's state after a change (recording started or
+// stopped, a source switched, health or busy changed).
+func (s *Server) Status(st control.Status) {
+	if s == nil {
+		return
+	}
+	s.publish(func() any { return StatusMessage(st) })
+}
+
+// Audio sends the state when a silent source or a suggested one changed.
+func (s *Server) Audio(st control.Status) {
+	if s == nil {
+		return
+	}
+	s.publish(func() any { return statusMsg{V: ProtocolVersion, Type: control.FeedAudio, Status: st} })
+}
+
+// Diag sends one live-labelling event; d is built only when someone is
+// listening.
+func (s *Server) Diag(sessionID string, d func() control.Diag) {
+	if s == nil {
+		return
+	}
+	s.publish(func() any {
+		return diagMsg{V: ProtocolVersion, Type: control.FeedDiag, SessionID: sessionID, Diag: d()}
+	})
+}
+
+// Look sends one look at the meeting window; l is built only when
+// someone is listening.
+func (s *Server) Look(sessionID string, l func() control.LookView) {
+	if s == nil {
+		return
+	}
+	s.publish(func() any {
+		return lookMsg{V: ProtocolVersion, Type: control.FeedLook, SessionID: sessionID, Look: l()}
 	})
 }
 

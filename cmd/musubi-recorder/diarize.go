@@ -39,7 +39,7 @@ func init() {
 // diarizeSession relabels a saved session's speakers with sherpa-onnx's
 // diarization and saves it again, in the folder config.DataDir names.
 func diarizeSession(id string) error {
-	cfg, err := loadTomoeConfig()
+	cfg, err := loadConfig(config.MusubiPath())
 	if err != nil {
 		return err
 	}

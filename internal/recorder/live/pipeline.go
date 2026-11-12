@@ -204,6 +204,9 @@ func (c *Coordinator) processWindow(st *sourceState, window []float32) {
 	if st.source == SourceMic && hasSignal(window) {
 		c.micHeardAt.Store(c.now().UnixNano())
 	}
+	if st.source == SourceMonitor && hasSignal(window) {
+		c.monitorHeardAt.Store(c.now().UnixNano())
+	}
 	// Feed window to VAD (must be exactly windowSize)
 	if len(window) == vadWindowSize {
 		vadBegan := time.Now()

@@ -19,6 +19,13 @@ type Config struct {
 	Audio         AudioConfig         `toml:"audio"`
 	Transcription TranscriptionConfig `toml:"transcription"`
 	Meeting       MeetingConfig       `toml:"meeting"`
+
+	// MusubiOfRecord is Musubi's [recorder] of_record = "musubi": the
+	// Musubi recorder, not Tomoe, is the recorder of record, so its own
+	// voices are authoritative and Tomoe's are no longer copied over them.
+	// Only Musubi's config sets it (OverlayMusubi); false ("tomoe", the
+	// default) keeps copying, as before.
+	MusubiOfRecord bool `toml:"-"`
 }
 
 // AudioConfig picks the microphone.
@@ -274,6 +281,13 @@ type MeetingConfig struct {
 	// at once; an edit to config.toml itself takes effect on the next
 	// launch.
 	LiveFeed bool `toml:"live_feed"`
+
+	// SourceCheck, while a recording's mic or system audio has had no
+	// signal for a while, listens briefly to the other inputs and
+	// sources and, if one has signal, offers it to the Musubi app
+	// (Status.Silent and Status.Suggest). false only logs the silent mic,
+	// as before.
+	SourceCheck bool `toml:"source_check"`
 }
 
 // VideoHintsOn reports whether video hints run: on macOS (the only platform
@@ -366,6 +380,8 @@ func DefaultConfig() *Config {
 
 		VideoHintLearnInterval: 1.0,
 		VideoHintCheckInterval: 1.0,
+
+		SourceCheck: true,
 	}
 	return cfg
 }

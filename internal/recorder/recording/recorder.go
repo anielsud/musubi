@@ -32,8 +32,13 @@ var meetingLanguages = []string{"en"}
 // Recorder records meetings. One recording runs at a time; saving a
 // stopped one happens in the background, one save after another.
 type Recorder struct {
+	// cfg is replaced whole by reload_config, never changed in place, so
+	// whoever took the pointer (under mu) keeps a consistent config.
 	cfg   *config.Config
 	store *session.Store
+	// musubiConfig is Musubi's config file, whose [recorder.*] tables
+	// overlay Tomoe's (config.LoadRecorder).
+	musubiConfig string
 
 	// bundle holds the transcription/streaming engines, speaker
 	// embedder and model manager (see engineBundle). Guarded by mu.
@@ -71,9 +76,13 @@ type Recorder struct {
 	configWatchStop func()
 
 	// videoHintMu guards audioSource, what the automatic system-audio
-	// source is capturing (see followMeetingAudio).
+	// source is capturing (see followMeetingAudio), and the current
+	// recording's hint session and looks so far (for the looks op). Taken
+	// after mu when both are needed, never before.
 	videoHintMu sync.Mutex
 	audioSource string
+	hints       *hintSession
+	videoLooks  []videohint.Look
 
 	// saves carries stopped recordings to saveLoop, which persists them
 	// in order: two diarizations at once would share sherpa-onnx state.
@@ -91,6 +100,24 @@ type Recorder struct {
 	persist func(*saveRequest)
 	// copyVoices brings Tomoe's voice files over before each recording.
 	copyVoices func() error
+
+	// What the Musubi app sees and changes through the control socket
+	// (control.go). Guarded by mu.
+	src sourceState
+	// saving are sessions stopped but not yet saved: not to be deleted
+	// or edited under the saver.
+	saving map[string]bool
+	// busy says what long job is running, for Status.Busy.
+	busy string
+	// notes are extra health lines: a fix that failed, settings that
+	// need a restart.
+	notes map[string]string
+	// health caches the tools' problems (healthLines); see refreshHealth.
+	health   []string
+	healthAt time.Time
+
+	// The source check's probes (sourcecheck.go); tests swap them.
+	probes sourceProbes
 }
 
 // activeRecording is what a recording in progress needs to be stopped.
@@ -126,10 +153,14 @@ var (
 // at the recorder's own folder.
 func New(cfg *config.Config) *Recorder {
 	r := &Recorder{
-		cfg:       cfg,
-		store:     session.NewStore(config.SessionDir()),
-		saves:     make(chan *saveRequest, pendingSaves),
-		saverDone: make(chan struct{}),
+		cfg:          cfg,
+		store:        session.NewStore(config.SessionDir()),
+		musubiConfig: config.MusubiPath(),
+		saves:        make(chan *saveRequest, pendingSaves),
+		saverDone:    make(chan struct{}),
+		saving:       map[string]bool{},
+		notes:        map[string]string{},
+		probes:       defaultProbes(),
 	}
 	r.begin = r.beginLocked
 	r.persist = r.persistSession
@@ -142,23 +173,48 @@ func New(cfg *config.Config) *Recorder {
 // live feed first, so a consumer can connect while the models load, then
 // the engines, the speaker tracker and the meeting detector.
 func (a *Recorder) Start(ctx context.Context) error {
-	if err := a.startLiveFeed(a.cfg.Meeting.LiveFeed); err != nil {
+	cfg := a.currentConfig()
+	if err := a.startLiveFeed(cfg.Meeting.LiveFeed); err != nil {
 		fmt.Printf("Warning: live feed not started: %v\n", err)
 	}
 	// Before the owner voice is first read (and perhaps seeded), so it
-	// starts from Tomoe's.
-	if err := a.copyVoices(); err != nil {
+	// starts from Tomoe's; not once the recorder's own voices are of
+	// record.
+	if cfg.MusubiOfRecord {
+		fmt.Println("voices: the recorder is of record; Tomoe's voices are not copied")
+	} else if err := a.copyVoices(); err != nil {
 		fmt.Printf("Warning: voices not copied from Tomoe: %v\n", err)
 	}
-	status := models.NewManager(a.cfg.Transcription.ModelPath).WithLiveModel(a.cfg.Transcription.LiveModel).Check()
-	a.setupEngines(ctx, a.cfg, status)
+	status := models.NewManager(cfg.Transcription.ModelPath).WithLiveModel(cfg.Transcription.LiveModel).Check()
+	a.setupEngines(ctx, cfg, status)
 	a.mu.Lock()
 	ready := a.bundle.engines != nil
 	a.mu.Unlock()
 	if !ready {
-		return fmt.Errorf("no transcription engine: are Tomoe's models in %s?", a.cfg.Transcription.ModelPath)
+		return fmt.Errorf("no transcription engine: are Tomoe's models in %s?", cfg.Transcription.ModelPath)
 	}
 	return nil
+}
+
+// SetMusubiConfig points the recorder at Musubi's config file for
+// reload_config and the config watcher (config.MusubiPath by default).
+// Call before Start.
+func (a *Recorder) SetMusubiConfig(path string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.musubiConfig = path
+}
+
+// currentConfig is the config in force now (see Recorder.cfg).
+func (a *Recorder) currentConfig() *config.Config {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.cfg
+}
+
+// config is a copy of the config in force now.
+func (a *Recorder) config() config.Config {
+	return *a.currentConfig()
 }
 
 // setupEngines builds everything that depends on cfg/status: the
@@ -178,6 +234,13 @@ func (a *Recorder) setupEngines(ctx context.Context, cfg *config.Config, status 
 	// exists. tracker has its own internal lock (see speaker.Tracker), so
 	// this closure needs no synchronization against a.mu of its own.
 	configWatchStop := config.Watch(config.Path(), 2*time.Second, func(newCfg *config.Config) {
+		// Musubi's [recorder.*] keys still win over the edited file.
+		a.mu.Lock()
+		musubi := a.musubiConfig
+		a.mu.Unlock()
+		if _, err := config.OverlayMusubi(newCfg, musubi); err != nil {
+			fmt.Printf("config: %v; tuning from Tomoe's file alone\n", err)
+		}
 		tracker.SetTuning(tuningFromConfig(newCfg))
 		fmt.Printf("config: reloaded speaker clustering tuning: %+v\n", tracker.Tuning())
 	})
@@ -403,6 +466,7 @@ func (a *Recorder) Run(ctx context.Context) {
 // run is Run with the events given, so tests can play a detector.
 func (a *Recorder) run(ctx context.Context, events <-chan meeting.MeetingEvent) {
 	defer a.Shutdown()
+	go a.watchHealth(ctx)
 	for {
 		select {
 		case <-ctx.Done():
@@ -415,6 +479,22 @@ func (a *Recorder) run(ctx context.Context, events <-chan meeting.MeetingEvent) 
 				continue
 			}
 			a.onMeetingEvent(ev)
+		}
+	}
+}
+
+// watchHealth keeps Status.Health current (a permission granted, a model
+// downloaded in Tomoe), telling the feed when it changes.
+func (a *Recorder) watchHealth(ctx context.Context) {
+	a.refreshHealth(true)
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.refreshHealth(true)
 		}
 	}
 }

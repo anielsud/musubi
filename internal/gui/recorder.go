@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -119,6 +120,35 @@ func (a *App) RecorderStart() (*control.Status, error) {
 func (a *App) RecorderStop() (*control.Status, error) {
 	var st control.Status
 	return &st, a.recCall(control.OpStop, nil, &st)
+}
+
+// recorderAgent is the recorder's LaunchAgent (scripts/install-recorder.sh).
+const recorderAgent = "com.anielsud.musubi.recorder"
+
+// kickstart restarts a LaunchAgent; a variable so tests don't.
+var kickstart = func(ctx context.Context, label string) error {
+	out, err := exec.CommandContext(ctx, "launchctl", "kickstart", "-k", fmt.Sprintf("gui/%d/%s", os.Getuid(), label)).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("restarting the recorder: %v: %s", err, bytes.TrimSpace(out))
+	}
+	return nil
+}
+
+// RestartRecorder restarts the recorder so settings it reads only at
+// start apply. Never during a recording: the restart would cut it off,
+// and the rest of the meeting wouldn't be recorded.
+func (a *App) RestartRecorder() error {
+	var st control.Status
+	err := a.recCall(control.OpStatus, nil, &st)
+	switch {
+	case errors.Is(err, control.ErrNotRunning):
+		// launchd starts it again; kickstart does that too.
+	case err != nil:
+		return err
+	case st.Recording:
+		return fmt.Errorf("the recorder is recording a meeting; restart it once the meeting is over")
+	}
+	return kickstart(a.ctx, recorderAgent)
 }
 
 func (a *App) RecorderSources() (*control.Sources, error) {

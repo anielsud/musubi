@@ -797,6 +797,7 @@ export interface RecStatus {
   suggest?: RecSource;
   health?: string[];
   busy?: string;
+  restart?: string[];
 }
 export interface RecorderView { running: boolean; status?: RecStatus; ofRecord: string; editable: boolean; error?: string }
 export interface RecSources { mics: RecSource[] | null; system: RecSource[] | null }

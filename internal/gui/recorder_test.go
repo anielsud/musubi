@@ -520,3 +520,25 @@ func TestOfRecordEditsSetSince(t *testing.T) {
 		t.Errorf("switching back touches since: %+v", e)
 	}
 }
+
+// The restart that applies start-only settings never cuts a recording.
+func TestRestartRecorder(t *testing.T) {
+	var kicked []string
+	old := kickstart
+	kickstart = func(_ context.Context, label string) error { kicked = append(kicked, label); return nil }
+	t.Cleanup(func() { kickstart = old })
+
+	a, f, _, _ := testApp(t, "tomoe")
+	if err := a.RestartRecorder(); err != nil || len(kicked) != 1 {
+		t.Fatalf("not running: err %v, kicked %v", err, kicked)
+	}
+	f.results[control.OpStatus] = control.Status{Recording: true}
+	f.serve(t, a.eng.Cfg.RecorderControlSocket())
+	if err := a.RestartRecorder(); err == nil || len(kicked) != 1 {
+		t.Fatalf("recording: err %v, kicked %v", err, kicked)
+	}
+	f.results[control.OpStatus] = control.Status{Restart: []string{"transcription"}}
+	if err := a.RestartRecorder(); err != nil || len(kicked) != 2 || kicked[1] != recorderAgent {
+		t.Fatalf("idle: err %v, kicked %v", err, kicked)
+	}
+}

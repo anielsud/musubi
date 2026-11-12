@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../../api';
 import type { RecField, RecordingSettings, RecSources } from '../../types';
 import { Spinner } from '../common';
+import { useRecorder } from '../recorder';
 
 // Recording: which recorder Musubi's meetings come from, and the
 // recorder's settings. A setting saved here wins over Tomoe's config for
@@ -32,9 +33,36 @@ export function RecordingTab() {
       ))}
       <p className="dim small">
         Settings not changed here come from Tomoe&apos;s config ({s.tomoeConfig}), which the recorder reads with these on top. A change applies at once,
-        or from the next recording for what can&apos;t change mid-meeting; one marked &ldquo;after a restart&rdquo; waits until the recorder restarts (Status says when one is waiting).
+        or from the next recording for what can&apos;t change mid-meeting; one marked &ldquo;after a restart&rdquo; waits until the recorder restarts (Apply, below, once one is waiting).
       </p>
+      <RestartBar />
     </>
+  );
+}
+
+// RestartBar appears once a changed setting waits for the recorder to
+// restart, with the warning and the button that applies it.
+function RestartBar() {
+  const rec = useRecorder();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const waiting = rec?.status?.restart ?? [];
+  if (!rec?.running || waiting.length === 0) return err ? <div className="error small">{err}</div> : null;
+  const recording = !!rec.status?.recording;
+  const apply = () => {
+    setBusy(true); setErr('');
+    api.restartRecorder().then(() => setBusy(false), (e) => { setBusy(false); setErr(String(e)); });
+  };
+  return (
+    <div className="restart-bar">
+      <div className="small">
+        <b>Waiting for a restart:</b> the new {waiting.join(', ')} settings. Restarting the recorder reloads its models, which takes up to a
+        minute; a meeting that starts meanwhile isn&apos;t noticed until it&apos;s back, so don&apos;t restart just before a call.
+        {recording && <> It is recording a meeting now: restart once the meeting is over.</>}
+      </div>
+      <button className="primary" disabled={busy || recording} onClick={apply}>{busy ? <><Spinner /> Restarting…</> : 'Apply: restart the recorder'}</button>
+      {err && <div className="error small">{err}</div>}
+    </div>
   );
 }
 

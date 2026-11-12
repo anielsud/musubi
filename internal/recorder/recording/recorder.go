@@ -34,8 +34,12 @@ var meetingLanguages = []string{"en"}
 type Recorder struct {
 	// cfg is replaced whole by reload_config, never changed in place, so
 	// whoever took the pointer (under mu) keeps a consistent config.
-	cfg   *config.Config
-	store *session.Store
+	cfg *config.Config
+	// bootCfg is the config the engines were built with: a reload that
+	// differs from it in what is only read at start waits for a restart.
+	bootCfg *config.Config
+	restart []string // needsRestart(bootCfg, cfg) at the last reload; under mu
+	store   *session.Store
 	// musubiConfig is Musubi's config file, whose [recorder.*] tables
 	// overlay Tomoe's (config.LoadRecorder).
 	musubiConfig string
@@ -154,6 +158,7 @@ var (
 func New(cfg *config.Config) *Recorder {
 	r := &Recorder{
 		cfg:          cfg,
+		bootCfg:      cfg,
 		store:        session.NewStore(config.SessionDir()),
 		musubiConfig: config.MusubiPath(),
 		saves:        make(chan *saveRequest, pendingSaves),

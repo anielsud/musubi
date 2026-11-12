@@ -97,6 +97,7 @@ export const api = {
   recorderState: (): Promise<RecorderView> => app().RecorderState(),
   recorderStart: (): Promise<RecStatus> => app().RecorderStart(),
   recorderStop: (): Promise<RecStatus> => app().RecorderStop(),
+  restartRecorder: (): Promise<void> => app().RestartRecorder(),
   recorderSources: (): Promise<RecSources> => app().RecorderSources(),
   recorderSetSource: (kind: string, id: string): Promise<RecStatus> => app().RecorderSetSource(kind, id),
   recorderTools: (): Promise<ToolStatus[] | null> => app().RecorderTools(),

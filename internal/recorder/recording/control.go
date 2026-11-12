@@ -302,7 +302,7 @@ func (a *Recorder) Status() control.Status {
 // statusLocked builds Status from what the recorder holds, without
 // looking at devices (callers hold mu, often on the recording's path).
 func (a *Recorder) statusLocked() control.Status {
-	st := control.Status{Version: Version, Recording: a.rec != nil, Busy: a.busy}
+	st := control.Status{Version: Version, Recording: a.rec != nil, Busy: a.busy, Restart: slices.Clone(a.restart)}
 	if a.currentSess != nil {
 		info := control.SessionInfo(livefeed.InfoFor(a.currentSess))
 		st.Session, st.StartedAt = &info, a.currentSess.CreatedAt
@@ -613,7 +613,6 @@ func (a *Recorder) reloadConfig() (control.Status, error) {
 		return control.Status{}, err
 	}
 	a.mu.Lock()
-	old := a.cfg
 	a.cfg = next
 	tracker := a.tracker
 	feedOn := a.liveFeed != nil
@@ -630,8 +629,16 @@ func (a *Recorder) reloadConfig() (control.Status, error) {
 	case !next.Meeting.LiveFeed && feedOn:
 		a.stopLiveFeed()
 	}
-	if parts := needsRestart(old, next); len(parts) > 0 {
+	// Against the config the engines were built with, not the previous
+	// reload: changing a setting back needs no restart.
+	a.mu.Lock()
+	parts := needsRestart(a.bootCfg, next)
+	a.restart = parts
+	a.mu.Unlock()
+	if len(parts) > 0 {
 		a.setNote("restart", "Restart the recorder to apply the new "+strings.Join(parts, ", ")+" settings")
+	} else {
+		a.setNote("restart", "")
 	}
 	fmt.Println("config: reloaded")
 	a.publishStatus()

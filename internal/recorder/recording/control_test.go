@@ -428,6 +428,17 @@ func TestControlReloadConfig(t *testing.T) {
 	if !strings.Contains(strings.Join(st.Health, "\n"), "Restart the recorder to apply the new transcription") {
 		t.Errorf("health %q lacks the restart note", st.Health)
 	}
+	if len(st.Restart) != 1 || st.Restart[0] != "transcription" {
+		t.Errorf("restart = %q, want [transcription]", st.Restart)
+	}
+
+	// Changed back to what the engines were built with: nothing waits.
+	os.WriteFile(musubi, []byte("[recorder.meeting]\nmonitor_device = \"everything\"\n"), 0o644)
+	st = control.Status{}
+	c.must(t, control.OpReloadConfig, nil, &st)
+	if len(st.Restart) != 0 || strings.Contains(strings.Join(st.Health, "\n"), "Restart the recorder") {
+		t.Errorf("after changing back: restart %q, health %q", st.Restart, st.Health)
+	}
 
 	os.WriteFile(musubi, []byte("[recorder.meeting]\nmonitor_device = 3\n"), 0o644)
 	if err := c.call(t, control.OpReloadConfig, nil, nil); err == nil {

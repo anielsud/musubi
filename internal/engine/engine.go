@@ -93,30 +93,40 @@ func Open(cfgPath string) (*Engine, error) {
 
 func (e *Engine) Close() error { return e.Store.Close() }
 
-// Runner builds a pipeline runner over the configured sources.
-func (e *Engine) Runner(embs []provider.Embedder, log io.Writer) (*pipeline.Runner, error) {
-	rs, err := raw.Open(e.Cfg.RawDir())
-	if err != nil {
-		return nil, err
-	}
+// Connectors are the configured sources, inbox the folder of dropped
+// items. The app (Runner) and the command line share them, so a source
+// rule can't apply in one and not the other (2026-11-12: the command line
+// lacked the recorder's Known exception and skipped edited meetings).
+func Connectors(cfg config.Config, st *store.Store, inbox string) []source.Connector {
 	var conns []source.Connector
-	if d := e.Cfg.SessionsDir(); d != "" {
-		conns = append(conns, tomoe.Connector{Dir: d, Since: e.Cfg.SessionsSince(), Known: func(ref string) bool {
-			_, ok, _ := e.Store.ManifestHash(tomoe.Name, ref)
+	if d := cfg.SessionsDir(); d != "" {
+		// Sessions before since are read when Musubi already has them, so
+		// an edited migrated meeting is taken in again.
+		conns = append(conns, tomoe.Connector{Dir: d, Since: cfg.SessionsSince(), Known: func(ref string) bool {
+			_, ok, _ := st.ManifestHash(tomoe.Name, ref)
 			return ok
 		}})
 	}
-	if e.Cfg.BluedotDir != "" {
-		conns = append(conns, bluedot.Connector{Dir: e.Cfg.BluedotDir, Since: e.Cfg.BluedotSince, Known: func(ref string) bool {
+	if cfg.BluedotDir != "" {
+		conns = append(conns, bluedot.Connector{Dir: cfg.BluedotDir, Since: cfg.BluedotSince, Known: func(ref string) bool {
 			for _, src := range []string{"teams", "teams-elt"} {
-				if _, ok, _ := e.Store.ManifestHash(src, ref); ok {
+				if _, ok, _ := st.ManifestHash(src, ref); ok {
 					return true
 				}
 			}
 			return false
 		}})
 	}
-	conns = append(conns, mcpdrop.Connector{Dir: e.Cfg.InboxDir()})
+	return append(conns, mcpdrop.Connector{Dir: inbox})
+}
+
+// Runner builds a pipeline runner over the configured sources.
+func (e *Engine) Runner(embs []provider.Embedder, log io.Writer) (*pipeline.Runner, error) {
+	rs, err := raw.Open(e.Cfg.RawDir())
+	if err != nil {
+		return nil, err
+	}
+	conns := Connectors(e.Cfg, e.Store, e.Cfg.InboxDir())
 	if embs == nil && e.Embedder != nil {
 		embs = []provider.Embedder{e.Embedder}
 	}

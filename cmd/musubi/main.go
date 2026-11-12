@@ -30,10 +30,6 @@ import (
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/raw"
 	"github.com/anielsud/musubi/internal/sensitivity"
-	"github.com/anielsud/musubi/internal/source"
-	"github.com/anielsud/musubi/internal/source/bluedot"
-	"github.com/anielsud/musubi/internal/source/mcpdrop"
-	"github.com/anielsud/musubi/internal/source/tomoe"
 	"github.com/anielsud/musubi/internal/store"
 )
 
@@ -107,27 +103,7 @@ func runner(cfg config.Config, st *store.Store, embs []provider.Embedder, inbox,
 	if err != nil {
 		return nil, err
 	}
-	var conns []source.Connector
-	if d := cfg.SessionsDir(); d != "" {
-		// The same as the app's (engine.Runner): sessions before since are
-		// read when Musubi already has them, so an edited migrated meeting
-		// is taken in again.
-		conns = append(conns, tomoe.Connector{Dir: d, Since: cfg.SessionsSince(), Known: func(ref string) bool {
-			_, ok, _ := st.ManifestHash(tomoe.Name, ref)
-			return ok
-		}})
-	}
-	if cfg.BluedotDir != "" {
-		conns = append(conns, bluedot.Connector{Dir: cfg.BluedotDir, Since: cfg.BluedotSince, Known: func(ref string) bool {
-			for _, src := range []string{"teams", "teams-elt"} {
-				if _, ok, _ := st.ManifestHash(src, ref); ok {
-					return true
-				}
-			}
-			return false
-		}})
-	}
-	conns = append(conns, mcpdrop.Connector{Dir: inbox})
+	conns := engine.Connectors(cfg, st, inbox)
 	return &pipeline.Runner{Cfg: cfg, Store: st, Raw: rs, Connectors: conns, Embedders: embs, CuratedPath: curated, Log: os.Stderr}, nil
 }
 

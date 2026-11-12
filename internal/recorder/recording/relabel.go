@@ -207,7 +207,7 @@ func (a *Recorder) RelabelProfileMeetings(model, id string) (*control.RelabelRes
 		if err := appendRelabelLog(entries); err != nil {
 			return res, err
 		}
-		if err := a.store.Save(sess); err != nil {
+		if err := a.saveSession(sess); err != nil {
 			return res, fmt.Errorf("session %s: %w", sess.ID, err)
 		}
 	}
@@ -425,7 +425,7 @@ func (a *Recorder) UndoRelabel(batch string) (*control.RelabelResult, error) {
 			res.Changed = append(res.Changed, control.RelabelChange{Session: sid, OldLabel: e.NewLabel, NewLabel: e.OldLabel, Lines: n})
 		}
 		if changed {
-			if err := a.store.Save(sess); err != nil {
+			if err := a.saveSession(sess); err != nil {
 				return res, fmt.Errorf("session %s: %w", sid, err)
 			}
 		}

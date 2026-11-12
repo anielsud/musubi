@@ -130,6 +130,9 @@ type Recorder struct {
 
 	// The source check's probes (sourcecheck.go); tests swap them.
 	probes sourceProbes
+
+	// review is the Voices page's review lists (reviewindex.go).
+	review reviewIndex
 }
 
 // activeRecording is what a recording in progress needs to be stopped.
@@ -187,6 +190,7 @@ func New(cfg *config.Config) *Recorder {
 // the engines, the speaker tracker and the meeting detector.
 func (a *Recorder) Start(ctx context.Context) error {
 	cfg := a.currentConfig()
+	a.startReviewIndex()
 	if err := a.startLiveFeed(cfg.Meeting.LiveFeed); err != nil {
 		fmt.Printf("Warning: live feed not started: %v\n", err)
 	}

@@ -46,7 +46,8 @@ func (a *Recorder) RenameSpeaker(id, label, name string) error {
 	}
 	a.correctVoiceName(saved, label, name)
 	dropVoiceDoubt(saved, label)
-	if err := a.store.Save(saved); err != nil {
+	dropReturned(saved, label)
+	if err := a.saveSession(saved); err != nil {
 		return err
 	}
 	a.learnNamedLater(saved)

@@ -82,6 +82,14 @@ const (
 	// sessions it identified; OpUndoRelabel reverses one such batch.
 	OpRelabelProfileMeetings = "relabel_profile_meetings" // RelabelArgs (Model, ID) → RelabelResult
 	OpUndoRelabel            = "undo_relabel"             // RelabelArgs (Batch) → RelabelResult
+	// OpReturnVoiceMeeting is "Not them" on a profile's meeting: the
+	// meeting is taken out of the profile and, with Relabel, the speakers
+	// the profile named there go back to unnamed and are asked about
+	// again ("Who's this?"); Preview returns the session as it would be
+	// saved, changing nothing. OpSkipReturnedVoice is "Can't tell" on such
+	// a speaker.
+	OpReturnVoiceMeeting = "return_voice_meeting" // ReturnArgs → ReturnResult
+	OpSkipReturnedVoice  = "skip_returned_voice"  // SpeakerArgs → -
 
 	OpLooks     = "looks"      // SessionArgs → []LookView
 	OpLookTile  = "look_tile"  // LookArgs → Media (image/jpeg): the speaker's tile
@@ -197,6 +205,26 @@ type RelabelArgs struct {
 	Model string `json:"model,omitempty"`
 	ID    string `json:"id,omitempty"`
 	Batch string `json:"batch,omitempty"`
+}
+
+// ReturnArgs addresses a profile's meeting for return_voice_meeting.
+type ReturnArgs struct {
+	Model   string `json:"model"`
+	ID      string `json:"id"`
+	Session string `json:"session"`
+	Relabel bool   `json:"relabel,omitempty"`
+	Preview bool   `json:"preview,omitempty"`
+}
+
+// ReturnResult is what return_voice_meeting changed (or, with Preview,
+// would change): the labels put back to unnamed, under Batch in the
+// relabel log, and those left as they were and why. Session is the
+// session as it would be saved, on a preview only.
+type ReturnResult struct {
+	Batch   string          `json:"batch,omitempty"`
+	Changed []RelabelChange `json:"changed"`
+	Left    []RelabelLeft   `json:"left"`
+	Session json.RawMessage `json:"session,omitempty"`
 }
 
 // RelabelResult is what a relabel (or its undo) changed, and the labels
@@ -351,6 +379,11 @@ type UnknownVoice struct {
 	Clip       VoiceClip `json:"clip"`
 	SoundsLike string    `json:"soundsLike,omitempty"`
 	Similarity float64   `json:"similarity,omitempty"`
+	// Returned: a profile named this speaker until the user said "Not
+	// them" (ReturnedFrom is its name then); shown whatever its age or
+	// length.
+	Returned     bool   `json:"returned,omitempty"`
+	ReturnedFrom string `json:"returnedFrom,omitempty"`
 }
 
 type VoicesView struct {
@@ -362,6 +395,10 @@ type VoicesView struct {
 	Doubts       []VoiceDoubtView   `json:"doubts"`
 	// SameName: profiles sharing a name (pairs here aren't in Pairs).
 	SameName []SameNameView `json:"sameName"`
+	// Building: the review lists (Unknown, NamedByVoice, Doubts) are
+	// still being gathered after the recorder started; they are empty
+	// until then.
+	Building bool `json:"building,omitempty"`
 }
 
 // LookView is one meeting-window look (Tomoe's hint timeline entry),

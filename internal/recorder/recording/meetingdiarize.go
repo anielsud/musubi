@@ -81,7 +81,7 @@ func (a *Recorder) refineCutsLater(id string) {
 		if n == 0 {
 			return
 		}
-		if err := a.store.Save(sess); err != nil {
+		if err := a.saveSession(sess); err != nil {
 			fmt.Printf("session %s: couldn't save refined speaker cuts: %v\n", id, err)
 			return
 		}

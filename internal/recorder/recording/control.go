@@ -126,6 +126,18 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 			return nil, err
 		}
 		return a.RelabelProfileMeetings(p.Model, p.ID)
+	case control.OpReturnVoiceMeeting:
+		var p control.ReturnArgs
+		if err := decode(args, &p); err != nil {
+			return nil, err
+		}
+		return a.ReturnVoiceMeeting(p)
+	case control.OpSkipReturnedVoice:
+		var p control.SpeakerArgs
+		if err := decode(args, &p); err != nil {
+			return nil, err
+		}
+		return nil, a.SkipReturnedVoice(p.Session, p.Label)
 	case control.OpUndoRelabel:
 		var p control.RelabelArgs
 		if err := decode(args, &p); err != nil {
@@ -815,6 +827,7 @@ func (a *Recorder) deleteSession(id string) error {
 	if err := a.store.Delete(id); err != nil {
 		return err
 	}
+	a.dropReview(id)
 	fmt.Printf("session %s: deleted\n", id)
 	return nil
 }

@@ -41,10 +41,15 @@ type (
 )
 
 const (
-	// unknownDays and unknownSeconds pick the voices worth asking about:
-	// from meetings this recent, speaking this long.
-	unknownDays    = 14
+	// unknownDays and unknownSeconds pick the voices worth asking about
+	// ("Who's this?"): from meetings this recent, speaking this long. A
+	// voice taken out of a profile is asked about whatever its age or
+	// length.
+	unknownDays    = 90
 	unknownSeconds = 30
+	// reviewDays is how recent a meeting's voice-named and doubted
+	// speakers must be to be asked about.
+	reviewDays = 14
 	// namedSeconds is the least speech a voice-named speaker needs to be
 	// asked about: shorter clips are too short to judge.
 	namedSeconds = 3
@@ -85,15 +90,18 @@ func (a *Recorder) voiceStores() (map[string]*voices.Store, error) {
 	return out, nil
 }
 
-// Voices is the Voices page: every profile, likest pairs, and nameless
-// voices from recent meetings.
+// Voices is the Voices page: every profile, likest pairs, and the review
+// lists (reviewindex.go).
 func (a *Recorder) Voices() (*VoicesView, error) {
 	view := &VoicesView{Enabled: a.config().Meeting.VoiceProfiles, Profiles: []VoiceProfileView{}, Pairs: []VoicePairView{}, Unknown: []UnknownVoice{}, NamedByVoice: []NamedByVoiceView{}, Doubts: []VoiceDoubtView{}, SameName: []SameNameView{}}
-	titles := a.sessionTitles()
 	stores, err := a.voiceStores()
 	if err != nil {
 		return nil, err
 	}
+	var ready bool
+	view.Unknown, view.NamedByVoice, view.Doubts, ready = a.reviewLists(stores)
+	view.Building = !ready
+	titles := a.reviewTitles()
 	for model, s := range stores {
 		minLearn := s.MinLearn()
 		for _, p := range s.Profiles() {
@@ -167,147 +175,7 @@ func (a *Recorder) Voices() (*VoicesView, error) {
 	sort.SliceStable(view.Profiles, func(i, j int) bool { return view.Profiles[i].LastHeard.After(view.Profiles[j].LastHeard) })
 	sort.SliceStable(view.Pairs, func(i, j int) bool { return view.Pairs[i].Similarity > view.Pairs[j].Similarity })
 	sort.SliceStable(view.SameName, func(i, j int) bool { return view.SameName[i].Similarity > view.SameName[j].Similarity })
-	view.Unknown, view.NamedByVoice, view.Doubts = a.recentVoices(stores)
 	return view, nil
-}
-
-// sessionTitles maps saved sessions' IDs to their titles.
-func (a *Recorder) sessionTitles() map[string]string {
-	out := map[string]string{}
-	if list, err := a.store.List(); err == nil {
-		for _, s := range list {
-			out[s.ID] = s.Title
-		}
-	}
-	return out
-}
-
-// recentVoices are, from recent saved meetings: the speakers with no name
-// who spoke for a while, each with the profile it's closest to if that's
-// close enough to suggest; and the speakers profiles named.
-func (a *Recorder) recentVoices(stores map[string]*voices.Store) ([]UnknownVoice, []NamedByVoiceView, []VoiceDoubtView) {
-	named, doubts := []NamedByVoiceView{}, []VoiceDoubtView{}
-	list, err := a.store.List()
-	if err != nil {
-		return nil, named, doubts
-	}
-	since := time.Now().AddDate(0, 0, -unknownDays)
-	out := []UnknownVoice{}
-	for _, sess := range list {
-		if sess.CreatedAt.Before(since) {
-			continue
-		}
-		full, err := a.store.Load(sess.ID)
-		if err != nil {
-			continue
-		}
-		type spoke struct {
-			seconds float64
-			longest session.Segment
-		}
-		by := map[string]*spoke{}
-		byVoice := map[string]session.VoiceName{}
-		for _, vn := range full.VoiceNames {
-			byVoice[vn.Label] = vn
-		}
-		byDoubt := map[string]session.VoiceDoubt{}
-		for _, vd := range full.VoiceDoubts {
-			byDoubt[vd.Label] = vd
-		}
-		for _, seg := range full.Segments {
-			_, voiceNamed := byVoice[seg.Speaker]
-			_, doubted := byDoubt[seg.Speaker]
-			if !isUnnamed(seg.Speaker) && !voiceNamed && !doubted {
-				continue
-			}
-			sp := by[seg.Speaker]
-			if sp == nil {
-				sp = &spoke{}
-				by[seg.Speaker] = sp
-			}
-			d := seg.EndTime - seg.StartTime
-			sp.seconds += d
-			if d > sp.longest.EndTime-sp.longest.StartTime {
-				sp.longest = seg
-			}
-		}
-		var cands []UnknownVoice
-		for label, sp := range by {
-			start := sp.longest.StartTime
-			clip := VoiceClip{Session: sess.ID, Start: start, End: min(sp.longest.EndTime, start+clipSeconds)}
-			if vn, ok := byVoice[label]; ok {
-				if vn.Skipped || sp.seconds < namedSeconds {
-					continue
-				}
-				named = append(named, NamedByVoiceView{Session: sess.ID, Title: full.Title, At: full.CreatedAt, Label: label, Name: vn.Name, Model: vn.Model, Profile: vn.Profile,
-					Similarity: vn.Similarity, Seconds: sp.seconds, Clip: clip, Window: vn.Window})
-				continue
-			}
-			if vd, ok := byDoubt[label]; ok {
-				if !vd.Skipped && sp.seconds >= namedSeconds {
-					s := stores[vd.Model]
-					doubts = append(doubts, VoiceDoubtView{Session: sess.ID, Title: full.Title, At: full.CreatedAt, Label: label, Window: vd.Window, Name: vd.Name,
-						Similarity: vd.Similarity, Seconds: sp.seconds, Clip: clip, NoProfile: s == nil || !s.Knows(vd.Window)})
-				}
-				continue
-			}
-			if sp.seconds < unknownSeconds {
-				continue
-			}
-			cands = append(cands, UnknownVoice{
-				Session: sess.ID, Title: full.Title, At: full.CreatedAt, Label: label, Seconds: sp.seconds,
-				Clip: VoiceClip{Session: sess.ID, Start: start, End: min(sp.longest.EndTime, start+clipSeconds)},
-			})
-		}
-		if len(cands) == 0 {
-			continue
-		}
-		a.suggest(full, cands, stores)
-		out = append(out, cands...)
-	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if !out[i].At.Equal(out[j].At) {
-			return out[i].At.After(out[j].At)
-		}
-		return out[i].Seconds > out[j].Seconds
-	})
-	sort.SliceStable(named, func(i, j int) bool {
-		if !named[i].At.Equal(named[j].At) {
-			return named[i].At.After(named[j].At)
-		}
-		return named[i].Seconds > named[j].Seconds
-	})
-	sort.SliceStable(doubts, func(i, j int) bool {
-		if !doubts[i].At.Equal(doubts[j].At) {
-			return doubts[i].At.After(doubts[j].At)
-		}
-		return doubts[i].Seconds > doubts[j].Seconds
-	})
-	return out, named, doubts
-}
-
-// suggest fills in the profile each nameless voice sounds most like, from
-// the meeting's fingerprints.
-func (a *Recorder) suggest(sess *session.Session, cands []UnknownVoice, stores map[string]*voices.Store) {
-	p, info, err := loadSavedCached(filepath.Join(config.SessionDir(), sess.ID))
-	if err != nil || stores[info.Model] == nil {
-		return
-	}
-	for i := range cands {
-		label := cands[i].Label
-		learned := diarize.VoicesFromSpeakers(p, info.Offset, diarize.SpeakerAt(sess.Segments, func(l string) string {
-			if l == label {
-				return l
-			}
-			return ""
-		}))
-		if len(learned) == 0 {
-			continue
-		}
-		if prof, sim := stores[info.Model].Closest(learned[0].Voice); prof != nil && sim >= suggestAbove {
-			cands[i].SoundsLike, cands[i].Similarity = prof.Name, sim
-		}
-	}
 }
 
 // Fingerprints are megabytes a meeting; the Voices page reads the same
@@ -605,7 +473,7 @@ func (a *Recorder) NotThem(sessionID, label string) error {
 		}
 	}
 	sess.VoiceNames = kept
-	return a.store.Save(sess)
+	return a.saveSession(sess)
 }
 
 // SkipVoiceName stops asking about a speaker a profile named in a saved
@@ -619,7 +487,7 @@ func (a *Recorder) SkipVoiceName(sessionID, label string) error {
 	for i := range sess.VoiceNames {
 		if sess.VoiceNames[i].Label == label {
 			sess.VoiceNames[i].Skipped = true
-			return a.store.Save(sess)
+			return a.saveSession(sess)
 		}
 	}
 	return fmt.Errorf("%q wasn't named by voice", label)
@@ -636,7 +504,7 @@ func (a *Recorder) SkipVoiceDoubt(sessionID, label string) error {
 	for i := range sess.VoiceDoubts {
 		if sess.VoiceDoubts[i].Label == label {
 			sess.VoiceDoubts[i].Skipped = true
-			return a.store.Save(sess)
+			return a.saveSession(sess)
 		}
 	}
 	return fmt.Errorf("no doubt about %q", label)

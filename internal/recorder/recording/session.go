@@ -208,6 +208,9 @@ func (a *Recorder) beginLocked(micDevice, monitorDevice, lang, platform string) 
 	followCtx, followCancel := context.WithCancel(videoHintCtx)
 	a.followMeetingAudio(followCtx, audioAuto)
 	a.src.beginLocked(videoHintCtx, coordinator, micDevice, micSwitch, systemSelection(monitorDevice, cfg.MonitorCapturer != nil), sysSwitch, audioAuto, followCancel)
+	if cfg.MonitorCapturer != nil { // never a typed nil in the interface
+		a.src.meeting = cfg.MonitorCapturer
+	}
 	if micDevice != "" {
 		go a.watchMic(videoHintCtx, coordinator, micDevice)
 	}

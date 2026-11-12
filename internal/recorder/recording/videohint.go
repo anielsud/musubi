@@ -173,6 +173,10 @@ const micSilentAfter = 20 * time.Second
 // watchMic logs when the mic goes silent for micSilentAfter, and when
 // sound returns, and tells the source check (markSilent, clearSilent).
 func (a *Recorder) watchMic(ctx context.Context, c *live.Coordinator, device string) {
+	if device == "default" {
+		// So that a silent default mic is reported by its device's name.
+		a.refreshDefaultMic(true)
+	}
 	name := micName(device)
 	warned := false
 	t := time.NewTicker(5 * time.Second)
@@ -205,14 +209,23 @@ func micName(device string) string {
 	if device != "default" {
 		return device
 	}
+	if name := defaultInputName(); name != "" {
+		return name + " (the system default)"
+	}
+	return "the default mic"
+}
+
+// defaultInputName is the name of the system's default input device, ""
+// if it can't be found.
+func defaultInputName() string {
 	devices, err := audio.ListDevices()
 	if err != nil {
-		return "the default mic"
+		return ""
 	}
 	for _, d := range devices {
 		if d.IsDefault && d.DeviceType == audio.Input {
-			return d.Name + " (the system default)"
+			return d.Name
 		}
 	}
-	return "the default mic"
+	return ""
 }

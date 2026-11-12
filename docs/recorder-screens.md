@@ -63,7 +63,9 @@ screen says so. The live feed socket stays as it is.
    with no signal (a silent mic, a meeting app producing no audio), the
    recorder listens briefly to the other sources and, if one has signal,
    Musubi suggests switching to it, one click. The chosen default sources
-   live in Settings.
+   live in Settings. A mic that only hears the meeting audio
+   from the speakers is not offered (`Status.suggest_note` says so;
+   research log, 2026-11-12).
 3. **Diagnostics on the Status tab**: Tomoe's live-labelling pane (who the
    diarizer thinks is speaking, voice matches, window hints) beside
    Musubi's own pipeline traces.

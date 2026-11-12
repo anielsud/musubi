@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"math/rand/v2"
 	"net"
 	"os"
 	"path/filepath"
@@ -58,9 +60,10 @@ func newControlled(t *testing.T) *controlled {
 	}
 	c.probes = sourceProbes{
 		mics:          func(string) []control.Source { return nil },
-		hearMic:       func(context.Context, string) bool { return false },
+		listenMic:     func(context.Context, string, func()) []float32 { return nil },
 		hearSystem:    func(context.Context) bool { return false },
 		systemInstead: func(string) control.Source { return control.Source{} },
+		defaultMic:    func() string { return "Desk Speakerphone" },
 	}
 	srv, err := control.Listen(control.SocketPath(shortDir(t)), c.Handle)
 	if err != nil {
@@ -107,7 +110,7 @@ func TestControlStartStopAndStatus(t *testing.T) {
 	c := newControlled(t)
 	var st control.Status
 	c.must(t, control.OpStatus, nil, &st)
-	if st.Recording || st.Mic.ID != "" || st.Mic.Name != "System default" || st.Version != Version {
+	if st.Recording || st.Mic.ID != "" || st.Mic.Name != "Desk Speakerphone (system default)" || st.Version != Version {
 		t.Errorf("idle status = %+v", st)
 	}
 
@@ -531,9 +534,13 @@ func TestSourceCheckSuggestsAnotherMic(t *testing.T) {
 		}
 		return []control.Source{micSource("Dead Mic"), micSource("USB Mic")}
 	}
-	c.probes.hearMic = func(_ context.Context, id string) bool {
+	c.probes.listenMic = func(_ context.Context, id string, started func()) []float32 {
+		started()
 		heard <- id
-		return id == "USB Mic"
+		if id == "USB Mic" {
+			return []float32{0, 0.2, -0.1}
+		}
+		return make([]float32, 3)
 	}
 	c.must(t, control.OpStart, nil, nil)
 	c.Recorder.mu.Lock()
@@ -550,8 +557,13 @@ func TestSourceCheckSuggestsAnotherMic(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if st.Silent == nil || st.Silent.Kind != "mic" || st.Suggest == nil || st.Suggest.ID != "USB Mic" {
-		t.Fatalf("status = silent %+v, suggest %+v", st.Silent, st.Suggest)
+	if st.Silent == nil || st.Silent.Kind != "mic" || st.Suggest == nil || st.Suggest.ID != "USB Mic" || st.SuggestNote != "" {
+		t.Fatalf("status = silent %+v, suggest %+v, note %q", st.Silent, st.Suggest, st.SuggestNote)
+	}
+	// The silent default mic goes by its device's name, so the app can
+	// say which mic to check (often one muted in the call).
+	if st.Silent.Name != "Desk Speakerphone (system default)" || st.Mic.Name != st.Silent.Name {
+		t.Errorf("silent mic named %q, status mic %q", st.Silent.Name, st.Mic.Name)
 	}
 	if a, b := <-heard, <-heard; a != "Dead Mic" || b != "USB Mic" {
 		t.Errorf("listened to %q, %q", a, b)
@@ -672,5 +684,127 @@ func TestReloadTakesAppConfig(t *testing.T) {
 	}
 	if err := c.call(t, control.OpReloadConfig, control.ReloadArgs{MusubiConfig: "relative.toml"}, nil); err == nil {
 		t.Error("a relative path was taken")
+	}
+}
+
+// fakeTap is a recording's system audio: Recorded says start until the
+// probe has been heard, then everything (the capture caught up).
+type fakeTap struct {
+	mu    sync.Mutex
+	audio []float32
+	n     int
+}
+
+func (f *fakeTap) Recorded() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.n
+}
+
+func (f *fakeTap) RecordedRange(from, to int) []float32 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	from, to = max(from, 0), min(to, f.n)
+	if from >= to {
+		return nil
+	}
+	return append([]float32(nil), f.audio[from:to]...)
+}
+
+// bursts is n samples of noise cut into word-like bursts (80-300 ms, with
+// gaps of 50-400 ms) at amplitude amp, from seed.
+func bursts(seed uint64, n int, amp float64) []float32 {
+	r := rand.New(rand.NewPCG(seed, 1))
+	out := make([]float32, n)
+	for i := 0; i < n; {
+		l := 1280 + r.IntN(3520)
+		for j := 0; j < l && i+j < n; j++ {
+			out[i+j] = float32(amp * math.Sin(math.Pi*float64(j)/float64(l)) * (r.Float64()*2 - 1))
+		}
+		i += l + 800 + r.IntN(5600)
+	}
+	return out
+}
+
+// While system audio is captured, a mic that only hears it from the
+// speakers is not offered (and the status says why); a mic hearing
+// something else is; a silent one is not. Without system audio, any mic
+// with signal is offered, as before.
+func TestSourceCheckEcho(t *testing.T) {
+	const rate, at = 16000, 3 * 16000
+	sys := bursts(1, 10*rate, 0.3)
+	delayed := func(delay int, gain float64) []float32 {
+		r := rand.New(rand.NewPCG(9, 9))
+		out := make([]float32, rate*3/2)
+		for i := range out {
+			out[i] = float32(gain*float64(sys[at+i-delay]) + 0.001*r.NormFloat64())
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		name    string
+		probe   []float32
+		tap     bool
+		suggest bool
+		note    string
+	}{
+		{"speakers", delayed(2400, 0.1), true, false, speakersNote},
+		{"own voice", bursts(2, rate*3/2, 0.05), true, true, ""},
+		{"silent", make([]float32, rate*3/2), true, false, ""},
+		{"speakers, no system audio", delayed(2400, 0.1), false, true, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newControlled(t)
+			tap := &fakeTap{audio: sys, n: at}
+			c.probes.mics = func(string) []control.Source { return []control.Source{micSource("Webcam Mic")} }
+			c.probes.listenMic = func(_ context.Context, _ string, started func()) []float32 {
+				started()
+				tap.mu.Lock()
+				tap.n = len(sys)
+				tap.mu.Unlock()
+				return tc.probe
+			}
+			c.Recorder.mu.Lock()
+			c.src.beginLocked(context.Background(), nil, "default", nil, "auto", nil, nil, nil)
+			if tc.tap {
+				c.src.meeting = tap
+			}
+			c.Recorder.mu.Unlock()
+			c.markSilent("mic")
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				c.Recorder.mu.Lock()
+				done := !c.src.probing["mic"]
+				c.Recorder.mu.Unlock()
+				if done || time.Now().After(deadline) {
+					break
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			st := c.Status()
+			if st.Silent == nil || st.Silent.Kind != "mic" {
+				t.Fatalf("silent = %+v", st.Silent)
+			}
+			if got := st.Suggest != nil; got != tc.suggest || st.SuggestNote != tc.note {
+				t.Errorf("suggest %+v, note %q; want suggested %v, note %q", st.Suggest, st.SuggestNote, tc.suggest, tc.note)
+			}
+		})
+	}
+}
+
+// The default mic keeps its old name when the device can't be named.
+func TestMicSourceUnnamedDefault(t *testing.T) {
+	c := newControlled(t)
+	c.Recorder.mu.Lock()
+	defer c.Recorder.mu.Unlock()
+	if got := c.micSourceLocked("default").Name; got != "System default" {
+		t.Errorf("before the lookup: %q", got)
+	}
+	c.defaultMic = "Desk Speakerphone"
+	if got := c.micSourceLocked("default").Name; got != "Desk Speakerphone (system default)" {
+		t.Errorf("after the lookup: %q", got)
+	}
+	if got := c.micSourceLocked("USB Mic").Name; got != "USB Mic" {
+		t.Errorf("a named device: %q", got)
 	}
 }

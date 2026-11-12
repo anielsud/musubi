@@ -99,6 +99,12 @@ type Status struct {
 	// found none). Both nil when all is well.
 	Silent  *Source `json:"silent,omitempty"`
 	Suggest *Source `json:"suggest,omitempty"`
+	// SuggestNote, while Silent is set and Suggest is not, says why the
+	// recorder offers nothing when it knows: for a silent mic, that the
+	// other mics with signal only hear the meeting audio from the
+	// speakers (recording one would capture the far side twice). Empty
+	// otherwise.
+	SuggestNote string `json:"suggest_note,omitempty"`
 	// Health is one line per problem (a missing permission, model or
 	// tool); empty when all is well. Details come from OpTools.
 	Health []string `json:"health,omitempty"`
@@ -354,7 +360,7 @@ type ToolFix struct {
 // segment (livefeed). Readers that do not know a type skip it.
 const (
 	FeedStatus = "status" // {"v":1,"type":"status","status":Status}
-	FeedAudio  = "audio"  // {"v":1,"type":"audio","status":Status}: Silent / Suggest changed
+	FeedAudio  = "audio"  // {"v":1,"type":"audio","status":Status}: Silent / Suggest / SuggestNote changed
 	FeedDiag   = "diag"   // {"v":1,"type":"diag","session_id":"...","diag":Diag}
 	FeedLook   = "look"   // {"v":1,"type":"look","session_id":"...","look":LookView}
 )

@@ -123,6 +123,10 @@ type Recorder struct {
 	// health caches the tools' problems (healthLines); see refreshHealth.
 	health   []string
 	healthAt time.Time
+	// defaultMic caches the name of the system's default input, for
+	// naming a "default" mic selection in Status (refreshDefaultMic).
+	defaultMic   string
+	defaultMicAt time.Time
 
 	// The source check's probes (sourcecheck.go); tests swap them.
 	probes sourceProbes

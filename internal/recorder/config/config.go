@@ -288,6 +288,12 @@ type MeetingConfig struct {
 	// (Status.Silent and Status.Suggest). false only logs the silent mic,
 	// as before.
 	SourceCheck bool `toml:"source_check"`
+	// SourceCheckEcho, during the source check, compares what another mic
+	// hears with the meeting audio being captured and does not offer a
+	// mic that only hears the speakers (a webcam mic in the same room
+	// would record the far side twice and not the owner). false offers
+	// any mic with signal, as before.
+	SourceCheckEcho bool `toml:"source_check_echo"`
 }
 
 // VideoHintsOn reports whether video hints run: on macOS (the only platform
@@ -381,7 +387,8 @@ func DefaultConfig() *Config {
 		VideoHintLearnInterval: 1.0,
 		VideoHintCheckInterval: 1.0,
 
-		SourceCheck: true,
+		SourceCheck:     true,
+		SourceCheckEcho: true,
 	}
 	return cfg
 }

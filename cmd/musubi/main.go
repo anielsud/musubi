@@ -109,7 +109,13 @@ func runner(cfg config.Config, st *store.Store, embs []provider.Embedder, inbox,
 	}
 	var conns []source.Connector
 	if d := cfg.SessionsDir(); d != "" {
-		conns = append(conns, tomoe.Connector{Dir: d, Since: cfg.SessionsSince()})
+		// The same as the app's (engine.Runner): sessions before since are
+		// read when Musubi already has them, so an edited migrated meeting
+		// is taken in again.
+		conns = append(conns, tomoe.Connector{Dir: d, Since: cfg.SessionsSince(), Known: func(ref string) bool {
+			_, ok, _ := st.ManifestHash(tomoe.Name, ref)
+			return ok
+		}})
 	}
 	if cfg.BluedotDir != "" {
 		conns = append(conns, bluedot.Connector{Dir: cfg.BluedotDir, Since: cfg.BluedotSince, Known: func(ref string) bool {

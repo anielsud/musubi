@@ -31,6 +31,8 @@ type MeetingPage struct {
 	Sections []store.DigestSection `json:"sections"`
 	ToDos    []MeetingToDo         `json:"todos"`
 	Topics   []store.MeetingTopic  `json:"topics"`
+	// OverviewOwn is the overview's own sensitivity, on top of the item's.
+	OverviewOwn sensitivity.Label `json:"-"`
 }
 
 // MeetingPage returns the meeting's digest as far as the scope may see it,
@@ -43,7 +45,7 @@ func (v Views) MeetingPage(itemID string, minStatements int, quietAfter time.Dur
 	if err != nil || d == nil {
 		return nil, err
 	}
-	page := &MeetingPage{ItemID: d.ItemID, Title: d.ItemTitle, Start: d.Start, Overview: d.Overview, Sections: d.Sections}
+	page := &MeetingPage{ItemID: d.ItemID, Title: d.ItemTitle, Start: d.Start, Overview: d.Overview, Sections: d.Sections, OverviewOwn: d.OverviewOwn}
 	listed, err := v.ToDos(ToDoRequest{Proposals: true, QuietAfter: quietAfter, Source: "digest"}, ownerName)
 	if err != nil {
 		return nil, err

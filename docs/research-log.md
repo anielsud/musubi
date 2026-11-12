@@ -3313,6 +3313,32 @@ fit without seeing either system's verdict:
   as fitting the general subject still headlines that account. That
   belongs to threading (`docs/incremental-design.md`, "Subject shape").
 
+## 2026-11-06: MCP server, first run on all-t4
+
+`musubi mcp` (docs/mcp-design.md) driven over stdio against all-t4, reads
+only. Latency per call: meeting 0.03 s, thread 0.8 s, threads list 0.6 s,
+gather 0.3 s (30–50k characters of context), search 0.05 s.
+
+Two labelling faults found and fixed before use:
+
+- **Digest to-dos read as public.** `DigestCommitments` gave each to-do the
+  digest's words but not its label; ten of the owner's open to-dos came back
+  `public`. Each now carries its digest row's and item's label (all ten
+  became party-only), and the server combines every result with its item's
+  own label as a second guard.
+- **Owner-only was too common.** With restricted rated owner-only, 27 of the
+  40 latest meeting overviews and 36 of 50 thread statuses were owner-only,
+  nearly all for HR or financial material rather than personal details, and
+  the verdict disagreed with `fits` for attendees. Rated as the reply rule
+  rates it (restricted may go to those party to it), owner-only is 5 of 40
+  overviews, 4 of 167 sections (20 meetings), 12 of 50 statuses and 31 of
+  856 current items (20 threads); the rest is party-only but 4 internal
+  items.
+
+Nearly everything in all-t4 is party-only: it is leadership meetings, which
+default to confidential. A consumer writing for anyone outside a meeting
+will find little that fits, which is the point.
+
 ## 2026-11-09: Microsoft 365 connection, first calendar sync on all-t4
 
 - Signed in with `musubi m365 connect`, the Graph Command Line Tools client.
@@ -3450,3 +3476,199 @@ Recovery:
 - The choice takes about 4 s per person and is kept on disk for a week
   (`data/headshots`); a cached page opens in 0.6 s. Without Vision (not on
   macOS) the tile heuristic is kept.
+
+## 2026-11-09: coverage and search before retiring the old transcript search and Bluedot
+
+Question: can the old hosted transcript search (a personal Supabase vector index over the
+Bluedot folder) and Bluedot itself go, now that Musubi serves Claude Code (`musubi mcp`)?
+
+**Search: January–September added to all-t4 for search only.** `bluedot_since` moved from
+2026-10-01 to 2026-01-01 (config and database backed up first). `musubi update` imported 785
+meetings in 10.5 min at background priority (passages, rule labels, names, nomic-embed-text
+vectors; no paid model). `hold_older` keeps them out of extraction, threads and digests until a
+run is started by hand, so nothing was spent. Re-classifying the 463 meetings already present
+changed no label (1,586 passages compared), so no digest is invalidated.
+
+13 questions with a known meeting (date + title), phrased as topics rather than titles:
+Musubi hybrid search had the meeting in its top 5 for 12; the 13th returned the same recurring
+series on other dates. The hosted index answered none: timeouts, then HTTP 500 "could not query
+the database for the schema cache" (the project's database is paused or down).
+
+**Coverage: what the transcript folder holds.** 1,062 files: 836 Bluedot recordings and 226 Teams
+transcripts (fetched from Teams, including meetings the owner was invited to but did not join).
+Since 2 October, 17 meetings had a folder copy but no Tomoe recording starting within 15 min:
+- 9 Teams transcripts of meetings the owner wasn't in (0 turns by the owner; Tomoe's window
+  log shows the owner in another meeting throughout);
+- 1 Tomoe did record (start 25 min earlier, same meeting window throughout);
+- 1 partial, already patched from Teams;
+- 2 overnight trainings, not attended live;
+- 3 real misses, all on one day: Tomoe crashed (SIGSEGV on the main thread, just after a save) on
+  14 Oct and wasn't relaunched until 18 Oct. It is the only crash in the log since 2 Oct; the
+  autorelease-pool fixes of 20–22 Oct may cover it, which one instance can't confirm.
+
+The suspected "back-to-back meetings merged into one recording" problem does not exist: in every
+case the meeting window kept one title for the whole recording.
+
+**Bluedot's online archive vs the folder.** 939 recordings online; 104 never downloaded (the sync
+stops at the first known recording, and a second recording with the same title on the same day
+overwrites the first file; 37 such pairs online). Of the 104: 32 under 5 min, 51 covered ≥ 80% by
+a Tomoe recording, 21 only online (most have a same-named file in the folder, i.e. the other copy
+of a same-day pair or the Teams transcript).
+
+Tomoe follow-up: its app log now stamps every line with the time (Tomoe 95a8ddc), so the next
+miss can be lined up with the detector.
+
+## 2026-11-05: Items that fail every passage stop the knowledge run
+
+Setup: local only, `qwen3:8b` via Ollama for extraction, an experiment
+dataset of about 800 email, chat and event items, `musubi knowledge`.
+
+What happened: some passages got cut-off replies (`extract: model reply
+isn't JSON: unexpected end of JSON input`; extraction asks for at most 700
+tokens). Most items lost only that passage, as designed. But 11 small items
+(8 emails of 2.8–5 KB, 2 chat days, one of them 994 characters, and 1 more
+email) failed on every passage, and at temperature 0 they fail the same way
+every run. The first such item became the run's error after extraction:
+`knowledge: 612 items (1099 passages … 12.3s per passage), 2310 statements
+(0 embedded …) claims 0 new … 0 topics`, exit 1. Embedding, linking, claims
+and threads never ran for any item, and the next run retried the same items
+and stopped again; forgetting one item only moved the stop to the next.
+
+Hypothesis (not verified): a reply over 700 tokens for an input under 1 KB
+suggests the model repeats itself until the token limit, so a higher limit
+alone may not help.
+
+Change: `knowledge.skip_failed_items` (default false, the earlier
+behaviour). On, such an item is logged and left unstamped, the run goes on,
+and the summary counts it; a run where no item extracts still fails.
+Default off until it has been run on a real dataset.
+
+## 2026-11-11: Decision models through the AI Gateway (labels)
+
+Question: can statement labels move to the Optimizely AI Gateway, and
+which decision model then? The labels sample (the 400 audited statements
+of 2026-10-20) was rerun on 385 of them still in the dataset, with their
+meeting titles, the production question (`labelQuestion`) and the same
+scorer (the 2026-10-20 adjudications as truth). All runs the same day.
+
+| At 0.5 | Recall | Precision | Missed | False flags | Unjudged disagreements |
+|---|---|---|---|---|---|
+| Jev via the gateway (jev-1.13.0) | 0.86 | 0.90 | 30 | 19 | 0 |
+| Jev direct, `jev-latest` (jev-1.14.0) | 0.81 | 0.92 | 40 | 15 | 0 |
+| Jev, October (same 385) | 0.86 | 0.91 | 30 | 18 | 0 |
+| Clef | 0.75 | 0.92 | 51 | 14 | 4 |
+| Clef Flash | 0.80 | 0.82 | 42 | 36 | 23 |
+| Clef Omni (30B, 3B active) | 0.59 | 0.90 | 84 | 13 | 22 |
+
+- TypeSafe's `jev-latest` moved to 1.14.0 and misses a third more
+  sensitive statements at the same precision; the gateway's catalog still
+  serves 1.13.0. Neither version is pinned, so this can change again.
+- Clef is behind Jev at every threshold from 0.3 to 0.9; Flash finds about
+  as many as Jev with twice the false flags (many unjudged, so that number
+  is soft); Omni is furthest behind. About 12 s per 385 calls each.
+- Cost per 385: Jev ~1¢, Clef ~5¢, Clef Flash ~2¢ (input only).
+- Labels move to Jev through the gateway (`provider = "jev"`, catalog
+  `url`), with `cf-aig-collect-log-payload: false` so the gateway logs
+  hold no statement text.
+
+## 2026-11-11: GLM-5.3-Flash vs Haiku 5.5 vs DeepSeek V4.1 Flash, one call at a time
+
+Question: what replaces GLM-5.3-Flash on Cloudflare Workers AI (retired
+2026-11-20), and why the gateway calls were slow. A first bake-off the same
+morning ran four models at up to 16 calls at once with the 16k token cap and
+mixed provider defaults; its times were not usable. Redone with one request
+per call, no retries or hedging, no token cap, on Musubi's own prompts
+(written out by a dump tool, then sent by one-off scripts): brief, one
+extraction chunk, meeting summary, to-dos.
+
+**Thinking levels Musubi sends.** Only the digest (summary, to-dos) and
+thread assignment hardcode `reasoning_effort: low`; everything else sends
+none, so the provider's default applies. Cloudflare's GLM-5.3-Flash
+defaults to max, Baseten's thinks far less: on one extraction chunk,
+20,141 output tokens (192 s) on Cloudflare vs 2,706 (19 s) on Baseten.
+Moving from Baseten to the gateway therefore also raised extraction,
+threading, status and Ask from Baseten's level to max; that, not serving
+speed (105 vs 141 tokens/s), is most of the 12 s → 76 s extraction calls.
+
+**Token cap.** The 16k floor cut 3 of 7 extraction calls on Cloudflare GLM;
+without `max_tokens` the gateway returns full replies. Removed (this branch).
+
+**DeepSeek V4.1 Flash** (Cloudflare, low): 120–145 tokens/s but about 80% of
+its output is thinking even at low (brief 40 s, extraction chunk 31 s,
+summary 47 s); its to-dos call failed twice with an empty to-do and once
+with Workers AI's own timeout (HTTP 408, code 3046, at 235 s).
+**GLM-4.7-Flash** (Cloudflare): 50–67 tokens/s; calls that think past about
+5 minutes came back empty. Neither is a candidate.
+
+**GLM on Baseten vs Haiku 5.5** (gateway → Vertex, adaptive thinking at
+`low` and `medium`). Three meetings (a weekly 1:1, a vendor call, a VP staff
+sync): extraction on two, summary and to-dos on three, 8 answers per setup.
+Answers judged blind against the transcripts (labels shuffled; one reviewer
+per meeting) by error type; major = would store a wrong fact or owner.
+
+| Major / minor errors | GLM on Baseten | Haiku medium | Haiku low |
+|---|---|---|---|
+| Extraction (2) | 0 / 6 | 0 / 7 | 2 / 13 |
+| Summary (3) | 5 / 15 | 8 / 26 | 11 / 18 |
+| To-dos (3) | 2 / 10 | 2 / 8 | 3 / 10 |
+| Total | 7 / 31 | 10 / 41 | 16 / 41 |
+| Per call, mean | ~50 s, ~0.37¢ | ~27 s, ~0.50¢ | ~15 s, ~0.31¢ |
+
+- Haiku low broke the extraction rule on context lines in all three
+  meetings (6, 1 and 5 items from `[context]` lines) and misattributes most.
+- Haiku medium equals Baseten GLM on extraction and to-dos, is a little
+  worse on summaries (wrong owners); about twice as fast, a third dearer.
+- All three credit to the owner some vendor lines the transcript labels as
+  the owner's (the vendor call), and record a floated December message as
+  agreed: transcript problems no model choice fixes.
+- Prices per M tokens (gateway `pricing/model-pricing.csv`): Haiku 5.5
+  $0.10 / $0.50, GLM-5.3-Flash $0.15 / $0.50, DeepSeek V4.1 Flash
+  $0.30 / $1.20. Claude's tokenizer counts about 1.5x the input tokens.
+- Musubi has no Anthropic-format client, so Haiku needs one before it
+  can be used.
+
+**The other jobs: GLM on Baseten vs Haiku medium.** Musubi's own requests,
+captured through a pass-through recorder on a copy of the database (Ask:
+3 questions; statuses: 3 threads of 18–66 statements; Live card brief:
+3 cards; threading: assign, merge, two thread updates), then sent once
+each to both models, one at a time, and judged blind as above.
+
+| Major / minor errors | GLM on Baseten | Haiku medium |
+|---|---|---|
+| Ask (3) | 0 / 2 | 0 / 2 |
+| Statuses (3) | 2 / 10 | 0 / 14 |
+| Live brief (3) | 0 / 7 | 0 / 4 |
+| Threading (4) | 0 / 6 | 0 / 3 |
+| Total time, 13 calls | 574 s | 104 s |
+| Total cost, 13 calls | 1.9¢ | 1.8¢ |
+
+- Statuses: GLM invented a delivery that never happened and misattributed
+  a person, and leaked item numbers into reader-facing text against the
+  prompt; Haiku's errors were framing ("from X to Y") and inferred owners.
+- Live brief: GLM went over the 18-word headline twice, Haiku once; Haiku's
+  lines were more often what to raise now. Ask: even.
+- Threading: no major errors either way; Haiku won assign and one thread
+  update, GLM the other, merge identical.
+- Baseten's speed swung from 4 to 117 tokens/s (one brief 136 s, one
+  thread update 253 s); Haiku held 155–240.
+- Musubi hedges threading calls: 5 of 14 were sent twice.
+
+## 2026-11-11: tokens per meeting hour, by job (for Settings' cost lines)
+
+From the Haiku 5.5 runs above (medium thinking, Claude's tokenizer) on the
+three meetings, 22, 34 and 63 minutes (1.97 h; 422 statements; 30 threads
+touched). Output is the visible answer only: thinking isn't counted, and
+some models spend many times more on it.
+
+| Job | In / meeting hour | Out / meeting hour |
+|---|---|---|
+| Extraction (brief + chunks; one meeting, full run) | ~118K | ~28K |
+| Threading (assign, merge, thread updates; one meeting) | ~137K | ~2K |
+| Statuses (~15 threads an hour, ~6.4K in, ~0.9K out each) | ~96K | ~14K |
+| Meeting summary + to-dos (three meetings) | ~49K | ~5K |
+| Labels (Jev, ~214 statements an hour) | ~32K | — |
+| Ask (per question) | ~7K | ~0.3K |
+
+Settings groups them as extraction and threading ~255K in / 30K out,
+statuses and summaries ~145K / 19K: with Haiku 5.5 about $0.04 and $0.02 a
+meeting hour. One-meeting figures (extraction, threading) are rough.

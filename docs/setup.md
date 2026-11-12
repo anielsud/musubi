@@ -13,7 +13,7 @@ dataset's config; the code's defaults are all local.
 |---|---|---|---|
 | Embeddings | search, threads, card lines | Ollama `nomic-embed-text` | the same |
 | Chat models | extraction, threading, statuses, Ask, prep, Live suggestions and summaries | Ollama `qwen3:8b` | GLM-5.3-Flash on Baseten for all but Live; Live stays on `qwen3:8b` for latency |
-| Typed classifier | sensitive-statement labels, Live relevance | the chat model's yes/no | Jev (TypeSafe) |
+| Typed classifier | sensitive-statement labels, Live relevance | the chat model's yes/no | Jev (TypeSafe), or Clef (Cloudflare) |
 
 Jev is cleared for testing, not for the product. The product path is the
 same `provider.Classifier` interface over GLM or the local model
@@ -97,6 +97,161 @@ provider = "jev"
 api_key = "keychain:jev-api-key"
 min_p = 0.5
 ```
+
+Through the Optimizely AI Gateway, the same models take one personal
+gateway token. **Settings → Optimizely AI Gateway** sets it up: paste the
+token, and Musubi checks it with Cloudflare, keeps it in the Keychain and
+writes the gateway to the config:
+
+```toml
+[gateway]
+url = "https://<gateway worker>"
+account = "<account>"
+api_key = "keychain:ai-gateway-token"
+token_id = "<token id>"
+```
+
+Every model whose `url` is on the gateway (its worker, or the account's
+`/ai/run` catalog) then takes the gateway's `api_key` and headers for
+whatever it doesn't set itself, so a model needs only `provider`, `url`,
+`model` and prices. The card also lists the models the gateway serves,
+with live prices and Cloudflare's planned retirement dates. By hand,
+without the app:
+
+1. **Get a token** (`cfat_…`) from the gateway's mint workflow (a one-time
+   link). It needs both of the permissions personal tokens are minted
+   with, *AI Gateway Run* and *Workers AI Read*: without the second,
+   Claude works but GLM and Clef answer 401 "Authentication error".
+   A re-mint keeps a token's permissions, so a token missing one is
+   revoked and minted again.
+2. **Put it in the keychain** (Musubi only reads it; it prompts for the
+   token, so it never lands in a file or the shell history):
+   `security add-generic-password -s ai-gateway-token -a "$USER" -w`
+3. **Look up its `token_id`**, which isn't secret, for the header that
+   charges calls to you (without it they land as "unknown"):
+   ```sh
+   curl -s https://api.cloudflare.com/client/v4/accounts/<account>/tokens/verify \
+     -H "Authorization: Bearer $(security find-generic-password -s ai-gateway-token -w)" | jq -r .result.id
+   ```
+4. **Set the models** as below. `cf-aig-collect-log-payload: false` keeps
+   the prompt and the reply out of the gateway's logs (cost, tokens and
+   the `token_id` stay); send it until the gateway sets it on every
+   request itself. `cf-aig-skip-cache: true` skips the gateway's
+   5-minute response cache, so a retry after a bad reply gets a new one
+   rather than the same.
+
+```toml
+[knowledge.threads.model]  # and the other hosted models alike
+provider = "openai"
+url = "https://<gateway worker>/workers-ai-shim"
+model = "@cf/zai-org/glm-5.3-flash"
+api_key = "keychain:ai-gateway-token"
+headers = { "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","setup_version":"custom"}', "cf-aig-collect-log-payload" = "false", "cf-aig-skip-cache" = "true" }
+price_in = 0.15
+price_out = 0.50
+
+[knowledge.label.classifier] # Jev through the gateway (the organisation's key)
+provider = "jev"
+url = "https://api.cloudflare.com/client/v4/accounts/<account>/ai/run"
+api_key = "keychain:ai-gateway-token"
+headers = { "cf-aig-gateway-id" = "ai-gw", "cf-aig-collect-log-payload" = "false", "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","setup_version":"custom"}' }
+# [live.relevance] takes the same provider, url, api_key and headers.
+```
+
+Claude models go through the gateway's `/anthropic-shim` with the same
+token and headers (`provider = "anthropic"`). Claude Haiku 5.5 at medium
+thinking matched GLM-5.3-Flash on Musubi's prompts, two to five times
+faster (research log, 2026-11-11):
+
+```toml
+[knowledge.threads.model]
+provider = "anthropic"
+url = "https://<gateway worker>/anthropic-shim"
+model = "claude-haiku-5-5"
+api_key = "keychain:ai-gateway-token"
+headers = { "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","setup_version":"custom"}', "cf-aig-collect-log-payload" = "false", "cf-aig-skip-cache" = "true" }
+reasoning_effort = "medium"  # the default; it wins over a call's own level
+price_in = 0.10
+price_out = 0.50
+```
+
+A Jev `url` ending in `/ai/run` is Cloudflare's model catalog: the request
+names `typesafe/jev`, and without `cf-aig-gateway-id` Cloudflare answers 402.
+The catalog's Jev version floats like TypeSafe's own `jev-latest`, and
+the two needn't match (on 2026-11-11 the gateway served 1.13.0 and
+TypeSafe 1.14.0). Clef (`provider = "clef"`, `url` its own `/ai/run/@cf/
+cloudflare/clef` address) takes the same questions; on the labels sample
+it found fewer sensitive statements than Jev (research log, 2026-11-11).
+
+Settings is what is set up once and left alone; what to watch and act on
+is on Status. Its tabs:
+
+- **Accounts**: Microsoft 365, you (name, email) and what is synced
+  (mail and Teams chats are not offered yet: untested).
+- **AI providers**: where models come from, each on the same kind of
+  card (address, key, formats, used by, Test): the **AI Gateway**,
+  **other providers** such as Baseten, and **Ollama** on this Mac
+  (address, whether Musubi starts it and downloads the models in use).
+- **Models**: every model from every source in one table, sortable and
+  searchable: format, prices, context, thinking levels, retirement, what
+  uses it; local models are downloaded and removed here.
+- **Processing**: which model does what (below).
+- **Dataset**: where it is, its size on disk, **Back up now**, and the
+  settings that shape the app: when it checks for new meetings, the Live
+  panel's timings and cards, Ask, meeting prep.
+
+**Use recommended** on Processing writes `internal/config/recommended.toml`:
+Claude Haiku 5.5 at medium thinking through the gateway, GLM on Baseten
+behind it, local models for Live and search. It changes only model
+sections, providers and the gateway address; tokens and keys stay in the
+Keychain.
+
+A provider is an address, a key and headers; one address serves both
+formats (`/v1/chat/completions` and `/v1/messages`), and which one a
+model speaks is the model's `provider` ("openai" or "anthropic"). Its key
+goes in the Keychain as `musubi-provider-<name>` (or where its `api_key`
+says). Models name it with `via`; `via = "gateway"` is the AI Gateway,
+whose route follows the format:
+
+```toml
+[providers.baseten]
+url = "https://inference.baseten.co"
+api_key = "keychain:baseten-api-key"
+
+[knowledge.threads.model]
+via = "gateway"
+provider = "anthropic"
+model = "claude-haiku-5-5"
+
+[knowledge.threads.model.fallback]
+via = "baseten"
+provider = "openai"
+model = "zai-org/GLM-5.3-Flash"
+```
+
+**Processing** picks the model for each kind of work, writing the
+sections above in place (comments and other keys stay; the file before
+each change is kept as `config.toml.bak`):
+
+| Group | Sections |
+|---|---|
+| Extraction and threading | `knowledge.lean.model`, `knowledge.threads.model` |
+| Statuses, summaries and Live briefs | `knowledge.status.model`, `knowledge.digest.model`, `live.pick.brief` |
+| Ask | `ask.model` (fallback: `ask.fallback`) |
+| Labels | `knowledge.label.classifier` |
+| Live | `llm` (on this Mac), `live.relevance` |
+
+Each takes a preferred model and, for the chat groups, a fallback
+(`[<section>.fallback]`, used when the preferred one fails), each with
+its own thinking level (`reasoning_effort`): only the levels the model
+takes are offered (Cloudflare's catalog lists them; GLM-5.3-Flash, for
+one, runs "medium" as "max"; other providers don't say, so theirs are
+marked unverified). Each group shows its typical tokens in and out per
+meeting hour, and what they cost with the chosen models; the rates were
+measured with Claude Haiku 5.5 on 2026-11-11 and leave out thinking. A
+section set by hand to something else shows as "as set" and is left
+alone. With `[llm] pull_missing = true` (the default) the app downloads
+the local models in use, fallbacks aside.
 
 The full set of keys, each with what it does and how to restore the
 earlier behaviour, is in `internal/config/config.go`.

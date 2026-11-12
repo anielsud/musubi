@@ -99,6 +99,26 @@ export function PrepPage({ req, scope, onBack, onOpen, onTopic }: {
             </>
           )}
 
+          {view.last && (
+            <section className="prep-last">
+              <div className="section-head"><span>Last time</span><span className="dim">{fmtDate(view.last.start)}</span></div>
+              <p className="small">{view.last.overview}</p>
+              {(() => {
+                const open = (view.last.todos ?? []).filter((t) => t.state === 'open' || t.state === 'quiet' || t.state === 'proposed');
+                return open.length > 0 && (
+                  <>
+                    <div className="status-head">Still open from it</div>
+                    <ul className="status-list">
+                      {open.map((t) => (
+                        <li key={t.id}>{t.text}<span className="dim"> — {(t.owners?.length ?? 0) > 0 ? <Names names={t.owners!} /> : 'owner unclear'}{t.due ? ' · ' + t.due : ''}{t.state === 'quiet' ? ' · gone quiet' : ''}</span></li>
+                      ))}
+                    </ul>
+                  </>
+                );
+              })()}
+            </section>
+          )}
+
           <div className="section-head"><span>Their subjects</span></div>
           {(view.subjects ?? []).length === 0 && <Empty>No subjects with them yet.</Empty>}
           {(view.subjects ?? []).map((s) => {

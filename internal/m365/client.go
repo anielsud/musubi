@@ -167,12 +167,21 @@ func (c *Client) GetJSON(ctx context.Context, path string, out any) error {
 // Pages fetches path and every @odata.nextLink after it, calling each
 // with the page's raw value array.
 func (c *Client) Pages(ctx context.Context, path string, each func(json.RawMessage) error) error {
+	return c.PagesWith(ctx, path, http.Header{"Prefer": {`outlook.timezone="UTC"`}}, each)
+}
+
+// PagesWith is Pages with the request headers given.
+func (c *Client) PagesWith(ctx context.Context, path string, header http.Header, each func(json.RawMessage) error) error {
 	for path != "" {
 		var page struct {
 			Value []json.RawMessage `json:"value"`
 			Next  string            `json:"@odata.nextLink"`
 		}
-		if err := c.GetJSON(ctx, path, &page); err != nil {
+		b, err := c.Get(ctx, path, header)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(b, &page); err != nil {
 			return err
 		}
 		for _, v := range page.Value {

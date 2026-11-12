@@ -1,17 +1,37 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../api';
 import type { AppStatus, M365View } from '../types';
-import { Spinner } from './common';
+import { checkDoes, Spinner } from './common';
+import { ModelsTab } from './settings/ModelsTab';
+import { Prefs, StorageCard } from './settings/Prefs';
+import { ProcessingTab } from './settings/ProcessingTab';
+import { ProvidersTab } from './settings/ProvidersTab';
 
-export function SettingsView() {
+// Settings is what to set up once and leave alone; what to watch and act
+// on is on Status.
+type Tab = 'accounts' | 'providers' | 'models' | 'processing' | 'dataset';
+const tabs: [Tab, string][] = [['accounts', 'Accounts'], ['providers', 'AI providers'], ['models', 'Models'], ['processing', 'Processing'], ['dataset', 'Dataset']];
+
+export function SettingsView({ status }: { status: AppStatus | null }) {
+  const [tab, setTab] = useState<Tab>(() => {
+    try { return (localStorage.getItem('settings-tab') as Tab) || 'accounts'; } catch { return 'accounts'; }
+  });
+  const pick = (t: Tab) => { setTab(t); try { localStorage.setItem('settings-tab', t); } catch { /* not kept */ } };
   return (
     <div className="view status-page">
-      <M365Card />
+      <nav className="subtabs">
+        {tabs.map(([t, label]) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => pick(t)}>{label}</button>)}
+      </nav>
+      {tab === 'accounts' && <><M365Card status={status} /><Prefs tab="accounts" /></>}
+      {tab === 'providers' && <ProvidersTab />}
+      {tab === 'models' && <ModelsTab />}
+      {tab === 'processing' && <ProcessingTab />}
+      {tab === 'dataset' && <><StorageCard /><Prefs tab="dataset" /></>}
     </div>
   );
 }
 
-function M365Card() {
+function M365Card({ status }: { status: AppStatus | null }) {
   const [m, setM] = useState<M365View | null>(null);
   const [err, setErr] = useState('');
   const [syncing, setSyncing] = useState(false);
@@ -57,8 +77,8 @@ function M365Card() {
           {m.connecting ? <><Spinner /> Waiting for the browser…</> : m.connected && !m.needsSignIn ? 'Reconnect' : m.needsSignIn ? 'Sign in again' : 'Connect to Microsoft 365'}
         </button>
         {m.connected && (
-          <button disabled={syncing} onClick={() => { setDone(''); setSyncing(true); api.update(); }}>
-            {syncing ? <><Spinner /> Syncing…</> : 'Sync now'}
+          <button disabled={syncing} title={checkDoes(status)} onClick={() => { setDone(''); setSyncing(true); api.update(); }}>
+            {syncing ? <><Spinner /> Checking for new meetings…</> : 'Check for new meetings'}
           </button>
         )}
         {m.connected && <button onClick={signOut}>Sign out</button>}

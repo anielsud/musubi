@@ -11,7 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/m365"
@@ -227,8 +226,8 @@ func (e *Engine) WriteTomoeContext() (int, error) {
 			changed++
 		}
 		tpath := filepath.Join(dir, "teams.json")
-		t := overlapping(m, teamsByEvent[ev.ID])
-		if t != nil && wordAgreement(m, t) < 0.6 {
+		t := item.Overlapping(m, teamsByEvent[ev.ID])
+		if t != nil && item.WordAgreement(m, t) < item.SameMeetingWords {
 			t = nil // same slot, different conversation (another meeting that day)
 		}
 		if t == nil && removeOurs(tpath) {
@@ -266,58 +265,6 @@ type teamsTurn struct {
 	Speaker string  `json:"speaker"`
 	Offset  float64 `json:"offset"`
 	Text    string  `json:"text"`
-}
-
-// wordAgreement is the share of the Teams copy's distinct longer words
-// (four letters or more), said while Tomoe was recording, that the Tomoe
-// recording also has. On all-t4 the same meeting agreed 0.89–0.98 and a
-// different conversation in the same slot 0.13–0.41 (2026-11-09).
-func wordAgreement(m, t *item.Item) float64 {
-	words := func(it *item.Item, window bool) map[string]bool {
-		w := map[string]bool{}
-		for _, sg := range it.Segments {
-			if at := it.OccurredAt.Add(time.Duration(sg.Start * float64(time.Second))); window && (at.Before(m.OccurredAt) || at.After(m.EndedAt)) {
-				continue
-			}
-			for _, f := range strings.FieldsFunc(strings.ToLower(sg.Text), func(r rune) bool { return !unicode.IsLetter(r) }) {
-				if len(f) >= 4 {
-					w[f] = true
-				}
-			}
-		}
-		return w
-	}
-	tw, mw := words(t, true), words(m, false)
-	if len(tw) == 0 {
-		return 0
-	}
-	n := 0
-	for w := range tw {
-		if mw[w] {
-			n++
-		}
-	}
-	return float64(n) / float64(len(tw))
-}
-
-// overlapping is the Teams copy that shares the most time with m (at least
-// a quarter of the recording), or nil.
-func overlapping(m *item.Item, ts []*item.Item) *item.Item {
-	var best *item.Item
-	var bestD time.Duration
-	for _, t := range ts {
-		lo, hi := m.OccurredAt, m.EndedAt
-		if t.OccurredAt.After(lo) {
-			lo = t.OccurredAt
-		}
-		if t.EndedAt.Before(hi) {
-			hi = t.EndedAt
-		}
-		if d := hi.Sub(lo); d > bestD && d >= m.EndedAt.Sub(m.OccurredAt)/4 {
-			best, bestD = t, d
-		}
-	}
-	return best
 }
 
 // tomoeRecorded reports whether a Tomoe recording covers at least five

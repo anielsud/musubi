@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/mail"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -255,3 +256,32 @@ func stripQuoted(body string) string {
 	}
 	return strings.TrimSpace(strings.Join(out, "\n"))
 }
+
+// EventText is an event's description without the join details Teams
+// and Zoom append (a rule of underscores, or the join line, then the link
+// and dial-ins), and no longer than eventTextMax.
+func EventText(body string) string {
+	s := strings.ReplaceAll(body, "\r\n", "\n")
+	if loc := joinStart.FindStringIndex(s); loc != nil {
+		s = s[:loc[0]]
+	}
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " \t")
+	}
+	s = strings.TrimSpace(blankRuns.ReplaceAllString(strings.Join(lines, "\n"), "\n\n"))
+	if r := []rune(s); len(r) > eventTextMax {
+		s = strings.TrimSpace(string(r[:eventTextMax])) + "…"
+	}
+	return s
+}
+
+// eventTextMax bounds a description: an agenda fits, a pasted document
+// doesn't need to.
+const eventTextMax = 4000
+
+// joinStart is where the join details begin. A preview has no line
+// breaks, so the markers are found anywhere.
+var joinStart = regexp.MustCompile(`_{10,}|(?i)microsoft teams (meeting|need help)|join zoom meeting`)
+
+var blankRuns = regexp.MustCompile(`\n{3,}`)

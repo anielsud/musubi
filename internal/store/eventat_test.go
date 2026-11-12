@@ -26,13 +26,17 @@ func TestEventAtPrefersAccepted(t *testing.T) {
 		{"e3", "Vendor Call", "declined", at.Add(10 * time.Minute)},
 	} {
 		it := item.Item{ID: "m365-calendar:" + e.id, Source: "m365-calendar", Ref: e.id, Kind: item.KindEvent, Title: e.title,
-			OccurredAt: e.start, EndedAt: e.start.Add(time.Hour), Native: map[string]string{"response": e.resp}}
+			OccurredAt: e.start, EndedAt: e.start.Add(time.Hour), Native: map[string]string{"response": e.resp},
+			Participants: []item.Participant{{Name: "Robin Vale", Email: "robin@" + e.id + ".example"}}}
 		if _, err := s.UpsertItem(it); err != nil {
 			t.Fatal(err)
 		}
 	}
-	got, err := s.EventAt(at.Add(20 * time.Minute))
+	got, invited, err := s.EventAt(at.Add(20 * time.Minute))
 	if err != nil || got != "Roadmap Review" {
 		t.Fatalf("EventAt = %q, %v", got, err)
+	}
+	if len(invited) != 1 || invited[0].Email != "robin@e1.example" {
+		t.Errorf("invited = %v, want the accepted event's", invited)
 	}
 }

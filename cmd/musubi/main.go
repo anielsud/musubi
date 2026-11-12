@@ -22,6 +22,7 @@ import (
 	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/engine"
 	"github.com/anielsud/musubi/internal/eval"
+	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/live"
 	"github.com/anielsud/musubi/internal/m365"
@@ -53,7 +54,7 @@ func root() *cobra.Command {
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
 	r.AddCommand(importItemsCmd(), extractLeanCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), aliasesCmd(), liveCmd(),
-		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd())
+		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd())
 	return r
 }
 
@@ -754,12 +755,29 @@ func prepCmd() *cobra.Command {
 			req := knowledge.PrepRequest{People: people, QuietAfter: e.Cfg.Prep.QuietAfter(), MarkPrivate: e.Cfg.Prep.MarkPrivate}
 			if len(args) == 1 {
 				req.Template = args[0]
+				for _, it := range items {
+					if it.ID == req.Template && it.Kind == item.KindEvent {
+						ms, err := e.ThreadsAbout(cmd.Context(), sc, knowledge.MeetingQuery(it, e.Cfg.Owner.Name, e.Cfg.Owner.InternalDomains))
+						if err != nil {
+							return err
+						}
+						for _, m := range ms {
+							req.About = append(req.About, m.ID)
+						}
+					}
+				}
 			}
 			v, err := knowledge.Prep(e.Store, sc, req, items, e.Cfg.Owner.Name)
 			if err != nil {
 				return err
 			}
 			fmt.Printf("%s — with %s; since %s; %d meetings with them\n", v.Title, strings.Join(v.People, ", "), v.Since.Format("2006-01-02"), v.Met)
+			if len(v.New) > 0 {
+				fmt.Printf("first meeting with: %s\n", strings.Join(v.New, ", "))
+			}
+			if v.Description != "" {
+				fmt.Printf("description: %s\n", v.Description)
+			}
 			for _, s := range v.Subjects {
 				mark := ""
 				if s.Private {
@@ -1098,6 +1116,9 @@ func knowledgeCmd() *cobra.Command {
 			fmt.Fprintf(os.Stderr, "knowledge: %d items (%d passages, %d gated, extraction %s, %s per passage), %d statements (%d embedded, %d scored, %d below min_worth), claims %d new / %d joined / %d judged (linking %s), %d relations, %d topics; %d items still to extract; %s total\n",
 				ks.Items, ks.Chunks, ks.Gated, ks.ExtractTime.Round(time.Second), per.Round(100*time.Millisecond), ks.Statements, ks.Embedded, ks.Scored, ks.Unworthy,
 				ks.Link.New, ks.Link.Joined, ks.Link.Judged, ks.LinkTime.Round(time.Second), ks.Link.Related, ks.Topics, ks.Pending, time.Since(start).Round(time.Second))
+			if ks.Skipped > 0 {
+				fmt.Fprintf(os.Stderr, "knowledge: %d items skipped (every passage failed); tried again next run\n", ks.Skipped)
+			}
 			return err
 		},
 	}

@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -29,6 +30,9 @@ type ThreadFinder struct {
 	Newer bool
 	// NewerFirst puts that thread first rather than last.
 	NewerFirst bool
+
+	nameOnce sync.Once
+	nameDF   map[string]int // a word → how many thread names have it
 }
 
 const newerMargin = 0.12
@@ -195,4 +199,65 @@ func (f *ThreadFinder) Find(sc sensitivity.Scope, q []float32, question string, 
 		}
 	}
 	return found
+}
+
+// About finds the threads a meeting's query (MeetingQuery) is about: at
+// most PrepAboutMax, best first, each at least PrepAboutMin similar and
+// with a word of the query in its name that few thread names have.
+// Similarity alone ranks a long, general description close to many
+// threads; a word like "product" is in dozens of names, "interview" in
+// a couple.
+func (f *ThreadFinder) About(sc sensitivity.Scope, q []float32, query string) []ThreadMatch {
+	if f == nil {
+		return nil
+	}
+	f.nameOnce.Do(func() {
+		f.nameDF = map[string]int{}
+		for _, r := range f.rows {
+			seen := map[string]bool{}
+			for _, w := range QuestionWords(r.Name) {
+				if !seen[w] {
+					seen[w] = true
+					f.nameDF[w]++
+				}
+			}
+		}
+	})
+	rare := max(3, len(f.rows)/300)
+	var words []string
+	for _, w := range QuestionWords(query) {
+		if !meetingWords[w] {
+			words = append(words, w)
+		}
+	}
+	var out []ThreadMatch
+	for _, m := range f.Find(sc, q, query, PrepAboutMax) {
+		if m.Newer || m.Score < PrepAboutMin {
+			continue
+		}
+		if sharesRare(words, QuestionWords(m.Name), f.nameDF, rare) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// sharesRare: a name word is one of words, or the same with a short
+// ending ("model", "models"), and at most rare thread names have it.
+func sharesRare(words, name []string, df map[string]int, rare int) bool {
+	for _, n := range name {
+		if df[n] > rare {
+			continue
+		}
+		for _, w := range words {
+			a, b := w, n
+			if len(a) > len(b) {
+				a, b = b, a
+			}
+			if strings.HasPrefix(b, a) && len(b)-len(a) <= 2 {
+				return true
+			}
+		}
+	}
+	return false
 }

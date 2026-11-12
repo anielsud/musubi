@@ -118,3 +118,26 @@ func TestMusubiPathFromEnv(t *testing.T) {
 		t.Errorf("MusubiPath = %q", got)
 	}
 }
+
+// [recorder] of_record = "musubi" is read from Musubi's file, with or
+// without [recorder.*] tables; "tomoe" or no key is the default.
+func TestOverlayMusubiOfRecord(t *testing.T) {
+	for text, want := range map[string]bool{
+		"[recorder]\nof_record = \"musubi\"\n":                                   true,
+		"[recorder]\nof_record = \"musubi\"\n[recorder.audio]\ndevice = \"X\"\n": true,
+		"[recorder]\nof_record = \"tomoe\"\n":                                    false,
+		"[recorder.audio]\ndevice = \"X\"\n":                                     false,
+	} {
+		cfg := DefaultConfig()
+		if _, err := OverlayMusubi(cfg, writeConfig(t, text)); err != nil {
+			t.Fatalf("%q: %v", text, err)
+		}
+		if cfg.MusubiOfRecord != want {
+			t.Errorf("%q: MusubiOfRecord = %v, want %v", text, cfg.MusubiOfRecord, want)
+		}
+	}
+	cfg := DefaultConfig()
+	if _, err := OverlayMusubi(cfg, writeConfig(t, "[recorder]\nof_record = \"both\"\n")); err == nil {
+		t.Error("an unknown of_record was accepted")
+	}
+}

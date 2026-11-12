@@ -544,3 +544,33 @@ func TestSegmentDiag(t *testing.T) {
 		t.Errorf("voice-matched diag = %+v", d)
 	}
 }
+
+// Once Musubi's config makes the recorder of record, reload_config stops
+// Tomoe's voices being copied at the next recording; back to "tomoe",
+// they are copied again.
+func TestOfRecordStopsVoiceCopy(t *testing.T) {
+	c := newControlled(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	musubi := filepath.Join(t.TempDir(), "config.toml")
+	c.SetMusubiConfig(musubi)
+	record := func() int {
+		t.Helper()
+		before := c.copies
+		c.must(t, control.OpStart, nil, nil)
+		c.must(t, control.OpStop, nil, nil)
+		return c.copies - before
+	}
+	if n := record(); n != 1 {
+		t.Errorf("default: voices copied %d times, want 1", n)
+	}
+	os.WriteFile(musubi, []byte("[recorder]\nof_record = \"musubi\"\n"), 0o644)
+	c.must(t, control.OpReloadConfig, nil, nil)
+	if n := record(); n != 0 {
+		t.Errorf("of record: voices copied %d times, want 0", n)
+	}
+	os.WriteFile(musubi, []byte("[recorder]\nof_record = \"tomoe\"\n"), 0o644)
+	c.must(t, control.OpReloadConfig, nil, nil)
+	if n := record(); n != 1 {
+		t.Errorf("back to Tomoe: voices copied %d times, want 1", n)
+	}
+}

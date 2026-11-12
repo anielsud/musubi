@@ -36,11 +36,15 @@ func (a *Recorder) StartSession(micDevice, monitorDevice, lang, platform string)
 		return errRecording
 	}
 	// Each recording starts from Tomoe's voices, so names and the owner
-	// voice match what Tomoe would use for the same meeting.
-	if err := a.copyVoices(); err != nil {
-		fmt.Printf("Warning: voices not copied from Tomoe: %v\n", err)
-	} else {
-		forgetOwnerVoices()
+	// voice match what Tomoe would use for the same meeting, until the
+	// recorder is of record (Musubi's [recorder] of_record): from then on
+	// its own voices, edited through the Musubi app, are the ones used.
+	if !a.cfg.MusubiOfRecord {
+		if err := a.copyVoices(); err != nil {
+			fmt.Printf("Warning: voices not copied from Tomoe: %v\n", err)
+		} else {
+			forgetOwnerVoices()
+		}
 	}
 	if err := a.begin(micDevice, monitorDevice, lang, platform); err != nil {
 		return err

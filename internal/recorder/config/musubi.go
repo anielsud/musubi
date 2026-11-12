@@ -35,8 +35,9 @@ func MusubiPath() string {
 }
 
 // recorderSections are the [recorder.*] tables that overlay Tomoe's
-// sections of the same name. Top-level [recorder] keys (of_record, data,
-// since) are the Musubi app's and are not read here.
+// sections of the same name. Of the top-level [recorder] keys only
+// of_record is read here (Config.MusubiOfRecord); data and since are the
+// Musubi app's.
 var recorderSections = []string{"audio", "transcription", "meeting"}
 
 // OverlayMusubi applies the [recorder.*] tables of the Musubi config at
@@ -56,6 +57,14 @@ func OverlayMusubi(cfg *Config, path string) (bool, error) {
 		return false, fmt.Errorf("parsing %s: %w", path, err)
 	}
 	rec, _ := doc["recorder"].(map[string]any)
+	ofRecord := false
+	switch v := rec["of_record"]; v {
+	case nil, "tomoe":
+	case "musubi":
+		ofRecord = true
+	default:
+		return false, fmt.Errorf("%s [recorder] of_record = %v: want \"tomoe\" or \"musubi\"", path, v)
+	}
 	sub := map[string]any{}
 	for _, name := range recorderSections {
 		if t, ok := rec[name].(map[string]any); ok && len(t) > 0 {
@@ -63,7 +72,8 @@ func OverlayMusubi(cfg *Config, path string) (bool, error) {
 		}
 	}
 	if len(sub) == 0 {
-		return false, nil
+		cfg.MusubiOfRecord = ofRecord
+		return ofRecord, nil
 	}
 	// Re-encoding the tables and decoding them onto a copy sets exactly
 	// the keys present and keeps every other field: go-toml leaves fields
@@ -73,6 +83,7 @@ func OverlayMusubi(cfg *Config, path string) (bool, error) {
 		return false, fmt.Errorf("%s [recorder]: %w", path, err)
 	}
 	next := *cfg
+	next.MusubiOfRecord = ofRecord
 	if err := toml.NewDecoder(bytes.NewReader(enc)).Decode(&next); err != nil {
 		return false, fmt.Errorf("%s [recorder]: %w", path, err)
 	}

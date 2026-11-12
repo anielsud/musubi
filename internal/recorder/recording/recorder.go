@@ -178,8 +178,11 @@ func (a *Recorder) Start(ctx context.Context) error {
 		fmt.Printf("Warning: live feed not started: %v\n", err)
 	}
 	// Before the owner voice is first read (and perhaps seeded), so it
-	// starts from Tomoe's.
-	if err := a.copyVoices(); err != nil {
+	// starts from Tomoe's; not once the recorder's own voices are of
+	// record.
+	if cfg.MusubiOfRecord {
+		fmt.Println("voices: the recorder is of record; Tomoe's voices are not copied")
+	} else if err := a.copyVoices(); err != nil {
 		fmt.Printf("Warning: voices not copied from Tomoe: %v\n", err)
 	}
 	status := models.NewManager(cfg.Transcription.ModelPath).WithLiveModel(cfg.Transcription.LiveModel).Check()

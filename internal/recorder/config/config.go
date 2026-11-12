@@ -19,6 +19,13 @@ type Config struct {
 	Audio         AudioConfig         `toml:"audio"`
 	Transcription TranscriptionConfig `toml:"transcription"`
 	Meeting       MeetingConfig       `toml:"meeting"`
+
+	// MusubiOfRecord is Musubi's [recorder] of_record = "musubi": the
+	// Musubi recorder, not Tomoe, is the recorder of record, so its own
+	// voices are authoritative and Tomoe's are no longer copied over them.
+	// Only Musubi's config sets it (OverlayMusubi); false ("tomoe", the
+	// default) keeps copying, as before.
+	MusubiOfRecord bool `toml:"-"`
 }
 
 // AudioConfig picks the microphone.

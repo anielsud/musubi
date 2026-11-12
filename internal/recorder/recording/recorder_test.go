@@ -38,6 +38,7 @@ func newTestRecorder(t *testing.T) *Recorder {
 	cfg.Transcription.ModelPath = filepath.Join(t.TempDir(), "tomoe-models")
 	r := New(cfg)
 	r.copyVoices = func() error { return nil }
+	r.probes.defaultMic = func() string { return "" } // never this Mac's devices
 	r.modelFetch = func(string) (io.ReadCloser, int64, error) { return nil, 0, errors.New("no network in tests") }
 	return r
 }

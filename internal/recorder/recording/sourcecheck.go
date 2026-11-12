@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/anielsud/musubi/internal/recorder/audio"
@@ -19,6 +20,15 @@ import (
 // recording is untouched, and offers one that has signal
 // (Status.Silent, Status.Suggest, the feed's "audio" message). The Musubi
 // app switches with set_source. Off with [meeting] source_check = false.
+//
+// A mic with signal is not always a better mic: a webcam or laptop mic in
+// the same room as the speakers mostly hears the far side of the call,
+// which the recording already captures as system audio. Switching to it
+// would record the meeting twice and the owner hardly at all. So while
+// system audio is captured, what each other mic hears is compared with
+// the system audio over the same moments (audio.MatchEcho), and a mic
+// that only follows the speakers is not offered (Status.SuggestNote says
+// so instead). Off with [meeting] source_check_echo = false.
 
 const (
 	// systemSilentAfter is how long system audio goes with nothing at
@@ -33,24 +43,56 @@ const (
 	probeFor   = 1500 * time.Millisecond
 	// probeMaxMics bounds how many other inputs one check opens.
 	probeMaxMics = 4
+
+	// echoLead and echoTrail are how much system audio before and after
+	// the probe it is compared with: sound reaches the other mic later
+	// than the system capture (output buffering, then the room), up to
+	// about half a second, while the two captures' own buffering can put
+	// the probe a little ahead.
+	echoLead  = 600 * time.Millisecond
+	echoTrail = 300 * time.Millisecond
+	// echoCorr is the envelope correlation from which a probe counts as
+	// hearing only the speakers. On synthetic speech through a simulated
+	// room (docs/research-log.md, 2026-11-12) an echo scored at least
+	// 0.8 in 98% of cases and independent speech in the room reached it
+	// in 2%; a miss of that kind only waits for the next check.
+	echoCorr = 0.8
+	// echoCatchUp bounds the wait for the system capture to deliver the
+	// moments just after the probe.
+	echoCatchUp = time.Second
 )
+
+// speakersNote is Status.SuggestNote when the other mics with signal
+// only hear the meeting audio.
+const speakersNote = "Other microphones only hear the meeting audio from your speakers"
+
+// meetingTap is the recording's system-audio capture as the echo check
+// reads it (an *audio.StreamCapturer).
+type meetingTap interface {
+	Recorded() int
+	RecordedRange(from, to int) []float32
+}
 
 // sourceProbes are how the check finds and hears other sources; tests
 // replace them.
 type sourceProbes struct {
 	// mics are the input devices other than current (a mic selection).
 	mics func(current string) []control.Source
-	// hearMic listens to one input device for probeFor.
-	hearMic func(ctx context.Context, id string) bool
+	// listenMic records one input device for probeFor, calling started
+	// once it captures (the moment the probe lines up with the system
+	// audio); nil if it couldn't be opened.
+	listenMic func(ctx context.Context, id string, started func()) []float32
 	// hearSystem listens to the whole system's audio for probeFor.
 	hearSystem func(ctx context.Context) bool
 	// systemInstead is the source to offer when the whole system has
 	// sound but current (a system selection) doesn't.
 	systemInstead func(current string) control.Source
+	// defaultMic names the system's default input, "" if unknown.
+	defaultMic func() string
 }
 
 func defaultProbes() sourceProbes {
-	return sourceProbes{mics: otherMics, hearMic: hearMic, hearSystem: hearSystem, systemInstead: systemInstead}
+	return sourceProbes{mics: otherMics, listenMic: listenMic, hearSystem: hearSystem, systemInstead: systemInstead, defaultMic: defaultInputName}
 }
 
 // otherMics are the input devices other than the current selection (the
@@ -70,24 +112,26 @@ func otherMics(current string) []control.Source {
 	return out
 }
 
-// hearMic opens device on its own capture, listens for probeFor and
-// reports whether it heard anything at all.
-func hearMic(ctx context.Context, device string) bool {
+// listenMic opens device on its own capture and records probeFor of it.
+func listenMic(ctx context.Context, device string, started func()) []float32 {
 	c, err := audio.NewCapturer(device, audio.Input)
 	if err != nil {
-		return false
+		return nil
 	}
 	defer c.Close()
 	if err := c.Start(); err != nil {
-		return false
+		return nil
 	}
+	// After Start, not before NewCapturer: opening a USB device can take
+	// longer than the whole lag range the echo check allows for.
+	started()
 	select {
 	case <-time.After(probeFor):
 	case <-ctx.Done():
 	}
 	samples := c.Samples()
 	_ = c.Stop()
-	return audio.HasSignal(samples)
+	return samples
 }
 
 func hearSystem(context.Context) bool {
@@ -118,20 +162,30 @@ func (a *Recorder) markSilent(kind string) {
 		return
 	}
 	var cur control.Source
+	var tap meetingTap
 	if kind == "mic" {
-		cur = micSource(a.src.mic)
+		cur = a.micSourceLocked(a.src.mic)
+		if a.cfg.Meeting.SourceCheckEcho {
+			tap = a.src.meeting
+		}
 	} else {
 		cur = control.Source{Kind: "system", ID: a.src.system, Name: a.src.sysName}
 	}
-	if a.src.silent == nil || *a.src.silent != cur {
-		a.src.silent, a.src.suggest = &cur, nil
+	// The same source by kind and ID: its name can be filled in later
+	// (the default mic's device name), which is no reason to start over.
+	switch {
+	case a.src.silent == nil || a.src.silent.Kind != cur.Kind || a.src.silent.ID != cur.ID:
+		a.src.silent, a.src.suggest, a.src.suggestNote = &cur, nil, ""
+		a.publishAudioLocked()
+	case a.src.silent.Name != cur.Name:
+		a.src.silent = &cur
 		a.publishAudioLocked()
 	}
 	if a.src.suggest != nil || a.src.probing[kind] || time.Since(a.src.lastProbe[kind]) < probeEvery {
 		return
 	}
 	a.src.probing[kind], a.src.lastProbe[kind] = true, time.Now()
-	go a.checkSources(a.src.ctx, kind, cur.ID)
+	go a.checkSources(a.src.ctx, kind, cur.ID, tap)
 }
 
 // clearSilent forgets a silent kind source (its signal came back).
@@ -141,49 +195,129 @@ func (a *Recorder) clearSilent(kind string) {
 	if a.src.silent == nil || a.src.silent.Kind != kind {
 		return
 	}
-	a.src.silent, a.src.suggest = nil, nil
+	a.src.silent, a.src.suggest, a.src.suggestNote = nil, nil, ""
 	a.publishAudioLocked()
 }
 
 // checkSources listens to the other sources of kind and offers the first
-// one with signal, if the silent source is still the same by then.
-func (a *Recorder) checkSources(ctx context.Context, kind, current string) {
-	found := a.findSource(ctx, kind, current)
+// one with signal (for a mic, one that hears more than the speakers when
+// tap is the system audio), if the silent source is still the same by
+// then. Finding none, it keeps the reason, if any, in suggestNote.
+func (a *Recorder) checkSources(ctx context.Context, kind, current string, tap meetingTap) {
+	found, note := a.findSource(ctx, kind, current, tap)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.src.probing != nil {
 		delete(a.src.probing, kind)
 	}
-	if found == nil || ctx.Err() != nil || a.src.silent == nil || a.src.silent.Kind != kind || a.src.silent.ID != current {
+	if ctx.Err() != nil || a.src.silent == nil || a.src.silent.Kind != kind || a.src.silent.ID != current {
 		return
 	}
-	a.src.suggest = found
-	fmt.Printf("source check: %s %q is silent; %q has signal\n", kind, current, found.Name)
+	if found == nil {
+		if note != a.src.suggestNote {
+			a.src.suggestNote = note
+			a.publishAudioLocked()
+		}
+		if note != "" {
+			fmt.Printf("source check: %s %q is silent; %s\n", kind, a.src.silent.Name, strings.ToLower(note[:1])+note[1:])
+		}
+		return
+	}
+	a.src.suggest, a.src.suggestNote = found, ""
+	fmt.Printf("source check: %s %q is silent; %q has signal\n", kind, a.src.silent.Name, found.Name)
 	a.publishAudioLocked()
 }
 
-func (a *Recorder) findSource(ctx context.Context, kind, current string) *control.Source {
+func (a *Recorder) findSource(ctx context.Context, kind, current string, tap meetingTap) (*control.Source, string) {
 	p := a.probes
 	if kind == "mic" {
+		speakers := false
 		for i, m := range p.mics(micSelection(current)) {
 			if i == probeMaxMics || ctx.Err() != nil {
 				break
 			}
-			if p.hearMic(ctx, micSelection(m.ID)) {
-				return &m
+			start := 0
+			heard := p.listenMic(ctx, micSelection(m.ID), func() {
+				if tap != nil {
+					start = tap.Recorded()
+				}
+			})
+			if !audio.HasSignal(heard) || ctx.Err() != nil {
+				continue
+			}
+			if tap == nil { // no system audio to compare with
+				return &m, ""
+			}
+			switch v, match := echoOf(ctx, heard, tap, start); v {
+			case echoSpeakers:
+				speakers = true
+				fmt.Printf("source check: mic %q hears the speakers (envelope correlation %.2f at %v); not offered\n", m.Name, match.Corr, match.Lag.Round(time.Millisecond))
+			case echoQuiet:
+				fmt.Printf("source check: mic %q heard only steady noise while the speakers were silent; checking again later\n", m.Name)
+			default:
+				return &m, ""
 			}
 		}
-		return nil
+		if speakers {
+			return nil, speakersNote
+		}
+		return nil, ""
 	}
 	// The whole system silent too means the call is just quiet.
 	if current == "everything" || !p.hearSystem(ctx) {
-		return nil
+		return nil, ""
 	}
 	s := p.systemInstead(current)
 	if s.ID == current {
-		return nil
+		return nil, ""
 	}
-	return &s
+	return &s, ""
+}
+
+// echoVerdict is what the echo check made of a probe.
+type echoVerdict int
+
+const (
+	// echoUnknown: not enough system audio to compare with; the probe is
+	// offered, as it was before the check.
+	echoUnknown echoVerdict = iota
+	// echoOwn: the probe heard something the speakers don't explain.
+	echoOwn
+	// echoSpeakers: the probe follows the system audio.
+	echoSpeakers
+	// echoQuiet: the speakers played nothing and the probe heard only
+	// steady noise, so nothing tells a room mic from the owner's; the
+	// next check (probeEvery) may catch someone talking.
+	echoQuiet
+)
+
+// echoOf compares heard, a probe whose first sample lines up with sample
+// start of tap, with the system audio from echoLead before it to
+// echoTrail after it.
+func echoOf(ctx context.Context, heard []float32, tap meetingTap, start int) (echoVerdict, audio.EchoMatch) {
+	lead := int(echoLead.Seconds() * audio.CaptureSampleRate)
+	trail := int(echoTrail.Seconds() * audio.CaptureSampleRate)
+	end := start + len(heard) + trail
+	for deadline := time.Now().Add(echoCatchUp); tap.Recorded() < end && time.Now().Before(deadline); {
+		select {
+		case <-ctx.Done():
+			return echoUnknown, audio.EchoMatch{}
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+	from := max(start-lead, 0)
+	ref := tap.RecordedRange(from, end)
+	if len(ref) < len(heard) {
+		return echoUnknown, audio.EchoMatch{}
+	}
+	m := audio.MatchEcho(heard, ref, start-from)
+	switch {
+	case m.RefActive && m.Corr >= echoCorr:
+		return echoSpeakers, m
+	case m.RefActive || m.ProbeEvents:
+		return echoOwn, m
+	}
+	return echoQuiet, m
 }
 
 // watchSystem marks the recording's system audio silent after

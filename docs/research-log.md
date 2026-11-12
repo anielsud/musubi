@@ -3672,3 +3672,39 @@ some models spend many times more on it.
 Settings groups them as extraction and threading ~255K in / 30K out,
 statuses and summaries ~145K / 19K: with Haiku 5.5 about $0.04 and $0.02 a
 meeting hour. One-meeting figures (extraction, threading) are rough.
+
+## 2026-11-12: recorder source check — telling a room mic from the speakers' echo
+
+Seen live: the default mic (a speakerphone muted in the call) went silent
+and the source check offered a webcam mic in the same room, which mostly
+heard the far side coming out of the speakers, already captured as system
+audio. The check now compares each candidate mic's 1.5 s probe with the
+system audio over the same moments (`audio.MatchEcho`): 20 ms RMS
+envelopes, Pearson correlation of the whole probe against the system
+audio from 600 ms before to 300 ms after it (lags −300…+600 ms).
+
+Method chosen on synthetic data (1,000 seeds each; speech-like bursts;
+the echo delayed 30–480 ms, attenuated 0.02–0.22, through a sparse reverb
+tail of RT60 0.2–0.7 s, with room noise):
+
+| Probe | p5 | p50 | p95 | ≥ 0.8 |
+|---|---|---|---|---|
+| Echo of the system audio | 0.88 | 0.96 | 0.99 | 98% |
+| Independent speech in the room | 0.26 | 0.47 | 0.74 | 2% |
+| Own speech plus the echo | 0.27 | 0.50 | 0.73 | 1% |
+
+Log-energy envelopes, onset (positive log-difference) envelopes and 40 ms
+frames all separated worse (best alternative: echo p5 0.63 against own
+p95 0.55 for onsets, with less margin at the threshold). Threshold 0.8: a
+false "only hears the speakers" just waits for the next check a minute
+later, while a missed echo would record the far side twice.
+
+When the speakers played nothing (no frame above about −50 dBFS) the
+probe is offered only if it heard events (a frame 12 dB above its median),
+else the check tries again next minute. Without system audio (a mic-only
+recording) any mic with signal is offered, as before. Off with
+`[meeting] source_check_echo = false`.
+
+Unverified: real rooms (webcam processing, AGC, reverb heavier than the
+model), the alignment of the two captures on this Mac, and the false-alarm
+rate on real speech. Needs a real meeting.

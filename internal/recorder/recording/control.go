@@ -228,10 +228,15 @@ type sourceState struct {
 	nextMic, nextSystem *string
 
 	// silent is a source in use with no signal for a while and suggest a
-	// source heard instead (sourcecheck.go).
+	// source heard instead (sourcecheck.go); suggestNote says why there
+	// is none when the check knows.
 	silent, suggest *control.Source
+	suggestNote     string
 	probing         map[string]bool
 	lastProbe       map[string]time.Time
+	// meeting is the recording's system-audio capture, which the source
+	// check compares other mics with; nil without system audio.
+	meeting meetingTap
 }
 
 // beginLocked records a new recording's sources.
@@ -301,6 +306,37 @@ func micSource(sel string) control.Source {
 	return control.Source{Kind: "mic", ID: sel, Name: sel}
 }
 
+// micSourceLocked is micSource with the system default named after the
+// device behind it (defaultMic), so that "no sound from ..." names the
+// mic the owner can look at. Caller holds mu.
+func (a *Recorder) micSourceLocked(sel string) control.Source {
+	s := micSource(sel)
+	if sel == "default" && a.defaultMic != "" {
+		s.Name = a.defaultMic + " (system default)"
+	}
+	return s
+}
+
+// refreshDefaultMic looks up the system's default input again if the
+// name held is older than healthEvery (or always, with force), and tells
+// the feed if it changed. Never called with mu held: it lists devices.
+func (a *Recorder) refreshDefaultMic(force bool) {
+	a.mu.Lock()
+	fresh := !force && time.Since(a.defaultMicAt) < healthEvery
+	a.mu.Unlock()
+	if fresh {
+		return
+	}
+	name := a.probes.defaultMic()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	changed := name != a.defaultMic
+	a.defaultMic, a.defaultMicAt = name, time.Now()
+	if changed {
+		a.publishStatusLocked()
+	}
+}
+
 // micSelection is a control mic ID as StartSession takes it.
 func micSelection(id string) string {
 	switch id {
@@ -315,6 +351,7 @@ func micSelection(id string) string {
 // Status is the recorder's state now.
 func (a *Recorder) Status() control.Status {
 	a.refreshHealth(false)
+	a.refreshDefaultMic(false)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.statusLocked()
@@ -329,7 +366,7 @@ func (a *Recorder) statusLocked() control.Status {
 		st.Session, st.StartedAt = &info, a.currentSess.CreatedAt
 	}
 	if a.src.recording {
-		st.Mic = micSource(a.src.mic)
+		st.Mic = a.micSourceLocked(a.src.mic)
 		st.System = control.Source{Kind: "system", ID: a.src.system, Name: a.src.sysName}
 		if a.src.auto != nil {
 			a.videoHintMu.Lock()
@@ -340,7 +377,7 @@ func (a *Recorder) statusLocked() control.Status {
 		}
 	} else {
 		mic, system := a.nextSourcesLocked()
-		st.Mic = micSource(mic)
+		st.Mic = a.micSourceLocked(mic)
 		st.System = control.Source{Kind: "system", ID: system, Name: meetingaudio.SourceName(system)}
 	}
 	if a.src.silent != nil {
@@ -350,6 +387,9 @@ func (a *Recorder) statusLocked() control.Status {
 	if a.src.suggest != nil {
 		s := *a.src.suggest
 		st.Suggest = &s
+	}
+	if a.src.silent != nil {
+		st.SuggestNote = a.src.suggestNote
 	}
 	st.Health = append(st.Health, a.health...)
 	for _, k := range slices.Sorted(maps.Keys(a.notes)) {
@@ -503,7 +543,7 @@ func (a *Recorder) setSource(p control.SetSourceArgs) (control.Status, error) {
 	}
 	a.mu.Lock()
 	if a.src.silent != nil && a.src.silent.Kind == p.Kind {
-		a.src.silent, a.src.suggest = nil, nil
+		a.src.silent, a.src.suggest, a.src.suggestNote = nil, nil, ""
 		a.publishAudioLocked()
 	}
 	a.publishStatusLocked()

@@ -3906,7 +3906,7 @@ speaker (MinFingerprints 8 unchanged); it isn't learnt, and meetings
 already in a profile under it are left out of the profile's voice and its
 meeting count (kept on record, shown as "names the speaker, too little to
 learn from"). Effect on the 137 profiles: 5 meetings left out; one
-profile (two meetings, one of them 8 fingerprints) stops naming people
-until another meeting or the owner confirms it. 12 was considered and
+profile, built from a single 8-fingerprint meeting the owner named, stops
+naming people until a meeting with more voice or the owner confirms it. 12 was considered and
 rejected: it would also drop five 11-fingerprint meetings the data shows
 are fine.

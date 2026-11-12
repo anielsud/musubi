@@ -2,6 +2,7 @@
 // window.runtime at load.
 import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LivePrep, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
 import type { ResSnapshot } from './types';
+import type { ProfileSamples, SampleArgs } from './types';
 import type { LookView, MeetingSpeakers, RecDiag, RecordingModels, RecordingSettings, RecorderView, RecSources, RecStatus, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -128,6 +129,8 @@ export const api = {
   setOfRecord: (v: string): Promise<void> => app().SetOfRecord(v),
   recordingModels: (): Promise<RecordingModels> => app().RecordingModels(),
   downloadRecorderModel: (id: string): Promise<void> => app().DownloadRecorderModel(id),
+  profileSamples: (model: string, id: string): Promise<ProfileSamples> => app().ProfileSamples(model, id),
+  voiceSample: (exclude: boolean, args: SampleArgs): Promise<void> => app().VoiceSample(exclude, args),
 };
 
 // Recorder media, served by the app (internal/gui recorderMedia).

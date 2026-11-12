@@ -4,6 +4,7 @@ import type { NamedByVoice, SameNamePair, TileRef, UnknownVoice, VoiceArgs, Voic
 import { Spinner } from './common';
 import { MeetingLink, recordingItem, useItemsExist } from './nav';
 import { FullName } from './people';
+import { MeetingSamplesRow, SamplesSummary, useProfileSamples } from './voicesamples';
 
 // Voices and speakers from the recorder's voice store: the review queue
 // (named by voice, window or voice, who's this, same person, two profiles
@@ -391,6 +392,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
   const busy = a.busy === key;
   const v = (op: string, extra: Partial<VoiceArgs>, done = '') => a.act(key, () => api.recorderVoice(op, { model: p.model, id: p.id, ...extra }), done);
   const heard = p.heard ?? [], out = p.takenOut ?? [];
+  const samples = useProfileSamples(p);
   // Which of its meetings Musubi has, asked once the meetings are open.
   const found = useItemsExist(open ? [...heard, ...out].map((h) => recordingItem(h.session)) : []);
   const from = [p.fromTiles ? `own tile in ${p.fromTiles}` : '', p.fromNamed ? `named by you in ${p.fromNamed}` : ''].filter(Boolean).join(', ');
@@ -413,6 +415,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
           <div className="dim small">
             {p.startedOver ? 'Nothing learnt yet: learns from new meetings' : <>{p.meetings} {p.meetings === 1 ? 'meeting' : 'meetings'}{from && ` (${from})`} · last heard {day(p.lastHeard)}</>}
             {p.rejected > 0 && <> · {p.rejected} {p.rejected === 1 ? 'voice' : 'voices'} you said aren&apos;t them</>}
+            <SamplesSummary s={samples} />
             {(heard.length > 0 || out.length > 0) && <> · <button className="link" onClick={() => setOpen(!open)}>{open ? 'hide meetings' : 'meetings'}</button></>}
           </div>
         </div>
@@ -444,6 +447,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
                       : thin ? 'A few seconds of voice: names the speaker, too little to learn from'
                       : `${Math.round(h.agreement * 100)}% like the other meetings${check ? ': may be someone else' : ''}`}
                   </div>
+                  <MeetingSamplesRow s={samples} p={p} session={h.session} editable={editable} a={a} />
                 </div>
                 {editable && (moving === h.session
                   ? <MoveForm p={p} profiles={profiles} busy={busy} onMove={(to, label) => { setMoving(null); v('move_voice_meeting', { session: h.session, ...to }, `Moved that meeting to ${label}.`); }} onCancel={() => setMoving(null)} />

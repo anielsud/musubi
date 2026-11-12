@@ -1,10 +1,12 @@
 package gui
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"sync"
 	"time"
 
@@ -137,7 +139,8 @@ func (a *App) cachedQueue() (pipeline.Queue, error) {
 	if a.qcache.key == key && time.Since(a.qcache.at) < queueMaxAge {
 		return a.qcache.queue, nil
 	}
-	q, err := a.eng.Queue()
+	var q pipeline.Queue
+	pprof.Do(context.Background(), pprof.Labels("step", "queue"), func(context.Context) { q, err = a.eng.Queue() })
 	if err != nil {
 		return q, err
 	}

@@ -151,6 +151,11 @@ type Live struct {
 	chips           []Suggestion
 	lastModelVer    int
 	lastModelRun    time.Time
+	// lastModelInput is what the last model run read (scope and window),
+	// so a run with nothing new is skipped (live.skip_idle).
+	lastModelInput string
+	// rc keeps the meeting's repeated reads (live.cache, reads.go).
+	rc *store.ReadCache
 
 	traceMu sync.Mutex
 	traces  []Trace
@@ -224,6 +229,7 @@ func (l *Live) Reload() (err error) {
 	l.sug = s
 	l.topicIx = cs
 	l.spell = knowledge.Spellings(sp)
+	l.rc = nil
 	l.mu.Unlock()
 	return nil
 }
@@ -391,6 +397,8 @@ func (l *Live) handle(ev Event, mode string) {
 			l.pk = newPickState()
 			l.places = nil
 			l.lastModelVer = 0
+			l.lastModelInput = ""
+			l.rc = nil
 			l.mu.Unlock()
 			l.resetTraces()
 			l.trace(0, "feed", "meeting started ("+mode+")", 0, map[string]any{"tomoeTitle": tomoeTitle, "calendarTitle": ev.Session.Title, "id": ev.Session.ID})
@@ -454,7 +462,7 @@ func (l *Live) handle(ev Event, mode string) {
 			}
 			if l.eng.Cfg.Live.FastLane {
 				seg := *ev.Segment
-				l.spawn(func() { l.fastLane(seg) })
+				l.spawn(func() { labelled("fastlane", func() { l.fastLane(seg) }) })
 			}
 		}
 	}
@@ -641,9 +649,20 @@ func (l *Live) modelLoop(ctx context.Context) {
 		recent, lines := m.Recent(window), m.RecentLines(window)
 		exclude := []string{"tomoe:" + m.Session.ID}
 		scopeName := l.scope
+		// A line can change without changing what the model reads (a
+		// draft sent again, a line outside the window): the run would
+		// read the same as the last one, so it is skipped, on the same
+		// cadence.
+		input := scopeName + "\x00" + recent
+		same := l.eng.Cfg.Live.SkipIdle && input == l.lastModelInput
+		l.lastModelInput = input
 		l.mu.Unlock()
+		if same {
+			l.trace(0, "cycle", "model run skipped: nothing new since the last", 0, nil)
+			continue
+		}
 		if strings.TrimSpace(recent) != "" {
-			l.modelCycle(ctx, sug, recent, lines, exclude, scopeName)
+			labelled("suggest", func() { l.modelCycle(ctx, sug, recent, lines, exclude, scopeName) })
 		}
 	}
 }
@@ -987,7 +1006,7 @@ func (l *Live) cards(sc sensitivity.Scope, spotted []Spotted, exclude []string) 
 		if e.ID == l.eng.OwnerEntity() {
 			continue
 		}
-		g, err := l.eng.Store.EntityGraph(sc, e.ID, []string{l.eng.OwnerEntity()}, 4)
+		g, err := l.entityGraph(sc, e.ID, []string{l.eng.OwnerEntity()}, 4)
 		if err != nil || g == nil {
 			continue
 		}
@@ -1140,6 +1159,7 @@ func (l *Live) ReplayClock(t float64) {
 		l.briefed = map[string]time.Time{}
 		l.chips = nil
 		l.lastModelVer = 0
+		l.lastModelInput = ""
 		c.last = t
 		l.mu.Unlock()
 		l.emit("live:reset", c.session)
@@ -1228,7 +1248,7 @@ func (l *Live) threadStatus(ctx context.Context, sc sensitivity.Scope, query str
 	if len(m) == 0 || m[0].Score < liveStatusMin {
 		return nil
 	}
-	sts, err := l.eng.Store.ThreadStatuses(sc)
+	sts, err := l.threadStatuses(sc)
 	if err != nil {
 		return nil
 	}

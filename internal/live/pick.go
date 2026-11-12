@@ -97,6 +97,9 @@ type pickState struct {
 	// statuses: the scope's written statuses, read once per meeting.
 	statuses      map[int64]store.ThreadStatusRow
 	statusesScope string
+	// lastInput is what the last pick read (scope, title, the span and
+	// its votes): a pick with nothing new is skipped (live.skip_idle).
+	lastInput string
 }
 
 func newPickState() pickState {
@@ -168,7 +171,7 @@ func (l *Live) maybePick(cycle int) {
 	}
 	l.mu.Unlock()
 	if due {
-		l.spawn(func() { l.pick(cycle) })
+		l.spawn(func() { labelled("pick", func() { l.pick(cycle) }) })
 	}
 }
 
@@ -192,6 +195,24 @@ func (l *Live) pick(cycle int) {
 	}
 	l.mu.Unlock()
 	if cs == nil || rel == nil || strings.TrimSpace(window) == "" {
+		return
+	}
+	// Due, but reading what the last pick read (no line changed within
+	// the span, no vote came or went): it would choose the same, so it is
+	// skipped, and the next is due on the usual cadence.
+	var in strings.Builder
+	fmt.Fprintf(&in, "%s\x00%s\x00%s", scopeName, title, window)
+	for _, h := range hits {
+		if now-h.at <= pickSpan {
+			fmt.Fprintf(&in, "\x00%g/%d/%g/%s", h.at, h.topic, h.w, h.why)
+		}
+	}
+	input := in.String()
+	l.mu.Lock()
+	same := l.eng.Cfg.Live.SkipIdle && input == l.pk.lastInput
+	l.mu.Unlock()
+	if same {
+		l.trace(cycle, "topic", "pick skipped: nothing new since the last", time.Since(t0).Milliseconds(), nil)
 		return
 	}
 	score, why, first, asked := map[int64]float64{}, map[int64]string{}, map[int64]float64{}, map[int64][]string{}
@@ -277,6 +298,9 @@ func (l *Live) pick(cycle int) {
 	}
 	optsMs := time.Since(tOpts).Milliseconds()
 	if len(ids) == 0 {
+		l.mu.Lock()
+		l.pk.lastInput = input
+		l.mu.Unlock()
 		return
 	}
 	tJev := time.Now()
@@ -286,6 +310,9 @@ func (l *Live) pick(cycle int) {
 		l.trace(cycle, "topic", "pick failed", time.Since(t0).Milliseconds(), err.Error())
 		return
 	}
+	l.mu.Lock()
+	l.pk.lastInput = input
+	l.mu.Unlock()
 	probs := a["topic"].Probabilities
 	type pr struct {
 		t int64
@@ -343,7 +370,7 @@ func (l *Live) cardOf(cs *engine.Cards, sc sensitivity.Scope, scopeName string, 
 	if replay && ok {
 		return c, nil
 	}
-	c, err := cs.Card(sc, a, now)
+	c, err := cs.CardWith(l.reads(), sc, a, now)
 	if err == nil && replay {
 		l.mu.Lock()
 		l.pk.cards[key] = c

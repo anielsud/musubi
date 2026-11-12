@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { on } from '../api';
+import { api, on } from '../api';
 import { LabellingPane, LookTimeline } from './recorder';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -66,6 +66,7 @@ export function DiagPanel() {
     <aside className="diag">
       <header className="diag-head">
         <div className="diag-title">How Musubi is thinking</div>
+        <ProfileButton />
         <div className="diag-filters">
           {Object.keys(filters).map((f) => (
             <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>{f}</button>
@@ -105,6 +106,29 @@ export function DiagPanel() {
       </div>
       </>}
     </aside>
+  );
+}
+
+// ProfileButton records a 30 s CPU profile of the app ([diagnostics]
+// profiling) and shows where it was written.
+function ProfileButton() {
+  const [shown, setShown] = useState(false);
+  const [state, setState] = useState<'idle' | 'recording'>('idle');
+  const [msg, setMsg] = useState('');
+  useEffect(() => { api.profilingOn().then(setShown, () => {}); }, []);
+  if (!shown) return null;
+  const record = () => {
+    setState('recording');
+    setMsg('');
+    api.recordProfile().then((p) => setMsg('Profile written to ' + p), (e) => setMsg(String(e))).finally(() => setState('idle'));
+  };
+  return (
+    <div className="diag-profile">
+      <button disabled={state === 'recording'} onClick={record}>
+        {state === 'recording' ? 'Recording a 30 s profile…' : 'Record a 30 s profile'}
+      </button>
+      {msg && <div className="dim diag-profile-msg">{msg}</div>}
+    </div>
   );
 }
 

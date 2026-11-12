@@ -67,7 +67,7 @@ func (l *Live) searchStatements(ctx context.Context, scopeName, query string, k 
 	if v == nil {
 		return nil, fmt.Errorf("embedding failed")
 	}
-	hs, err := l.eng.Store.StatementsNear(sc, v, l.eng.Embedder.Model(), stmtClaims, exclude)
+	hs, err := l.statementsNear(sc, v, l.eng.Embedder.Model(), stmtClaims, exclude)
 	if err != nil {
 		return nil, err
 	}

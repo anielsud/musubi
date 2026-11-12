@@ -245,11 +245,17 @@ func (v Views) Card(x *CardIndex, a Anchor, ownerID, ownerName string) (*Card, e
 	for _, sec := range []string{"Watch", "Rules"} {
 		guidance = append(guidance, bySection[sec]...)
 	}
+	skip := skipWords(card.Terms)
+	gw := make([]lineWords, len(guidance))
+	for i, g := range guidance {
+		gw[i] = newLineWords(g.Text, skip)
+	}
 	kept := bySection["Now"][:0]
 	for _, l := range bySection["Now"] {
 		dup := false
-		for _, g := range guidance {
-			o := wordOverlapIgnoring(l.Text, g.Text, card.Terms)
+		lw := newLineWords(l.Text, skip)
+		for i, g := range guidance {
+			o := lw.overlap(gw[i])
 			dup = dup || o >= 0.4 || o >= 0.25 && l.TopicID == g.TopicID
 		}
 		if !dup {
@@ -468,20 +474,26 @@ func sortDue(lines []CardLine, now time.Time) {
 	})
 }
 
-// dedupeLines drops a line that mostly repeats a more salient one.
+// dedupeLines drops a line that mostly repeats a more salient one
+// (wordOverlap ≥ 0.6). Each line's words are read once: comparing every
+// pair through wordOverlap read them again for each pair, which was most
+// of a card's time on large topics (research log 2026-11-12).
 func dedupeLines(in []CardLine) []CardLine {
 	sort.SliceStable(in, func(i, j int) bool { return in[i].Salience > in[j].Salience })
 	var out []CardLine
+	var kept []lineWords
 	for _, l := range in {
+		lw := newLineWords(l.Text, nil)
 		dup := false
-		for _, o := range out {
-			if wordOverlap(l.Text, o.Text) >= 0.6 {
+		for _, o := range kept {
+			if lw.overlap(o) >= 0.6 {
 				dup = true
 				break
 			}
 		}
 		if !dup {
 			out = append(out, l)
+			kept = append(kept, lw)
 		}
 	}
 	return out
@@ -492,34 +504,51 @@ func wordOverlap(a, b string) float64 { return wordOverlapIgnoring(a, b, nil) }
 // wordOverlapIgnoring leaves out words every line of a card shares (its
 // trigger terms), which say nothing about whether two lines repeat.
 func wordOverlapIgnoring(a, b string, ignore []string) float64 {
+	skip := skipWords(ignore)
+	return newLineWords(a, skip).overlap(newLineWords(b, skip))
+}
+
+func skipWords(ignore []string) map[string]bool {
 	skip := map[string]bool{}
 	for _, w := range ignore {
 		skip[strings.ToLower(w)] = true
 	}
-	drop := func(ws []string) []string {
-		out := ws[:0]
-		for _, w := range ws {
-			if !skip[w] {
-				out = append(out, w)
-			}
+	return skip
+}
+
+// lineWords is a text's content words (distinct) less the skipped ones, read
+// once so a line compared with many others isn't read again each time.
+type lineWords struct {
+	words []string
+	set   map[string]bool
+}
+
+func newLineWords(text string, skip map[string]bool) lineWords {
+	var ws lineWords
+	for _, w := range contentWords(text) {
+		if !skip[w] {
+			ws.words = append(ws.words, w)
 		}
-		return out
 	}
-	wa, wb := drop(contentWords(a)), drop(contentWords(b))
-	if len(wa) == 0 || len(wb) == 0 {
+	ws.set = make(map[string]bool, len(ws.words))
+	for _, w := range ws.words {
+		ws.set[w] = true
+	}
+	return ws
+}
+
+// overlap is the share of the shorter's words the other has too.
+func (a lineWords) overlap(b lineWords) float64 {
+	if len(a.words) == 0 || len(b.words) == 0 {
 		return 0
 	}
-	set := map[string]bool{}
-	for _, w := range wb {
-		set[w] = true
-	}
 	n := 0
-	for _, w := range wa {
-		if set[w] {
+	for _, w := range a.words {
+		if b.set[w] {
 			n++
 		}
 	}
-	return float64(n) / float64(min(len(wa), len(wb)))
+	return float64(n) / float64(min(len(a.words), len(b.words)))
 }
 
 var viewVerbs = []string{" thinks ", " feels ", " believes ", " hopes ", " expects ", " is excited", " loves ", " likes "}

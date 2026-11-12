@@ -141,6 +141,23 @@ headers = { "cf-aig-gateway-id" = "ai-gw", "cf-aig-collect-log-payload" = "false
 # [live.relevance] takes the same provider, url, api_key and headers.
 ```
 
+Claude models go through the gateway's `/anthropic-shim` with the same
+token and headers (`provider = "anthropic"`). Claude Haiku 5.5 at medium
+thinking matched GLM-5.3-Flash on Musubi's prompts, two to five times
+faster (research log, 2026-11-11):
+
+```toml
+[knowledge.threads.model]
+provider = "anthropic"
+url = "https://<gateway worker>/anthropic-shim"
+model = "claude-haiku-5-5"
+api_key = "keychain:ai-gateway-token"
+headers = { "cf-aig-metadata" = '{"token_id":"<token id>","harness":"musubi","setup_version":"custom"}', "cf-aig-collect-log-payload" = "false", "cf-aig-skip-cache" = "true" }
+reasoning_effort = "medium"  # the default; it wins over a call's own level
+price_in = 0.10
+price_out = 0.50
+```
+
 A Jev `url` ending in `/ai/run` is Cloudflare's model catalog: the request
 names `typesafe/jev`, and without `cf-aig-gateway-id` Cloudflare answers 402.
 The catalog's Jev version floats like TypeSafe's own `jev-latest`, and

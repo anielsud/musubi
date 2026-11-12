@@ -19,6 +19,12 @@ export function SourceDrawer({ src, onClose }: { src: SourceRef; onClose: () => 
   const [item, setItem] = useState<ItemView | null | undefined>(undefined);
   const [err, setErr] = useState('');
   const target = useRef<HTMLDivElement>(null);
+  // One player for the panel: a passage plays from its start to the next
+  // passage's, from the meeting's own recording (recordings only).
+  const audio = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState<number | null>(null);
+  const stopAt = useRef(0);
+  const session = src.itemId.startsWith('tomoe:') ? src.itemId.slice('tomoe:'.length) : '';
 
   useEffect(() => {
     setItem(undefined);
@@ -45,8 +51,25 @@ export function SourceDrawer({ src, onClose }: { src: SourceRef; onClose: () => 
     return () => window.removeEventListener('keydown', k);
   }, [onClose]);
 
+  const chunks = item?.chunks ?? [];
+  const play = (i: number) => {
+    const a = audio.current;
+    if (!a) return;
+    if (playing === chunks[i].chunkId) { a.pause(); setPlaying(null); return; }
+    const c = chunks[i];
+    const next = chunks[i + 1];
+    stopAt.current = next && next.start > c.start ? next.start : c.start + 60;
+    a.currentTime = c.start;
+    a.play().then(() => setPlaying(c.chunkId), () => setPlaying(null));
+  };
+
   return (
     <div className="drawer-backdrop" onClick={onClose}>
+      {session && (
+        <audio ref={audio} src={`/replay-audio/${session}`} preload="none"
+          onTimeUpdate={(e) => { if (e.currentTarget.currentTime >= stopAt.current) { e.currentTarget.pause(); setPlaying(null); } }}
+          onPause={() => setPlaying(null)} />
+      )}
       <aside className="drawer" onClick={(e) => e.stopPropagation()}>
         <header className="drawer-head">
           <div>
@@ -65,11 +88,16 @@ export function SourceDrawer({ src, onClose }: { src: SourceRef; onClose: () => 
           {err && <div className="error">{err}</div>}
           {item === undefined && !err && <Spinner />}
           {item === null && <div className="empty">Not visible in this scope.</div>}
-          {item?.chunks.map((c) => (
+          {item?.chunks.map((c, i) => (
             <div key={c.chunkId} ref={c.chunkId === cited ? target : undefined}
               data-item={src.itemId} data-chunk={c.chunkId} data-title={item.title} data-at={item.occurredAt}
               className={'passage' + (c.chunkId === cited ? ' cited' : '')}>
               <div className="passage-meta">
+                {session && (
+                  <button className="icon-btn play" title={playing === c.chunkId ? 'Stop' : 'Play this passage'} onClick={() => play(i)}>
+                    {playing === c.chunkId ? '■' : '▶'}
+                  </button>
+                )}
                 #{c.seq} {c.start > 0 && <>· {Math.floor(c.start / 60)}:{String(Math.floor(c.start % 60)).padStart(2, '0')}</>}
                 <LabelBadge label={c.label} compact />
               </div>

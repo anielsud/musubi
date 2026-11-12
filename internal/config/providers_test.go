@@ -11,7 +11,6 @@ func TestVia(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.toml")
 	os.WriteFile(p, []byte(`
 [providers.acme]
-format = "openai"
 url = "https://acme.test"
 headers = { "x-team" = "a" }
 
@@ -22,7 +21,19 @@ headers = { "x-team" = "mine" }
 
 [knowledge.threads.model.fallback]
 via = "acme"
+provider = "anthropic"
 model = "m2"
+
+[gateway]
+url = "https://gw.test"
+
+[ask.model]
+via = "gateway"
+model = "claude-haiku-5-5"
+
+[knowledge.status.model]
+via = "gateway"
+model = "@cf/zai-org/glm-5.3-flash"
 `), 0o600)
 	c, err := Load(p)
 	if err != nil {
@@ -32,8 +43,15 @@ model = "m2"
 	if th.Provider != "openai" || th.URL != "https://acme.test" || th.APIKey != "keychain:musubi-provider-acme" || th.Headers["x-team"] != "mine" {
 		t.Errorf("threads: %+v", th)
 	}
-	if f := th.Fallback; f == nil || f.URL != "https://acme.test" || f.Model != "m2" || f.Headers["x-team"] != "a" {
+	if f := th.Fallback; f == nil || f.URL != "https://acme.test" || f.Provider != "anthropic" || f.Model != "m2" || f.Headers["x-team"] != "a" {
 		t.Errorf("fallback: %+v", f)
+	}
+	// The gateway's route follows the model's format.
+	if a := c.Ask.Model; a.Provider != "anthropic" || a.URL != "https://gw.test/anthropic-shim" {
+		t.Errorf("gateway Claude: %+v", a)
+	}
+	if s := c.Knowledge.Status.Model; s.Provider != "openai" || s.URL != "https://gw.test/workers-ai-shim" || s.Headers["cf-aig-collect-log-payload"] != "false" {
+		t.Errorf("gateway Workers AI: %+v", s)
 	}
 	os.WriteFile(p, []byte("[ask.model]\nvia = \"nope\"\n"), 0o600)
 	if _, err := Load(p); err == nil || !strings.Contains(err.Error(), "nope") {
@@ -95,5 +113,14 @@ hedge_after = 30
 	EditFile(p, edits)
 	if after, _ := os.ReadFile(p); string(after) != string(again) {
 		t.Error("not idempotent")
+	}
+}
+
+func TestValue(t *testing.T) {
+	c := DefaultConfig()
+	c.Live.SuggestEvery = 7
+	if c.Value("live", "suggest_every") != 7 || c.Value("m365", "enabled") != true || c.Value("", "data_dir") != c.DataDir ||
+		c.Value("live", "nope") != nil || c.Value("live", "relevance") != nil {
+		t.Errorf("%v %v %v", c.Value("live", "suggest_every"), c.Value("m365", "enabled"), c.Value("", "data_dir"))
 	}
 }

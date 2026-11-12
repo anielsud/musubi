@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../api';
-import type { AppStatus, QueueView } from '../types';
+import type { AppStatus, M365View, ProviderView, QueueView } from '../types';
 import { checkDoes, Spinner } from './common';
 
 const levels = ['public', 'internal', 'confidential', 'restricted'];
@@ -39,14 +39,13 @@ export function StatusView({ status }: { status: AppStatus | null }) {
 
       <WorkQueue />
 
+      <Connections status={status} />
+
       <section className="kv">
-        <div className="section-head"><span>Engine</span></div>
-        <Row k="owner" v={status.owner || '—'} />
-        <Row k="local models" v={status.ollamaUp ? `✓ ${status.chatModel} · ${status.embedModel}` : '✗ Ollama not reachable'} />
-        <Row k="Tomoe feed" v={status.live.connected ? '✓ connected' : '✗ not connected'} />
-        <Row k="meetings linked to calendar" v={s ? `${s.MeetingsLinked} of ${s.Meetings}` : '—'} />
-        <Row k="names resolved" v={s ? `${s.Mentions - s.Ambiguous} of ${s.Mentions}` : '—'} />
-        <Row k="last update" v={status.lastUpdate && !status.lastUpdate.startsWith('0001') ? fmtDate(status.lastUpdate) : 'not this session'} />
+        <div className="section-head"><span>Data</span></div>
+        <Row k="meetings linked to their calendar event" v={s ? `${s.MeetingsLinked.toLocaleString()} of ${s.Meetings.toLocaleString()}` : '—'} />
+        <Row k="names recognised" v={s ? `${(s.Mentions - s.Ambiguous).toLocaleString()} of ${s.Mentions.toLocaleString()}` : '—'} />
+        <Row k="last checked for new meetings" v={status.lastUpdate && !status.lastUpdate.startsWith('0001') ? fmtDate(status.lastUpdate) : 'not since Musubi opened'} />
       </section>
 
       <button className="primary wide" disabled={status.updating} onClick={() => api.update()}>
@@ -54,6 +53,32 @@ export function StatusView({ status }: { status: AppStatus | null }) {
       </button>
       <p className="dim small">{checkDoes(status)}</p>
     </div>
+  );
+}
+
+// Connections: is each thing Musubi depends on there right now. Setting
+// them up is in Settings.
+function Connections({ status }: { status: AppStatus }) {
+  const [m, setM] = useState<M365View | null>(null);
+  const [ps, setPs] = useState<ProviderView[] | null>(null);
+  useEffect(() => {
+    const load = () => { api.m365().then(setM); api.providers().then((v) => setPs(v ?? [])); };
+    load();
+    const offs = [on('m365:changed', load), on('gateway:changed', load), on('providers:changed', load), on('update:done', load)];
+    return () => offs.forEach((f) => f());
+  }, []);
+  const gw = ps?.find((p) => p.kind === 'gateway');
+  const others = ps?.filter((p) => p.kind === 'custom' && p.usedBy?.length) ?? [];
+  const synced = m?.lastSync && !m.lastSync.startsWith('0001') ? `, synced ${fmtDate(m.lastSync)}` : '';
+  return (
+    <section className="kv">
+      <div className="section-head"><span>Connections</span></div>
+      <Row k="Microsoft 365" v={!m ? '…' : m.needsSignIn ? '✗ sign-in lapsed: Settings → Accounts' : m.connected ? (m.enabled ? `✓ connected${synced}` : '✓ connected, syncing off') : '✗ not connected'} />
+      <Row k="AI Gateway" v={!gw ? '…' : gw.ready ? '✓ connected' : '✗ not connected: Settings → AI providers'} />
+      {others.map((p) => <Row key={p.name} k={p.name} v={p.ready ? '✓ key in your Keychain' : '✗ no key: Settings → AI providers'} />)}
+      <Row k="Ollama (this Mac)" v={status.ollamaUp ? '✓ running' : '✗ not running'} />
+      <Row k="Tomoe live feed" v={status.live.connected ? '✓ connected' : '✗ not connected'} />
+    </section>
   );
 }
 

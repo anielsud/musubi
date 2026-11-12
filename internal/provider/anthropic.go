@@ -116,7 +116,10 @@ func (a *Anthropic) stream(ctx context.Context, msgs []Message, opt ChatOptions,
 	if key, err := a.o.resolveKey(); err != nil {
 		return "", err
 	} else if key != "" {
+		// Anthropic and the gateway read x-api-key; Baseten's Anthropic
+		// format wants the key as a bearer token.
 		req.Header.Set("x-api-key", key)
+		req.Header.Set("Authorization", "Bearer "+key)
 	}
 	for k, v := range a.o.headers {
 		req.Header.Set(k, v)

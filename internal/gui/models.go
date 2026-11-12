@@ -15,7 +15,7 @@ import (
 	"github.com/anielsud/musubi/internal/config"
 )
 
-// A model group is one choice in Settings → Models, written to every
+// A model group is one choice in Settings → Processing, written to every
 // config section it covers. Kind says what can fill it: "chat" (hosted or
 // local), "decision" (a probability per option) or "local" (on this Mac).
 type modelSlot struct {
@@ -44,9 +44,119 @@ var modelGroups = []modelGroup{
 		[]modelSlot{{Kind: "local", Sections: []string{"llm"}, FallbackAt: "-"}, {Kind: "decision", Sections: []string{"live.relevance"}, FallbackAt: "-"}}},
 }
 
-// SlotView is one model choice in a group. A choice is "gw:<id>" on the
-// gateway, "via:<provider>:<model>" on a custom provider, "local:<name>"
-// in Ollama, "custom" (as the config has it, unchanged) or "" (none).
+// usedSections names, for "used by", every section a model can be set in.
+var usedSections = []struct{ Sec, Label string }{
+	{"knowledge.lean.model", "Extraction"}, {"knowledge.threads.model", "Threading"},
+	{"knowledge.status.model", "Statuses"}, {"knowledge.digest.model", "Summaries"},
+	{"live.pick.brief", "Live briefs"}, {"ask.model", "Ask"}, {"ask.fallback", "Ask (fallback)"},
+	{"knowledge.label.classifier", "Labels"}, {"knowledge.label.model", "Labels"},
+	{"live.relevance", "Live relevance"}, {"llm", "Live suggestions"},
+}
+
+// A choice names a model as "<source>|<format>|<model>": the source is
+// "gateway", "ollama" or a [providers] name; the format "anthropic",
+// "openai", "ollama", or for decision models "jev" or "clef". "custom" is
+// a section set by hand to something else (left as it is); "" none.
+func choice(source, format, model string) string { return source + "|" + format + "|" + model }
+
+func splitChoice(c string) (source, format, model string, ok bool) {
+	p := strings.SplitN(c, "|", 3)
+	if len(p) != 3 {
+		return "", "", "", false
+	}
+	return p[0], p[1], p[2], true
+}
+
+// describe names a section's model as a choice; custom describes one set
+// by hand.
+func describe(sec any, g config.Gateway) (ch, custom, effort string) {
+	switch m := sec.(type) {
+	case *config.LLM:
+		if m == nil || m.Provider == "" || m.Provider == "none" {
+			return "", "", ""
+		}
+		effort = m.ReasoningEffort
+		switch {
+		case m.Provider == "ollama":
+			return choice("ollama", "ollama", m.Model), "", ""
+		case m.Via != "":
+			return choice(m.Via, m.Provider, m.Model), "", effort
+		case g.URL != "" && (m.URL == g.URL+"/anthropic-shim" || m.URL == g.URL+"/workers-ai-shim"):
+			return choice(config.GatewayProvider, m.Provider, m.Model), "", effort
+		}
+		return "custom", fmt.Sprintf("%s %s at %s", m.Provider, m.Model, host(m.URL)), effort
+	case *config.Classifier:
+		if m == nil || m.Provider == "" {
+			return "", "", ""
+		}
+		cat := g.CatalogURL()
+		switch {
+		case cat != "" && m.Provider == "jev" && m.URL == cat:
+			return choice(config.GatewayProvider, "jev", "typesafe/jev"), "", ""
+		case cat != "" && m.Provider == "clef" && strings.HasPrefix(m.URL, cat+"/"):
+			return choice(config.GatewayProvider, "clef", strings.TrimPrefix(m.URL, cat+"/")), "", ""
+		}
+		return "custom", fmt.Sprintf("%s at %s", m.Provider, host(m.URL)), ""
+	}
+	return "", "", ""
+}
+
+func host(u string) string {
+	u = strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://")
+	if i := strings.IndexByte(u, '/'); i > 0 {
+		u = u[:i]
+	}
+	return u
+}
+
+// modelAt is the model settings at a section, [<section>.fallback] included.
+func modelAt(cfg *config.Config, sec string) any {
+	if base, ok := strings.CutSuffix(sec, ".fallback"); ok && sec != "ask.fallback" {
+		if l, ok := cfg.Section(base).(*config.LLM); ok && l.Fallback != nil {
+			return l.Fallback
+		}
+		return nil
+	}
+	return cfg.Section(sec)
+}
+
+// usage is what each model is used for: "<source>|<model>" → labels. A
+// fallback is labelled as one.
+func usage(cfg *config.Config, g config.Gateway) map[string][]string {
+	out := map[string][]string{}
+	add := func(sec any, label string) {
+		ch, _, _ := describe(sec, g)
+		if src, _, model, ok := splitChoice(ch); ok {
+			k := src + "|" + model
+			for _, l := range out[k] {
+				if l == label {
+					return
+				}
+			}
+			out[k] = append(out[k], label)
+		}
+	}
+	for _, s := range usedSections {
+		switch {
+		case s.Sec == "knowledge.lean.model" && cfg.Knowledge.Extract != "lean":
+			continue
+		case s.Sec == "knowledge.label.model" && cfg.Knowledge.Label.Classifier.Provider != "":
+			continue // the classifier labels instead
+		}
+		sec := cfg.Section(s.Sec)
+		add(sec, s.Label)
+		if l, ok := sec.(*config.LLM); ok && l.Fallback != nil {
+			add(l.Fallback, s.Label+" (fallback)")
+		}
+	}
+	if cfg.Embed.Provider == "ollama" && cfg.Embed.Model != "" {
+		k := "ollama|" + cfg.Embed.Model
+		out[k] = append(out[k], "Search")
+	}
+	return out
+}
+
+// SlotView is one model choice in a group (choices as above).
 type SlotView struct {
 	Kind     string   `json:"kind"`
 	Sections []string `json:"sections"`
@@ -85,32 +195,14 @@ type GroupView struct {
 	Rate  *Rate      `json:"rate,omitempty"`
 }
 
-type LocalModel struct {
-	Name     string `json:"name"`
-	Size     int64  `json:"size"` // bytes; 0 not downloaded
-	Have     bool   `json:"have"`
-	Required bool   `json:"required"`
-	Why      string `json:"why"`
-}
-
-type ModelsView struct {
-	Groups []GroupView  `json:"groups"`
-	Local  []LocalModel `json:"local"`
-	Ollama bool         `json:"ollama"` // reachable
-	Pulls  []string     `json:"pulls"`  // downloads in progress
-}
-
-// optionalLocal are local models worth offering though nothing requires
-// them: the 27B answers Ask when the hosted model fails.
-var optionalLocal = map[string]string{"qwen3.8:27b": "a stronger local fallback for Ask (about 17 GB)"}
-
-func (a *App) Models() (ModelsView, error) {
-	var v ModelsView
+// Groups are Processing's rows: what each group uses now.
+func (a *App) Groups() ([]GroupView, error) {
 	if a.eng == nil {
-		return v, fmt.Errorf("no dataset open")
+		return nil, fmt.Errorf("no dataset open")
 	}
 	cfg := a.eng.Cfg
 	g := a.gatewayConfig()
+	var out []GroupView
 	for _, mg := range modelGroups {
 		gv := GroupView{Key: mg.Key, Title: mg.Title, Does: mg.Does}
 		if r, ok := groupRates[mg.Key]; ok {
@@ -120,122 +212,112 @@ func (a *App) Models() (ModelsView, error) {
 			sv := SlotView{Kind: s.Kind, Sections: s.Sections, HasFallback: s.FallbackAt != "-"}
 			sv.Current, sv.CustomText, sv.Effort = describe(cfg.Section(s.Sections[0]), g)
 			if sv.HasFallback {
-				if l := fallbackOf(&cfg, s); l != nil && l.Provider != "" {
-					sv.Fallback, sv.FallbackText, sv.FallbackEffort = describe(l, g)
+				at := s.FallbackAt
+				if at == "" {
+					at = s.Sections[0] + ".fallback"
+				}
+				if m := modelAt(&cfg, at); m != nil {
+					sv.Fallback, sv.FallbackText, sv.FallbackEffort = describe(m, g)
 				}
 			}
 			gv.Slots = append(gv.Slots, sv)
 		}
-		v.Groups = append(v.Groups, gv)
+		out = append(out, gv)
 	}
-	have, err := ollamaTags(a.ollamaURL())
-	v.Ollama = err == nil
-	required := map[string]string{}
-	if cfg.Embed.Provider == "ollama" && cfg.Embed.Model != "" {
-		required[cfg.Embed.Model] = "embeddings for search"
+	return out, nil
+}
+
+// ModelRow is one model in Settings → Models.
+type ModelRow struct {
+	Source  string   `json:"source"` // "gateway", "ollama" or a provider's name
+	ID      string   `json:"id"`
+	Formats []string `json:"formats"`
+	// Kind: "chat" or "decision" (a probability per option: labels and
+	// relevance).
+	Kind          string   `json:"kind"`
+	PriceIn       float64  `json:"priceIn"`  // dollars a million tokens; 0 unknown or free
+	PriceOut      float64  `json:"priceOut"` // 0 for decision models
+	Context       int      `json:"context"`  // tokens; 0 unknown
+	Efforts       []string `json:"efforts"`  // thinking levels it takes (nil: none, or unknown)
+	DefaultEffort string   `json:"defaultEffort"`
+	Retires       string   `json:"retires"`
+	Note          string   `json:"note,omitempty"`
+	UsedBy        []string `json:"usedBy"`
+	Size          int64    `json:"size"` // bytes, on this Mac
+}
+
+// ModelCatalog is every model the dataset can use, from every source.
+type ModelCatalog struct {
+	Rows   []ModelRow        `json:"rows"`
+	Errors map[string]string `json:"errors"` // source → why it isn't listed
+	Pulls  []string          `json:"pulls"`  // downloads in progress
+}
+
+func (a *App) Models() (ModelCatalog, error) {
+	cat := ModelCatalog{Errors: map[string]string{}}
+	if a.eng == nil {
+		return cat, fmt.Errorf("no dataset open")
 	}
-	if cfg.LLM.Provider == "ollama" && cfg.LLM.Model != "" {
-		required[cfg.LLM.Model] = "Live suggestions and summaries"
+	cfg := a.eng.Cfg
+	g := a.gatewayConfig()
+	used := usage(&cfg, g)
+	add := func(r ModelRow) {
+		r.UsedBy = used[r.Source+"|"+r.ID]
+		cat.Rows = append(cat.Rows, r)
 	}
-	seen := map[string]bool{}
-	add := func(name, why string, req bool) {
-		if seen[name] {
-			return
+	if gm, err := a.GatewayModels(); err != nil {
+		cat.Errors[config.GatewayProvider] = err.Error()
+	} else {
+		for _, m := range gm {
+			add(ModelRow{Source: config.GatewayProvider, ID: m.ID, Kind: m.Kind, PriceIn: m.PriceIn, PriceOut: m.PriceOut, Context: m.Context,
+				Efforts: m.Efforts, DefaultEffort: m.DefaultEffort, Retires: m.Retires, Note: m.Note, Formats: []string{m.Provider}})
 		}
-		seen[name] = true
-		size, ok := have[name]
-		v.Local = append(v.Local, LocalModel{Name: name, Size: size, Have: ok, Required: req, Why: why})
 	}
-	for _, n := range sortedKeys(required) {
-		add(n, required[n], true)
+	names := make([]string, 0, len(cfg.Providers))
+	for n := range cfg.Providers {
+		names = append(names, n)
 	}
-	for _, n := range sortedKeys(optionalLocal) {
-		add(n, optionalLocal[n], false)
-	}
-	var others []string
-	for n := range have {
-		// Each model is in the map twice, with and without ":latest".
-		if !strings.HasSuffix(n, ":latest") {
-			others = append(others, n)
+	sort.Strings(names)
+	for _, n := range names {
+		ids, err := a.listModels(n, false)
+		if err != nil {
+			cat.Errors[n] = err.Error()
+			continue
+		}
+		for _, id := range ids {
+			// Providers don't list thinking levels: offered, unverified.
+			add(ModelRow{Source: n, ID: id, Kind: "chat", Formats: []string{"openai", "anthropic"}, Efforts: []string{"low", "medium", "high"}, Note: "thinking levels unverified"})
 		}
 	}
-	sort.Strings(others)
-	for _, n := range others {
-		add(n, "", false)
+	if have, err := ollamaTags(ollamaURL(&cfg)); err != nil {
+		cat.Errors["ollama"] = "Ollama isn't running"
+	} else {
+		for _, n := range sortedNames(have) {
+			add(ModelRow{Source: "ollama", ID: n, Kind: "chat", Formats: []string{"ollama"}, Size: have[n]})
+		}
+	}
+	// A model in use that its source doesn't list (not downloaded, or the
+	// listing failed) is shown all the same.
+	listed := map[string]bool{}
+	for _, r := range cat.Rows {
+		listed[r.Source+"|"+r.ID] = true
+	}
+	for k, labels := range used {
+		if !listed[k] {
+			src, id, _ := strings.Cut(k, "|")
+			cat.Rows = append(cat.Rows, ModelRow{Source: src, ID: id, Kind: "chat", UsedBy: labels, Note: "not available now"})
+		}
 	}
 	pullMu.Lock()
 	for n := range pulling {
-		v.Pulls = append(v.Pulls, n)
+		cat.Pulls = append(cat.Pulls, n)
 	}
 	pullMu.Unlock()
-	return v, nil
-}
-
-func sortedKeys(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func fallbackOf(cfg *config.Config, s modelSlot) *config.LLM {
-	if s.FallbackAt != "" {
-		l, _ := cfg.Section(s.FallbackAt).(*config.LLM)
-		return l
-	}
-	if l, ok := cfg.Section(s.Sections[0]).(*config.LLM); ok {
-		return l.Fallback
-	}
-	return nil
-}
-
-// describe names a section's model as a choice.
-func describe(sec any, g config.Gateway) (choice, custom, effort string) {
-	switch m := sec.(type) {
-	case *config.LLM:
-		if m == nil || m.Provider == "" || m.Provider == "none" {
-			return "", "", ""
-		}
-		effort = m.ReasoningEffort
-		if m.Via != "" {
-			return "via:" + m.Via + ":" + m.Model, "", effort
-		}
-		if m.Provider == "ollama" {
-			return "local:" + m.Model, "", effort
-		}
-		if g.URL != "" && (m.URL == g.URL+"/anthropic-shim" || m.URL == g.URL+"/workers-ai-shim") {
-			return "gw:" + m.Model, "", effort
-		}
-		return "custom", fmt.Sprintf("%s %s at %s", m.Provider, m.Model, host(m.URL)), effort
-	case *config.Classifier:
-		if m == nil || m.Provider == "" {
-			return "", "", ""
-		}
-		cat := g.CatalogURL()
-		switch {
-		case cat != "" && m.Provider == "jev" && m.URL == cat:
-			return "gw:typesafe/jev", "", ""
-		case cat != "" && m.Provider == "clef" && strings.HasPrefix(m.URL, cat+"/"):
-			return "gw:" + strings.TrimPrefix(m.URL, cat+"/"), "", ""
-		}
-		return "custom", fmt.Sprintf("%s at %s", m.Provider, host(m.URL)), ""
-	}
-	return "", "", ""
-}
-
-func host(u string) string {
-	u = strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://")
-	if i := strings.IndexByte(u, '/'); i > 0 {
-		u = u[:i]
-	}
-	return u
+	return cat, nil
 }
 
 // SetModels writes a group's choice to every section it covers, then
-// reopens the dataset so the next call uses it. Choices are as in
-// SlotView; "custom" leaves a section as it is. Efforts (one per slot, for
+// reopens the dataset so the next call uses it. Efforts (one per slot, for
 // the preferred and the fallback model; "" the model's own) are written
 // for hosted chat models.
 func (a *App) SetModels(group string, choices, fallbacks, efforts, fallbackEfforts []string) error {
@@ -253,71 +335,49 @@ func (a *App) SetModels(group string, choices, fallbacks, efforts, fallbackEffor
 	}
 	n := len(mg.Slots)
 	if len(choices) != n || len(fallbacks) != n || len(efforts) != n || len(fallbackEfforts) != n {
-		return fmt.Errorf("unknown model group %q", group)
+		return fmt.Errorf("model group %q has %d choices", group, n)
 	}
 	for i := range choices {
-		for _, e := range []string{efforts[i], fallbackEfforts[i]} {
-			if !validEffort[e] {
-				return fmt.Errorf("thinking level %q", e)
-			}
-		}
-		for _, c := range []string{choices[i], fallbacks[i]} {
-			if p, _, ok := strings.Cut(strings.TrimPrefix(c, "via:"), ":"); strings.HasPrefix(c, "via:") && (!ok || a.eng.Cfg.Providers[p].URL == "") {
-				return fmt.Errorf("no provider for %s", c)
-			}
+		if !validEffort[efforts[i]] || !validEffort[fallbackEfforts[i]] {
+			return fmt.Errorf("thinking level %q / %q", efforts[i], fallbackEfforts[i])
 		}
 	}
-	g := a.gatewayConfig()
+	cfg := a.eng.Cfg
 	var models []GatewayModel
-	needGW := false
-	for i := range mg.Slots {
-		needGW = needGW || strings.HasPrefix(choices[i], "gw:") || strings.HasPrefix(fallbacks[i], "gw:")
-	}
-	if needGW {
-		var err error
-		if models, err = a.GatewayModels(); err != nil {
-			return fmt.Errorf("the gateway's models: %w", err)
-		}
-		if a.eng.Cfg.Gateway.URL == "" {
-			return fmt.Errorf("connect the AI Gateway first (Settings → Optimizely AI Gateway)")
+	for i := range choices {
+		if strings.HasPrefix(choices[i], config.GatewayProvider+"|") || strings.HasPrefix(fallbacks[i], config.GatewayProvider+"|") {
+			var err error
+			if models, err = a.GatewayModels(); err != nil {
+				return fmt.Errorf("the gateway's models: %w", err)
+			}
+			break
 		}
 	}
 	var edits []config.Edit
 	for i, s := range mg.Slots {
 		for _, sec := range s.Sections {
-			e, err := slotEdits(sec, s.Kind, choices[i], efforts[i], g, models)
+			e, err := slotEdits(&cfg, sec, s.Kind, choices[i], efforts[i], models)
 			if err != nil {
 				return err
 			}
 			edits = append(edits, e...)
 		}
-		switch {
-		case s.FallbackAt == "-" || choices[i] == "custom" && fallbacks[i] == "custom":
-		case fallbacks[i] == "custom":
-		case fallbacks[i] == "":
-			at := s.FallbackAt
-			if at == "" {
-				for _, sec := range s.Sections {
-					edits = append(edits, config.Edit{Section: sec + ".fallback", Delete: true})
-				}
-			} else {
-				edits = append(edits, config.Edit{Section: at, Delete: true})
+		if s.FallbackAt == "-" || fallbacks[i] == "custom" {
+			continue
+		}
+		ats := []string{s.FallbackAt}
+		if s.FallbackAt == "" {
+			ats = nil
+			for _, sec := range s.Sections {
+				ats = append(ats, sec+".fallback")
 			}
-		default:
-			ats := []string{s.FallbackAt}
-			if s.FallbackAt == "" {
-				ats = nil
-				for _, sec := range s.Sections {
-					ats = append(ats, sec+".fallback")
-				}
+		}
+		for _, at := range ats {
+			e, err := slotEdits(&cfg, at, "chat", fallbacks[i], fallbackEfforts[i], models)
+			if err != nil {
+				return err
 			}
-			for _, at := range ats {
-				e, err := slotEdits(at, "chat", fallbacks[i], fallbackEfforts[i], g, models)
-				if err != nil {
-					return err
-				}
-				edits = append(edits, e...)
-			}
+			edits = append(edits, e...)
 		}
 	}
 	if len(edits) == 0 {
@@ -329,76 +389,104 @@ func (a *App) SetModels(group string, choices, fallbacks, efforts, fallbackEffor
 	return a.reopen("models:changed")
 }
 
-// slotEdits are the config keys that point one section at a model. Keys
-// the gateway supplies (api_key, headers) are removed, so an old
-// provider's key or headers don't override it.
-func slotEdits(sec, kind, choice, effort string, g config.Gateway, models []GatewayModel) ([]config.Edit, error) {
+var validEffort = map[string]bool{"": true, "none": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true}
+
+// slotEdits are the config keys that point one section at a model. Keys a
+// provider supplies (url, api_key, headers) are removed, so an earlier
+// provider's can't linger.
+func slotEdits(cfg *config.Config, sec, kind, ch, effort string, models []GatewayModel) ([]config.Edit, error) {
 	set := func(k string, v any) config.Edit { return config.Edit{Section: sec, Key: k, Value: v} }
 	del := func(k string) config.Edit { return config.Edit{Section: sec, Key: k, Delete: true} }
-	switch {
-	case choice == "custom":
+	thinking := func() config.Edit {
+		if effort == "" {
+			return del("reasoning_effort")
+		}
+		return set("reasoning_effort", effort)
+	}
+	if ch == "custom" {
 		return nil, nil
-	case choice == "":
+	}
+	if ch == "" {
 		return []config.Edit{{Section: sec, Delete: true}}, nil
-	case strings.HasPrefix(choice, "local:"):
+	}
+	src, format, model, ok := splitChoice(ch)
+	if !ok {
+		return nil, fmt.Errorf("model choice %q", ch)
+	}
+	switch {
+	case src == "ollama":
 		if kind == "decision" {
 			return nil, fmt.Errorf("%s takes a decision model, not a local chat model", sec)
 		}
-		return []config.Edit{set("provider", "ollama"), set("url", "http://127.0.0.1:11434"), set("model", strings.TrimPrefix(choice, "local:")),
+		return []config.Edit{set("provider", "ollama"), set("url", ollamaURL(cfg)), set("model", model),
 			del("via"), del("api_key"), del("headers"), del("price_in"), del("price_out"), del("reasoning_effort")}, nil
-	case strings.HasPrefix(choice, "via:"):
-		if kind != "chat" {
-			return nil, fmt.Errorf("%s takes a %s model", sec, kind)
-		}
-		p, model, _ := strings.Cut(strings.TrimPrefix(choice, "via:"), ":")
-		out := []config.Edit{set("via", p), set("model", model), del("provider"), del("url"), del("api_key"), del("headers")}
-		if effort == "" {
-			out = append(out, del("reasoning_effort"))
-		} else {
-			out = append(out, set("reasoning_effort", effort))
-		}
-		return out, nil
-	case strings.HasPrefix(choice, "gw:"):
-		id := strings.TrimPrefix(choice, "gw:")
+	case kind == "local":
+		return nil, fmt.Errorf("%s takes a model on this Mac", sec)
+	case src == config.GatewayProvider:
 		var m *GatewayModel
 		for i := range models {
-			if models[i].ID == id {
+			if models[i].ID == model {
 				m = &models[i]
 			}
 		}
 		if m == nil {
-			return nil, fmt.Errorf("the gateway doesn't list %s", id)
+			return nil, fmt.Errorf("the gateway doesn't list %s", model)
 		}
-		if kind == "local" || (kind == "decision") != (m.Kind == "decision") {
-			return nil, fmt.Errorf("%s can't take %s", sec, id)
+		if (kind == "decision") != (m.Kind == "decision") {
+			return nil, fmt.Errorf("%s can't take %s", sec, model)
 		}
+		g := cfg.Gateway
 		out := []config.Edit{del("via"), del("api_key"), del("headers")}
-		switch m.Provider {
+		switch format {
 		case "jev":
 			return append(out, set("provider", "jev"), set("url", g.CatalogURL()), del("model")), nil
 		case "clef":
-			return append(out, set("provider", "clef"), set("url", g.CatalogURL()+"/"+id), del("model"), set("price_in", m.PriceIn)), nil
-		case "anthropic":
-			out = append(out, set("provider", "anthropic"), set("url", g.URL+"/anthropic-shim"))
-		default:
-			out = append(out, set("provider", "openai"), set("url", g.URL+"/workers-ai-shim"))
+			return append(out, set("provider", "clef"), set("url", g.CatalogURL()+"/"+model), del("model"), set("price_in", m.PriceIn)), nil
 		}
-		out = append(out, set("model", id), set("price_in", m.PriceIn), set("price_out", m.PriceOut))
-		if effort == "" {
-			out = append(out, del("reasoning_effort"))
-		} else {
-			out = append(out, set("reasoning_effort", effort))
-		}
-		return out, nil
+		return []config.Edit{set("via", config.GatewayProvider), set("provider", format), set("model", model), del("url"), del("api_key"), del("headers"),
+			set("price_in", m.PriceIn), set("price_out", m.PriceOut), thinking()}, nil
 	}
-	return nil, fmt.Errorf("model choice %q", choice)
+	if _, ok := cfg.Providers[src]; !ok {
+		return nil, fmt.Errorf("no provider %q", src)
+	}
+	if kind != "chat" {
+		return nil, fmt.Errorf("%s takes a %s model", sec, kind)
+	}
+	out := []config.Edit{set("via", src), set("provider", format), set("model", model), del("url"), del("api_key"), del("headers"), thinking()}
+	// Providers don't list prices: the ones set for this model stay.
+	if old, ok := modelAt(cfg, sec).(*config.LLM); !ok || old == nil || old.Via != src || old.Model != model {
+		out = append(out, del("price_in"), del("price_out"))
+	}
+	return out, nil
+}
+
+// ApplyRecommended brings the dataset's models, providers and gateway to
+// the recommended setup (internal/config/recommended.toml); the rest of
+// the config stays as it is.
+func (a *App) ApplyRecommended() error {
+	if a.eng == nil {
+		return fmt.Errorf("no dataset open")
+	}
+	edits, err := config.RecommendedEdits()
+	if err != nil {
+		return err
+	}
+	if err := config.EditFile(a.cfgPath, edits); err != nil {
+		return err
+	}
+	return a.reopen("models:changed")
 }
 
 // Local models: Ollama on this Mac.
 
-func (a *App) ollamaURL() string {
-	if a.eng != nil && a.eng.Chat != nil {
-		return a.eng.Chat.URL
+// ollamaURL is where Ollama is: [llm]'s url when [llm] uses it, else
+// [embed]'s, else the default.
+func ollamaURL(cfg *config.Config) string {
+	switch {
+	case cfg.LLM.Provider == "ollama" && cfg.LLM.URL != "":
+		return cfg.LLM.URL
+	case cfg.Embed.Provider == "ollama" && cfg.Embed.URL != "":
+		return cfg.Embed.URL
 	}
 	return "http://127.0.0.1:11434"
 }
@@ -421,11 +509,19 @@ func ollamaTags(url string) (map[string]int64, error) {
 	}
 	out := map[string]int64{}
 	for _, m := range r.Models {
-		out[m.Name] = m.Size
-		// "nomic-embed-text" is listed as "nomic-embed-text:latest".
+		// "nomic-embed-text:latest" is the "nomic-embed-text" configs name.
 		out[strings.TrimSuffix(m.Name, ":latest")] = m.Size
 	}
 	return out, nil
+}
+
+func sortedNames(m map[string]int64) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 var (
@@ -436,7 +532,8 @@ var (
 // PullModel downloads a local model in the background; "models:pull"
 // events report progress ({name, status, pct}), then "models:changed".
 func (a *App) PullModel(name string) error {
-	if strings.ContainsAny(name, " /\\\"'") || name == "" {
+	name = strings.TrimSpace(name)
+	if strings.ContainsAny(name, " \\\"'") || name == "" {
 		return fmt.Errorf("model name %q", name)
 	}
 	pullMu.Lock()
@@ -446,8 +543,9 @@ func (a *App) PullModel(name string) error {
 	}
 	pulling[name] = true
 	pullMu.Unlock()
+	url := ollamaURL(&a.eng.Cfg)
 	go func() {
-		err := ollamaPull(a.ctx, a.ollamaURL(), name, func(status string, pct float64) {
+		err := ollamaPull(a.ctx, url, name, func(status string, pct float64) {
 			a.emit("models:pull", map[string]any{"name": name, "status": status, "pct": pct})
 		})
 		pullMu.Lock()
@@ -495,19 +593,14 @@ func ollamaPull(ctx context.Context, url, name string, progress func(string, flo
 	return sc.Err()
 }
 
-// RemoveModel deletes a local model that nothing requires.
+// RemoveModel deletes a local model nothing uses.
 func (a *App) RemoveModel(name string) error {
-	v, err := a.Models()
-	if err != nil {
-		return err
-	}
-	for _, m := range v.Local {
-		if m.Name == name && m.Required {
-			return fmt.Errorf("%s is needed for %s", name, m.Why)
-		}
+	cfg := a.eng.Cfg
+	if by := usage(&cfg, a.gatewayConfig())["ollama|"+name]; len(by) > 0 {
+		return fmt.Errorf("%s is used by %s", name, strings.Join(by, ", "))
 	}
 	b, _ := json.Marshal(map[string]string{"model": name})
-	req, _ := http.NewRequest("DELETE", strings.TrimRight(a.ollamaURL(), "/")+"/api/delete", bytes.NewReader(b))
+	req, _ := http.NewRequest("DELETE", strings.TrimRight(ollamaURL(&cfg), "/")+"/api/delete", bytes.NewReader(b))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
@@ -520,38 +613,28 @@ func (a *App) RemoveModel(name string) error {
 	return nil
 }
 
-// pullRequired downloads the local models this dataset needs and doesn't
-// have (llm.pull_missing), once Ollama is up.
+// pullRequired downloads the local models in use that Ollama doesn't
+// have ([llm] pull_missing); fallbacks only by hand, since they may be
+// large and aren't needed until something fails.
 func (a *App) pullRequired() {
 	if a.eng == nil || !a.eng.Cfg.LLM.PullMissing {
 		return
 	}
-	v, err := a.Models()
-	if err != nil || !v.Ollama {
+	cfg := a.eng.Cfg
+	have, err := ollamaTags(ollamaURL(&cfg))
+	if err != nil {
 		return
 	}
-	for _, m := range v.Local {
-		if m.Required && !m.Have {
-			a.PullModel(m.Name)
+	for k, labels := range usage(&cfg, a.gatewayConfig()) {
+		name, ok := strings.CutPrefix(k, "ollama|")
+		if _, got := have[name]; !ok || got {
+			continue
+		}
+		for _, l := range labels {
+			if !strings.HasSuffix(l, "(fallback)") {
+				a.PullModel(name)
+				break
+			}
 		}
 	}
-}
-
-var validEffort = map[string]bool{"": true, "none": true, "low": true, "medium": true, "high": true, "xhigh": true, "max": true}
-
-// ApplyRecommended brings the dataset's models, providers and gateway to
-// the recommended setup (internal/config/recommended.toml); the rest of
-// the config stays as it is.
-func (a *App) ApplyRecommended() error {
-	if a.eng == nil {
-		return fmt.Errorf("no dataset open")
-	}
-	edits, err := config.RecommendedEdits()
-	if err != nil {
-		return err
-	}
-	if err := config.EditFile(a.cfgPath, edits); err != nil {
-		return err
-	}
-	return a.reopen("models:changed")
 }

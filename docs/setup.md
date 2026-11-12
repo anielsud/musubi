@@ -183,27 +183,48 @@ TypeSafe 1.14.0). Clef (`provider = "clef"`, `url` its own `/ai/run/@cf/
 cloudflare/clef` address) takes the same questions; on the labels sample
 it found fewer sensitive statements than Jev (research log, 2026-11-11).
 
-Settings has four tabs: **Accounts** (Microsoft 365), **AI providers**
-(the gateway, other providers, and Ollama on this Mac), **Processing**
-(which model does what) and **Dataset** (paths). **Use recommended** on
-Processing writes the setup in `internal/config/recommended.toml`: Claude
-Haiku 5.5 at medium thinking through the gateway, GLM on Baseten behind
-it, local models for Live and search. It changes only model sections,
-providers and the gateway address; tokens and keys stay in the Keychain.
+Settings is what is set up once and left alone; what to watch and act on
+is on Status. Its tabs:
 
-Another provider that serves the OpenAI or the Anthropic format is
-added once under AI providers and named; its key goes in the Keychain as
-`musubi-provider-<name>` (or where its `api_key` says), and models use
-it with `via`:
+- **Accounts**: Microsoft 365, you (name, email) and what is synced.
+- **AI providers**: where models come from, each on the same kind of
+  card (address, key, formats, used by, Test): the **AI Gateway**,
+  **other providers** such as Baseten, and **Ollama** on this Mac
+  (address, whether Musubi starts it and downloads the models in use).
+- **Models**: every model from every source in one table, sortable and
+  searchable: format, prices, context, thinking levels, retirement, what
+  uses it; local models are downloaded and removed here.
+- **Processing**: which model does what (below).
+- **Dataset**: where it is, its size on disk, **Back up now**, and the
+  settings that shape the app: when it checks for new meetings, the Live
+  panel's timings and cards, Ask, meeting prep.
+
+**Use recommended** on Processing writes `internal/config/recommended.toml`:
+Claude Haiku 5.5 at medium thinking through the gateway, GLM on Baseten
+behind it, local models for Live and search. It changes only model
+sections, providers and the gateway address; tokens and keys stay in the
+Keychain.
+
+A provider is an address, a key and headers; one address serves both
+formats (`/v1/chat/completions` and `/v1/messages`), and which one a
+model speaks is the model's `provider` ("openai" or "anthropic"). Its key
+goes in the Keychain as `musubi-provider-<name>` (or where its `api_key`
+says). Models name it with `via`; `via = "gateway"` is the AI Gateway,
+whose route follows the format:
 
 ```toml
 [providers.baseten]
-format = "openai"
 url = "https://inference.baseten.co"
 api_key = "keychain:baseten-api-key"
 
+[knowledge.threads.model]
+via = "gateway"
+provider = "anthropic"
+model = "claude-haiku-5-5"
+
 [knowledge.threads.model.fallback]
 via = "baseten"
+provider = "openai"
 model = "zai-org/GLM-5.3-Flash"
 ```
 
@@ -223,14 +244,13 @@ Each takes a preferred model and, for the chat groups, a fallback
 (`[<section>.fallback]`, used when the preferred one fails), each with
 its own thinking level (`reasoning_effort`): only the levels the model
 takes are offered (Cloudflare's catalog lists them; GLM-5.3-Flash, for
-one, runs "medium" as "max"). Each group shows its typical tokens in and
-out per meeting hour, and what they cost with the chosen models; the
-rates were measured with Claude Haiku 5.5 on 2026-11-11 and leave out
-thinking. Models on the gateway get its key and headers
-from `[gateway]`; a section set by hand to something else shows as "as in
-the config" and is left alone. With `[llm] pull_missing = true` (the
-default) the app downloads the local models the dataset needs; the
-others can be fetched or removed there.
+one, runs "medium" as "max"; other providers don't say, so theirs are
+marked unverified). Each group shows its typical tokens in and out per
+meeting hour, and what they cost with the chosen models; the rates were
+measured with Claude Haiku 5.5 on 2026-11-11 and leave out thinking. A
+section set by hand to something else shows as "as set" and is left
+alone. With `[llm] pull_missing = true` (the default) the app downloads
+the local models in use, fallbacks aside.
 
 The full set of keys, each with what it does and how to restore the
 earlier behaviour, is in `internal/config/config.go`.

@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../api';
 import type { AppStatus, M365View } from '../types';
 import { checkDoes, Spinner } from './common';
-import { GatewayCard } from './GatewayCard';
-import { LocalCard, ProcessingCard } from './ModelsCard';
-import { ProvidersCard } from './ProvidersCard';
+import { ModelsTab } from './settings/ModelsTab';
+import { Prefs, StorageCard } from './settings/Prefs';
+import { ProcessingTab } from './settings/ProcessingTab';
+import { ProvidersTab } from './settings/ProvidersTab';
 
-type Tab = 'accounts' | 'providers' | 'processing' | 'dataset';
-const tabs: [Tab, string][] = [['accounts', 'Accounts'], ['providers', 'AI providers'], ['processing', 'Processing'], ['dataset', 'Dataset']];
+// Settings is what to set up once and leave alone; what to watch and act
+// on is on Status.
+type Tab = 'accounts' | 'providers' | 'models' | 'processing' | 'dataset';
+const tabs: [Tab, string][] = [['accounts', 'Accounts'], ['providers', 'AI providers'], ['models', 'Models'], ['processing', 'Processing'], ['dataset', 'Dataset']];
 
 export function SettingsView({ status }: { status: AppStatus | null }) {
   const [tab, setTab] = useState<Tab>(() => {
@@ -19,24 +22,12 @@ export function SettingsView({ status }: { status: AppStatus | null }) {
       <nav className="subtabs">
         {tabs.map(([t, label]) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => pick(t)}>{label}</button>)}
       </nav>
-      {tab === 'accounts' && <M365Card status={status} />}
-      {tab === 'providers' && <><GatewayCard /><ProvidersCard /><LocalCard /></>}
-      {tab === 'processing' && <ProcessingCard />}
-      {tab === 'dataset' && <FilesCard status={status} />}
+      {tab === 'accounts' && <><M365Card status={status} /><Prefs tab="accounts" /></>}
+      {tab === 'providers' && <ProvidersTab />}
+      {tab === 'models' && <ModelsTab />}
+      {tab === 'processing' && <ProcessingTab />}
+      {tab === 'dataset' && <><StorageCard /><Prefs tab="dataset" /></>}
     </div>
-  );
-}
-
-// FilesCard: where this dataset's config and data are, and the live panel's
-// settings (read-only here; they live in the config file).
-function FilesCard({ status }: { status: AppStatus | null }) {
-  if (!status?.config) return null;
-  return (
-    <section className="kv">
-      <div className="section-head"><span>Dataset</span></div>
-      <Row k="dataset" v={status.dataset || '—'} />
-      {Object.entries(status.config).map(([k, v]) => <Row key={k} k={k} v={v} />)}
-    </section>
   );
 }
 

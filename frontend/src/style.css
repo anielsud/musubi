@@ -759,3 +759,28 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .pick select.effort { width: 9.5em; }
 .provider { padding: 6px 0 10px; border-bottom: 1px dashed var(--line); }
 @media (max-width: 560px) { .slot-row { grid-template-columns: 1fr; } }
+
+/* Buttons on Status and Settings look like buttons: the base style above
+   strips them for icon and tab buttons. :where keeps this below .primary,
+   .subtabs and the others. */
+:where(.status-page) button:where(:not(.primary, .icon-btn, .link)) {
+  border: 1px solid var(--line); background: var(--surface); border-radius: 7px; padding: 5px 12px; color: var(--text);
+}
+:where(.status-page) button:where(:not(.primary, .icon-btn, .link)):hover:not(:disabled) { border-color: var(--accent); }
+:where(.status-page) button:disabled { opacity: 0.5; cursor: default; }
+:where(.status-page) button.small { padding: 2px 9px; font-size: 12px; }
+button.link { color: var(--accent); text-align: right; word-break: break-all; padding: 0; }
+button.link:hover { text-decoration: underline; }
+.ok-text { color: #4caf87; }
+.check { display: flex !important; flex-direction: row !important; gap: 6px; align-items: center; }
+.pref { padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.pref-main { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 12.5px; }
+.pref-input { display: flex; align-items: center; gap: 4px; }
+.pref-input input.num { width: 6em; text-align: right; }
+.pref-input input:not([type]) { width: 16em; }
+input.search { width: 100%; margin: 6px 0; }
+.table-scroll { overflow-x: auto; }
+.models-table th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.models-table tr.in-use td:first-child { font-weight: 600; }
+.models-table td { white-space: nowrap; }
+.models-table td:first-child { white-space: normal; }

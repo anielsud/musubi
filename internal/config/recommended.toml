@@ -7,7 +7,6 @@ account = "c78fffa1c891319c48494bca14c7ae0b"
 api_key = "keychain:ai-gateway-token"
 
 [providers.baseten]
-format = "openai"
 url = "https://inference.baseten.co"
 api_key = "keychain:baseten-api-key"
 
@@ -15,73 +14,78 @@ api_key = "keychain:baseten-api-key"
 allow_hosted = true
 
 [knowledge.lean.model]
+via = "gateway"
 provider = "anthropic"
-url = "https://ai-gateway-ots.common-infrastructure.workers.dev/anthropic-shim"
 model = "claude-haiku-5-5"
 reasoning_effort = "medium"
 price_in = 0.10
 price_out = 0.50
 [knowledge.lean.model.fallback]
 via = "baseten"
+provider = "openai"
 model = "zai-org/GLM-5.3-Flash"
 price_in = 0.15
 price_out = 0.502
 
 [knowledge.threads.model]
+via = "gateway"
 provider = "anthropic"
-url = "https://ai-gateway-ots.common-infrastructure.workers.dev/anthropic-shim"
 model = "claude-haiku-5-5"
 reasoning_effort = "medium"
 price_in = 0.10
 price_out = 0.50
 [knowledge.threads.model.fallback]
 via = "baseten"
+provider = "openai"
 model = "zai-org/GLM-5.3-Flash"
 price_in = 0.15
 price_out = 0.502
 
 [knowledge.status.model]
+via = "gateway"
 provider = "anthropic"
-url = "https://ai-gateway-ots.common-infrastructure.workers.dev/anthropic-shim"
 model = "claude-haiku-5-5"
 reasoning_effort = "medium"
 price_in = 0.10
 price_out = 0.50
 [knowledge.status.model.fallback]
 via = "baseten"
+provider = "openai"
 model = "zai-org/GLM-5.3-Flash"
 price_in = 0.15
 price_out = 0.502
 
 [knowledge.digest.model]
+via = "gateway"
 provider = "anthropic"
-url = "https://ai-gateway-ots.common-infrastructure.workers.dev/anthropic-shim"
 model = "claude-haiku-5-5"
 reasoning_effort = "medium"
 price_in = 0.10
 price_out = 0.50
 [knowledge.digest.model.fallback]
 via = "baseten"
+provider = "openai"
 model = "zai-org/GLM-5.3-Flash"
 price_in = 0.15
 price_out = 0.502
 
 [live.pick.brief]
+via = "gateway"
 provider = "anthropic"
-url = "https://ai-gateway-ots.common-infrastructure.workers.dev/anthropic-shim"
 model = "claude-haiku-5-5"
 reasoning_effort = "medium"
 price_in = 0.10
 price_out = 0.50
 [live.pick.brief.fallback]
 via = "baseten"
+provider = "openai"
 model = "zai-org/GLM-5.3-Flash"
 price_in = 0.15
 price_out = 0.502
 
 [ask.model]
+via = "gateway"
 provider = "anthropic"
-url = "https://ai-gateway-ots.common-infrastructure.workers.dev/anthropic-shim"
 model = "claude-haiku-5-5"
 reasoning_effort = "medium"
 price_in = 0.10

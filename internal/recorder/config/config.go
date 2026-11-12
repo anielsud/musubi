@@ -419,8 +419,8 @@ var (
 
 // SetDataDir moves what the recorder writes (sessions, voices, the live
 // feed's socket, hint analysis) to dir, so a recorder running beside
-// Tomoe never touches Tomoe's files. Models stay where Tomoe keeps them
-// (ModelDir). "" goes back to Tomoe's folder, which offline commands
+// Tomoe never touches Tomoe's files. Models are looked for in dir/models
+// first and then where Tomoe keeps them (ModelDirs). "" goes back to Tomoe's folder, which offline commands
 // such as session replay read.
 func SetDataDir(dir string) {
 	dataDirMu.Lock()
@@ -440,10 +440,38 @@ func DataDir() string {
 	return TomoeDataDir()
 }
 
-// ModelDir is where downloaded models are kept: Tomoe's, read-only to the
+// ModelDir is where Tomoe keeps downloaded models: read-only to the
 // recorder, whatever SetDataDir says.
 func ModelDir() string {
 	return filepath.Join(TomoeDataDir(), "models")
+}
+
+// OwnModelDir is the recorder's own model folder, DataDir/models, where
+// it downloads models; "" while DataDir is Tomoe's folder (offline
+// commands), which has only Tomoe's.
+func OwnModelDir() string {
+	dataDirMu.RLock()
+	dir := dataDir
+	dataDirMu.RUnlock()
+	if dir == "" || filepath.Clean(dir) == filepath.Clean(TomoeDataDir()) {
+		return ""
+	}
+	return filepath.Join(dir, "models")
+}
+
+// ModelDirs are the folders models are looked for in, in order: the
+// recorder's own (OwnModelDir), then cfg's model_path (Tomoe's folder by
+// default; ModelDir when cfg is nil), so a model Tomoe downloaded is used
+// where it is. Downloads go to the first.
+func ModelDirs(cfg *Config) []string {
+	tomoe := ModelDir()
+	if cfg != nil && cfg.Transcription.ModelPath != "" {
+		tomoe = cfg.Transcription.ModelPath
+	}
+	if own := OwnModelDir(); own != "" && filepath.Clean(own) != filepath.Clean(tomoe) {
+		return []string{own, tomoe}
+	}
+	return []string{tomoe}
 }
 
 // SessionDir is where recorded sessions are saved (DataDir/sessions).

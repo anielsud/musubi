@@ -219,6 +219,22 @@ cold lane like any other source.
   override the keys of the same tables in Tomoe's config for the
   recorder; Settings → Recording writes them and asks the recorder to
   reload (`reload_config`).
+- **Models and providers** (Settings): AI providers lists the AI
+  Gateway, custom providers (`[providers.*]`), Ollama and **ONNX (this
+  Mac)**: the recorder's models (transcription, live text, speaker
+  voices, speech detection, segmentation, text reading), run in its
+  process by sherpa-onnx and ONNX Runtime; ONNX is ready when the
+  recorder answers. Settings → Models lists every source's models in
+  three sections (in use, recording models, everything else) with
+  search, source filter and sort; the recorder's come from its `models`
+  op, and a missing one is downloaded with `download_model`, into the
+  recorder's own folder (`[recorder] data`/models). The recorder looks
+  for models there first and then in Tomoe's folder
+  (`config.ModelDirs`), so nothing is downloaded twice, and never writes
+  Tomoe's. Settings → Processing chooses the transcription and speaker
+  voice models (`[recorder.transcription] model`,
+  `[recorder.meeting] speaker_model`, read when the recorder starts);
+  they are no longer in Settings → Recording.
 - **Live** (`internal/live`): follows the recorder of record's feed ([tomoe-live-feed.md](tomoe-live-feed.md)),
   keeps the meeting so far, and every `suggest_every` seconds of new speech
   turns the last `window` seconds into suggestions from three sources:

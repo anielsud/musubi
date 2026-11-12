@@ -36,14 +36,18 @@ type Status struct {
 	SpeakerEmbeddingReady    bool
 	SpeakerSegmentationReady bool
 	ParakeetPartial          bool // Parakeet folder holds some of its files, not all
-	ModelDir                 string
-	EncoderPath              string
-	DecoderPath              string
-	JoinerPath               string
-	TokensPath               string
-	VADPath                  string
-	SpeakerEmbeddingPath     string
-	SpeakerSegmentationPath  string
+	// ModelDir is the folder downloads go to, looked in first; Fallback
+	// are the folders looked in after it (Tomoe's, for the recorder), so
+	// a model already downloaded there is used where it is.
+	ModelDir                string
+	Fallback                []string
+	EncoderPath             string
+	DecoderPath             string
+	JoinerPath              string
+	TokensPath              string
+	VADPath                 string
+	SpeakerEmbeddingPath    string
+	SpeakerSegmentationPath string
 
 	// English streaming Zipformer transducer (realtime "pass 1" — see
 	// internal/live's two-pass pipeline). Not required for Ready(): its
@@ -60,16 +64,66 @@ type Status struct {
 	EnglishStreamingName      string
 }
 
-// Manager finds, fetches and unpacks the models under one folder.
+// Manager finds, fetches and unpacks the models under one folder, and
+// finds them in fallback folders too (it never writes those).
 type Manager struct {
 	modelDir string
+	fallback []string
 	live     LiveModel
+	fetch    Fetcher
 }
+
+// Fetcher opens url for a download: its body and length (0 if unknown).
+// Tests inject one; the default is an HTTP GET.
+type Fetcher func(url string) (io.ReadCloser, int64, error)
 
 // NewManager creates a Manager for the given model directory, with the
 // default live model (see WithLiveModel).
 func NewManager(modelDir string) *Manager {
 	return &Manager{modelDir: modelDir, live: ResolveLiveModel("")}
+}
+
+// NewManagerIn is a Manager downloading into dirs[0] and finding models
+// in each of dirs in turn.
+func NewManagerIn(dirs []string) *Manager {
+	if len(dirs) == 0 {
+		return NewManager("")
+	}
+	return NewManager(dirs[0]).WithFallback(dirs[1:]...)
+}
+
+// WithFallback adds folders to look in after the model folder, in order.
+// Models found there are used in place; downloads never go there.
+func (m *Manager) WithFallback(dirs ...string) *Manager {
+	for _, d := range dirs {
+		if d != "" && d != m.modelDir && !slices.Contains(m.fallback, d) {
+			m.fallback = append(m.fallback, d)
+		}
+	}
+	return m
+}
+
+// WithFetcher makes the manager download through f instead of HTTP.
+func (m *Manager) WithFetcher(f Fetcher) *Manager {
+	m.fetch = f
+	return m
+}
+
+// fetcher is the manager's Fetcher, an HTTP GET by default.
+func (m *Manager) fetcher() Fetcher {
+	if m.fetch != nil {
+		return m.fetch
+	}
+	return httpFetch
+}
+
+// httpFetch GETs url and hands back the body only for a 200.
+func httpFetch(url string) (io.ReadCloser, int64, error) {
+	resp, err := get(url)
+	if err != nil {
+		return nil, 0, err
+	}
+	return resp.Body, max(resp.ContentLength, 0), nil
 }
 
 // WithLiveModel makes the manager check and download the live model id
@@ -82,27 +136,28 @@ func (m *Manager) WithLiveModel(id string) *Manager {
 // ModelDir is the folder the manager works in.
 func (m *Manager) ModelDir() string { return m.modelDir }
 
-// Check looks at the model folder without changing it.
+// Check looks at the model folders without changing them. Each model is
+// taken from the first folder holding all its files (else the first
+// holding some of them, so an incomplete download shows as one), and is
+// expected in the model folder when it is nowhere.
 func (m *Manager) Check() *Status {
-	parakeetDir := filepath.Join(m.modelDir, ParakeetSubdir)
-	englishStreamingDir := filepath.Join(m.modelDir, m.live.Subdir)
+	s := &Status{ModelDir: m.modelDir, Fallback: slices.Clone(m.fallback)}
+	parakeetDir := filepath.Join(s.dirFor(ParakeetSubdir, encoderFile, decoderFile, joinerFile, tokensFile), ParakeetSubdir)
+	englishStreamingDir := filepath.Join(s.dirFor(m.live.Subdir, m.live.Encoder, m.live.Decoder, m.live.Joiner, m.live.Tokens), m.live.Subdir)
 
-	s := &Status{
-		ModelDir:                    m.modelDir,
-		EncoderPath:                 filepath.Join(parakeetDir, encoderFile),
-		DecoderPath:                 filepath.Join(parakeetDir, decoderFile),
-		JoinerPath:                  filepath.Join(parakeetDir, joinerFile),
-		TokensPath:                  filepath.Join(parakeetDir, tokensFile),
-		VADPath:                     filepath.Join(m.modelDir, SileroVADFile),
-		SpeakerEmbeddingPath:        filepath.Join(m.modelDir, SpeakerEmbeddingFile),
-		SpeakerSegmentationPath:     filepath.Join(m.modelDir, PyannoteSegmentationSubdir, PyannoteSegmentationFile),
-		EnglishStreamingEncoderPath: filepath.Join(englishStreamingDir, m.live.Encoder),
-		EnglishStreamingDecoderPath: filepath.Join(englishStreamingDir, m.live.Decoder),
-		EnglishStreamingJoinerPath:  filepath.Join(englishStreamingDir, m.live.Joiner),
-		EnglishStreamingTokensPath:  filepath.Join(englishStreamingDir, m.live.Tokens),
-		EnglishStreamingModelType:   m.live.ModelType,
-		EnglishStreamingName:        m.live.Name,
-	}
+	s.EncoderPath = filepath.Join(parakeetDir, encoderFile)
+	s.DecoderPath = filepath.Join(parakeetDir, decoderFile)
+	s.JoinerPath = filepath.Join(parakeetDir, joinerFile)
+	s.TokensPath = filepath.Join(parakeetDir, tokensFile)
+	s.VADPath = filepath.Join(s.dirFor("", SileroVADFile), SileroVADFile)
+	s.SpeakerEmbeddingPath = filepath.Join(s.dirFor("", SpeakerEmbeddingFile), SpeakerEmbeddingFile)
+	s.SpeakerSegmentationPath = filepath.Join(s.dirFor(PyannoteSegmentationSubdir, PyannoteSegmentationFile), PyannoteSegmentationSubdir, PyannoteSegmentationFile)
+	s.EnglishStreamingEncoderPath = filepath.Join(englishStreamingDir, m.live.Encoder)
+	s.EnglishStreamingDecoderPath = filepath.Join(englishStreamingDir, m.live.Decoder)
+	s.EnglishStreamingJoinerPath = filepath.Join(englishStreamingDir, m.live.Joiner)
+	s.EnglishStreamingTokensPath = filepath.Join(englishStreamingDir, m.live.Tokens)
+	s.EnglishStreamingModelType = m.live.ModelType
+	s.EnglishStreamingName = m.live.Name
 
 	parakeet := []string{s.EncoderPath, s.DecoderPath, s.JoinerPath, s.TokensPath}
 	have := 0
@@ -118,6 +173,38 @@ func (m *Manager) Check() *Status {
 	s.SpeakerSegmentationReady = fileExists(s.SpeakerSegmentationPath)
 	s.EnglishStreamingReady = allFilesExist(s.EnglishStreamingEncoderPath, s.EnglishStreamingDecoderPath, s.EnglishStreamingJoinerPath, s.EnglishStreamingTokensPath)
 	return s
+}
+
+// dirs are the folders looked in, in order.
+func (s *Status) dirs() []string { return append([]string{s.ModelDir}, s.Fallback...) }
+
+// dirFor is the folder holding files (names in sub): the first with all
+// of them, else the first with any, else the model folder.
+func (s *Status) dirFor(sub string, files ...string) string {
+	paths := func(dir string) []string {
+		out := make([]string, len(files))
+		for i, f := range files {
+			out[i] = filepath.Join(dir, sub, f)
+		}
+		return out
+	}
+	for _, d := range s.dirs() {
+		if allFilesExist(paths(d)...) {
+			return d
+		}
+	}
+	for _, d := range s.dirs() {
+		if slices.ContainsFunc(paths(d), fileExists) {
+			return d
+		}
+	}
+	return s.ModelDir
+}
+
+// own is the model folder alone, without the fallbacks: where a download
+// writes.
+func (m *Manager) own() *Status {
+	return (&Manager{modelDir: m.modelDir, live: m.live}).Check()
 }
 
 // Ready reports whether a meeting can be transcribed at all: Parakeet and
@@ -171,9 +258,10 @@ func (m *Manager) Download(force bool, onProgress ProgressFunc) error {
 		return err
 	}
 	have := m.Check()
+	own := m.own() // paths in the model folder: downloads never write a fallback folder
 
 	if force || !have.ParakeetReady {
-		if have.ParakeetPartial {
+		if own.ParakeetPartial {
 			// Start from an empty folder so no file from the broken
 			// extraction survives next to the fresh ones.
 			fmt.Println("Parakeet model is incomplete; removing it and downloading again...")
@@ -189,8 +277,7 @@ func (m *Manager) Download(force bool, onProgress ProgressFunc) error {
 
 	if force || !have.VADReady {
 		fmt.Println("Downloading the Silero VAD model...")
-		vadPath := have.VADPath
-		if err := downloadFile(SileroVADURL, vadPath, "Silero VAD", onProgress); err != nil {
+		if err := downloadFileWith(m.fetcher(), SileroVADURL, own.VADPath, "Silero VAD", onProgress); err != nil {
 			return fmt.Errorf("Silero VAD model: %w", err)
 		}
 	} else {
@@ -199,8 +286,7 @@ func (m *Manager) Download(force bool, onProgress ProgressFunc) error {
 
 	if force || !have.SpeakerEmbeddingReady {
 		fmt.Println("Downloading the speaker embedding model...")
-		speakerPath := have.SpeakerEmbeddingPath
-		if err := downloadFile(SpeakerEmbeddingURL, speakerPath, "Speaker Embedding", onProgress); err != nil {
+		if err := downloadFileWith(m.fetcher(), SpeakerEmbeddingURL, own.SpeakerEmbeddingPath, "Speaker Embedding", onProgress); err != nil {
 			return fmt.Errorf("speaker embedding model: %w", err)
 		}
 	} else {
@@ -249,13 +335,12 @@ func (m *Manager) DownloadSpeakerModel(force bool, onProgress ProgressFunc) erro
 	if err := m.ensureDir(); err != nil {
 		return err
 	}
-	speakerPath := m.Check().SpeakerEmbeddingPath
-	if !force && fileExists(speakerPath) {
+	if !force && m.Check().SpeakerEmbeddingReady {
 		fmt.Println("Speaker embedding model present; not downloading it.")
 		return nil
 	}
 	fmt.Println("Downloading the speaker embedding model...")
-	if err := downloadFile(SpeakerEmbeddingURL, speakerPath, "Speaker Embedding", onProgress); err != nil {
+	if err := downloadFileWith(m.fetcher(), SpeakerEmbeddingURL, m.own().SpeakerEmbeddingPath, "Speaker Embedding", onProgress); err != nil {
 		return fmt.Errorf("speaker embedding model: %w", err)
 	}
 	return nil
@@ -278,15 +363,14 @@ func get(url string) (*http.Response, error) {
 // downloadAndExtractArchive downloads a tar.bz2 archive and extracts it
 // to the model directory, reporting step's progress via onProgress.
 func (m *Manager) downloadAndExtractArchive(url, step string, onProgress ProgressFunc) error {
-	resp, err := get(url)
+	body, total, err := m.fetcher()(url)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() { _ = body.Close() }()
 
-	total := resp.ContentLength
 	var downloaded int64
-	reader := io.TeeReader(resp.Body, writerFunc(func(p []byte) (int, error) {
+	reader := io.TeeReader(body, writerFunc(func(p []byte) (int, error) {
 		downloaded += int64(len(p))
 		reportProgress(onProgress, step, downloaded, total)
 		return len(p), nil
@@ -376,11 +460,16 @@ func writeEntry(target string, mode os.FileMode, src io.Reader) error {
 // downloadFile downloads a URL to a local file, reporting step's
 // progress via onProgress.
 func downloadFile(url, destPath, step string, onProgress ProgressFunc) error {
-	resp, err := get(url)
+	return downloadFileWith(httpFetch, url, destPath, step, onProgress)
+}
+
+// downloadFileWith is downloadFile through fetch.
+func downloadFileWith(fetch Fetcher, url, destPath, step string, onProgress ProgressFunc) error {
+	body, total, err := fetch(url)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() { _ = body.Close() }()
 
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return fmt.Errorf("creating directory: %w", err)
@@ -391,14 +480,13 @@ func downloadFile(url, destPath, step string, onProgress ProgressFunc) error {
 	}
 	defer func() { _ = f.Close() }()
 
-	total := resp.ContentLength
 	var downloaded int64
 	progress := writerFunc(func(p []byte) (int, error) {
 		downloaded += int64(len(p))
 		reportProgress(onProgress, step, downloaded, total)
 		return len(p), nil
 	})
-	if _, err := io.Copy(io.MultiWriter(f, progress), resp.Body); err != nil {
+	if _, err := io.Copy(io.MultiWriter(f, progress), body); err != nil {
 		return fmt.Errorf("writing file: %w", err)
 	}
 	return nil

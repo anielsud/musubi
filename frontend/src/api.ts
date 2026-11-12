@@ -1,7 +1,7 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
 import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
-import type { LookView, MeetingSpeakers, RecDiag, RecordingSettings, RecorderView, RecSources, RecStatus, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
+import type { LookView, MeetingSpeakers, RecDiag, RecordingModels, RecordingSettings, RecorderView, RecSources, RecStatus, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -116,6 +116,8 @@ export const api = {
   recordingSettings: (): Promise<RecordingSettings> => app().RecordingSettings(),
   setRecordingSetting: (table: string, key: string, value: boolean | number | string): Promise<void> => app().SetRecordingSetting(table, key, value),
   setOfRecord: (v: string): Promise<void> => app().SetOfRecord(v),
+  recordingModels: (): Promise<RecordingModels> => app().RecordingModels(),
+  downloadRecorderModel: (id: string): Promise<void> => app().DownloadRecorderModel(id),
 };
 
 // Recorder media, served by the app (internal/gui recorderMedia).

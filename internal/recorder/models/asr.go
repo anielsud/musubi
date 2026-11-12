@@ -91,8 +91,19 @@ func ResolveASRModel(setting, lang string) ASRModel {
 	return ASRModels[0]
 }
 
-// ASRModelDir is where model is extracted.
-func (s *Status) ASRModelDir(m ASRModel) string { return filepath.Join(s.ModelDir, m.Subdir) }
+// ASRModelDir is where model is extracted: in the first model folder
+// that has it (see Manager.Check).
+func (s *Status) ASRModelDir(m ASRModel) string {
+	return filepath.Join(s.dirFor(m.Subdir, m.files()...), m.Subdir)
+}
+
+// files are the model's files inside its folder.
+func (m ASRModel) files() []string {
+	if m.Kind == ASRKindCohere {
+		return []string{encoderFile, decoderFile, tokensFile}
+	}
+	return []string{encoderFile, decoderFile, joinerFile, tokensFile}
+}
 
 // ASRModelFiles are a transducer model's encoder, decoder, joiner and
 // tokens paths.
@@ -103,12 +114,13 @@ func (s *Status) ASRModelFiles(m ASRModel) (encoder, decoder, joiner, tokens str
 
 // ASRModelReady reports whether model is downloaded.
 func (s *Status) ASRModelReady(m ASRModel) bool {
-	if m.Kind == ASRKindCohere {
-		dir := s.ASRModelDir(m)
-		return allFilesExist(filepath.Join(dir, encoderFile), filepath.Join(dir, decoderFile), filepath.Join(dir, tokensFile))
+	dir := s.ASRModelDir(m)
+	for _, f := range m.files() {
+		if !fileExists(filepath.Join(dir, f)) {
+			return false
+		}
 	}
-	e, d, j, t := s.ASRModelFiles(m)
-	return allFilesExist(e, d, j, t)
+	return true
 }
 
 // ASRModelFor is the transcription model to use for lang: the one setting

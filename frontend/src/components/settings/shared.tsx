@@ -2,9 +2,14 @@ import type { TestResult } from '../../types';
 import { Spinner } from '../common';
 
 // Names shown for sources and formats, the same on every tab.
-export const sourceName = (s: string) => (s === 'gateway' ? 'AI Gateway' : s === 'ollama' ? 'This Mac' : s);
+export const sourceName = (s: string) => (s === 'gateway' ? 'AI Gateway' : s === 'ollama' ? 'Ollama (this Mac)' : s === 'onnx' ? 'ONNX (this Mac)' : s);
+// sourceShort is the source chip on a model row and its filter button.
+export const sourceShort = (s: string) => (({ gateway: 'Gateway', ollama: 'Ollama', onnx: 'ONNX' } as Record<string, string>)[s] ?? s);
+// taskName is what a recorder (ONNX) model does.
+export const taskName = (t?: string) =>
+  ({ transcription: 'Transcription', live: 'Live text', speaker: 'Speaker voices', vad: 'Speech detection', segmentation: 'Speaker segmentation', ocr: 'Text reading' } as Record<string, string>)[t ?? ''] ?? t ?? '';
 export const formatName = (f: string) =>
-  ({ anthropic: 'Anthropic', openai: 'OpenAI', ollama: 'Ollama', jev: 'decision', clef: 'decision' } as Record<string, string>)[f] ?? f;
+  ({ anthropic: 'Anthropic', openai: 'OpenAI', ollama: 'Ollama', jev: 'decision', clef: 'decision', onnx: 'ONNX' } as Record<string, string>)[f] ?? f;
 
 export function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return <div className="kv-row"><span className="k">{k}</span><span className="v">{v}</span></div>;

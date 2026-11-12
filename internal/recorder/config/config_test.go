@@ -366,3 +366,28 @@ func writeTestConfig(cfg *Config, path string) error {
 	}
 	return os.WriteFile(path, b, 0o644)
 }
+
+// The recorder looks in its own model folder first, then Tomoe's; with
+// Tomoe's data folder (offline commands) only Tomoe's.
+func TestModelDirs(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	defer SetDataDir("")
+	SetDataDir("")
+	if own, dirs := OwnModelDir(), ModelDirs(nil); own != "" || len(dirs) != 1 || dirs[0] != ModelDir() {
+		t.Errorf("without a data folder: own %q, dirs %v", own, dirs)
+	}
+	SetDataDir(TomoeDataDir())
+	if own := OwnModelDir(); own != "" {
+		t.Errorf("Tomoe's data folder gave own model folder %q", own)
+	}
+	rec := t.TempDir()
+	SetDataDir(rec)
+	cfg := DefaultConfig()
+	if dirs := ModelDirs(cfg); len(dirs) != 2 || dirs[0] != filepath.Join(rec, "models") || dirs[1] != ModelDir() {
+		t.Errorf("dirs %v", dirs)
+	}
+	cfg.Transcription.ModelPath = "/elsewhere"
+	if dirs := ModelDirs(cfg); dirs[1] != "/elsewhere" {
+		t.Errorf("model_path not followed: %v", dirs)
+	}
+}

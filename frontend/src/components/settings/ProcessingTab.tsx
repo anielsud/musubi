@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, on } from '../../api';
-import type { GroupView, ModelRow, SlotView } from '../../types';
+import type { GroupView, ModelRow, RecModelField, RecordingModels, SlotView } from '../../types';
 import { Spinner } from '../common';
 import { formatName, sourceName, tokens, usd } from './shared';
 
@@ -56,6 +56,7 @@ export function ProcessingTab() {
         They leave out thinking, which some models spend many times more tokens on.
       </p>
       {groups.map((g) => <GroupRow key={g.key} g={g} rows={rows} />)}
+      <RecordingGroup />
     </section>
   );
 }
@@ -157,6 +158,64 @@ function Pick({ label, slot, value, effort, text, rows, fallback, onModel, onEff
         {efforts.map((e) => <option key={e} value={e}>{e}{unverified ? ' (unverified)' : ''}</option>)}
         {effort && efforts.length > 0 && !efforts.includes(effort) && <option value={effort}>{effort} (not listed)</option>}
       </select>
+    </div>
+  );
+}
+
+// RecordingGroup: the recorder's transcription and speaker voice models
+// (ONNX, run in the recorder on this Mac), written to [recorder.*] like
+// the settings in Settings → Recording and read when the recorder starts.
+function RecordingGroup() {
+  const [rm, setRm] = useState<RecordingModels | null>(null);
+  const [err, setErr] = useState('');
+  const load = () => api.recordingModels().then(setRm, (e) => setErr(String(e)));
+  useEffect(() => {
+    load();
+    const offs = [on('recording:changed', load), on('models:changed', load), on('recorder:conn', load)];
+    return () => offs.forEach((f) => f());
+  }, []);
+  if (err) return <div className="error small">{err}</div>;
+  if (!rm) return null;
+  return (
+    <div className="model-group">
+      <div className="model-group-head">
+        <b>Recording</b>
+        <span className="dim small">Transcribes meetings and tells voices apart, on this Mac (ONNX, in the recorder). Applies after a recorder restart.</span>
+        {rm.error && <span className="dim small">Which models are downloaded isn&apos;t known: {rm.error}.</span>}
+      </div>
+      <div className="slot-row rec-models">{rm.fields.map((f) => <RecModelPick key={f.table + '.' + f.key} f={f} />)}</div>
+    </div>
+  );
+}
+
+function RecModelPick({ f }: { f: RecModelField }) {
+  const [v, setV] = useState(String(f.value ?? ''));
+  const [state, setState] = useState<'' | 'saving' | 'saved'>('');
+  const [err, setErr] = useState('');
+  useEffect(() => { setV(String(f.value ?? '')); }, [f.value]);
+  const missing = new Set(f.missing ?? []);
+  const opts = f.options ?? [];
+  const save = (val: string) => {
+    setV(val); setState('saving'); setErr('');
+    api.setRecordingSetting(f.table, f.key, val).then(() => setState('saved'), (e) => { setState(''); setErr(String(e)); setV(String(f.value ?? '')); });
+  };
+  const nameOf = (id?: string) => opts.find((o) => o.value === id)?.label ?? id;
+  return (
+    <div className="pick">
+      <span className="dim small pick-label">
+        {f.label}{!f.set && <span title="Not set in Musubi: Tomoe's value"> · as Tomoe</span>}
+        {state === 'saving' ? <> <Spinner /></> : state === 'saved' ? <span className="ok-text"> ✓ saved; after a restart</span> : null}
+      </span>
+      <select value={v} onChange={(e) => save(e.target.value)}>
+        {opts.map((o) => <option key={o.value} value={o.value}>{o.label}{missing.has(o.value) ? ' (not downloaded)' : ''}</option>)}
+        {!opts.some((o) => o.value === v) && <option value={v}>{v} (not offered)</option>}
+      </select>
+      <span className="dim small pick-label">
+        {f.help}
+        {f.inUse && <> Now using {nameOf(f.inUse)}.</>}
+        {missing.has(v) && <> Not downloaded yet: download it in Settings → Models.</>}
+      </span>
+      {err && <span className="error small pick-label">{err}</span>}
     </div>
   );
 }

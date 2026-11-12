@@ -297,5 +297,5 @@ func RefineSavedCuts(dir string, sess *session.Session, rp RefineParams) (int, e
 	if !ok {
 		return 0, fmt.Errorf("can't tell which speaker model made the fingerprints")
 	}
-	return RefineCuts(dir, sess, filepath.Join(config.ModelDir(), m.File), rp)
+	return RefineCuts(dir, sess, models.NewManagerIn(config.ModelDirs(nil)).Check().SpeakerModelPath(m), rp)
 }

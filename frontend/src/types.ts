@@ -627,7 +627,7 @@ export interface GatewayModel {
 
 export interface ProviderView {
   name: string;
-  kind: 'gateway' | 'custom' | 'ollama';
+  kind: 'gateway' | 'custom' | 'ollama' | 'onnx';
   title: string;
   url: string;
   ready: boolean;
@@ -640,6 +640,8 @@ export interface ProviderView {
   tokenId?: string;
   startOllama: boolean;
   pullMissing: boolean;
+  models?: string[] | null;
+  error?: string;
 }
 
 export interface TestResult {
@@ -679,7 +681,7 @@ export interface ModelRow {
   source: string;
   id: string;
   formats: string[] | null;
-  kind: 'chat' | 'decision';
+  kind: 'chat' | 'decision' | 'recording';
   priceIn: number;
   priceOut: number;
   context: number;
@@ -689,6 +691,11 @@ export interface ModelRow {
   note?: string;
   usedBy: string[] | null;
   size: number;
+  // The recorder's ONNX models (source "onnx").
+  name?: string;
+  task?: string;
+  missing?: boolean;
+  restart?: boolean;
 }
 
 export interface ModelCatalog {
@@ -832,4 +839,6 @@ export interface MeetingSpeakers { session: string; speakers: SpeakerCount[]; ed
 export interface RecOption { value: string; label: string }
 export interface RecField { table: string; key: string; label: string; help?: string; type: 'bool' | 'int' | 'float' | 'string' | 'select'; step?: number; min: number; options?: RecOption[]; value: unknown; set: boolean; restart?: boolean }
 export interface RecGroup { title: string; fields: RecField[] }
+export interface RecModelField extends RecField { missing?: string[] | null; inUse?: string }
+export interface RecordingModels { fields: RecModelField[]; error?: string }
 export interface RecordingSettings { ofRecord: string; since: string; groups: RecGroup[]; tomoeConfig: string }

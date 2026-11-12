@@ -63,8 +63,9 @@ Files with no upstream-authored lines, copied with import paths changed:
   - `tools.go`, `tools_darwin.go`, from `tools.go` and `tools_darwin.go`
     (all owner lines): the ffmpeg, diarization worker, model and
     permission statuses, `FixTool` and `runStreaming`. Dropped: GPU,
-    Bengali, Linux tools and the model download (models are Tomoe's
-    folder, so their fix is a command); progress and outcome go to
+    Bengali, Linux tools and Tomoe's model download (models were read
+    from Tomoe's folder only, so their fix was a command; the recorder's
+    own download, below, is new code); progress and outcome go to
     `Status.Busy` and the health lines instead of window events.
     `permissions_darwin.go` gains the permission table,
     `openPrivacySettings` and the accessibility prompt from Tomoe's
@@ -109,6 +110,16 @@ and `deleteSession` (`DeleteSession`) are new code with the same
 behaviour. `diag.go` writes in Go what Tomoe's diagnostics pane
 (`frontend/src/components/DiagnosticsPane.tsx`, all owner lines) showed
 for each line.
+
+New for the Models screen (2026-11-12), with no Tomoe lines:
+`models/catalog.go` (the catalog, `Installed`, `DownloadModel` and its
+staged archive unpacking), `recording/models.go` (the `models` and
+`download_model` ops and the Tools entries' Download fix), the fallback
+folders and injectable `Fetcher` in `models/manager.go` (`dirFor`,
+`WithFallback`, `NewManagerIn`, `own`) and `config.OwnModelDir` /
+`ModelDirs`, and their tests. Tomoe's own model download (its `tools.go`
+and `cmd/tomoe model download`) was not copied; the existing rewritten
+download functions in `models` are reused.
 
 New, with no Tomoe source: `recording/voicecopy.go`,
 `recording/permissions_other.go`, the `recording` tests other than the

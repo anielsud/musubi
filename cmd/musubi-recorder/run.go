@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -66,7 +67,7 @@ func runRecorder(dataFlag, musubiConfig string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("musubi-recorder %s: data %s, models %s, live socket %s\n", version, dir, cfg.Transcription.ModelPath, livefeed.SocketPath())
+	fmt.Printf("musubi-recorder %s: data %s, models %s, live socket %s\n", version, dir, strings.Join(config.ModelDirs(cfg), " then "), livefeed.SocketPath())
 
 	recording.Version = version
 	recording.CheckPermissions()

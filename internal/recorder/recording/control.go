@@ -177,6 +177,15 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 			return nil, err
 		}
 		return nil, a.FixTool(p.ID)
+
+	case control.OpModels:
+		return a.Models(), nil
+	case control.OpDownloadModel:
+		var p control.ModelArgs
+		if err := decode(args, &p); err != nil {
+			return nil, err
+		}
+		return nil, a.DownloadModel(p.ID)
 	}
 	return nil, fmt.Errorf("%w %q", control.ErrUnknownOp, op)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anielsud/musubi/internal/recorder/config"
+	"github.com/anielsud/musubi/internal/recorder/control"
 	"github.com/anielsud/musubi/internal/recorder/livefeed"
 	"github.com/anielsud/musubi/internal/recorder/recording"
 )
@@ -30,23 +31,27 @@ the way Tomoe's app does: live transcript, saved audio and session.json,
 diarization after the meeting. The live feed, if [meeting] live_feed is
 on, is served on the recorder's own socket.
 
-Tomoe's config and models are read, never written. Sessions, a copy of
-Tomoe's voices and the socket go under --data, which may not be Tomoe's
-data folder. SIGTERM or SIGINT stops and saves a recording in progress
-before exiting.`,
+Tomoe's config and models are read, never written; the [recorder.audio],
+[recorder.transcription] and [recorder.meeting] tables of Musubi's config
+(--musubi-config) override its keys. Sessions, a copy of Tomoe's voices
+and the sockets (live feed, and control.sock for the Musubi app) go under
+--data, which may not be Tomoe's data folder. SIGTERM or SIGINT stops and
+saves a recording in progress before exiting.`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		data, _ := cmd.Flags().GetString("data")
-		return withMainLoop(func() error { return runRecorder(data) })
+		musubi, _ := cmd.Flags().GetString("musubi-config")
+		return withMainLoop(func() error { return runRecorder(data, musubi) })
 	},
 }
 
 func init() {
 	runCmd.Flags().String("data", defaultDataDir(), "the recorder's data folder (never Tomoe's)")
+	runCmd.Flags().String("musubi-config", config.MusubiPath(), "Musubi's config file, whose [recorder.*] tables override Tomoe's settings ($MUSUBI_CONFIG)")
 	rootCmd.AddCommand(runCmd)
 }
 
-func runRecorder(dataFlag string) error {
+func runRecorder(dataFlag, musubiConfig string) error {
 	dir, err := useDataDir(dataFlag)
 	if err != nil {
 		return err
@@ -54,7 +59,7 @@ func runRecorder(dataFlag string) error {
 	if err := os.MkdirAll(config.SessionDir(), 0o700); err != nil {
 		return err
 	}
-	cfg, err := loadTomoeConfig()
+	cfg, err := loadConfig(musubiConfig)
 	if err != nil {
 		return err
 	}
@@ -66,6 +71,16 @@ func runRecorder(dataFlag string) error {
 	defer stop()
 
 	r := recording.New(cfg)
+	r.SetMusubiConfig(musubiConfig)
+	// Before the models load, so the Musubi app can see the recorder
+	// starting (status) rather than "not running".
+	ctl, err := control.Listen(control.SocketPath(dir), r.Handle)
+	if err != nil {
+		fmt.Printf("Warning: control socket not started: %v\n", err)
+	} else {
+		fmt.Printf("control: serving %s\n", ctl.Path())
+		defer ctl.Close()
+	}
 	if err := r.Start(ctx); err != nil {
 		r.Shutdown()
 		return err
@@ -75,13 +90,24 @@ func runRecorder(dataFlag string) error {
 	return nil
 }
 
-// loadTomoeConfig reads Tomoe's config file, read-only. Without one the
-// defaults apply, as they would for Tomoe.
-func loadTomoeConfig() (*config.Config, error) {
+// loadConfig reads Tomoe's config file, read-only (without one the
+// defaults apply, as they would for Tomoe), with musubi's [recorder.*]
+// tables over it. A Musubi file that can't be read is reported and left
+// out, so a typo in the app's settings never stops meetings being
+// recorded.
+func loadConfig(musubi string) (*config.Config, error) {
 	cfg, err := config.Load(config.Path())
 	if errors.Is(err, fs.ErrNotExist) {
 		fmt.Printf("config: %s not found; using defaults\n", config.Path())
-		return config.DefaultConfig(), nil
+		cfg, err = config.DefaultConfig(), nil
 	}
-	return cfg, err
+	if err != nil {
+		return nil, err
+	}
+	if used, err := config.OverlayMusubi(cfg, musubi); err != nil {
+		fmt.Printf("Warning: %v; using Tomoe's settings alone\n", err)
+	} else if used {
+		fmt.Printf("config: [recorder] settings from %s\n", musubi)
+	}
+	return cfg, nil
 }

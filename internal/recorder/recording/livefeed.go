@@ -70,12 +70,13 @@ func (a *Recorder) stopLiveFeed() {
 func (a *Recorder) liveFeedSnapshot(attach livefeed.Attach) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	status := livefeed.StatusMessage(a.statusLocked())
 	if a.currentSess == nil {
-		attach(nil, nil)
+		attach(nil, nil, status)
 		return
 	}
 	info := livefeed.InfoFor(a.currentSess)
-	attach(&info, a.currentSess.Segments)
+	attach(&info, a.currentSess.Segments, status)
 }
 
 // feedSessionLocked sends a session state change to the live feed.

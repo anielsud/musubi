@@ -224,6 +224,9 @@ type Coordinator struct {
 	// micHeardAt is when the mic last delivered any real signal (Unix
 	// nanoseconds; 0 = not yet), for MicQuietFor.
 	micHeardAt atomic.Int64
+	// monitorHeardAt is the same for the meeting audio, for
+	// MonitorQuietFor.
+	monitorHeardAt atomic.Int64
 
 	// segmentUpdateCh carries revisions to a segment already sent on
 	// segmentCh (same ID) -- pass 2's refined text superseding pass 1's.
@@ -461,6 +464,20 @@ func (c *Coordinator) MicQuietFor() time.Duration {
 		return 0
 	}
 	at := c.micHeardAt.Load()
+	if at == 0 {
+		return c.now().Sub(c.startTime)
+	}
+	return c.now().Sub(time.Unix(0, at))
+}
+
+// MonitorQuietFor is MicQuietFor for the meeting audio: how long it has
+// delivered nothing above about -80 dBFS (an app making no sound at all,
+// or the wrong one captured); 0 without meeting audio.
+func (c *Coordinator) MonitorQuietFor() time.Duration {
+	if c.cfg.MonitorCapturer == nil {
+		return 0
+	}
+	at := c.monitorHeardAt.Load()
 	if at == 0 {
 		return c.now().Sub(c.startTime)
 	}

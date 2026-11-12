@@ -18,7 +18,8 @@ func (a *Recorder) onMeetingEvent(ev meeting.MeetingEvent) {
 			return
 		}
 		app := string(ev.Platform)
-		if err := a.StartSession(a.cfg.Audio.Device, a.cfg.Meeting.MonitorDevice, "", app); err != nil {
+		mic, system := a.nextSources()
+		if err := a.StartSession(mic, system, "", app); err != nil {
 			fmt.Printf("meeting: %s call detected, but recording didn't start: %v\n", app, err)
 			return
 		}

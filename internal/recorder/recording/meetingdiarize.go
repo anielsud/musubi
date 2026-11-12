@@ -26,6 +26,7 @@ func newMeetingDiarizer(a *Recorder, cfg *config.Config, status *models.Status, 
 				// Sends each line as the session holds it now, which a
 				// revision applied since this recluster may have changed.
 				a.feedSegmentsLocked(a.currentSess, changed...)
+				a.feedDiagsLocked(a.currentSess, diagRelabel, changed...)
 			}
 			a.mu.Unlock()
 		},

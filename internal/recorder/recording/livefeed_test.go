@@ -49,17 +49,26 @@ func TestLiveFeedSnapshotAndAppliedSegments(t *testing.T) {
 		Session   json.RawMessage `json:"session"`
 		Segment   session.Segment `json:"segment"`
 	}
+	// next skips the Musubi app's messages (status, diag...) as an older
+	// reader would, counting them in others.
+	others := map[string]int{}
 	next := func() msg {
 		t.Helper()
-		conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-		if !sc.Scan() {
-			t.Fatalf("no message: %v", sc.Err())
+		for {
+			conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			if !sc.Scan() {
+				t.Fatalf("no message: %v", sc.Err())
+			}
+			var m msg
+			if err := json.Unmarshal(sc.Bytes(), &m); err != nil {
+				t.Fatal(err)
+			}
+			switch m.Type {
+			case "hello", "session", "segment":
+				return m
+			}
+			others[m.Type]++
 		}
-		var m msg
-		if err := json.Unmarshal(sc.Bytes(), &m); err != nil {
-			t.Fatal(err)
-		}
-		return m
 	}
 
 	if m := next(); m.Type != "hello" {
@@ -76,6 +85,8 @@ func TestLiveFeedSnapshotAndAppliedSegments(t *testing.T) {
 	for srv.Clients() != 1 {
 		time.Sleep(5 * time.Millisecond)
 	}
+	// The snapshot's status comes after its lines: seen by the first live
+	// line's read.
 
 	stopped := &session.Session{ID: "stopped"}
 	a.applySegment(stopped, nil, session.Segment{ID: "seg-7", Text: "Late refinement.", StartTime: 9})
@@ -87,5 +98,8 @@ func TestLiveFeedSnapshotAndAppliedSegments(t *testing.T) {
 		if m.SessionID != "stopped" || m.Segment.ID != "seg-7" || m.Segment.Text != "Late refinement." || m.Segment.Status != "" {
 			t.Errorf("applied line %d = %+v, want the stopped session's final text", i, m)
 		}
+	}
+	if others["status"] != 1 || others["diag"] != 1 {
+		t.Errorf("other messages %v, want the snapshot's status and the first line's diag", others)
 	}
 }

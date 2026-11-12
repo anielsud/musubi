@@ -8,6 +8,7 @@ import (
 
 	"github.com/anielsud/musubi/internal/recorder/audio"
 	"github.com/anielsud/musubi/internal/recorder/config"
+	"github.com/anielsud/musubi/internal/recorder/control"
 	"github.com/anielsud/musubi/internal/recorder/diarize"
 	"github.com/anielsud/musubi/internal/recorder/live"
 	"github.com/anielsud/musubi/internal/recorder/meetingaudio"
@@ -29,13 +30,16 @@ type hintSession struct {
 // once startHintWatcher has the session; Burst may be called before.
 func (a *Recorder) newHintWatcher() (*videohint.Watcher, *hintSession) {
 	hs := &hintSession{}
-	learn, check := a.cfg.Meeting.VideoHintTiming()
+	// Taken once: the closures below outlive this call, and reload_config
+	// may replace a.cfg meanwhile.
+	cfg := a.cfg
+	learn, check := cfg.Meeting.VideoHintTiming()
 	hs.watcher = videohint.NewWatcher(videohint.WatchConfig{
-		Source:        a.cfg.Meeting.VideoHintWindow,
+		Source:        cfg.Meeting.VideoHintWindow,
 		LearnInterval: learn,
 		CheckInterval: check,
 		NeedsLearning: func() bool {
-			if a.cfg.Meeting.RecordForTuning {
+			if cfg.Meeting.RecordForTuning {
 				return true // look at the learning rate throughout
 			}
 			if hs.diar != nil {
@@ -45,7 +49,7 @@ func (a *Recorder) newHintWatcher() (*videohint.Watcher, *hintSession) {
 		},
 		OnLook: func(l videohint.Look) { a.onLook(hs, l) },
 	})
-	if a.cfg.Meeting.RecordForTuning {
+	if cfg.Meeting.RecordForTuning {
 		hs.watcher.SetOnFullFrame(func(id int, jpeg []byte) {
 			if err := hs.log.WriteFull(id, jpeg); err != nil {
 				fmt.Printf("videohint: saving frame %d: %v\n", id, err)
@@ -65,6 +69,10 @@ func (a *Recorder) newHintWatcher() (*videohint.Watcher, *hintSession) {
 // bursts of looks.
 func (a *Recorder) startHintWatcher(ctx context.Context, hs *hintSession) {
 	hs.log = videohint.NewLookLog(filepath.Join(config.SessionDir(), hs.sess.ID))
+	a.videoHintMu.Lock()
+	a.videoLooks = nil
+	a.hints = hs
+	a.videoHintMu.Unlock()
 	go hs.watcher.Run(ctx)
 	go func() {
 		for {
@@ -78,8 +86,9 @@ func (a *Recorder) startHintWatcher(ctx context.Context, hs *hintSession) {
 	}()
 }
 
-// onLook records a look with the session and hands a read name to
-// whatever attributes names.
+// onLook records a look with the session, hands a read name to
+// whatever attributes names, and sends the look to the live feed (the
+// Musubi app's hint timeline).
 func (a *Recorder) onLook(hs *hintSession, l videohint.Look) {
 	if err := hs.log.Write(l); err != nil {
 		fmt.Printf("videohint: recording look %d: %v\n", l.ID, err)
@@ -95,6 +104,21 @@ func (a *Recorder) onLook(hs *hintSession, l videohint.Look) {
 		}
 	} else if hs.diar != nil && len(l.Candidates) > 1 {
 		hs.diar.AddCandidates(hs.coordinator.SessionTime(l.Time), l.Candidates)
+	}
+	meta := l
+	meta.Thumb = nil
+	a.videoHintMu.Lock()
+	current := a.hints == hs
+	if current {
+		a.videoLooks = append(a.videoLooks, meta)
+	}
+	a.videoHintMu.Unlock()
+	if current {
+		a.mu.Lock()
+		if a.liveFeed != nil {
+			a.liveFeed.Look(hs.sess.ID, func() control.LookView { return toLookView(l, hs.sess.CreatedAt, true) })
+		}
+		a.mu.Unlock()
 	}
 }
 
@@ -136,6 +160,7 @@ func (a *Recorder) followMeetingAudio(ctx context.Context, auto *meetingaudio.Au
 					a.videoHintMu.Lock()
 					a.audioSource = name
 					a.videoHintMu.Unlock()
+					a.publishStatus()
 				}
 			}
 		}
@@ -146,7 +171,7 @@ func (a *Recorder) followMeetingAudio(ctx context.Context, auto *meetingaudio.Au
 const micSilentAfter = 20 * time.Second
 
 // watchMic logs when the mic goes silent for micSilentAfter, and when
-// sound returns.
+// sound returns, and tells the source check (markSilent, clearSilent).
 func (a *Recorder) watchMic(ctx context.Context, c *live.Coordinator, device string) {
 	name := micName(device)
 	warned := false
@@ -159,12 +184,16 @@ func (a *Recorder) watchMic(ctx context.Context, c *live.Coordinator, device str
 		case <-t.C:
 			quiet := c.MicQuietFor()
 			switch {
-			case !warned && quiet >= micSilentAfter:
+			case quiet >= micSilentAfter:
+				if !warned {
+					fmt.Printf("mic %q: no signal for %.0fs\n", name, quiet.Seconds())
+				}
 				warned = true
-				fmt.Printf("mic %q: no signal for %.0fs\n", name, quiet.Seconds())
+				a.markSilent("mic")
 			case warned && quiet < 5*time.Second:
 				warned = false
 				fmt.Printf("mic %q: signal back\n", name)
+				a.clearSilent("mic")
 			}
 		}
 	}

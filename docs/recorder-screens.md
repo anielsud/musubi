@@ -1,6 +1,6 @@
 # Recorder screens in Musubi
 
-Status: design, for approval. Nothing here is built.
+Status: agreed 2026-11-11, being built.
 
 Step 5 of bringing Tomoe's engine into Musubi: the screens that let the
 owner stop opening Tomoe's window. Steps 1–4 are in
@@ -55,75 +55,110 @@ screen says so. The live feed socket stays as it is.
 
 ### What comes over
 
-1. **Recording status** (Status tab): recording or idle, which meeting and
-   for how long, mic silent, and a health line (permissions, models, last
-   crash). A "Stop recording" button for a meeting detected by mistake.
-   Detection stays automatic; no start button.
-2. **Speakers on the meeting page** (Meetings): the meeting's review queue,
+1. **Recording on the Status tab**: recording or idle, which meeting and
+   for how long, Start and Stop (detection stays automatic; Start is for a
+   meeting it missed, Stop for one it caught by mistake), the sources in
+   use, and a health block (permissions, models, tools, each with its fix).
+2. **Sources that look after themselves.** When a recording has a source
+   with no signal (a silent mic, a meeting app producing no audio), the
+   recorder listens briefly to the other sources and, if one has signal,
+   Musubi suggests switching to it, one click. The chosen default sources
+   live in Settings.
+3. **Diagnostics on the Status tab**: Tomoe's live-labelling pane (who the
+   diarizer thinks is speaking, voice matches, window hints) beside
+   Musubi's own pipeline traces.
+4. **What Musubi saw, in its thinking view.** The meeting-window looks
+   (Tomoe's hint timeline: tiles, active speaker, names read from the
+   window) join the trace of how Musubi is thinking, live during a meeting
+   and on the meeting page afterwards.
+5. **Speakers on the meeting page** (Meetings): the meeting's review queue,
    same choices as Tomoe's Voices panel, each with its voice clip and
-   video tile; and rename a speaker from the transcript.
-3. **Voices on the person page** (People): the person's voice profile with
+   video tile; rename a speaker from the transcript; delete the meeting.
+6. **Voices on the person page** (People): the person's voice profile with
    its meetings; rename, confirm, start over, forget, move or discard a
-   meeting; "Same person?" suggestions. A count of open reviews on the
-   People tab leads to them.
-4. **Live**: Musubi follows the recorder's socket; rename a speaker during
+   meeting; "Same person?" suggestions. Open reviews are counted on the
+   People tab and listed there.
+7. **Live**: Musubi follows the recorder's socket; rename a speaker during
    the meeting.
-5. **Delete a meeting**: removes the recording and its knowledge in Musubi
-   (statements, links). Asks first.
+8. **Settings, Recording section**: which recorder is of record, default
+   sources, the meeting window to watch, mic voices, and the rest of
+   Tomoe's settings that still apply.
+
+The recorder stays its own process, started at login by launchd and
+always on. A menu-bar item showing its state may come later.
 
 ### What stays behind
 
 Hotkey, dictation and other languages (dropped in step 2, and with them
-retranscribing in another language), manual start, audio source picker (read from config), the hint timeline and
-diagnostics panes (debug tools), model download screen (folded into the
-health line), export (Musubi's own views and MCP replace it; can be added
-later), title editing (titles come from the calendar).
+retranscribing in another language), export (Musubi's own views and MCP
+replace it; can be added later), title editing (titles come from the
+calendar).
 
 ### Settings
 
 The recorder's settings move into Musubi's one config file under
-`[recorder]`, edited from Settings like the rest. Until the switch the
-recorder keeps reading Tomoe's config.
+`[recorder]`, edited from Settings like the rest. A key set there wins;
+anything not set still comes from Tomoe's config until Tomoe is retired.
 
 ### Shadow first, then the switch
 
-Built against the recorder's own sessions; Musubi gets
-`recorder_sessions` and `[live] recorder_socket` keys, and a Settings
-choice of which recorder is "of record" (Tomoe until step 6). While Tomoe
-is of record the recorder still copies Tomoe's voices at each recording,
-which overwrites voice edits made in Musubi: fine for trying the screens,
-and the reason edits only become real at the switch, when the copy stops.
+Musubi gets a `[recorder]` setting `of_record` (`tomoe` or `musubi`,
+default `tomoe`, so nothing changes until the owner switches) and the
+recorder's sessions folder and sockets. Recording, sources, health and
+diagnostics always show the Musubi recorder; meetings, Live and voices
+follow whichever recorder is of record. On switching, Musubi imports only
+recorder sessions that start after the switch, so shadow recordings of
+meetings Tomoe already gave it are not imported twice.
+
+While Tomoe is of record the recorder still copies Tomoe's voices at each
+recording, which would overwrite voice edits made in Musubi; that is why
+voice and speaker edits are offered only once the Musubi recorder is of
+record.
+
+### How Musubi talks to the recorder
+
+A second socket beside the live feed, `control.sock` in the recorder's
+folder (owner-only permissions): one JSON request per line,
+`{"v":1,"id":7,"op":"rename_speaker","args":{...}}`, one reply per line,
+`{"v":1,"id":7,"ok":true,"result":{...}}` or `{"ok":false,"error":"..."}`.
+Operations: status, start, stop, sources, set_source, session,
+rename_speaker, not_them, skip_voice_name, skip_voice_doubt, voices,
+rename_voice, merge_voices, keep_apart, forget_voice, start_over,
+confirm_voice, remove_voice_meeting, move_voice_meeting, learn_saved,
+voice_clip, discarded_clip, looks, look_tile, delete_session, tools,
+fix_tool, reload_config. Types and a client are in
+`internal/recorder/control`.
+
+The live feed gains message types old readers ignore: `status`
+(recording state and sources, on every change), `audio` (a silent source
+and, if found, a source with signal), `diag` (live labelling) and `look`
+(a meeting-window look).
 
 ### Order of work
 
-1. **Recorder control socket** and the meeting glue (rename speaker, not
-   them, skip, doubts, voice edits, move or discard a meeting, stop,
-   delete, status). Tomoe's backend functions are lifted where the owner
-   wrote them and rewritten where upstream did, per the provenance rules.
-   Tested against copies of real sessions.
-2. **Paths, Status and Live**: the config keys, recording status, Live on
-   the recorder's socket with rename.
-3. **Meeting page speakers.**
-4. **Voices in People.**
-5. **Delete.**
+1. **Recorder**: the control socket, the new feed messages, Tomoe's
+   backend glue for each operation (lifted where the owner wrote it,
+   rewritten where upstream did, per the provenance rules), the source
+   check, and `[recorder]` settings from Musubi's config.
+2. **Musubi**: the settings keys and recorder client, then the Status,
+   Settings, Live, meeting page, People and thinking-view changes, and
+   delete (the recording through the recorder, the meeting's knowledge
+   through Musubi's forget).
 
-One PR each, stacked on #25.
+## Trade-offs and decisions
 
-## Trade-offs and open questions
-
-- **Re-extraction cost.** A renamed speaker re-extracts that meeting
-  (one meeting's hosted calls). Alternative: a relabel-only path that
-  updates speaker names on existing statements without re-extracting:
-  cheaper, but statements extracted under the wrong speaker keep wording
-  that may assume them. Proposal: re-extract (correctness first), check
-  statement counts after, as for any re-run.
-- **Control socket vs Musubi writing files.** The socket adds a small
+- **Re-extraction cost.** A renamed speaker changes the session file, so
+  that meeting is re-extracted (one meeting's hosted calls), rather than
+  only relabelling existing statements whose wording may assume the wrong
+  speaker. Statement counts are checked after, as for any re-run.
+- **Control socket vs Musubi writing files.** The socket is a small
   protocol to maintain; writing files directly would race the recorder
-  during a meeting and could lose a voice edit or a recording. Socket
-  proposed.
-- **Edits unavailable when the recorder is down.** Acceptable: it is
-  started by launchd and restarts after a crash.
-- **Delete reaches into Musubi's knowledge.** Unknown: whether a deleted
-  meeting's statements should vanish from threads or stay marked as from a
-  removed source. Proposed: remove them, like `forget` does for other
-  sources; to confirm before step 5.
+  during a meeting and could lose a voice edit or a recording.
+- **Edits unavailable when the recorder is down.** Acceptable: launchd
+  starts it and restarts it after a crash. The screens say when it is not
+  running.
+- **Delete reaches into Musubi's knowledge.** Deleting a meeting removes
+  its statements from threads, as `forget` does for other sources.
+- **Decided 2026-11-11** (owner): manual start and the source picker stay;
+  diagnostics move to Status; the hint timeline joins the thinking view;
+  build all of it and refine from there.

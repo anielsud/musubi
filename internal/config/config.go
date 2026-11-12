@@ -699,7 +699,7 @@ func DefaultConfig() Config {
 		},
 		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16"},
 		Diagnostics: Diagnostics{Profiling: true, Resources: true},
-		Recorder:    Recorder{OfRecord: "tomoe", Watchdog: true, Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
+		Recorder:    Recorder{OfRecord: "tomoe", Watchdog: true, Relabel: true, Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}
 }
 

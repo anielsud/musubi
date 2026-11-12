@@ -54,7 +54,7 @@ func root() *cobra.Command {
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
 	r.AddCommand(importItemsCmd(), extractLeanCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), aliasesCmd(), liveCmd(),
-		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd(), vectorsCmd())
+		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd(), vectorsCmd(), relabelCmd())
 	return r
 }
 

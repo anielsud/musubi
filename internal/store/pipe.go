@@ -133,6 +133,11 @@ type Chunk struct {
 // hashes include the chunk stage's.
 func (s *Store) ReplaceChunks(itemID, version, hash string, chunks []Chunk) error {
 	return s.tx(func(tx *sql.Tx) error {
+		// New passages (or a new title) are new input: what came from the
+		// passages before a relabel no longer stands for them.
+		if _, err := tx.Exec(`DELETE FROM stage_runs WHERE stage = ? AND item_id = ?`, RelabelledStage, itemID); err != nil {
+			return err
+		}
 		// The same passages under a new title (the meeting was linked to its
 		// calendar event, or renamed) keep their rows: deleting them would
 		// cascade to the statements, digests and vectors that point at them.

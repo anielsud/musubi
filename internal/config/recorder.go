@@ -35,6 +35,13 @@ type Recorder struct {
 	// and, after 30 s down, starts it (launchd) and warns (a red button,
 	// a notification after 90 s). false: no checks, as before.
 	Watchdog bool `toml:"watchdog"`
+	// Relabel: renaming a voice profile can put the new name on the
+	// speaker labels of the meetings it identified, and renaming a
+	// speaker on a saved meeting relabels Musubi's copy, with no model
+	// calls (docs/recorder-screens.md, "Renaming a voice profile renames
+	// its speakers"). false: a profile rename changes only the profile,
+	// and a renamed speaker re-extracts the meeting, as before.
+	Relabel bool `toml:"relabel"`
 	// Audio, Transcription and Meeting override the keys of the same
 	// tables in Tomoe's config for the recorder (meanings in
 	// internal/recorder/config). Kept as raw values: the recorder reads

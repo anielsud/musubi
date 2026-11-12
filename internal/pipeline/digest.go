@@ -83,6 +83,22 @@ func (r *Runner) digestMeetings(ctx context.Context, o KnowledgeOptions, items [
 				}
 			}
 		}
+		if cur != "" && cur != knowledge.DigestVersion+"/"+h {
+			// Read from the passages the item had before a speaker relabel
+			// (store.RelabelledStage), which rewrote the digest with them.
+			for _, was := range r.Store.RelabelledChunkStamps(it.ID) {
+				if cur != knowledge.DigestVersion+"/"+hashOf("digest", knowledge.DigestVersion, was, lf, llm.ModelName(), r.Cfg.Owner.Name, known) {
+					continue
+				}
+				if o.Plan {
+					cur = knowledge.DigestVersion + "/" + h
+				} else if err := r.Store.RestampDigest(it.ID, knowledge.DigestVersion, h, input); err == nil {
+					cur = knowledge.DigestVersion + "/" + h
+					r.logf("digest %s: kept (relabelled speakers)", it.ID)
+				}
+				break
+			}
+		}
 		if cur != "" {
 			have = append(have, it.ID)
 		}
@@ -97,7 +113,21 @@ func (r *Runner) digestMeetings(ctx context.Context, o KnowledgeOptions, items [
 		if cur != "" && kc.Updates != "auto" {
 			// Digested before under another version, with the same input:
 			// keep it until asked.
-			if in, _ := r.Store.StageStamp("digest-input", it.ID); in == "in/"+input {
+			in, _ := r.Store.StageStamp("digest-input", it.ID)
+			if in != "in/"+input {
+				// Read from the passages before a speaker relabel: the same
+				// input, so kept as an earlier version's.
+				for _, was := range r.Store.RelabelledChunkStamps(it.ID) {
+					if in == "in/"+hashOf("input", was, lf, known) {
+						if !o.Plan {
+							r.Store.SetStageInput("digest-input", it.ID, input)
+						}
+						in = "in/" + input
+						break
+					}
+				}
+			}
+			if in == "in/"+input {
 				older = append(older, j)
 				continue
 			}

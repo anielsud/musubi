@@ -138,6 +138,21 @@ output: its prompt version, model, rules in code and settings.
   silently left their threads.
 - **Old behaviour:** `knowledge.updates = "auto"` redoes everything when
   a version changes.
+- **Speaker relabels** (`[recorder] relabel`; docs/recorder-screens.md,
+  "Renaming a voice profile renames its speakers"): a corrected speaker
+  label is written into a meeting's stored copies (item, passages,
+  statements, digest, thread prose and statuses) by
+  `pipeline.Runner.RelabelSpeaker` and `store.RelabelSpeaker`, in one
+  transaction and with no model calls, when it changes nothing but labels
+  and passage boundaries. The new chunk stamp is written and the one it
+  replaces kept in the `chunk-relabelled` stage row; extraction and
+  digests whose stamp (or, kept from an earlier version, whose input) was
+  made from a kept chunk stamp are restamped, not run. Changed passages
+  and statements are embedded again locally; the registry, links,
+  classify and resolve then re-run as on any import of a new name. The
+  next import of the rewritten session translates to the same
+  `content_hash` and changes nothing. `speaker_relabels` keeps each
+  field's before and after, for undo.
 
 | Stage | Output |
 |---|---|
@@ -1215,7 +1230,7 @@ passage vectors sqlite-vec compares them exactly, as before; once it holds
 float16 ones (`store_meta`), the candidates are decoded and compared in
 Go the same way. The 1-bit codes above stay in front past 2,000.
 
-**Schema** (`internal/store/schema.sql`, version 4; 35 tables), by layer:
+**Schema** (`internal/store/schema.sql`, version 4; 36 tables), by layer:
 
 | Layer | Tables |
 |---|---|
@@ -1225,7 +1240,7 @@ Go the same way. The 1-bit codes above stay in front past 2,000.
 | Knowledge | `statements`, `statement_vecs`, `claims`, `claim_codes`, `statement_claims`, `claim_relations`, `statement_relations` |
 | Topics and threads | `topics`, `topic_relations`, `topic_entities`, `topic_events`, `thread_items`, `thread_runs`, `thread_status` |
 | Owner's decisions (kept across rebuilds) | `corrections`, `learned_aliases`, `thread_edits`, `owner_links`, `forgotten`, `audit`, `judgments` |
-| Stage bookkeeping | `stage_runs`, `global_runs`, `store_meta` (one-off data upgrades done, vector encodings present) |
+| Stage bookkeeping | `stage_runs`, `global_runs`, `store_meta` (one-off data upgrades done, vector encodings present), `speaker_relabels` (what a speaker relabel replaced, for undo) |
 
 **Size, measured (the "All" dataset, 2026-10-21):** 268 MB for 165
 meetings and 55 other items (9,494 passages, 20,879 statements, 690

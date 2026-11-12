@@ -191,20 +191,7 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 		}
 		it := &items[i]
 		ch := it.ContentHash()
-		title := it.Title
-		if l := linked(it.ID); l != nil {
-			title = l.Title
-		} else if g := given[it.ID].Title; g != "" {
-			title = g
-		}
-		// An extracted item keeps the title its passages were extracted
-		// under: a later link to a calendar event (or a new generated name)
-		// would otherwise change the chunk stamp, and so re-extract it.
-		if ex, _ := r.Store.StageStamp("extract", it.ID); ex != "" {
-			if was, err := r.Store.ChunkTitle(it.ID); err == nil && was != "" {
-				title = was
-			}
-		}
+		title := r.passageTitle(it, linked(it.ID), given[it.ID].Title)
 		chunkHash := hashOf("chunk", stages.ChunkVersion, ch, title)
 		chunks, err := r.ensure("chunk", it.ID, stages.ChunkVersion, chunkHash, st, func() error {
 			return r.Store.ReplaceChunks(it.ID, stages.ChunkVersion, chunkHash, stages.Chunk(*it, title))
@@ -258,6 +245,26 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 			})
 		}
 	})
+}
+
+// passageTitle is the title an item's passages carry: its calendar
+// event's subject, else a name Musubi gave it, else its own.
+func (r *Runner) passageTitle(it, linked *item.Item, given string) string {
+	title := it.Title
+	if linked != nil {
+		title = linked.Title
+	} else if given != "" {
+		title = given
+	}
+	// An extracted item keeps the title its passages were extracted
+	// under: a later link to a calendar event (or a new generated name)
+	// would otherwise change the chunk stamp, and so re-extract it.
+	if ex, _ := r.Store.StageStamp("extract", it.ID); ex != "" {
+		if was, err := r.Store.ChunkTitle(it.ID); err == nil && was != "" {
+			title = was
+		}
+	}
+	return title
 }
 
 // ensure runs fn if the stage's stamp is stale. It returns the item's fresh

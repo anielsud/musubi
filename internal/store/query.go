@@ -452,11 +452,13 @@ func (s *Store) EntityGraph(sc sensitivity.Scope, entityID string, exclude []str
 		cvis, cargs := visSQL(sc, "il", "cl", "c.item_id")
 		ivis, iargs := visSQL(sc, "il", "", "ie.item_id")
 		q := `SELECT en.id, en.type, en.name, en.level FROM mentions mm JOIN chunks c ON c.id = mm.chunk_id` + chunkVisJoin + `
-			JOIN entities en ON en.id = mm.entity_id WHERE c.item_id = ? AND ` + cvis + `
+			JOIN entities en ON en.id = mm.entity_id WHERE mm.item_id = ? AND c.item_id = ? AND ` + cvis + `
 			UNION
 			SELECT en.id, en.type, en.name, en.level FROM item_entities ie JOIN labels il ON il.item_id = ie.item_id AND il.chunk_seq = -1
 			JOIN entities en ON en.id = ie.entity_id WHERE ie.item_id = ? AND ` + ivis
-		args := append([]any{it.ID}, cargs...)
+		// mm.item_id lets SQLite use mentions_item instead of scanning every
+		// mention for each item (a mention's item is its passage's).
+		args := append([]any{it.ID, it.ID}, cargs...)
 		args = append(args, it.ID)
 		args = append(args, iargs...)
 		rows, err := s.rdb.Query(q, args...)

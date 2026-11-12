@@ -291,9 +291,12 @@ type VoiceMeetingView struct {
 	Source       string    `json:"source"`
 	Fingerprints int       `json:"fingerprints"`
 	Agreement    float64   `json:"agreement"`
-	Clip         VoiceClip `json:"clip"`
-	Tiles        []TileRef `json:"tiles"`
-	Confirmed    bool      `json:"confirmed,omitempty"`
+	// Compared: other meetings that teach the profile exist to compare
+	// with; false, Agreement means nothing (it reads 0).
+	Compared  bool      `json:"compared"`
+	Clip      VoiceClip `json:"clip"`
+	Tiles     []TileRef `json:"tiles"`
+	Confirmed bool      `json:"confirmed,omitempty"`
 	// Learned: the meeting has enough voice to teach the profile; a
 	// shorter one names the speaker but isn't in the profile's voice.
 	Learned bool `json:"learned"`

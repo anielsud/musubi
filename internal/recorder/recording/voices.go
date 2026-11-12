@@ -120,7 +120,7 @@ func (a *Recorder) Voices() (*VoicesView, error) {
 				if rest.N > 0 {
 					agree = voices.Similarity(h.Voice.Centroid(), rest.Centroid())
 				}
-				v.Heard = append(v.Heard, VoiceMeetingView{Session: h.Session, Title: titles[h.Session], At: h.At, Source: h.Source, Fingerprints: h.Voice.N, Agreement: agree, Confirmed: h.Confirmed, Learned: h.Voice.N >= minLearn, Clip: VoiceClip{Session: h.Session, Start: h.Clip.Start, End: h.Clip.End},
+				v.Heard = append(v.Heard, VoiceMeetingView{Session: h.Session, Title: titles[h.Session], At: h.At, Source: h.Source, Fingerprints: h.Voice.N, Agreement: agree, Compared: rest.N > 0, Confirmed: h.Confirmed, Learned: h.Voice.N >= minLearn, Clip: VoiceClip{Session: h.Session, Start: h.Clip.Start, End: h.Clip.End},
 					Tiles: tilesOf(h.Session, append([]string{p.Name}, p.Aliases...), tilesPerMeeting)})
 			}
 			sort.Slice(v.Heard, func(i, j int) bool { return v.Heard[i].At.After(v.Heard[j].At) })

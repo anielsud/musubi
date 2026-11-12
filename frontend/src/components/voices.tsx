@@ -21,7 +21,9 @@ const agreeFlag = 0.6;
 // enough voice; a few seconds score low even for the right person, so
 // they name speakers but don't teach) and sounds unlike the rest, not
 // already confirmed by the owner.
-const odd = (h: { agreement: number; learned?: boolean; confirmed?: boolean }, n: number) => n > 1 && !h.confirmed && h.learned !== false && h.agreement < agreeFlag;
+// compared === false: nothing else teaches the profile to measure it
+// against, so its score is no evidence either way.
+const odd = (h: { agreement: number; learned?: boolean; confirmed?: boolean; compared?: boolean }, n: number) => n > 1 && !h.confirmed && h.learned !== false && h.compared !== false && h.agreement < agreeFlag;
 
 export function useVoices() {
   const [view, setView] = useState<VoicesView | null>(null);
@@ -525,6 +527,7 @@ export function VoiceProfileCard({ p, profiles, editable, a }: { p: VoiceProfile
                     {heard.length <= 1 ? 'Only meeting'
                       : h.confirmed ? `${Math.round(h.agreement * 100)}% like the other meetings · confirmed by you`
                       : thin ? 'A few seconds of voice: names the speaker, too little to learn from'
+                      : h.compared === false ? 'The only meeting it learns from: nothing to compare with yet'
                       : `${Math.round(h.agreement * 100)}% like the other meetings${check ? ': may be someone else' : ''}`}
                   </div>
                   <MeetingSamplesRow s={samples} p={p} session={h.session} editable={editable} a={a} />

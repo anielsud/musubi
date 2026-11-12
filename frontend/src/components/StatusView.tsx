@@ -6,7 +6,7 @@ import { RecordingCard } from './recorder';
 
 const levels = ['public', 'internal', 'confidential', 'restricted'];
 
-export function StatusView({ status }: { status: AppStatus | null }) {
+export function StatusView({ status, active }: { status: AppStatus | null; active: boolean }) {
   if (!status) return <div className="view"><Spinner /></div>;
   const s = status.stats;
   const chunkTotal = s ? levels.reduce((n, l) => n + (s.ChunkLevels[l] ?? 0), 0) : 0;
@@ -39,7 +39,7 @@ export function StatusView({ status }: { status: AppStatus | null }) {
         )}
       </section>
 
-      <WorkQueue />
+      <WorkQueue active={active} />
 
       <Connections status={status} />
 
@@ -99,18 +99,20 @@ const usd = (n: number) => (n < 1 ? `${Math.max(1, Math.round(n * 100))}¢` : `$
 // their own (new meetings, a few at a time), and what needs a run started
 // here (a big batch, or a backlog that only joins by rethreading in time
 // order).
-function WorkQueue() {
+function WorkQueue({ active }: { active: boolean }) {
   const [q, setQ] = useState<QueueView | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const load = () => api.queue().then((v) => { setQ(v); setErr(null); }, (e) => setErr(String(e)));
   useEffect(() => {
+    // Only while Status is on screen: working the queue out holds the
+    // database. Other processes (the CLI, a run elsewhere) change it too.
+    if (!active) return;
     load();
-    // Other processes (the CLI, a run elsewhere) change the queue too.
     const t = setInterval(load, 30000);
     const offs = [on('queue:changed', load), on('update:done', load)];
     return () => { clearInterval(t); offs.forEach((f) => f()); };
-  }, []);
+  }, [active]);
   if (err) return <section><div className="section-head"><span>Work queue</span></div><div className="error">{err}</div></section>;
   if (!q) return null;
   const newN = q.newExtract + q.newThread;

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/anielsud/musubi/internal/pipeline"
 	"github.com/anielsud/musubi/internal/provider"
@@ -42,7 +43,7 @@ func (a *App) Queue() (*QueueView, error) {
 	if a.eng == nil {
 		return nil, fmt.Errorf("not ready: %s", a.err)
 	}
-	q, err := a.eng.Queue()
+	q, err := a.cachedQueue()
 	if err != nil {
 		return nil, err
 	}
@@ -109,4 +110,37 @@ func (a *App) RunKnowledge(kind string) error {
 	}()
 	a.emit("queue:changed", nil)
 	return nil
+}
+
+// queueCache keeps the last work queue: working it out reads every item
+// and compares transcripts (seconds on a large dataset), and the database
+// has one connection, so recomputing it on every Status refresh held up
+// every other screen. It is worked out again when the store's WorkStamp
+// or the knowledge settings change, or after queueMaxAge in any case.
+type queueCache struct {
+	mu    sync.Mutex
+	key   string
+	at    time.Time
+	queue pipeline.Queue
+}
+
+const queueMaxAge = 10 * time.Minute
+
+func (a *App) cachedQueue() (pipeline.Queue, error) {
+	stamp, err := a.eng.Store.WorkStamp()
+	if err != nil {
+		return a.eng.Queue()
+	}
+	key := fmt.Sprintf("%s|%+v", stamp, a.eng.Cfg.Knowledge)
+	a.qcache.mu.Lock()
+	defer a.qcache.mu.Unlock()
+	if a.qcache.key == key && time.Since(a.qcache.at) < queueMaxAge {
+		return a.qcache.queue, nil
+	}
+	q, err := a.eng.Queue()
+	if err != nil {
+		return q, err
+	}
+	a.qcache.key, a.qcache.at, a.qcache.queue = key, time.Now(), q
+	return q, nil
 }

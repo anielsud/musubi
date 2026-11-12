@@ -114,7 +114,7 @@ export function App() {
           <ExploreView scope={scope} focus={focus} setFocus={setFocus} onOpen={openHit} topicReq={topicReq} correctReq={correctReq}
             onOpenItem={(id, sc) => setSource({ itemId: id, scope: sc })} />
         </div>
-        <div hidden={view !== 'status'}><StatusView status={status} /></div>
+        <div hidden={view !== 'status'}><StatusView status={status} active={view === 'status'} /></div>
         <div hidden={view !== 'settings'}><SettingsView status={status} /></div>
       </main>
 

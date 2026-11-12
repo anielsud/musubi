@@ -730,3 +730,25 @@ func (s *Store) SetItemTitle(itemID, title, source, input string) error {
 func displayTitle(a string) string {
 	return `coalesce((SELECT de.title FROM item_links dl JOIN items de ON de.id = dl.other_id WHERE dl.item_id = ` + a + `.id AND dl.rel = 'occurred_as'), (SELECT dt.title FROM item_titles dt WHERE dt.item_id = ` + a + `.id), ` + a + `.title)`
 }
+
+// WorkStamp changes whenever the work queue's answer can: an item
+// imported, changed or forgotten (the manifest records each fetch that
+// changed it), a stage run, a thread placement. It reads only counts and
+// maxima, so asking it is cheap where the queue itself reads every item.
+func (s *Store) WorkStamp() (string, error) {
+	var items, threadItems, maxThreadRow int64
+	var maxFetch, maxRun sql.NullInt64
+	if err := s.db.QueryRow(`SELECT count(*) FROM items`).Scan(&items); err != nil {
+		return "", err
+	}
+	if err := s.db.QueryRow(`SELECT max(fetched_at) FROM raw_manifest`).Scan(&maxFetch); err != nil {
+		return "", err
+	}
+	if err := s.db.QueryRow(`SELECT max(ran_at) FROM stage_runs`).Scan(&maxRun); err != nil {
+		return "", err
+	}
+	if err := s.db.QueryRow(`SELECT count(*), coalesce(max(rowid), 0) FROM thread_items`).Scan(&threadItems, &maxThreadRow); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d/%d/%d/%d/%d", items, maxFetch.Int64, maxRun.Int64, threadItems, maxThreadRow), nil
+}

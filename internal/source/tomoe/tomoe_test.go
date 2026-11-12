@@ -32,4 +32,10 @@ func TestSinceSkipsEarlierSessions(t *testing.T) {
 	if len(got) != 1 || got[0] != "new" {
 		t.Errorf("since: %v, want [new]", got)
 	}
+	// A migrated meeting Musubi already has comes in again (a speaker
+	// fixed in it); an unknown earlier one (a shadow recording) doesn't.
+	got = fetch(Connector{Dir: dir, Since: time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC), Known: func(ref string) bool { return ref == "old" }})
+	if len(got) != 2 || got[0] != "new" || got[1] != "old" {
+		t.Errorf("since + known: %v, want [new old]", got)
+	}
 }

@@ -133,14 +133,18 @@ func (v Views) Card(x *CardIndex, a Anchor, ownerID, ownerName string) (*Card, e
 			ids = append(ids, x.TopicClaims(t)...)
 		}
 	}
-	ev, err := v.Store.Evidence(v.Scope, ids)
+	evidence, topicInfos := v.Store.Evidence, v.Store.TopicInfos
+	if v.Cache != nil {
+		evidence, topicInfos = v.Cache.Evidence, v.Cache.TopicInfos
+	}
+	ev, err := evidence(v.Scope, ids)
 	if err != nil {
 		return nil, err
 	}
 	if len(ev) == 0 {
 		return nil, nil
 	}
-	infos, err := v.Store.TopicInfos()
+	infos, err := topicInfos()
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +174,10 @@ func (v Views) Card(x *CardIndex, a Anchor, ownerID, ownerName string) (*Card, e
 				known = append(known, st)
 			}
 		}
-		e.Statements = known
+		// A copy: the evidence may be shared (Views.Cache).
+		ec := *e
+		ec.Statements = known
+		e = &ec
 		if len(e.Statements) == 0 {
 			continue
 		}

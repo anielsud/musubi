@@ -35,6 +35,8 @@ type Config struct {
 	MCP         MCP         `toml:"mcp"`
 	Gateway     Gateway     `toml:"gateway"`
 	Recorder    Recorder    `toml:"recorder"`
+	Store       Store       `toml:"store"`
+	Diagnostics Diagnostics `toml:"diagnostics"`
 	// Providers are hosted endpoints set up once and named, for models to
 	// use with `via` (Settings → AI providers).
 	Providers map[string]Provider `toml:"providers"`
@@ -574,6 +576,38 @@ type Live struct {
 	// opening its nearest topic (research log 2026-10-28: 80–90% of cards
 	// on topic against 12%).
 	Pick Pick `toml:"pick"`
+	// Cache keeps, for the meeting, the reads Live repeats (topic infos,
+	// cards' evidence, thread statuses, entity graphs, statement vectors),
+	// each under the scope it was read in, until the database changes.
+	// false: read every time, as before.
+	Cache bool `toml:"cache"`
+	// SkipIdle skips a pick, or a model suggestion run, whose input (the
+	// conversation it reads and, for a pick, its candidates) hasn't changed
+	// since the last; the cadence stays. false: run every time, as before.
+	SkipIdle bool `toml:"skip_idle"`
+}
+
+// Store tunes the database's connections (store.Options). Measured on
+// the all-t4 dataset (766 MB), docs/research-log.md, 2026-11-12.
+type Store struct {
+	// CacheMB is each connection's page cache, in MiB. 0: SQLite's
+	// default (2 MB), as before.
+	CacheMB int `toml:"cache_mb"`
+	// MmapMB maps up to this much of the database file for reads. 0: off,
+	// as before.
+	MmapMB int `toml:"mmap_mb"`
+	// ReadConns is how many read-only connections serve the screens' and
+	// Live's reads while the one writer writes. 1: everything shares the
+	// single connection, as before.
+	ReadConns int `toml:"read_conns"`
+}
+
+// Diagnostics: tools in the diagnostics panel.
+type Diagnostics struct {
+	// Profiling offers "Record a 30 s profile" (a CPU profile and a
+	// goroutine dump under the data folder's profiles/). It only runs when
+	// pressed. false: no button.
+	Profiling bool `toml:"profiling"`
 }
 
 type Pick struct {
@@ -642,7 +676,10 @@ func DefaultConfig() Config {
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
 			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
+			Cache: true, SkipIdle: true,
 		},
+		Store:       Store{CacheMB: 64, MmapMB: 2048, ReadConns: 4},
+		Diagnostics: Diagnostics{Profiling: true},
 		Recorder: Recorder{OfRecord: "tomoe", Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}
 }

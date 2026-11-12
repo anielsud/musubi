@@ -166,7 +166,7 @@ var digestTodoCols = `x.id, x.item_id, ` + displayTitle("i") + `, x.n, x.text, x
 	coalesce(x.statement_id, 0), x.link_score, x.level, x.categories, x.grounded, x.issues`
 
 func (s *Store) scanDigestTodos(where string, args []any) ([]DigestTodo, error) {
-	rows, err := s.db.Query(`SELECT `+digestTodoCols+` FROM meeting_todos x JOIN items i ON i.id = x.item_id `+where, args...)
+	rows, err := s.rdb.Query(`SELECT `+digestTodoCols+` FROM meeting_todos x JOIN items i ON i.id = x.item_id `+where, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +208,7 @@ func (s *Store) MeetingDigest(sc sensitivity.Scope, itemID string) (*Digest, err
 	d := &Digest{ItemID: itemID}
 	var made, start int64
 	var lvl, cats int64
-	err := s.db.QueryRow(`SELECT `+displayTitle("i")+`, i.occurred_at, x.version, x.overview, x.made_at, x.level, x.categories FROM meeting_digests x JOIN items i ON i.id = x.item_id`+digestVisJoin+
+	err := s.rdb.QueryRow(`SELECT `+displayTitle("i")+`, i.occurred_at, x.version, x.overview, x.made_at, x.level, x.categories FROM meeting_digests x JOIN items i ON i.id = x.item_id`+digestVisJoin+
 		`WHERE x.item_id = ? AND `+vis, append([]any{itemID}, vargs...)...).Scan(&d.ItemTitle, &start, &d.Version, &d.Overview, &made, &lvl, &cats)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -218,7 +218,7 @@ func (s *Store) MeetingDigest(sc sensitivity.Scope, itemID string) (*Digest, err
 	}
 	d.MadeAt, d.Start = time.Unix(made, 0), time.Unix(start, 0)
 	d.OverviewOwn = sensitivity.Label{Level: sensitivity.Level(lvl), Categories: sensitivity.Categories(cats)}
-	rows, err := s.db.Query(`SELECT x.n, x.subject, x.text, x.people, x.spans, x.grounded, x.issues, x.level, x.categories FROM meeting_sections x`+digestVisJoin+
+	rows, err := s.rdb.Query(`SELECT x.n, x.subject, x.text, x.people, x.spans, x.grounded, x.issues, x.level, x.categories FROM meeting_sections x`+digestVisJoin+
 		`WHERE x.item_id = ? AND `+vis+` ORDER BY x.n`, append([]any{itemID}, vargs...)...)
 	if err != nil {
 		return nil, err
@@ -284,7 +284,7 @@ func (s *Store) DigestedItems(sc sensitivity.Scope, limit int) ([]DigestedItem, 
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(`SELECT x.item_id, `+displayTitle("i")+`, i.occurred_at, x.overview, max(il.level, x.level), (il.categories | x.categories),
+	rows, err := s.rdb.Query(`SELECT x.item_id, `+displayTitle("i")+`, i.occurred_at, x.overview, max(il.level, x.level), (il.categories | x.categories),
 		(SELECT count(*) FROM meeting_sections WHERE item_id = x.item_id), (SELECT count(*) FROM meeting_todos WHERE item_id = x.item_id)
 		FROM meeting_digests x JOIN items i ON i.id = x.item_id`+digestVisJoin+`WHERE `+vis+` ORDER BY i.occurred_at DESC LIMIT ?`,
 		append(vargs, limit)...)
@@ -324,7 +324,7 @@ func (s *Store) MeetingTopics(sc sensitivity.Scope, itemID string, min int) ([]M
 	if min < 1 {
 		min = 1
 	}
-	rows, err := s.db.Query(`SELECT t.id, t.label, t.label_level, t.size, count(*) n
+	rows, err := s.rdb.Query(`SELECT t.id, t.label, t.label_level, t.size, count(*) n
 		FROM thread_items ti JOIN statements st ON st.id = ti.statement_id JOIN chunks c ON c.id = st.chunk_id`+chunkVisJoin+`
 		JOIN topics t ON t.id = ti.topic_id
 		WHERE st.item_id = ? AND ti.current = 1 AND `+vis+`

@@ -75,7 +75,7 @@ func (s *Store) statementVecsOf(ids []int64, model string) (map[int64][]float32,
 		for _, id := range part {
 			args = append(args, id)
 		}
-		rows, err := s.db.Query(`SELECT statement_id, vec FROM statement_vecs WHERE model = ? AND statement_id IN (`+
+		rows, err := s.rdb.Query(`SELECT statement_id, vec FROM statement_vecs WHERE model = ? AND statement_id IN (`+
 			strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")+`)`, args...)
 		if err != nil {
 			return nil, err

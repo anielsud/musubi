@@ -208,7 +208,7 @@ func (s *Store) vectorIDs(sc sensitivity.Scope, q SearchQuery, depth int) ([]int
 }
 
 func (s *Store) ids(query string, args ...any) ([]int64, error) {
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.rdb.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func (s *Store) hit(sc sensitivity.Scope, chunkID int64) (*Hit, error) {
 	var occ int64
 	var lvl int
 	var cats int64
-	err := s.db.QueryRow(q, args...).Scan(&h.ChunkID, &h.ItemID, &h.Kind, &h.Title, &occ, &h.Seq, &h.Start, &h.End, &h.Speakers, &h.Text, &lvl, &cats, &h.Label.Reason)
+	err := s.rdb.QueryRow(q, args...).Scan(&h.ChunkID, &h.ItemID, &h.Kind, &h.Title, &occ, &h.Seq, &h.Start, &h.End, &h.Speakers, &h.Text, &lvl, &cats, &h.Label.Reason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -306,7 +306,7 @@ func (s *Store) FindEntities(sc sensitivity.Scope, q string) ([]EntityRef, error
 	lq := strings.ToLower(strings.TrimSpace(q))
 	// Exact matches first (an id, a bare email or domain, an alias, a
 	// name), then names containing the text, for typing "dana" or "acme".
-	rows, err := s.db.Query(`SELECT e.id, e.type, e.name, e.origin, e.level, min(r) FROM (
+	rows, err := s.rdb.Query(`SELECT e.id, e.type, e.name, e.origin, e.level, min(r) FROM (
 			SELECT e.id, 0 r FROM entities e WHERE e.id IN (?, 'person:' || ?, 'org:' || ?, 'term:' || ?)
 			UNION ALL SELECT a.entity_id, 1 FROM entity_aliases a WHERE a.alias = ?
 			UNION ALL SELECT e.id, 1 FROM entities e WHERE lower(e.name) = ?
@@ -373,7 +373,7 @@ func (s *Store) entityItems(sc sensitivity.Scope, entityID string, limit int) ([
 	args = append(args, entityID)
 	args = append(args, iargs...)
 	args = append(args, limit)
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.rdb.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +399,7 @@ func (s *Store) entityItems(sc sensitivity.Scope, entityID string, limit int) ([
 func (s *Store) EntityGraph(sc sensitivity.Scope, entityID string, exclude []string, limit int) (*Graph, error) {
 	var e Entity
 	var lvl int
-	err := s.db.QueryRow(`SELECT id, type, name, origin, level FROM entities WHERE id = ?`, entityID).Scan(&e.ID, &e.Type, &e.Name, &e.Origin, &lvl)
+	err := s.rdb.QueryRow(`SELECT id, type, name, origin, level FROM entities WHERE id = ?`, entityID).Scan(&e.ID, &e.Type, &e.Name, &e.Origin, &lvl)
 	e.Level = sensitivity.Level(lvl)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -459,7 +459,7 @@ func (s *Store) EntityGraph(sc sensitivity.Scope, entityID string, exclude []str
 		args := append([]any{it.ID}, cargs...)
 		args = append(args, it.ID)
 		args = append(args, iargs...)
-		rows, err := s.db.Query(q, args...)
+		rows, err := s.rdb.Query(q, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -502,7 +502,7 @@ func (s *Store) Audit(sc sensitivity.Scope, op, detail string) error {
 
 // AuditCounts counts the audited reads made under a scope name, by op.
 func (s *Store) AuditCounts(scope string) (map[string]int, error) {
-	rows, err := s.db.Query(`SELECT op, count(*) FROM audit WHERE scope = ? GROUP BY op`, scope)
+	rows, err := s.rdb.Query(`SELECT op, count(*) FROM audit WHERE scope = ? GROUP BY op`, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -526,7 +526,7 @@ func (s *Store) ChunkLabel(chunkID int64) (sensitivity.Label, []string, error) {
 	var lvl int
 	var cats int64
 	var itemID string
-	err := s.db.QueryRow(`SELECT c.item_id, max(il.level, coalesce(cl.level, 0)), (il.categories | coalesce(cl.categories, 0))
+	err := s.rdb.QueryRow(`SELECT c.item_id, max(il.level, coalesce(cl.level, 0)), (il.categories | coalesce(cl.categories, 0))
 		FROM chunks c`+chunkVisJoin+`WHERE c.id = ?`, chunkID).Scan(&itemID, &lvl, &cats)
 	if err != nil {
 		return sensitivity.Label{}, nil, fmt.Errorf("chunk %d has no label: %w", chunkID, err)
@@ -539,7 +539,7 @@ func (s *Store) ChunkLabel(chunkID int64) (sensitivity.Label, []string, error) {
 func (s *Store) ItemLabel(itemID string) (sensitivity.Label, []string, error) {
 	var lvl int
 	var cats int64
-	err := s.db.QueryRow(`SELECT level, categories FROM labels WHERE item_id = ? AND chunk_seq = -1`, itemID).Scan(&lvl, &cats)
+	err := s.rdb.QueryRow(`SELECT level, categories FROM labels WHERE item_id = ? AND chunk_seq = -1`, itemID).Scan(&lvl, &cats)
 	if err != nil {
 		return sensitivity.Label{}, nil, fmt.Errorf("item %s has no label: %w", itemID, err)
 	}
@@ -548,7 +548,7 @@ func (s *Store) ItemLabel(itemID string) (sensitivity.Label, []string, error) {
 }
 
 func (s *Store) audience(itemID string) ([]string, error) {
-	rows, err := s.db.Query(`SELECT principal FROM item_audience WHERE item_id = ?`, itemID)
+	rows, err := s.rdb.Query(`SELECT principal FROM item_audience WHERE item_id = ?`, itemID)
 	if err != nil {
 		return nil, err
 	}
@@ -586,7 +586,7 @@ type ItemView struct {
 // Item returns the visible chunks of an item, in order.
 func (s *Store) Item(sc sensitivity.Scope, itemID string) (*ItemView, error) {
 	vis, vargs := visSQL(sc, "il", "cl", "c.item_id")
-	rows, err := s.db.Query(`SELECT c.id FROM chunks c`+chunkVisJoin+`WHERE c.item_id = ? AND `+vis+` ORDER BY c.seq`, append([]any{itemID}, vargs...)...)
+	rows, err := s.rdb.Query(`SELECT c.id FROM chunks c`+chunkVisJoin+`WHERE c.item_id = ? AND `+vis+` ORDER BY c.seq`, append([]any{itemID}, vargs...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -633,7 +633,7 @@ func (s *Store) ItemTitles(sc sensitivity.Scope, ids []string) (map[string]ItemR
 			args = append(args, id)
 		}
 		args = append(args, vargs...)
-		rows, err := s.db.Query(q, args...)
+		rows, err := s.rdb.Query(q, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -675,7 +675,7 @@ func (s *Store) EntityTopicRefs(entityID string, names []string, limit int) ([]T
 		}
 	}
 	args = append(args, entityID, limit)
-	rows, err := s.db.Query(`SELECT id, label, sum(n) FROM (
+	rows, err := s.rdb.Query(`SELECT id, label, sum(n) FROM (
 			SELECT t.id, t.label, count(*) AS n FROM thread_items ti JOIN statements st ON st.id = ti.statement_id JOIN topics t ON t.id = ti.topic_id
 			WHERE ti.current = 1 AND (st.holder_id = ? OR lower(st.holder) IN (`+in+`)) AND t.label != '' GROUP BY t.id
 			UNION ALL

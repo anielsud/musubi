@@ -366,7 +366,7 @@ type TopicRow struct {
 }
 
 func (s *Store) Topics() ([]TopicRow, error) {
-	rows, err := s.db.Query(`SELECT t.id, t.label, t.summary, t.label_level, t.centroid, coalesce(c.id, 0) FROM topics t LEFT JOIN claims c ON c.topic_id = t.id ORDER BY t.id`)
+	rows, err := s.rdb.Query(`SELECT t.id, t.label, t.summary, t.label_level, t.centroid, coalesce(c.id, 0) FROM topics t LEFT JOIN claims c ON c.topic_id = t.id ORDER BY t.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +460,7 @@ func (s *Store) ReplaceTopics(ts []TopicRow, rels []TopicRelation, ents map[int6
 // TopicEntities returns a topic's entities with how many of its claims
 // involve each, most first.
 func (s *Store) TopicEntities(topicID int64) ([]EntityCount, error) {
-	rows, err := s.db.Query(`SELECT te.entity_id, coalesce(e.name, te.entity_id), coalesce(e.type, ''), coalesce(e.level, 0), te.claims
+	rows, err := s.rdb.Query(`SELECT te.entity_id, coalesce(e.name, te.entity_id), coalesce(e.type, ''), coalesce(e.level, 0), te.claims
 		FROM topic_entities te LEFT JOIN entities e ON e.id = te.entity_id WHERE te.topic_id = ? ORDER BY te.claims DESC`, topicID)
 	if err != nil {
 		return nil, err
@@ -487,7 +487,7 @@ type EntityCount struct {
 
 // TopicEvents returns a topic's history, newest first.
 func (s *Store) TopicEvents(topicID int64) ([]TopicEvent, error) {
-	rows, err := s.db.Query(`SELECT at, topic_id, event, other, detail FROM topic_events WHERE topic_id = ? ORDER BY at DESC, rowid DESC LIMIT 50`, topicID)
+	rows, err := s.rdb.Query(`SELECT at, topic_id, event, other, detail FROM topic_events WHERE topic_id = ? ORDER BY at DESC, rowid DESC LIMIT 50`, topicID)
 	if err != nil {
 		return nil, err
 	}
@@ -623,7 +623,7 @@ func (s *Store) visibleStatements(sc sensitivity.Scope, claimIDs []int64) ([]Sta
 			}
 		}
 		args = append(args, vargs...)
-		rows, err := s.db.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, c.text_hash, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
+		rows, err := s.rdb.Query(`SELECT st.id, st.item_id, st.chunk_id, c.seq, c.text_hash, st.line, st.kind, st.text, st.holder, coalesce(st.holder_id, ''),
 			st.certainty, st.said_at, st.value_type, st.value_raw, st.value_lo, st.value_hi, st.value_ok, st.quote, st.grounded, st.issues,
 			sc.claim_id, i.kind, `+displayTitle("i")+`,
 			`+stLevel+`, `+stCats+`, st.status, st.who, st.evidence
@@ -704,7 +704,7 @@ func (s *Store) visibleRelations(sc sensitivity.Scope, claimIDs []int64) ([]Rela
 			}
 		}
 		args = append(args, vargs...)
-		rows, err := s.db.Query(`SELECT r.from_claim, r.to_claim, r.rel, r.statement_id FROM claim_relations r
+		rows, err := s.rdb.Query(`SELECT r.from_claim, r.to_claim, r.rel, r.statement_id FROM claim_relations r
 			JOIN statements st ON st.id = r.statement_id JOIN chunks c ON c.id = st.chunk_id`+chunkVisJoin+`
 			WHERE `+where+vis, args...)
 		if err != nil {
@@ -861,7 +861,7 @@ func (s *Store) claimKinds(ids []int64, out map[int64]*ClaimEvidence) error {
 		if step > 500 {
 			q, args = `SELECT id, kind, coalesce(topic_id, 0) FROM claims`, nil
 		}
-		rows, err := s.db.Query(q, args...)
+		rows, err := s.rdb.Query(q, args...)
 		if err != nil {
 			return err
 		}
@@ -899,7 +899,7 @@ func (s *Store) judgmentsFor(items map[string]bool) (map[string][]storedJudgment
 	}
 	for i := 0; i < len(ids); i += 500 {
 		part := ids[i:min(i+500, len(ids))]
-		rows, err := s.db.Query(`SELECT item_id, text, verdict, note, at, chunk_hash, line FROM judgments WHERE item_id IN (`+
+		rows, err := s.rdb.Query(`SELECT item_id, text, verdict, note, at, chunk_hash, line FROM judgments WHERE item_id IN (`+
 			strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")+`)`, part...)
 		if err != nil {
 			return nil, err
@@ -937,7 +937,7 @@ type TopicInfo struct {
 }
 
 func (s *Store) TopicInfos() (map[int64]*TopicInfo, error) {
-	rows, err := s.db.Query(`SELECT id, label, summary, label_level, size FROM topics`)
+	rows, err := s.rdb.Query(`SELECT id, label, summary, label_level, size FROM topics`)
 	if err != nil {
 		return nil, err
 	}
@@ -950,7 +950,7 @@ func (s *Store) TopicInfos() (map[int64]*TopicInfo, error) {
 		out[t.ID] = t
 	}
 	rows.Close()
-	rows, err = s.db.Query(`SELECT a, b, sim, shared, entities FROM topic_relations`)
+	rows, err = s.rdb.Query(`SELECT a, b, sim, shared, entities FROM topic_relations`)
 	if err != nil {
 		return nil, err
 	}
@@ -1067,12 +1067,12 @@ type KnowledgeCounts struct {
 
 func (s *Store) KnowledgeCounts() (KnowledgeCounts, error) {
 	var k KnowledgeCounts
-	s.db.QueryRow(`SELECT count(*) FROM statements`).Scan(&k.Statements)
-	s.db.QueryRow(`SELECT count(*) FROM claims`).Scan(&k.Claims)
-	s.db.QueryRow(`SELECT count(*) FROM topics`).Scan(&k.Topics)
-	s.db.QueryRow(`SELECT count(*) FROM claim_relations`).Scan(&k.Relations)
-	s.db.QueryRow(`SELECT count(*) FROM stage_runs WHERE stage = 'extract'`).Scan(&k.Extracted)
-	err := s.db.QueryRow(`SELECT count(*) FROM items WHERE kind != 'event'`).Scan(&k.Extractable)
+	s.rdb.QueryRow(`SELECT count(*) FROM statements`).Scan(&k.Statements)
+	s.rdb.QueryRow(`SELECT count(*) FROM claims`).Scan(&k.Claims)
+	s.rdb.QueryRow(`SELECT count(*) FROM topics`).Scan(&k.Topics)
+	s.rdb.QueryRow(`SELECT count(*) FROM claim_relations`).Scan(&k.Relations)
+	s.rdb.QueryRow(`SELECT count(*) FROM stage_runs WHERE stage = 'extract'`).Scan(&k.Extracted)
+	err := s.rdb.QueryRow(`SELECT count(*) FROM items WHERE kind != 'event'`).Scan(&k.Extractable)
 	return k, err
 }
 
@@ -1082,8 +1082,18 @@ func (s *Store) KnowledgeCounts() (KnowledgeCounts, error) {
 // connection). Constant time, unlike counting rows: the views it guards
 // must not pay for the check as the corpus grows. Any write invalidates,
 // which is conservative.
+//
+// With a read pool the writer's connection may be held by a long write,
+// so the signature is asked of a connection of its own that never writes:
+// its data_version moves with every commit, this process's included. The
+// count of its connections is part of it, since a reconnected one starts
+// counting again.
 func (s *Store) KnowledgeSignature() (string, error) {
 	var dv, own int64
+	if s.sdb != nil {
+		err := s.sdb.QueryRow(`SELECT data_version FROM pragma_data_version`).Scan(&dv)
+		return fmt.Sprint("r", s.sgen.Load(), ".", dv), err
+	}
 	err := s.db.QueryRow(`SELECT (SELECT data_version FROM pragma_data_version), total_changes()`).Scan(&dv, &own)
 	return fmt.Sprint(dv, ".", own), err
 }

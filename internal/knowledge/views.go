@@ -18,6 +18,9 @@ type Views struct {
 	Store *store.Store
 	Scope sensitivity.Scope
 	Now   time.Time
+	// Cache, when set, serves Card's reads (live.cache); nil reads the
+	// store each time.
+	Cache *store.ReadCache
 }
 
 type RelView struct {

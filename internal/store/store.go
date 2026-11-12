@@ -8,15 +8,18 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
 	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-	_ "github.com/mattn/go-sqlite3"
+	sqlite3 "github.com/mattn/go-sqlite3"
 
 	"github.com/anielsud/musubi/internal/sensitivity"
 )
@@ -35,7 +38,16 @@ const schemaVersion = 4
 var kept = map[string]bool{"forgotten": true, "audit": true, "judgments": true, "corrections": true, "learned_aliases": true, "thread_edits": true, "owner_links": true}
 
 type Store struct {
-	db    *sql.DB
+	// db is the one connection that writes (and, without a read pool,
+	// reads). rdb serves the read paths (reads.go): a pool of read-only
+	// connections, or db itself when Options.ReadConns is 1 or less.
+	db  *sql.DB
+	rdb *sql.DB
+	// sdb, with a read pool, is a read-only connection that only ever asks
+	// PRAGMA data_version, so KnowledgeSignature doesn't wait behind a
+	// write; sgen counts its (re)connections. nil without a pool.
+	sdb   *sql.DB
+	sgen  atomic.Int64
 	codes codeIndexes // nearest-neighbour prefilters (vecindex.go)
 	// ReadWithRules applies the owner's spelling rules when statements are
 	// read for showing or writing from (Corrector); set from
@@ -45,16 +57,68 @@ type Store struct {
 
 func init() { sqlite_vec.Auto() }
 
-// Open opens or creates the database at path.
-func Open(path string) (*Store, error) {
+// Options tune the connections (config [store]). The zero value is the
+// behaviour before they existed: one connection, SQLite's own page cache
+// (2 MB) and no memory-mapped reads.
+type Options struct {
+	// CacheMB is each connection's page cache in MiB (0: SQLite's default).
+	CacheMB int
+	// MmapMB maps up to this much of the file into memory for reads, so a
+	// page the OS has cached is read without a system call and a copy
+	// (0: off, SQLite's default).
+	MmapMB int
+	// ReadConns opens that many read-only connections for the read paths
+	// (reads.go); WAL lets them read while the single writer writes. 1 or
+	// less: reads share the writer's connection, as before.
+	ReadConns int
+}
+
+// Open opens or creates the database at path with the zero Options.
+func Open(path string) (*Store, error) { return OpenWith(path, openOptions) }
+
+// openOptions is what Open uses: the zero Options, except when this
+// package's tests run again over a read pool (readpool_test.go).
+var openOptions Options
+
+// connector opens connections with a hook run on each (mmap_size, which
+// the driver has no DSN parameter for). sqlite-vec is an auto extension,
+// so it is loaded into every connection however it is opened.
+type connector struct {
+	dsn string
+	drv *sqlite3.SQLiteDriver
+}
+
+func (c connector) Connect(context.Context) (driver.Conn, error) { return c.drv.Open(c.dsn) }
+func (c connector) Driver() driver.Driver                        { return c.drv }
+
+func openDB(dsn string, o Options, onConnect func()) *sql.DB {
+	if o.CacheMB > 0 {
+		dsn += fmt.Sprintf("&_cache_size=%d", -o.CacheMB*1024) // negative: KiB
+	}
+	drv := &sqlite3.SQLiteDriver{}
+	if o.MmapMB > 0 || onConnect != nil {
+		drv.ConnectHook = func(c *sqlite3.SQLiteConn) error {
+			if onConnect != nil {
+				onConnect()
+			}
+			if o.MmapMB > 0 {
+				if _, err := c.Exec(fmt.Sprintf("PRAGMA mmap_size = %d", int64(o.MmapMB)<<20), nil); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
+	return sql.OpenDB(connector{dsn: dsn, drv: drv})
+}
+
+// OpenWith opens or creates the database at path.
+func OpenWith(path string, o Options) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
 	dsn := "file:" + path + "?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=10000&_synchronous=NORMAL"
-	db, err := sql.Open("sqlite3", dsn)
-	if err != nil {
-		return nil, err
-	}
+	db := openDB(dsn, o, nil)
 	// One writer at a time is SQLite's model; a single connection also keeps
 	// transactions from interleaving between goroutines.
 	db.SetMaxOpenConns(1)
@@ -95,10 +159,37 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	return &Store{db: db, ReadWithRules: true}, nil
+	s := &Store{db: db, rdb: db, ReadWithRules: true}
+	if o.ReadConns > 1 {
+		// Read-only twice over: the file is opened read-only (mode=ro) and
+		// query_only refuses any write, so a read path routed here by
+		// mistake fails instead of writing outside the single writer.
+		ro := "file:" + path + "?mode=ro&_query_only=1&_busy_timeout=10000"
+		s.rdb = openDB(ro, o, nil)
+		s.rdb.SetMaxOpenConns(o.ReadConns)
+		s.rdb.SetMaxIdleConns(o.ReadConns)
+		s.sdb = openDB(ro, Options{}, func() { s.sgen.Add(1) })
+		s.sdb.SetMaxOpenConns(1)
+		s.sdb.SetMaxIdleConns(1)
+		for _, d := range []*sql.DB{s.rdb, s.sdb} {
+			if err := d.Ping(); err != nil {
+				s.Close()
+				return nil, fmt.Errorf("read connections: %w", err)
+			}
+		}
+	}
+	return s, nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	if s.rdb != nil && s.rdb != s.db {
+		s.rdb.Close()
+	}
+	if s.sdb != nil {
+		s.sdb.Close()
+	}
+	return s.db.Close()
+}
 
 // BackupTo writes a consistent copy of the database to path (which must not
 // exist), while it stays open and in use.

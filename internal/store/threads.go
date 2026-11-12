@@ -25,7 +25,7 @@ type ThreadRow struct {
 // feeds the threader, which writes thread names from the statements it was
 // given, and labels them as sensitive as those (label_level).
 func (s *Store) Threads() ([]ThreadRow, error) {
-	rows, err := s.db.Query(`SELECT t.id, t.label, t.summary, t.label_level, coalesce(ti.statement_id, 0)
+	rows, err := s.rdb.Query(`SELECT t.id, t.label, t.summary, t.label_level, coalesce(ti.statement_id, 0)
 		FROM topics t LEFT JOIN thread_items ti ON ti.topic_id = t.id AND ti.current = 1
 		LEFT JOIN statements st ON st.id = ti.statement_id
 		ORDER BY t.id, st.said_at, st.id`)
@@ -184,7 +184,7 @@ func (s *Store) PlaceClaimsInThreads() error {
 
 // ThreadedItems returns the rules stamp each threaded item was done under.
 func (s *Store) ThreadedItems() (map[string]string, error) {
-	rows, err := s.db.Query(`SELECT item_id, stamp FROM thread_runs`)
+	rows, err := s.rdb.Query(`SELECT item_id, stamp FROM thread_runs`)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func (s *Store) UnmarkThreaded(itemID string) error {
 
 // ThreadedSince lists threaded items that happened after t, oldest first.
 func (s *Store) ThreadedSince(t time.Time) ([]ItemTime, error) {
-	rows, err := s.db.Query(`SELECT i.id, i.occurred_at FROM thread_runs r JOIN items i ON i.id = r.item_id WHERE i.occurred_at > ? ORDER BY i.occurred_at`, t.Unix())
+	rows, err := s.rdb.Query(`SELECT i.id, i.occurred_at FROM thread_runs r JOIN items i ON i.id = r.item_id WHERE i.occurred_at > ? ORDER BY i.occurred_at`, t.Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -408,7 +408,7 @@ func (s *Store) DeleteThread(id int64) error {
 // calendar events aside (see threadFrontier).
 func (s *Store) LatestThreaded() (time.Time, error) {
 	var at sql.NullInt64
-	err := s.db.QueryRow(`SELECT max(i.occurred_at) FROM thread_runs r JOIN items i ON i.id = r.item_id WHERE i.kind != 'event'`).Scan(&at)
+	err := s.rdb.QueryRow(`SELECT max(i.occurred_at) FROM thread_runs r JOIN items i ON i.id = r.item_id WHERE i.kind != 'event'`).Scan(&at)
 	if !at.Valid {
 		return time.Time{}, err
 	}

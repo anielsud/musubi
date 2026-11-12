@@ -49,7 +49,7 @@ func Open(cfgPath string) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	st, err := store.Open(cfg.DBPath())
+	st, err := store.OpenWith(cfg.DBPath(), store.Options{CacheMB: cfg.Store.CacheMB, MmapMB: cfg.Store.MmapMB, ReadConns: cfg.Store.ReadConns})
 	if err != nil {
 		return nil, err
 	}

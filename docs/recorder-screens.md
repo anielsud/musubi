@@ -126,7 +126,8 @@ rename_speaker, not_them, skip_voice_name, skip_voice_doubt, voices,
 rename_voice, merge_voices, keep_apart, forget_voice, start_over,
 confirm_voice, remove_voice_meeting, move_voice_meeting, learn_saved,
 voice_clip, discarded_clip, looks, look_tile, delete_session, tools,
-fix_tool, reload_config. Types and a client are in
+fix_tool, reload_config, and (2026-11-12, for Settings → Models)
+models and download_model. Types and a client are in
 `internal/recorder/control`.
 
 The live feed gains message types old readers ignore: `status`

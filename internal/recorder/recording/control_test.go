@@ -402,8 +402,10 @@ func TestControlToolsAndUnknownOp(t *testing.T) {
 	if !ids["ffmpeg"] || !ids["model-parakeet"] || !ids["model-vad"] {
 		t.Errorf("tools %v lack ffmpeg or the models", ids)
 	}
-	if err := c.call(t, control.OpFixTool, control.ToolArgs{ID: "model-vad"}, nil); err == nil {
-		t.Error("a model fix ran: models are Tomoe's to download")
+	for _, tl := range tools {
+		if tl.ID == "model-vad" && (tl.Fix == nil || tl.Fix.Kind != "action" || tl.Fix.Label != "Download") {
+			t.Errorf("a missing model's fix is %+v, want the Download action", tl.Fix)
+		}
 	}
 	if err := c.call(t, "make_coffee", nil, nil); err == nil || !strings.Contains(err.Error(), "unknown operation") {
 		t.Errorf("unknown op: %v", err)

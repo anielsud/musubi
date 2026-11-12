@@ -67,6 +67,12 @@ var (
 // live feed; a failure becomes a health line until the next try, and
 // health is checked again when it ends.
 func (a *Recorder) FixTool(id string) error {
+	if strings.HasPrefix(id, "model-") {
+		cfg := a.config()
+		if m, ok := toolModel(id, &cfg); ok {
+			return a.DownloadModel(m)
+		}
+	}
 	fix, err := a.fixFor(id)
 	if err != nil {
 		return err
@@ -99,8 +105,7 @@ func (a *Recorder) FixTool(id string) error {
 }
 
 // fixFor returns the function that runs id's fix, returning an optional
-// note for the user. Models are Tomoe's (the recorder only reads its
-// model folder), so they have no action here: their fix is a command.
+// note for the user. Models are downloaded by FixTool (DownloadModel).
 func (a *Recorder) fixFor(id string) (func() (string, error), error) {
 	if f := platformFix(a, id); f != nil {
 		return f, nil
@@ -155,11 +160,15 @@ func diarizeWorkerStatus() ToolStatus {
 	return t
 }
 
-// modelStatuses lists each model with what it's needed for. They all
-// share one fix: Tomoe downloads them, into its own folder.
+// modelStatuses lists each model with what it's needed for. A missing
+// one is downloaded into the recorder's own folder (DownloadModel), or,
+// with no folder of its own (an offline command in Tomoe's), by Tomoe.
 func modelStatuses(cfg *config.Config) []ToolStatus {
-	s := models.NewManager(cfg.Transcription.ModelPath).WithLiveModel(cfg.Transcription.LiveModel).Check()
-	fix := commandFix("Copy download command", "tomoe model download   # or Download in Tomoe's Tools page")
+	s := modelManager(cfg).Check()
+	fix := &ToolFix{Kind: "action", Label: "Download"}
+	if config.OwnModelDir() == "" {
+		fix = commandFix("Copy download command", "tomoe model download   # or Download in Tomoe's Tools page")
+	}
 	entry := func(id, name, neededFor string, required, ok bool) ToolStatus {
 		t := ToolStatus{ID: id, Name: name, Group: groupModels, Required: required, NeededFor: neededFor, OK: ok}
 		if ok {
@@ -204,8 +213,9 @@ func modelStatuses(cfg *config.Config) []ToolStatus {
 	if cfg.Meeting.VideoHintsOn() {
 		list = append(list, entry("model-ocr", "Text reading (PP-OCRv5)", "Reading names off the meeting window (video hints)", false, s.OCRReady()))
 	}
+	where := strings.Join(append([]string{s.ModelDir}, s.Fallback...), " then ")
 	for i := range list {
-		list[i].Detail += " · " + s.ModelDir
+		list[i].Detail += " · " + where
 	}
 	return list
 }

@@ -340,3 +340,31 @@ type Diag struct {
 	Detail string            `json:"detail"`
 	Fields map[string]string `json:"fields,omitempty"`
 }
+
+// The recorder's models (sherpa-onnx / ONNX Runtime, run in the
+// recorder's process), for the Musubi app's Models screen.
+const (
+	OpModels        = "models"         // - → []RecModel
+	OpDownloadModel = "download_model" // ModelArgs → - (runs in the background; progress as Status.Busy, a failure as a health line)
+)
+
+// RecModel is one model the recorder can use.
+type RecModel struct {
+	ID        string `json:"id"`   // the config value, e.g. "parakeet-v2-en"
+	Name      string `json:"name"` // shown
+	Task      string `json:"task"` // "transcription", "live", "speaker", "vad", "segmentation" or "ocr"
+	Installed bool   `json:"installed"`
+	Size      int64  `json:"size"` // bytes on disk; 0 when not installed
+	// Selectable: the task has a config choice (ConfigKey) and this is
+	// one of its values.
+	Selectable bool   `json:"selectable"`
+	InUse      bool   `json:"in_use"`     // used by recordings with the current config
+	ConfigKey  string `json:"config_key"` // "transcription.model", "meeting.speaker_model" or ""
+	// Restart: loaded when the recorder starts, so a new choice or a
+	// download takes effect after a restart.
+	Restart bool `json:"restart"`
+}
+
+type ModelArgs struct {
+	ID string `json:"id"`
+}

@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +40,9 @@ type Recorder struct {
 	// musubiConfig is Musubi's config file, whose [recorder.*] tables
 	// overlay Tomoe's (config.LoadRecorder).
 	musubiConfig string
+	// modelFetch downloads models (download_model); nil is HTTP. Tests
+	// replace it.
+	modelFetch models.Fetcher
 
 	// bundle holds the transcription/streaming engines, speaker
 	// embedder and model manager (see engineBundle). Guarded by mu.
@@ -185,13 +189,13 @@ func (a *Recorder) Start(ctx context.Context) error {
 	} else if err := a.copyVoices(); err != nil {
 		fmt.Printf("Warning: voices not copied from Tomoe: %v\n", err)
 	}
-	status := models.NewManager(cfg.Transcription.ModelPath).WithLiveModel(cfg.Transcription.LiveModel).Check()
+	status := modelManager(cfg).Check()
 	a.setupEngines(ctx, cfg, status)
 	a.mu.Lock()
 	ready := a.bundle.engines != nil
 	a.mu.Unlock()
 	if !ready {
-		return fmt.Errorf("no transcription engine: are Tomoe's models in %s?", cfg.Transcription.ModelPath)
+		return fmt.Errorf("no transcription engine: are the models in %s?", strings.Join(config.ModelDirs(cfg), " or "))
 	}
 	return nil
 }
@@ -305,7 +309,7 @@ func engineConfig(cfg *config.Config, status *models.Status) transcribe.Config {
 // aren't downloaded (or fail to load) is left nil; callers already treat
 // each piece as optional except engines, which StartSession requires.
 func buildEngines(cfg *config.Config, status *models.Status) engineBundle {
-	b := engineBundle{modelMgr: models.NewManager(cfg.Transcription.ModelPath).WithLiveModel(cfg.Transcription.LiveModel)}
+	b := engineBundle{modelMgr: modelManager(cfg)}
 	videohint.SetOCRModels(status.OCRModelPath(models.OCRDetector), status.OCRModelPath(models.OCRRecognizer))
 
 	// Without the final models there is nothing to record with; Start

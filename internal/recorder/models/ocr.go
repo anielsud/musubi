@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 )
@@ -47,7 +46,7 @@ var (
 
 // OCRModelPath is where m lives in the model directory.
 func (s *Status) OCRModelPath(m OCRModel) string {
-	return filepath.Join(s.ModelDir, ocrSubdir, m.File)
+	return filepath.Join(s.dirFor(ocrSubdir, m.File), ocrSubdir, m.File)
 }
 
 // OCRReady reports whether both OCR models are present.
@@ -65,12 +64,12 @@ func (s *Status) OCRReady() bool {
 func (m *Manager) DownloadOCRModels(force bool, onProgress ProgressFunc) error {
 	status := m.Check()
 	for _, om := range ocrModels {
-		path := status.OCRModelPath(om)
-		if !force && fileExists(path) {
+		if !force && fileExists(status.OCRModelPath(om)) {
 			continue
 		}
 		fmt.Printf("Downloading %s...\n", om.Name)
-		if err := downloadVerified(om.URL, path, om.SHA256, om.Name, onProgress); err != nil {
+		path := filepath.Join(m.modelDir, ocrSubdir, om.File)
+		if err := downloadVerifiedWith(m.fetcher(), om.URL, path, om.SHA256, om.Name, onProgress); err != nil {
 			return fmt.Errorf("downloading %s: %w", om.Name, err)
 		}
 	}
@@ -80,16 +79,19 @@ func (m *Manager) DownloadOCRModels(force bool, onProgress ProgressFunc) error {
 // downloadVerified downloads url to destPath through a temporary file,
 // hashing as it writes, and only moves it into place if its SHA256 is
 // want: a truncated, tampered or substituted file is never left looking
-// like a downloaded model.
+// like a downloaded model. want "" checks nothing but still never leaves
+// a partial file in place.
 func downloadVerified(url, destPath, want, step string, onProgress ProgressFunc) error {
-	resp, err := http.Get(url)
+	return downloadVerifiedWith(httpFetch, url, destPath, want, step, onProgress)
+}
+
+// downloadVerifiedWith is downloadVerified through fetch.
+func downloadVerifiedWith(fetch Fetcher, url, destPath, want, step string, onProgress ProgressFunc) error {
+	body, total, err := fetch(url)
 	if err != nil {
-		return fmt.Errorf("HTTP GET: %w", err)
+		return err
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
-	}
+	defer func() { _ = body.Close() }()
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return fmt.Errorf("creating directory: %w", err)
 	}
@@ -101,14 +103,13 @@ func downloadVerified(url, destPath, want, step string, onProgress ProgressFunc)
 	defer func() { _ = os.Remove(tmpPath) }() // no-op once renamed
 
 	hash := sha256.New()
-	total := resp.ContentLength
 	var downloaded int64
 	progress := writerFunc(func(p []byte) (int, error) {
 		downloaded += int64(len(p))
 		reportProgress(onProgress, step, downloaded, total)
 		return len(p), nil
 	})
-	_, copyErr := io.Copy(io.MultiWriter(tmp, hash, progress), resp.Body)
+	_, copyErr := io.Copy(io.MultiWriter(tmp, hash, progress), body)
 	closeErr := tmp.Close()
 	if copyErr != nil {
 		return fmt.Errorf("writing file: %w", copyErr)
@@ -116,7 +117,7 @@ func downloadVerified(url, destPath, want, step string, onProgress ProgressFunc)
 	if closeErr != nil {
 		return fmt.Errorf("writing file: %w", closeErr)
 	}
-	if got := hex.EncodeToString(hash.Sum(nil)); got != want {
+	if got := hex.EncodeToString(hash.Sum(nil)); want != "" && got != want {
 		return fmt.Errorf("checksum mismatch for %s: got %s, want %s (not kept)", url, got, want)
 	}
 	return os.Rename(tmpPath, destPath)

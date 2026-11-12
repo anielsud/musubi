@@ -44,11 +44,8 @@ var prefTabs = map[string][]PrefGroup{
 			{Section: "m365", Key: "transcripts", Label: "Teams meeting transcripts", Type: "bool"},
 			{Section: "m365", Key: "meeting_chat", Label: "Teams meeting chats", Type: "bool"},
 			{Section: "m365", Key: "people", Label: "People from the directory", Type: "bool"},
-			{Section: "m365", Key: "mail", Label: "Mail", Type: "bool"},
-			{Section: "m365", Key: "mail_days", Label: "Mail, days back", Type: "int", Unit: "days"},
-			{Section: "m365", Key: "mail_focused_only", Label: "Focused inbox only", Type: "bool"},
-			{Section: "m365", Key: "chats", Label: "Teams chats", Type: "bool"},
-			{Section: "m365", Key: "chat_days", Label: "Chats, days back", Type: "int", Unit: "days"},
+			// Mail and Teams chats ([m365] mail, chats) are left out until their
+			// extraction has been tried on real messages (2026-11-11).
 			{Section: "m365", Key: "tomoe_context", Label: "Give Tomoe each meeting's invite", Type: "bool", Help: "Writes the calendar event next to each Tomoe recording, for its titles and names."},
 			{Section: "m365", Key: "reconnect", Label: "Ask to sign in again when it lapses", Type: "bool"},
 		}},

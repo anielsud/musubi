@@ -186,7 +186,8 @@ it found fewer sensitive statements than Jev (research log, 2026-11-11).
 Settings is what is set up once and left alone; what to watch and act on
 is on Status. Its tabs:
 
-- **Accounts**: Microsoft 365, you (name, email) and what is synced.
+- **Accounts**: Microsoft 365, you (name, email) and what is synced
+  (mail and Teams chats are not offered yet: untested).
 - **AI providers**: where models come from, each on the same kind of
   card (address, key, formats, used by, Test): the **AI Gateway**,
   **other providers** such as Baseten, and **Ollama** on this Mac

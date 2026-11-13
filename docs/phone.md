@@ -58,10 +58,11 @@ core, lifecycle, WorkManager, Material components).
 **Recording**
 - Foreground service, type `microphone`, with an ongoing notification
   that has Stop. A partial wake lock while recording.
-- `MediaRecorder`, AAC in ADTS (`OutputFormat.AAC_ADTS`), 48 kHz mono,
-  96 kbps, source `VOICE_RECOGNITION` (falls back to `MIC`). A new file
-  every 5 minutes (`setNextOutputFile`), so a crash or a dead battery
-  loses at most the last seconds: ADTS is readable up to the last frame.
+- `AudioRecord` + `MediaCodec`, AAC-LC in ADTS, 48 kHz mono, 96 kbps,
+  source `VOICE_RECOGNITION` (falls back to `MIC`). A new file every 5
+  minutes, cut on a frame boundary with no gap, so a crash or a dead
+  battery loses at most the last seconds: ADTS is readable up to the last
+  frame. (`MediaRecorder.setNextOutputFile` only works for MPEG-4.)
 - Each recording is a folder in app-private storage: `meta.json` (id,
   start time with zone offset, end time, device name, the chosen event's
   id/subject/start or none, chunk list with size and SHA-256) and
@@ -82,6 +83,54 @@ core, lifecycle, WorkManager, Material components).
   Android Keystore (not exportable).
 - Audio leaves the phone only to the paired Mac.
 
+**Live text** (owner's decision of 2026-11-13: build now, start/stop,
+a light model)
+- A **Live text** switch on the Recording screen turns on-device
+  transcription on and off at any time during a recording. Off by
+  default; the app remembers the last choice.
+- A small streaming English model (sherpa-onnx, Apache-2.0, a ~20M
+  parameter streaming zipformer, int8), downloaded once from a pinned
+  URL with a pinned SHA-256 (**Settings → Live text model → Download**),
+  kept in app-private storage. Nothing is sent anywhere.
+- It reads the same audio the recorder captures (resampled to 16 kHz)
+  through a bounded queue on its own thread. It can never slow or stop the
+  recording: when it falls behind it drops audio for the live text only;
+  any error turns it off and says so.
+- The text is shown on the Recording screen and kept as `live.txt` in
+  the recording's folder, readable on the phone afterwards; it is not
+  uploaded (the Mac transcribes the audio itself) and is deleted with
+  the audio.
+
+**Updates** (owner's decision of 2026-11-13)
+- Releases are published to the public repo `anielsud/musubi-releases`
+  with tag `android-v<versionName>` and two assets:
+  `musubi-phone-<versionName>.apk` and `musubi-phone-<versionName>.apk.sha256`.
+- The app checks on start (at most every 6 hours) and on **Check for
+  updates** (Settings): the GitHub releases API, unauthenticated; the
+  newest `android-v*` tag above the installed version.
+- It downloads over HTTPS from GitHub's hosts only, at most 100 MB,
+  checks the SHA-256 (corruption) and that the APK is signed by the same
+  certificate as the installed app (authenticity; Android enforces it
+  too), then installs through `PackageInstaller` (no user action needed
+  where Android allows it; otherwise one tap).
+- Never while recording: an update found during a recording waits until
+  it stops.
+- Signing: one release key, kept outside git
+  (`~/.config/musubi/android/release.jks`, mode 0600), its passwords in
+  the macOS Keychain. `android/release.sh` builds, signs and writes the
+  checksum; it publishes only with `--publish`.
+
+**Finding the Mac** (owner's decision of 2026-11-13: no typed addresses)
+- The Mac advertises `_musubi._tcp` on the local network (Bonjour) while
+  phone access is on: instance name `Musubi on <computer name>`, port,
+  TXT `v=1` and `fp=<first 16 hex digits of the certificate
+  fingerprint>`.
+- The phone lists the Macs it finds (Android NSD). After pairing it keeps
+  the Mac's instance name and pinned fingerprint and finds its current
+  address the same way at every sync (the address may change); the last
+  address that worked is tried first. Bonjour does not cross Tailscale; a
+  manual address stays available under **Advanced**.
+
 **Sync** (WorkManager, when the Mac is reachable, and on **Sync now**)
 - Upload each finished recording's chunks, then complete it. Delete a
   recording's audio from the phone only once the Mac reports it
@@ -101,11 +150,28 @@ closed at accept.
 - **TLS**: a self-signed ECDSA P-256 certificate made on first use, kept
   in the Musubi data folder (key file mode 0600). The phone pins its
   SHA-256 fingerprint at pairing.
-- **Pairing**: the owner presses **Pair a phone**; Musubi shows the
-  addresses, an 8-digit code (valid 5 minutes, single use) and the
-  certificate fingerprint's first 16 hex digits. The phone shows the
-  fingerprint it sees; the owner checks they match and enters the code.
-  Five wrong codes end the pairing window.
+- **Pairing, confirmed on both** (numeric comparison, as Bluetooth does):
+  1. The phone picks a Mac it found, connects (TLS, noting the
+     certificate's SHA-256; its first 16 hex digits must match the
+     advertised `fp`), and sends `POST /v1/pair/request {device_name,
+     nonce}` with 16 random bytes; the Mac answers `{request_id, nonce}`
+     with 16 of its own.
+  2. Both compute the same 6-digit code: the first 4 bytes of
+     SHA-256(`"musubi-pair-v1"` ‖ certificate SHA-256 (32 bytes) ‖ phone
+     nonce ‖ Mac nonce) as a big-endian unsigned number, mod 1,000,000,
+     zero-padded. A machine in the middle shows the phone a different
+     certificate, so the codes would differ.
+  3. Musubi brings its window forward with "Pair <device name>? Code
+     123 456" and **Allow** / **Deny**; the phone shows the code with
+     **Confirm** / **Cancel**. The phone's Confirm is
+     `POST /v1/pair/{request_id}/confirm`.
+  4. The phone polls `GET /v1/pair/{request_id}`: `pending`, `denied`,
+     `expired`, or, once both have confirmed, `{device_id, token}`
+     (returned once; the request is then gone).
+  - A request expires after 2 minutes. One pending request at a time;
+    at most 5 requests per 10 minutes; after 3 denials in 10 minutes
+    requests are refused for 10 minutes. The 8-digit code flow is
+    removed.
 - **Devices**: pairing issues a 32-byte random token. The Mac stores only
   its SHA-256 and the device's name and dates. **Settings → Phone** lists
   devices and revokes them. Tokens travel in `Authorization: Bearer`,
@@ -113,11 +179,13 @@ closed at accept.
 - Pairing, revocation, upload completion and failures are logged without
   tokens or codes.
 
-**API** (JSON unless noted; every call but `pair` needs the token)
+**API** (JSON unless noted; every call but the `pair` calls needs the token)
 
 | Call | Body → reply |
 |---|---|
-| `POST /v1/pair` | `{code, device_name}` → `{device_id, token}` |
+| `POST /v1/pair/request` | `{device_name, nonce}` (base64, 16 bytes) → `{request_id, nonce}` |
+| `POST /v1/pair/{request_id}/confirm` | → `204` |
+| `GET /v1/pair/{request_id}` | → `{state: pending \| denied \| expired}` or `{state: "paired", device_id, token}` |
 | `GET /v1/agenda?days=10` | → `{events: [{id, start, end, subject, location, organizer, attendees: [{name}], brief: {text, made_at, sensitivity: {level, share, why}} \| null}], drafting: n}` |
 | `PUT /v1/recordings/{rid}/chunks/{n}` | `audio/aac` body, header `X-Sha256` → `204`. Same chunk again: `204`; different bytes: `409`. At most 64 MB. |
 | `POST /v1/recordings/{rid}/complete` | the phone's `meta.json` → `202 {state}` |
@@ -157,7 +225,12 @@ Not built yet.
 
 ## Trade-offs
 
-- No live transcript or hints on the phone. Accepted: no Mac on site.
+- No hints on the phone, and its live text is a preview from a small
+  model: the Mac's transcript is the record.
+- Updates come from a public repo: the APK can be downloaded and read by
+  anyone (no data or keys in it), as the Mac installers already can.
+- The Mac announces itself on the local network while phone access is
+  on, so others on that network can see a Musubi is there.
 - The Mac gains a network listener, off by default, private addresses
   only, paired devices only. It is the one new attack surface.
 - Audio and briefs sit on the phone until the next sync. Protection is

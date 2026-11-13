@@ -50,4 +50,5 @@ func (a *Recorder) applySegment(sess *session.Session, md *diarize.SessionDiariz
 	// refinements too: its messages carry the session ID, and a consumer
 	// wants the final text of the meeting that just ended.
 	a.feedSegmentsLocked(sess, seg)
+	a.feedDiagsLocked(sess, diagLabel, seg)
 }

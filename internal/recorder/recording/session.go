@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"runtime"
 	"time"
 
 	"github.com/google/uuid"
@@ -37,13 +36,23 @@ func (a *Recorder) StartSession(micDevice, monitorDevice, lang, platform string)
 		return errRecording
 	}
 	// Each recording starts from Tomoe's voices, so names and the owner
-	// voice match what Tomoe would use for the same meeting.
-	if err := a.copyVoices(); err != nil {
-		fmt.Printf("Warning: voices not copied from Tomoe: %v\n", err)
-	} else {
-		forgetOwnerVoices()
+	// voice match what Tomoe would use for the same meeting, until the
+	// recorder is of record (Musubi's [recorder] of_record): from then on
+	// its own voices, edited through the Musubi app, are the ones used.
+	if !a.cfg.MusubiOfRecord {
+		if err := a.copyVoices(); err != nil {
+			fmt.Printf("Warning: voices not copied from Tomoe: %v\n", err)
+		} else {
+			forgetOwnerVoices()
+		}
 	}
-	return a.begin(micDevice, monitorDevice, lang, platform)
+	if err := a.begin(micDevice, monitorDevice, lang, platform); err != nil {
+		return err
+	}
+	// A source chosen for "the next recording" (set_source) is used once.
+	a.src.nextMic, a.src.nextSystem = nil, nil
+	a.publishStatusLocked()
+	return nil
 }
 
 // beginLocked is StartSession's real work: lease the engines, open the
@@ -108,24 +117,22 @@ func (a *Recorder) beginLocked(micDevice, monitorDevice, lang, platform string) 
 			}
 		}
 	}
+	// Both sources capture through a switcher, so the Musubi app can move
+	// either to another device or app mid-recording (set_source).
+	var micSwitch *audio.SwitchCapturer
 	if micDevice != "" {
 		mic, err := audio.NewCapturer(micDevice, audio.Input)
 		if err != nil {
 			return fmt.Errorf("opening the microphone %q: %w", micDevice, err)
 		}
-		cfg.MicCapturer = audio.NewStreamCapturer(mic, audio.DefaultWindowSize, audio.WindowBuffer)
+		micSwitch = audio.NewSwitchCapturer(mic)
+		cfg.MicCapturer = audio.NewStreamCapturer(micSwitch, audio.DefaultWindowSize, audio.WindowBuffer)
 	}
 
 	// Set up monitor capturer (optional) — the second audio source
 	// (a specific app or "everything" on macOS — see
-	// internal/meetingaudio).
-	var monCapturer *audio.StreamCapturer
-	var audioAuto *meetingaudio.Auto
-	if monitorDevice == meetingaudio.AutoSource || (monitorDevice == "" && runtime.GOOS == "darwin") {
-		monCapturer, audioAuto, err = meetingaudio.NewAutoMonitorSource()
-	} else {
-		monCapturer, err = meetingaudio.NewMonitorSource(monitorDevice)
-	}
+	// internal/meetingaudio). "" is the automatic source on macOS.
+	monCapturer, sysSwitch, audioAuto, err := meetingaudio.NewSwitchableMonitorSource(monitorDevice)
 	if err != nil {
 		closeSources()
 		return fmt.Errorf("creating monitor capturer: %w", err)
@@ -198,9 +205,14 @@ func (a *Recorder) beginLocked(micDevice, monitorDevice, lang, platform string) 
 	a.videoHintCancel = videoHintCancel
 	hs.sess, hs.coordinator, hs.diar = a.currentSess, coordinator, md
 	a.startHintWatcher(videoHintCtx, hs)
-	a.followMeetingAudio(videoHintCtx, audioAuto)
+	followCtx, followCancel := context.WithCancel(videoHintCtx)
+	a.followMeetingAudio(followCtx, audioAuto)
+	a.src.beginLocked(videoHintCtx, coordinator, micDevice, micSwitch, systemSelection(monitorDevice, cfg.MonitorCapturer != nil), sysSwitch, audioAuto, followCancel)
 	if micDevice != "" {
 		go a.watchMic(videoHintCtx, coordinator, micDevice)
+	}
+	if cfg.MonitorCapturer != nil && a.cfg.Meeting.SourceCheck {
+		go a.watchSystem(videoHintCtx, coordinator)
 	}
 
 	a.rec = &activeRecording{
@@ -253,6 +265,9 @@ func (a *Recorder) StopSession() (*session.Session, error) {
 	a.sessionRelease = nil
 	a.rec, a.currentSess = nil, nil
 	a.videoHintCancel = nil
+	a.saving[sess.ID] = true
+	silentBefore := a.src.silent != nil
+	a.src.endLocked()
 	a.mu.Unlock()
 
 	if videoHintCancel != nil {
@@ -272,7 +287,13 @@ func (a *Recorder) StopSession() (*session.Session, error) {
 	a.videoHintMu.Lock()
 	a.audioSource = ""
 	a.videoHintMu.Unlock()
-	a.feedSession(livefeed.StateStopped, sess)
+	a.mu.Lock()
+	a.feedSessionLocked(livefeed.StateStopped, sess)
+	if silentBefore {
+		a.publishAudioLocked()
+	}
+	a.publishStatusLocked()
+	a.mu.Unlock()
 
 	a.saves <- &saveRequest{stopped: sess, capture: rec.coordinator, diar: diar, segmentsDone: rec.drained, release: release}
 	return sess, nil
@@ -284,6 +305,9 @@ func (a *Recorder) saveLoop() {
 	defer close(a.saverDone)
 	for req := range a.saves {
 		a.persist(req)
+		a.mu.Lock()
+		delete(a.saving, req.stopped.ID)
+		a.mu.Unlock()
 	}
 }
 

@@ -39,6 +39,38 @@ Files with no upstream-authored lines, copied with import paths changed:
   `StartSession`, `StopSession` and `persistSession` in `session.go`.
 - `Makefile` `recorder-app`: the library-bundling loop from Tomoe's
   `install-gui-mac`.
+- `recording`, for the Musubi app's control socket (step 5,
+  [recorder-screens.md](recorder-screens.md)), from Tomoe's
+  `internal/backend`. Tomoe's window called `a.fixSignals()` (an
+  upstream line) at the top of each method; those calls are not carried
+  over: `Handle` repairs the signal handlers once per request instead.
+  - `voices.go`, from `voices.go` (all owner lines): the Voices view,
+    profile edits, `NotThem`, `SkipVoiceName`, `SkipVoiceDoubt`,
+    `MoveVoiceMeeting`, `DiscardedVoiceClip`,
+    `LearnVoicesFromSavedSessions` and the tile and fingerprint caches.
+    Changed: the view types are the control protocol's (aliases),
+    sessions are loaded by exact ID and edits refuse one still being
+    saved, `cutVoiceClip` makes AAC in MP4 instead of WAV, and
+    `PlayVoiceClip` and `GetLookTile` gave way to control ops.
+  - `speakers.go`: `RenameSpeaker` and `renameLines`, from
+    `videohint.go` (owner lines; the upstream `a.fixSignals()` is not
+    carried over), sending relabelled lines to the live feed instead of
+    window events.
+  - `looks.go`: `toLookView`, `GetVideoHintLooks` (now `Looks`) and
+    `GetLookThumb`, from `videohint.go` (owner lines, as above);
+    `videohint.go` gains `onLook`'s and `startHintWatcher`'s timeline
+    parts from the same file.
+  - `tools.go`, `tools_darwin.go`, from `tools.go` and `tools_darwin.go`
+    (all owner lines): the ffmpeg, diarization worker, model and
+    permission statuses, `FixTool` and `runStreaming`. Dropped: GPU,
+    Bengali, Linux tools and the model download (models are Tomoe's
+    folder, so their fix is a command); progress and outcome go to
+    `Status.Busy` and the health lines instead of window events.
+    `permissions_darwin.go` gains the permission table,
+    `openPrivacySettings` and the accessibility prompt from Tomoe's
+    `permissions_darwin.go` (all owner lines).
+- `control/server.go`: the private listen and stale-socket removal are
+  the live feed's (`livefeed`, owner), adapted.
 
 ## Rewritten
 
@@ -62,6 +94,22 @@ the upstream ones are new code.
 | recording | session.go (`StartSession`, `StopSession`, the save worker, `persistSession`), recorder.go (`buildEngines`, the `Recorder` type, shutdown), events.go (`emitSessionSegments`, `applySegment`), detect.go (from Tomoe's `handleDetectEvent`) |
 | cmd/musubi-recorder | diarize.go (from Tomoe's `cmd/tomoe/diarize.go`) |
 
+New for the control socket, with no Tomoe lines: `control/server.go`
+(apart from the part above) and `control/client.go`, `recording/control.go`
+(the request handler, status, start and stop, sources, set_source,
+reload_config, session and delete), `recording/sourcecheck.go`,
+`recording/diag.go`, `recording/tools_other.go`, `meetingaudio`
+`switch_darwin.go` and `switch_other.go`, `audio/signal.go`,
+`config/musubi.go`, the live feed's status, audio, diag and look
+messages, and `live.Coordinator.MonitorQuietFor`. Where Tomoe had
+upstream-authored code for the same job it was not copied:
+`listSources` (Tomoe's `ListAudioSources`, whose owner-written entries
+it follows, and `ListAudioDevices`), `sessionForControl` (`LoadSession`)
+and `deleteSession` (`DeleteSession`) are new code with the same
+behaviour. `diag.go` writes in Go what Tomoe's diagnostics pane
+(`frontend/src/components/DiagnosticsPane.tsx`, all owner lines) showed
+for each line.
+
 New, with no Tomoe source: `recording/voicecopy.go`,
 `recording/permissions_other.go`, the `recording` tests other than the
 two lifted ones, `cmd/musubi-recorder` `run.go`, `datadir.go`,
@@ -76,7 +124,8 @@ everything the recorder writes out of Tomoe's data folder; `run` and
 ## Not brought over
 
 Hotkey, dictation (`live/dictation.go`, `Coordinator.Activity`), clipboard
-and auto-paste, Tomoe's window and tray, its settings, tools and voices
-pages, session list/export/delete/re-transcribe, notifications,
+and auto-paste, Tomoe's window and tray (the Musubi app shows the tools
+and voices pages' data through the control socket), its settings page,
+session list/export/re-transcribe, title editing, notifications,
 multilingual mode (language detection, Bengali, the multi-engine switcher),
 hotwords, GPU libraries, Linux meeting detection.

@@ -7,8 +7,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
@@ -30,6 +32,13 @@ func main() {
 		os.MkdirAll(dir, 0o700)
 		if f, err := os.OpenFile(filepath.Join(dir, "musubi-gui.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
 			log.SetOutput(f)
+			log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+			// A crash (an unrecovered panic or a fatal runtime error) writes
+			// its stack here too; otherwise it goes to stderr, which a
+			// Dock-launched app does not keep.
+			if err := debug.SetCrashOutput(f, debug.CrashOptions{}); err != nil {
+				log.Printf("crash output: %v", err)
+			}
 		}
 	}
 	app := gui.NewApp()
@@ -43,7 +52,11 @@ func main() {
 		AssetServer:      &assetserver.Options{Assets: assets, Handler: app.AudioHandler()},
 		OnStartup:        app.Startup,
 		OnShutdown:       app.Shutdown,
-		Bind:             []interface{}{app},
+		// Wails's warnings and errors, including panics it recovers in
+		// calls from the screen, go to the log (gui.WailsLog).
+		Logger:             gui.WailsLog{},
+		LogLevelProduction: logger.WARNING,
+		Bind:               []interface{}{app},
 		Mac: &mac.Options{
 			TitleBar:             mac.TitleBarHiddenInset(),
 			Appearance:           mac.NSAppearanceNameDarkAqua,

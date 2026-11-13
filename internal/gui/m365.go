@@ -51,7 +51,7 @@ func (a *App) M365Connect() {
 		}
 		a.emit("m365:changed", nil)
 		if err == nil {
-			a.Update()
+			a.update("after Microsoft 365 sign-in")
 		}
 	}()
 }

@@ -508,7 +508,7 @@ func (a *App) updateSoon() {
 	}
 	a.mu.Unlock()
 	if !busy {
-		a.Update()
+		a.update("a meeting was edited")
 	}
 }
 

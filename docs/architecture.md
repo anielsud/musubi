@@ -1258,6 +1258,15 @@ cases.
 One SQLite file (`~/.local/share/musubi/musubi.db`, WAL mode) holds all
 derived data. The raw store is a directory of blobs beside it.
 
+Upgrades (2026-11-12, `internal/store/upgrade.go`): the file records its
+schema (`PRAGMA user_version`) and its format (`store_meta` "format": one-way
+changes to what is stored, such as float16 vectors). A build refuses a
+newer schema or format untouched, and copies an older file to
+`backups/pre-upgrade-*.db` beside it before upgrading it (newest three
+kept; `[store] backup_before_upgrade`). [upgrades.md](upgrades.md) has
+the steps for an existing dataset; [data-safety.md](data-safety.md) the
+rules for a change to what is stored.
+
 | Need | Mechanism |
 |---|---|
 | Keyword search | FTS5 |

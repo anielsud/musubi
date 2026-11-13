@@ -1,15 +1,28 @@
 # Musubi
 
-A local-first personal knowledge base. It mines meetings (recorded by its own
-recorder or by Tomoe, plus Teams transcripts), calendar, email, chat and
-CRM records into people, accounts, threads, decisions and commitments, and
-surfaces them live in a side panel during meetings as topic cards.
+A local-first personal knowledge base for meetings. It records them on
+your Mac, names who said what, and turns what was said into threads:
+where each subject stands, what changed, who owes what. It shows that
+during meetings, before them (prep) and when you ask, with sources.
+
+- **Meetings** come from its own recorder (or Tomoe), plus Microsoft 365:
+  the calendar, Teams transcripts and meeting chats, and the directory.
+  Mail and Teams chats are built but off by default; other sources
+  (events, email, chat) can be dropped in as JSON. There is no CRM
+  connector.
+- **Speakers are named on the device**: voices told apart as the meeting
+  goes, names read from the Teams or Zoom window, and voice profiles for
+  people the window can't show (in a room, on the phone). See
+  [overview.md](docs/overview.md#who-said-it-speaker-labels).
 
 Docs:
 - **New here? [user-guide.md](docs/user-guide.md):** quickstart and a tour of the app, with screenshots
 - **Start with [overview.md](docs/overview.md):** the thesis, approach,
   the system at a glance, where it stands, the roadmap and the research
   highlights
+- [upgrades.md](docs/upgrades.md): upgrading a dataset, and moving over
+  from Tomoe; [data-safety.md](docs/data-safety.md): keeping others' data
+  through upgrades (proposed)
 - [setup.md](docs/setup.md): install, keys, hosted models, building a
   dataset, and costs per meeting
 - [architecture.md](docs/architecture.md): the design, as built
@@ -89,9 +102,10 @@ make test eval                          # synthetic corpus; fails on any leak
 ```
 
 Config: `~/.config/musubi/config.toml` (owner email and internal domains at
-least). Calendar, mail and chat arrive as JSON envelopes in
-`~/.local/share/musubi/inbox/<source>/` (format in
-`internal/source/mcpdrop`). `MUSUBI_CONFIG` points the CLI and the app at
+least). Microsoft 365 is read directly once connected (Settings →
+Accounts, or `musubi m365 connect`); other events, email and chat can
+arrive as JSON envelopes in `~/.local/share/musubi/inbox/<source>/`
+(format in `internal/source/mcpdrop`). `MUSUBI_CONFIG` points the CLI and the app at
 another config, for experiment instances beside the real one. The app opens
 the dataset last opened from `~/.config/musubi/datasets.toml`, else its
 first entry:

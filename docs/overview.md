@@ -2,8 +2,9 @@
 
 Start here. This is the thesis, how we work, the system at a glance, where it
 stands, and what comes next, with pointers to the detailed documents. Written
-2026-10-21; the numbers come from [research-log.md](research-log.md), which
-has the dates and methods.
+2026-10-21, brought up to date 2026-11-12; the numbers come from
+[research-log.md](research-log.md), which has the dates and methods. To use
+the app, see the [user guide](user-guide.md).
 
 ## Thesis
 
@@ -31,9 +32,10 @@ What that takes:
 4. **Right time, right amount.** The value is in what is surfaced at the
    moment it is useful, in a form readable at a glance.
 5. **Productizable.** It has to work from what every company has: calendar
-   invites and meeting transcripts. No directory lookups, no per-company
-   rules. It has to be cheap enough per meeting for a thousand meetings a
-   person and a whole company.
+   invites and meeting audio or transcripts. The directory helps when it is
+   there (names and teams) but nothing depends on it, and there are no
+   per-company rules. It has to be cheap enough per meeting for a thousand
+   meetings a person and a whole company.
 
 The owner's priorities, in order: the most value soonest ("minimum viable
 area under the curve"), then the right data at the right time, then low
@@ -102,18 +104,57 @@ blind. Until it runs, treat the claim as a hypothesis.
   speed and repeatable.
 - **Hand-picked real corpora, not sweeps.** Experiments run on named local
   datasets (`~/.config/musubi/datasets.toml`); the basis is "All": the
-  leadership meetings of the year plus every September meeting (165).
+  leadership meetings of the year plus every meeting since September, and
+  since 2026-11-09 the year's other meetings for search.
 - **Model placement by measurement.** Each step runs where it measured best
   for quality, then cost, then latency (below). The code's defaults stay
   local; hosted choices live in the dataset's config.
+
+## Who said it: speaker labels
+
+A statement is only as good as its speaker: "we'll cut the price" means
+something different from the customer than from us. Most meeting tools
+take speakers from the platform, which knows accounts, not voices: a
+meeting room's microphone or a dial-in is one "speaker" however many
+people are behind it, and a recording made outside the platform has no
+names at all. Musubi records on the owner's Mac and names speakers
+itself ([recorder-screens.md](recorder-screens.md)):
+
+- **Diarization on the device.** Voices are told apart as the meeting
+  goes (regrouped every 10 s), and settled when it ends.
+- **The meeting window.** About once a second the recorder looks at the
+  Teams or Zoom window: who is highlighted as speaking, and their name
+  (read on the device; Zoom's from its accessibility information). A
+  misread name snaps to the closest invitee's spelling.
+- **Voice profiles** (off by default). Fingerprints, never audio, learnt
+  from moments when a person's own tile was lit or the owner named them;
+  they name voices the window can't: people in a room, on the phone, or
+  in a meeting with no window. On saved meetings: 112 of 119 voices
+  named, all correctly; 1 of 57 voices without a profile misnamed.
+- **Meeting rooms** (off by default): a room's audio is split into its
+  people; on a labelled room meeting, speakers right went from 94.7% to
+  98.1%.
+- **The owner's own microphone** is "you", except stretches that sound
+  like someone else beside them.
+- **The owner's word wins.** Renaming a speaker teaches the profile;
+  renaming a profile relabels its past meetings without a model call,
+  with undo.
+
+Against Tomoe on a live 19-minute Teams call, the recorder's text
+differed by 3.6% of words and gave the same speaker for 100% of 2,862
+words ([recorder-parity.md](recorder-parity.md), 2026-11-12). Not yet
+done: Teams transcripts carry names but aren't used to label the
+recording's speakers (the aligning code is written, not wired).
 
 ## The system at a glance
 
 Details: [architecture.md](architecture.md).
 
 ```
- recorded meetings (Musubi's recorder or Tomoe), Microsoft 365 (calendar,
- Teams transcripts, meeting chats, directory), inbox drops (email, chat, CRM)
+ meetings: Musubi's recorder (or Tomoe) — audio → text → speakers named
+ Microsoft 365: calendar, Teams transcripts and meeting chats, directory
+   (mail and Teams chats built, off by default)
+ inbox drops: events, email, chat, meetings as JSON
       │
       ▼
  raw store (immutable) → items → derive stages (stamped, re-runnable)
@@ -121,14 +162,16 @@ Details: [architecture.md](architecture.md).
       │   extract statements → label (sensitive categories)
       │   thread: place → reconcile → consolidate; relations derive "current"
       │   statuses: where each thread stands, what changed, what is open
+      │   meeting summaries and to-dos
       ▼
  SQLite (FTS5, sqlite-vec, graph tables), every read scoped by sensitivity
       │
-      ├─ Live (during a meeting): the recorder's live feed → names, terms, model
-      │  suggestions → lookups, topic cards, thread statuses → the panel
+      ├─ Live (during a meeting): the recorder's live feed → names, terms,
+      │  relevance → lookups, topic cards with briefs, the meeting's prep card
       ├─ Ask: threads the question is about (status + current items) + passages
-      ├─ Prep: for an upcoming meeting's attendees: subjects, what's open, what to share
-      └─ Explore: topic map, thread pages, corrections (rules), comparison
+      ├─ Meetings, To-Do, Prep: summaries, commitments and their state, what to bring
+      ├─ Explore: topics, people, voices, search, corrections
+      └─ musubi mcp: the same scoped reads for Claude Code, labelled by sensitivity
 ```
 
 Key ideas:
@@ -145,87 +188,98 @@ Key ideas:
 - **Corrections are rules.** A misheard or misspelled name is decided once
   (always, these uses only, or both are right) and applied wherever text
   is read or written from; nothing stored is rewritten.
+- **Upgrades keep data.** A database is copied before a new version
+  changes it, and a version refuses a database newer than it
+  ([upgrades.md](upgrades.md), [data-safety.md](data-safety.md)).
 
-Where each step runs (dataset "All", 2026-10-21):
+Where each step runs ("Use recommended", 2026-11-12):
 
 | Step | Model | Why |
 |---|---|---|
-| Extraction, threading, statuses, meeting digests, Ask, prep drafts | GLM-5.3-Flash (hosted, Baseten) | Ask beat the local 27B 17–4 and 18–5 (blind), 3 s vs 170 s an answer |
-| Statement labels | Jev (TypeSafe, typed classifier) | 86% of sensitive statements found against 71%, same precision |
-| Live relevance | Jev | ranks hints as graders do (AUC 0.88), ~100 ms a call |
-| Live suggestions and summaries | qwen3:8b (local) | latency (0.6 s vs ~1.4 s hosted median) |
+| Extraction, threading, statuses, summaries, Ask, Live briefs | Claude Haiku 5.5 through the AI Gateway; GLM-5.3-Flash on Baseten as fallback | Haiku: about 27 s and 0.50¢ a call against GLM's 50 s and 0.37¢ (2026-11-11); before it, GLM beat the local 27B on Ask 17–4 and 18–5, blind |
+| Statement labels, Live relevance | Jev (typed classifier, through the gateway) | 86% of sensitive statements found against 71%, same precision; relevance ranked as graders do (AUC 0.88), 0.13 s a call |
+| Live suggestions | qwen3:8b (local) | latency: first token in 0.4–0.7 s |
 | Embeddings | nomic-embed-text (local) | |
 | Ask fallback | Qwen3.8-27B (local, on demand) | |
+| Transcription, speakers | on the device, in the recorder (sherpa-onnx, ONNX Runtime) | nothing recorded leaves the Mac |
 
-Jev is cleared for testing, not for the product; the product path is the
-same classifier interface over GLM or the local model.
+Without "Use recommended", every model is local (Ollama). Jev is cleared
+for testing, not for the product; the product path is the same
+classifier interface over a chat model's yes/no.
 
-Since 2026-11-11 the hosted chat steps (and Live briefs) run on Claude
-Haiku 5.5 through the AI Gateway, with GLM-5.3-Flash on Baseten as
-fallback ([setup.md](setup.md), "Use recommended").
+What it costs (measured, Haiku, thinking not counted): about $0.04 a
+meeting hour to read a meeting into threads, $0.02 for statuses and
+summaries, under 1¢ a question (2026-11-11). With GLM before it: 4–6¢ a
+meeting to build, and about 13¢ a meeting hour for Live relevance as
+built ([setup.md](setup.md) §8).
 
-What it costs (measured; [setup.md](setup.md) has the breakdown): about
-4–6¢ a meeting to build the memory (extraction ~1¢, threading ~2.7¢,
-labels and statuses under 1¢), about $0.001 a question, and, as built,
-about 13¢ a meeting hour for Live relevance, the cost to cut next.
+## Where it stands (2026-11-12)
 
-## Where it stands (2026-10-21)
+Built and in daily use:
+- **Recording** with Musubi's own recorder, standalone from Tomoe:
+  speakers named on the device, voice profiles, a watchdog that restarts
+  it.
+- **Microsoft 365**: calendar, Teams transcripts (also of meetings the
+  recorder missed, stitched into the recording's gaps), meeting chats and
+  the directory.
+- **The knowledge layer**: statements, threads and statuses, meeting
+  summaries and to-dos, Ask, Prep, Explore with corrections, and Live with
+  relevance-chosen hints and briefs.
+- **Claude Code** reads the knowledge base through `musubi mcp`.
+- **Installable by others**: a DMG built on GitHub, with the recorder
+  inside, a six-week first sync, and upgrades that copy the database
+  first.
 
-Built and in daily use: ingest, scoped search, the knowledge layer with
-threads and statuses, Ask, Prep, Explore with corrections, and Live with
-focused, relevance-chosen hints. The "All" dataset holds 165 meetings,
-about 20,900 statements and 690 threads.
+The "All" dataset holds about 1,300 meetings (about 390 read into
+threads, the rest searchable), about 39,800 statements and 1,240
+threads; the store's reads got 3–10 times faster on 2026-11-12, and
+vectors take half the space.
 
 Known gaps:
-- **Live relevance** is validated on one meeting; a second is being graded.
+- **Speaker names from Teams transcripts** aren't used yet; voice profiles
+  and meeting rooms are off by default until measured on more meetings.
 - **Reconcile misses** inside threads are the larger share of stale
-  "current" items (thread fragmentation turned out to be small).
-- **Backfill** of the rest of the corpus is designed (thread once, oldest
-  first) but not run.
-- **Email and chat** arrive only as inbox drops; no connectors.
+  "current" items.
+- **Backfill**: the year before September is searchable but not threaded.
+- **Mail and Teams chats** are built but off until their extraction is
+  tried on real messages.
 - **The corpus relabel** with Jev is deferred; new statements are labelled
   with it.
-
-Since then (2026-11-12): Musubi has its own meeting recorder and its
-screens (recording, voices, speakers, settings), which can stand in for
-Tomoe (`[recorder] of_record`, default still Tomoe;
-[recorder-screens.md](recorder-screens.md)); Microsoft 365 through Graph
-gives calendar, Teams transcripts, meeting chats and the directory, with
-mail and chats built but off by default ([teams-design.md](teams-design.md));
-`musubi mcp` gives Claude Code the knowledge base
-([mcp-design.md](mcp-design.md)); and the store reads faster (page cache,
-memory-mapped reads, a read pool) and keeps vectors as float16
-(architecture.md, "Storage").
+- **Data safety** for others' datasets: backups that cover the recorder's
+  folder, automatic snapshots and restore are proposed
+  ([data-safety.md](data-safety.md)).
 
 ## Roadmap
 
 In order of value now:
 
-1. **Usable hints in a meeting.**
-   - Validate relevance on a second meeting and settle the bar.
+1. **Safe to give to others.** The data-safety items, in their order
+   (backups of everything, restore, release discipline, count checks);
+   a first run on a clean Mac.
+2. **Usable hints in a meeting.**
    - Step 2: hints that answer the moment. When someone asks a question,
      states a figure or makes a commitment, write one cited line that
      answers or checks it.
-   - Bring the product path (GLM, or the local model's yes/no) to Jev's
-     quality on the graded set.
-   - Measure end-to-end latency in live meetings.
-   - Cut Live relevance's cost (~13¢ a meeting hour as built): judge only
-     what changed, and re-check what is shown less often.
-2. **Correct current state.** Reduce reconcile misses inside threads; keep
+   - Bring the product path (a chat model's yes/no) to Jev's quality on
+     the graded set.
+   - Measure end-to-end latency in live meetings (replays: 1.9 and 3.5 s
+     from words said to lookup shown).
+   - Cut Live relevance's cost: judge only what changed, and re-check what
+     is shown less often.
+3. **Who said it.** Use Teams transcripts' names on the recording; measure
+   voice profiles and room splitting on more meetings, then decide their
+   defaults.
+4. **Correct current state.** Reduce reconcile misses inside threads; keep
    the owner's corrections cheap (rules, merges, splits, statement edits).
-3. **Coverage.** Backfill the corpus once, oldest first; relabel with the
-   typed classifier and check the filtering end to end.
-4. **Scale and cost** ([scaling.md](scaling.md) §8): reads at scale (B2),
-   then the remaining low-priority cost items; process shared meetings once
-   when there is more than one person's data.
-5. **Long-history quality** (scaling.md §8 C1–C2): a long real history,
-   referenced and scored on duplicates, purity over time and update recall
-   across long gaps; merge, split and dormancy.
-6. **New sources.** Email and chat: triage, conversation-level extraction,
-   their references.
+5. **Coverage.** Thread the rest of the year once, oldest first; relabel
+   with the typed classifier and check the filtering end to end.
+6. **Scale and cost** ([scaling.md](scaling.md) §8), and **long-history
+   quality** (§8 C1–C2).
+7. **Mail and chat.** Triage, conversation-level extraction, their
+   references.
 
-Parked by the owner: recogniser vocabulary hints in Tomoe (promising, list
-coverage open), feeding confirmed spellings to the recogniser.
+Parked by the owner: recogniser vocabulary hints, feeding confirmed
+spellings to the recogniser.
 
 ## Research highlights
 
@@ -266,7 +320,23 @@ Each with its research-log entry. Methods and caveats are there.
 - Rules reach what is shown and written: a surname rule took its threads'
   statuses from 7 mentions of the variant to 0 (2026-10-21).
 
+**Recorder and speakers**
+- The recorder's output matched Tomoe's byte for byte on four replayed
+  meetings, and live beside it differed by 3.6% of words with the same
+  speaker for 100% of words (2026-11-10/12).
+- Voice profiles named 112 of 119 voices on saved meetings, all
+  correctly; splitting a meeting room took speakers right from 94.7% to
+  98.1% on a labelled room meeting.
+
+**Store**
+- Memory-mapped reads, a read pool and a read cache: the most-mentioned
+  entity's graph 42.7 s → 14.0 s first time; 20 cards 10.0 s → 0.97 s; a
+  read during a backup 2.3 s → 78 ms. Float16 vectors: the file 763 → 421
+  MB, search results unchanged (2026-11-12).
+
 **Live**
+- Words said to lookup shown: median 1.9 s and 3.5 s on two replayed
+  meetings (2026-10-29).
 - The stepped replay reproduces the real-time one (359 lookups an hour vs
   353) and repeats itself (2026-10-21).
 - Focus cut the panel from 13,500 characters to 2,600 and made cards
@@ -279,7 +349,10 @@ Each with its research-log entry. Methods and caveats are there.
 
 | Document | What it covers |
 |---|---|
-| [setup.md](setup.md) | Install, keys, hosted models, building a dataset, and what processing costs |
+| [user-guide.md](user-guide.md) | Installing and using the app, with screenshots |
+| [upgrades.md](upgrades.md) | Upgrading a dataset; moving over from Tomoe |
+| [data-safety.md](data-safety.md) | Keeping others' data through upgrades (proposed) |
+| [setup.md](setup.md) | Install from source, keys, hosted models, building a dataset, and what processing costs |
 | [architecture.md](architecture.md) | The design as built: stages, knowledge layer, storage, sensitivity, app |
 | [incremental-design.md](incremental-design.md) | The subject graph, local operations, provenance, entities, aliases and rules |
 | [scaling.md](scaling.md) | Growth to tens of thousands of meetings; cost; order of work |

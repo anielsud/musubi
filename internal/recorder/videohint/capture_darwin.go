@@ -170,15 +170,6 @@ func pickCallWindow() (teamsvideo.WindowRecord, *teamsvideo.Frame, string, error
 	return recs[cands[0]], nil, "every candidate failed to capture: " + strings.Join(notes, "; "), nil
 }
 
-// captureScale is a capture's pixels per point: the captured width over
-// the window's width in points, rounded (1 when the latter is unknown).
-func captureScale(pixels, points int) int {
-	if points <= 0 || pixels <= 0 {
-		return 1
-	}
-	return max(1, (pixels+points/2)/points)
-}
-
 // pickZoomWindow is the window of owner to watch: the call window, or,
 // while it's minimized, the untitled floating thumbnail Zoom shows the
 // shared screen in (small, but a record of what was shown). Never the home

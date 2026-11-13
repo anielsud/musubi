@@ -278,6 +278,11 @@ Measured on real meetings (dates and methods in
   local models. Green is connected.
 - **Logs**: `~/Library/Logs/Musubi/musubi-gui.log` (the app) and
   `~/.local/share/musubi/recorder/logs/recorder.log` (the recorder).
+- **Status → Copy diagnostics** puts a report on the clipboard to paste
+  to whoever helps you: versions, counts, connections, settings and
+  recent errors, with no meeting content, titles, names or email
+  addresses (it shows what it copied). From a terminal: `musubi
+  diagnostics`.
 
 ## Use it from Claude Code
 
@@ -337,6 +342,9 @@ earlier Musubi, or Tomoe, see [upgrades.md](upgrades.md).
 | Speakers are named wrong | Rename them on the meeting's page; the recorder learns their voices. |
 | **M** is grey | Ollama isn't running or isn't installed. Open Ollama once. |
 | Microsoft 365 says the sign-in has lapsed | **Settings → Accounts → Sign in again**. |
+
+To ask for help, send **Status → Copy diagnostics** first: it holds no
+meeting content, titles, names or email addresses.
 
 Logs, if someone asks for them: `~/Library/Logs/Musubi/musubi-gui.log`
 (the app) and `~/.local/share/musubi/recorder/logs/recorder.log` (the

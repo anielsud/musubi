@@ -366,7 +366,12 @@ order (`knowledge.threads.hold_older`). The Status tab's **Work queue**
 shows what's waiting, with estimates, and starts the two runs updates
 leave to someone: **Catch up** (a big batch of new meetings) and
 **Rethread everything in time order** (to take in a backlog; it stops at
-one and a half times its estimate). A meeting recorded twice (a Tomoe
+one and a half times its estimate). It also lists what an upgrade
+would redo on unchanged meetings at a model's cost (`knowledge.hold_upgrades`,
+default on: new passages from a new chunker, statuses under a new
+status version, names under a new naming version or model), with
+**Apply upgrades**; `hold_upgrades = false` redoes them on the next
+update. A meeting recorded twice (a Tomoe
 session and the meeting app's transcript) becomes knowledge once
 (`knowledge.prefer_source`, default Tomoe; outside a rethread the copy
 already extracted stays, so threads don't churn, and a rethread switches to

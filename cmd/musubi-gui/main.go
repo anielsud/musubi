@@ -19,6 +19,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// version is set at build time (make build-gui).
+var version = "dev"
+
 func main() {
 	// A Dock-launched app has no terminal; keep a log for diagnosis.
 	if home, err := os.UserHomeDir(); err == nil {
@@ -28,6 +31,7 @@ func main() {
 			log.SetOutput(f)
 		}
 	}
+	gui.Version = version
 	app := gui.NewApp()
 	err := wails.Run(&options.App{
 		Title:            "Musubi",

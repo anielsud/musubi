@@ -1,4 +1,4 @@
-.PHONY: build test vet fmt licenses eval eval-record clean frontend build-gui bundle-mac install-gui-mac recorder-app app-mac dmg
+.PHONY: build test vet fmt licenses eval eval-record fixtures clean frontend build-gui bundle-mac install-gui-mac recorder-app app-mac dmg
 
 # FTS5 is compiled into the SQLite driver only with this tag.
 TAGS := -tags sqlite_fts5
@@ -42,6 +42,11 @@ eval: build
 eval-record: build
 	rm -f testdata/synthetic/llm-cache/chat.json
 	bin/musubi eval --corpus testdata/synthetic --embed hash --knowledge --record
+
+# Rebuilds testdata/fixtures: the synthetic corpus's database as each
+# listed release left it, which store's tests upgrade (needs sqlite3).
+fixtures:
+	scripts/fixtures.sh
 
 frontend:
 	cd frontend && npm install --silent && npm run build

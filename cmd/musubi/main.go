@@ -36,6 +36,9 @@ import (
 var version = "dev"
 
 func main() {
+	if version != "dev" {
+		store.Build = version
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if err := root().ExecuteContext(ctx); err != nil {
@@ -50,7 +53,7 @@ func root() *cobra.Command {
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
 	r.AddCommand(importItemsCmd(), extractLeanCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), aliasesCmd(), liveCmd(),
-		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd(), vectorsCmd(), relabelCmd())
+		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd(), vectorsCmd(), relabelCmd(), backupCmd())
 	return r
 }
 
@@ -373,6 +376,9 @@ func forgetCmd() *cobra.Command {
 				return err
 			}
 			defer st.Close()
+			if err := backupBefore(cfg, st, "musubi forget"); err != nil {
+				return err
+			}
 			h, used, err := knowledge.ForgetItem(st, args[0])
 			if err != nil {
 				return err
@@ -1084,13 +1090,29 @@ func knowledgeCmd() *cobra.Command {
 					return fmt.Errorf("--redo takes extract, links, threads, label or digest (got %q)", s)
 				}
 			}
+			if len(redo) > 0 && !plan {
+				if err := backupBefore(e.Cfg, e.Store, "musubi knowledge --redo "+strings.Join(redo, ",")); err != nil {
+					return err
+				}
+			}
 			o := pipeline.KnowledgeOptions{Items: items, Limit: limit, Workers: workers,
 				Redo: redo, RedoNewest: newest, Plan: plan, NoThreads: noThreads, DigestOnly: digestOnly}
 			if verbose {
 				o.LinkTrace = func(f string, a ...any) { fmt.Fprintf(os.Stderr, "  link: "+f+"\n", a...) }
 			}
 			start := time.Now()
+			var guard *store.KeptGuard
+			if len(redo) > 0 && !plan && e.Cfg.Store.CheckCounts {
+				if guard, err = e.Store.GuardKept(); err != nil {
+					return err
+				}
+			}
 			ks, err := e.Knowledge(cmd.Context(), os.Stderr, o)
+			if guard != nil {
+				after, gerr := guard.Finish()
+				fmt.Fprintf(os.Stderr, "counts before: %s\ncounts after:  %s\n", guard.Before, after)
+				err = errors.Join(err, gerr)
+			}
 			defer printOutdated(ks.Outdated, e.Cfg.Knowledge.Updates)
 			if plan {
 				p := ks.Planned

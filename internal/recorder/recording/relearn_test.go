@@ -107,6 +107,14 @@ func TestRelearnForNewRules(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("relearn didn't finish")
 	}
+	// The voices folder was copied, as it was, before the relearn.
+	copies, _ := filepath.Glob(filepath.Join(config.DataDir(), "voices.bak-*"))
+	if len(copies) != 1 {
+		t.Fatalf("copies %v, want one", copies)
+	}
+	if b, err := os.ReadFile(filepath.Join(copies[0], model+".json")); err != nil || !strings.Contains(string(b), "Odo Example") || strings.Contains(string(b), `"rules"`) {
+		t.Errorf("copy %s: %v", b, err)
+	}
 	v, sum := store.Rules()
 	if v != voices.LearnRules || sum == nil || sum.Meetings != 1 || sum.Changed != 1 || sum.Added != 1 || time.Since(sum.At) > time.Minute {
 		t.Fatalf("rules %d, summary %+v", v, sum)

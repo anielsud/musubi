@@ -24,6 +24,7 @@ import (
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/raw"
 	"github.com/anielsud/musubi/internal/recorder/control"
+	"github.com/anielsud/musubi/internal/recorder/dataformat"
 	"github.com/anielsud/musubi/internal/source/tomoe"
 )
 
@@ -364,6 +365,10 @@ func (a *App) MeetingSpeakers(itemID string) (*MeetingSpeakers, error) {
 		m.Why = "The recording's files aren't on this Mac."
 		return m, nil
 	}
+	if err := dataformat.Check(filepath.Dir(filepath.Dir(dir))); err != nil {
+		m.Why = "The recorder's folder was written by a newer Musubi; install that version again to see or correct this meeting's speakers."
+		return m, nil
+	}
 	b, err := os.ReadFile(filepath.Join(dir, "session.json"))
 	if err != nil {
 		return nil, err
@@ -440,6 +445,9 @@ func (a *App) DeleteMeeting(itemID string) error {
 	a.mu.Unlock()
 	if busy {
 		return fmt.Errorf("Musubi is updating; delete the meeting once it is done")
+	}
+	if err := a.backupBefore("deleting a meeting"); err != nil {
+		return err
 	}
 	if err := a.recCall(control.OpDelete, control.SessionArgs{Session: sid}, nil); err != nil {
 		return err

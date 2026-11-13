@@ -17,6 +17,7 @@ import (
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/anielsud/musubi/internal/ask"
+	"github.com/anielsud/musubi/internal/backup"
 	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/engine"
 	"github.com/anielsud/musubi/internal/knowledge"
@@ -37,8 +38,10 @@ type App struct {
 	// when another dataset is opened in this window.
 	cfgPath    string
 	liveCancel context.CancelFunc
-	narrowW    int // the side-panel size to return to from wide
-	narrowH    int
+	// releaseData lets go of the open dataset's lock (backup.HoldOpen).
+	releaseData func()
+	narrowW     int // the side-panel size to return to from wide
+	narrowH     int
 
 	mu         sync.Mutex
 	updating   bool
@@ -89,19 +92,22 @@ func (a *App) Startup(ctx context.Context) {
 // openConfig opens a dataset's config in this window, closing the one open
 // before (its live lane stops and its store closes).
 func (a *App) openConfig(path string) error {
-	if a.liveCancel != nil {
-		a.liveCancel()
-		a.liveCancel = nil
-	}
-	if a.eng != nil {
-		a.eng.Close()
-		a.eng, a.live = nil, nil
-	}
-	e, err := engine.Open(path)
+	a.closeDataset()
+	cfg, err := config.Load(path)
 	if err != nil {
 		return err
 	}
-	a.eng, a.cfgPath, a.err = e, path, ""
+	// Marks the dataset open, so `musubi backup restore` refuses.
+	release, err := backup.HoldOpen(cfg.DataDir)
+	if err != nil {
+		return err
+	}
+	e, err := engine.Open(path)
+	if err != nil {
+		release()
+		return err
+	}
+	a.eng, a.cfgPath, a.err, a.releaseData = e, path, "", release
 	a.live = live.New(e, a.emit, func() { a.Update() })
 	lctx, cancel := context.WithCancel(a.ctx)
 	a.liveCancel = cancel
@@ -119,6 +125,7 @@ func (a *App) openConfig(path string) error {
 	go a.live.Run(lctx)
 	go a.followRecorder(lctx, e.Cfg.RecorderLiveSocket())
 	go a.watchRecorder(lctx)
+	go a.dailyBackups(lctx, e, path)
 	if e.Cfg.Prep.AutoBrief && e.AskLLM != nil {
 		go a.draftBriefs(lctx)
 	}
@@ -149,14 +156,25 @@ func (a *App) openConfig(path string) error {
 	return nil
 }
 
-func (a *App) Shutdown(ctx context.Context) {
-	a.UnwatchResources()
+// closeDataset stops the open dataset's live lane and closes its store.
+func (a *App) closeDataset() {
 	if a.liveCancel != nil {
 		a.liveCancel()
+		a.liveCancel = nil
 	}
 	if a.eng != nil {
 		a.eng.Close()
+		a.eng, a.live = nil, nil
 	}
+	if a.releaseData != nil {
+		a.releaseData()
+		a.releaseData = nil
+	}
+}
+
+func (a *App) Shutdown(ctx context.Context) {
+	a.UnwatchResources()
+	a.closeDataset()
 }
 
 // AppStatus is shown in the header and the status view.

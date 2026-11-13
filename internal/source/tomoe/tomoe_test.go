@@ -2,12 +2,14 @@ package tomoe
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
+	"github.com/anielsud/musubi/internal/recorder/dataformat"
 	"github.com/anielsud/musubi/internal/source"
 )
 
@@ -37,5 +39,19 @@ func TestSinceSkipsEarlierSessions(t *testing.T) {
 	got = fetch(Connector{Dir: dir, Since: time.Date(2026, 11, 11, 9, 0, 0, 0, time.UTC), Known: func(ref string) bool { return ref == "old" }})
 	if len(got) != 2 || got[0] != "new" || got[1] != "old" {
 		t.Errorf("since + known: %v, want [new old]", got)
+	}
+}
+
+// Sessions in a recorder folder a newer Musubi wrote aren't read.
+func TestNewerRecorderFolderRefused(t *testing.T) {
+	data := t.TempDir()
+	dir := filepath.Join(data, "sessions")
+	os.MkdirAll(filepath.Join(dir, "s1"), 0o700)
+	os.WriteFile(filepath.Join(dir, "s1", "session.json"), []byte(`{"id":"s1"}`), 0o600)
+	os.WriteFile(filepath.Join(data, "format"), []byte("99\n"), 0o600)
+	n := 0
+	err := Connector{Dir: dir}.Fetch(context.Background(), func(source.Record) error { n++; return nil })
+	if !errors.Is(err, dataformat.ErrNewer) || n != 0 {
+		t.Fatalf("%d read, %v", n, err)
 	}
 }

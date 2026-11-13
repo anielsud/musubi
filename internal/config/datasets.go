@@ -58,3 +58,19 @@ func LoadDatasets() ([]Dataset, error) {
 	}
 	return f.Datasets, nil
 }
+
+// DatasetName names the dataset a config belongs to, for titles and its
+// backups' names: its name in the datasets file, "default" for the default
+// config, else its folder's name.
+func DatasetName(path string) string {
+	ds, _ := LoadDatasets()
+	for _, d := range ds {
+		if d.Config == path {
+			return d.Name
+		}
+	}
+	if path == Path() {
+		return "default"
+	}
+	return filepath.Base(filepath.Dir(path))
+}

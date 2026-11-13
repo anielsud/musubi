@@ -141,6 +141,10 @@ type Recorder struct {
 	// relearnStores, when set (tests), lists the stores the relearn
 	// checks instead of voiceStores.
 	relearnStores func() (map[string]*voices.Store, error)
+
+	// refused is why the data folder can't be used (a newer Musubi wrote
+	// it: dataformat.ErrNewer), set before Start; nil normally.
+	refused error
 }
 
 // activeRecording is what a recording in progress needs to be stopped.
@@ -198,6 +202,15 @@ func New(cfg *config.Config) *Recorder {
 // the engines, the speaker tracker and the meeting detector.
 func (a *Recorder) Start(ctx context.Context) error {
 	cfg := a.currentConfig()
+	if a.refused != nil {
+		// Only the status: the app shows why nothing is recorded.
+		fmt.Printf("data folder: %v\n", a.refused)
+		a.setNote(noteFolder, "Not recording: "+a.refused.Error()+".")
+		if err := a.startLiveFeed(cfg.Meeting.LiveFeed); err != nil {
+			fmt.Printf("Warning: live feed not started: %v\n", err)
+		}
+		return nil
+	}
 	a.startReviewIndex()
 	if err := a.startLiveFeed(cfg.Meeting.LiveFeed); err != nil {
 		fmt.Printf("Warning: live feed not started: %v\n", err)
@@ -227,12 +240,49 @@ func (a *Recorder) Start(ctx context.Context) error {
 	if !ready {
 		return fmt.Errorf("no transcription engine: are the models in %s?", strings.Join(config.ModelDirs(cfg), " or "))
 	}
+	if cfg.Meeting.VoiceProfiles {
+		a.checkVoiceFiles()
+	}
 	// Only the recorder's own profiles: while Tomoe's are copied over
 	// them they'd be learnt again at every start.
 	if cfg.Meeting.VoiceProfiles && cfg.Meeting.VoiceProfileRelearn && !cfg.CopiesTomoeVoices() {
 		go a.relearnForRules(ctx)
 	}
 	return nil
+}
+
+// noteFolder and noteVoices key the health lines for a data folder or
+// voices file a newer Musubi wrote.
+const (
+	noteFolder = "data-folder"
+	noteVoices = "voices-newer"
+)
+
+// Refuse keeps the recorder off its data folder (a newer Musubi wrote
+// it): Start then only serves the status, with why as a health line, and
+// every control op but the status, sources and tools is refused. Call
+// before Start.
+func (a *Recorder) Refuse(why error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.refused = why
+}
+
+// checkVoiceFiles says in a health line when a voices file was written by
+// a newer Musubi: recording carries on, but those profiles aren't learnt
+// from or named by (voices.Open refuses them).
+func (a *Recorder) checkVoiceFiles() {
+	var newer []string
+	for _, m := range models.SpeakerModels {
+		if err := voices.CheckFile(voices.Path(config.DataDir(), m.ID)); err != nil {
+			newer = append(newer, m.ID)
+		}
+	}
+	line := ""
+	if len(newer) > 0 {
+		line = fmt.Sprintf("Voice profiles (%s) were written by a newer Musubi: meetings are recorded, but voices aren't learnt or named until that version is installed again.", strings.Join(newer, ", "))
+	}
+	a.setNote(noteVoices, line)
 }
 
 // SetMusubiConfig points the recorder at Musubi's config file for

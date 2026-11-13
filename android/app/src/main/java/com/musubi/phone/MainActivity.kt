@@ -29,6 +29,7 @@ import com.musubi.phone.ui.MacScreen
 import com.musubi.phone.ui.RecordingScreen
 import com.musubi.phone.ui.RecordingsScreen
 import com.musubi.phone.ui.Screen
+import com.musubi.phone.ui.SettingsScreen
 import com.musubi.phone.ui.TodayScreen
 import com.musubi.phone.core.AgendaEvent
 
@@ -42,6 +43,7 @@ class MainActivity : AppCompatActivity() {
     private val tick = Handler(Looper.getMainLooper())
     private var pendingEvent: EventRef? = null
     private var pendingRecord = false
+    private var settingsItem: android.view.MenuItem? = null
 
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
         if (pendingRecord) {
@@ -73,6 +75,7 @@ class MainActivity : AppCompatActivity() {
             WindowInsetsCompat.CONSUMED
         }
         toolbar.setNavigationOnClickListener { pop() }
+        settingsItem = toolbar.menu.add("Settings").setOnMenuItemClickListener { push(SettingsScreen(this)); true }
         nav.setOnItemSelectedListener { item -> showTab(item.itemId); true }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -139,6 +142,7 @@ class MainActivity : AppCompatActivity() {
         toolbar.title = s.title
         toolbar.navigationIcon = if (stack.isNotEmpty()) ContextCompat.getDrawable(this, R.drawable.ic_back) else null
         nav.visibility = if (stack.isEmpty()) View.VISIBLE else View.GONE
+        settingsItem?.isVisible = stack.isEmpty()
         s.refresh()
     }
 

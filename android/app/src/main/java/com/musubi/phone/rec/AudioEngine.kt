@@ -28,6 +28,8 @@ class AudioEngine(
     private val onFinished: (error: String?) -> Unit,
 ) {
     @Volatile private var stopRequested = false
+    /** Live text, when on: gets a copy of each read without ever blocking this thread. */
+    @Volatile var live: LiveTextController? = null
     private var thread: Thread? = null
 
     fun start() {
@@ -105,6 +107,7 @@ class AudioEngine(
                 deadReads = 0
                 if (n == 0) continue
                 RecorderStatus.level = peak(pcm, n)
+                live?.offer(pcm, n, samplesIn)
                 samplesIn = feed(codec, pcm, n, samplesIn)
                 drain(codec, info, false)
                 val now = System.currentTimeMillis()

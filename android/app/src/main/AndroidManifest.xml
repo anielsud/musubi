@@ -39,5 +39,11 @@
             android:name=".rec.RecorderService"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- Live text recognizer in its own process: a native crash there cannot end a recording. -->
+        <service
+            android:name=".rec.LiveTextService"
+            android:exported="false"
+            android:process=":live" />
     </application>
 </manifest>

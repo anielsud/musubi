@@ -64,11 +64,14 @@ class RecordingStore(val root: File, private val clock: Clock = Clock.systemDefa
         next
     }
 
-    /** Removes the audio of a recording the Mac has imported; meta.json and sync.json stay. */
+    /** Removes the audio (and its live text) of a recording the Mac has imported; meta.json and sync.json stay. */
     fun deleteAudio(id: String) = synchronized(lock) {
         val dir = dirFor(id)
-        (dir.listFiles() ?: emptyArray()).filter { chunkNumber(it.name) != null }.forEach { it.delete() }
+        (dir.listFiles() ?: emptyArray()).filter { chunkNumber(it.name) != null || it.name == LiveTextFile.NAME }.forEach { it.delete() }
     }
+
+    /** The recording's live text, if live text was on during it and the audio is still here. */
+    fun liveTextFile(id: String): File? = File(dirFor(id), LiveTextFile.NAME).takeIf { it.isFile }
 
     /** Drops folders of recordings imported more than [keep] ago. Nothing else is ever pruned. */
     fun pruneImported(keep: Duration = Duration.ofDays(30)): Int = synchronized(lock) {

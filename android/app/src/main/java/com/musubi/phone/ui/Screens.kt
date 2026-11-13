@@ -139,6 +139,7 @@ class RecordingScreen(a: MainActivity) : Screen(a) {
     private lateinit var meter: LinearProgressIndicator
     private lateinit var event: TextView
     private lateinit var source: TextView
+    private val live = LiveTextPanel(a)
     private val openedAt = System.currentTimeMillis()
 
     override fun build(): View {
@@ -157,7 +158,8 @@ class RecordingScreen(a: MainActivity) : Screen(a) {
         })
         root.addView(a.button("Stop") { RecorderService.stop(a) }.apply { minHeight = a.dp(72); textSize = 20f }.marginTop(a, 32),
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).also { it.topMargin = a.dp(32) })
-        return root
+        root.addView(live.view.marginTop(a, 24))
+        return scrolling(a, root)
     }
 
     override fun tick() {
@@ -171,6 +173,7 @@ class RecordingScreen(a: MainActivity) : Screen(a) {
         meter.setProgressCompat((RecorderStatus.level * 100).toInt().coerceIn(0, 100), false)
         source.text = "Microphone: ${RecorderStatus.source}"
         event.text = "Event: " + (RecorderStatus.eventSubject ?: "none (ad hoc)")
+        live.tick()
     }
 }
 
@@ -220,6 +223,9 @@ class RecordingsScreen(a: MainActivity) : Screen(a) {
         box.addView(a.label(m.event?.subject?.ifBlank { "(no subject)" } ?: "Ad hoc", 16f, bold = true))
         val mb = m.chunks.sumOf { it.size } / (1024.0 * 1024.0)
         box.addView(a.label(stateText(r) + if (r.sync.state != SyncState.IMPORTED) " · %.1f MB".format(mb) else "", 14f))
+        if (r.id != RecorderStatus.recordingId && App.store(a).liveTextFile(r.id) != null) {
+            box.addView(a.button("Live text", outlined = true) { a.push(LiveTextScreen(a, r.id)) })
+        }
         val c = a.card(box)
         val editable = !m.isRecording && (r.sync.state == SyncState.ON_PHONE || r.sync.state == SyncState.UPLOADING)
         c.setOnClickListener {

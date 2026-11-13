@@ -24,7 +24,10 @@ import (
 // learnt it. Voice is its fingerprints when known (nil for those taken
 // out before 2026-11-12, worked out again from the meeting when needed);
 // Label is the transcript's speaker over it. To is the profile it was
-// named as under "Who's this?"; Skipped: "Can't tell".
+// named as under "Who's this?"; Skipped: "Can't tell". NoVoice: worked
+// out again from the meeting, it has no fingerprints (too short for
+// one), so nothing can be said of whom it sounds like and naming it
+// teaches no one.
 type ReturnedSample struct {
 	Session  string    `json:"session"`
 	Span     Clip      `json:"span"`
@@ -36,6 +39,7 @@ type ReturnedSample struct {
 	To       string    `json:"to,omitempty"`
 	ToName   string    `json:"toName,omitempty"`
 	Skipped  bool      `json:"skipped,omitempty"`
+	NoVoice  bool      `json:"noVoice,omitempty"`
 }
 
 // Pending: still to be asked about.
@@ -178,6 +182,23 @@ func (s *Store) FillReturned(session string, span Clip, from, label string, v Vo
 	if !changed {
 		return nil
 	}
+	return s.saveLocked()
+}
+
+// MarkReturnedNoVoice records that a returned sample, worked out again
+// from its meeting, has no fingerprints.
+func (s *Store) MarkReturnedNoVoice(session string, span Clip, from string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	i := s.returnedIndexLocked(session, span, from)
+	if i < 0 {
+		return fmt.Errorf("no such returned sample")
+	}
+	if s.returned[i].NoVoice {
+		return nil
+	}
+	s.returned[i].NoVoice = true
 	return s.saveLocked()
 }
 

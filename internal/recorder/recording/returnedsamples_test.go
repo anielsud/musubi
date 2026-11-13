@@ -292,3 +292,99 @@ func TestSplitLabelByVoice(t *testing.T) {
 		}
 	}
 }
+
+// A sample taken out before fingerprints were kept is worked out again
+// from its meeting, also when learning no longer finds the voice under
+// the name it had (here the transcript calls the speaker something
+// else now). One with no fingerprints in its span isn't asked about,
+// unless ask_unfingerprinted_samples, and then says so.
+func TestReturnedSampleWorkedOutAgain(t *testing.T) {
+	r := newTestRecorder(t)
+	model := models.SpeakerModels[0].ID
+	const id = "31111111-2222-3333-4444-555555555555"
+	dir := saveSamplesMeeting(t, r, id, model, time.Now().Add(-200*24*time.Hour))
+	sess, err := r.loadSession(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := diarize.LearnSaved(r.config().Meeting, dir, sess, nil); err != nil {
+		t.Fatal(err)
+	}
+	store, err := r.voiceStore(model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ilse := store.Profiles()[0].ID
+	r.waitReviewIndex()
+	if err := r.sampleEdit(control.OpExcludeSample, control.SampleArgs{Model: model, ID: ilse, Session: id, Start: 22, End: 37}); err != nil {
+		t.Fatal(err)
+	}
+
+	// As kept before 2026-11-12: no fingerprints, no label. Plus one over
+	// the pause, where no fingerprint falls.
+	path := voices.Path(config.DataDir(), model)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f map[string]any
+	if err := json.Unmarshal(raw, &f); err != nil {
+		t.Fatal(err)
+	}
+	ret := f["returned"].([]any)
+	first := ret[0].(map[string]any)
+	delete(first, "voice")
+	delete(first, "label")
+	short := map[string]any{}
+	for k, v := range first {
+		short[k] = v
+	}
+	short["span"] = map[string]any{"start": 37.5, "end": 39.5}
+	f["returned"] = append(ret, short)
+	raw, _ = json.Marshal(f)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(2 * time.Second)
+	os.Chtimes(path, later, later)
+	// The transcript's speaker has another name now.
+	sess.Segments[0].Speaker = "Person 2"
+	if err := r.store.Save(sess); err != nil {
+		t.Fatal(err)
+	}
+
+	r.fillReturnedSamples()
+	var withVoice, noVoice *voices.ReturnedSample
+	for _, rs := range store.Returned() {
+		rs := rs
+		switch rs.Span.Start {
+		case 22:
+			withVoice = &rs
+		case 37.5:
+			noVoice = &rs
+		}
+	}
+	if withVoice == nil || withVoice.Voice == nil || withVoice.Voice.N != 12 || withVoice.NoVoice {
+		t.Fatalf("worked out again: %+v", withVoice)
+	}
+	if noVoice == nil || !noVoice.NoVoice || noVoice.Voice != nil && noVoice.Voice.N > 0 {
+		t.Fatalf("no fingerprints: %+v", noVoice)
+	}
+
+	v, err := r.Voices()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sampleItem(v, 22) == nil || sampleItem(v, 37.5) != nil {
+		t.Fatalf("asked about: %+v", v.Unknown)
+	}
+	c := r.config()
+	c.Meeting.AskUnfingerprintedSamples = true
+	r.mu.Lock()
+	r.cfg = &c
+	r.mu.Unlock()
+	v, _ = r.Voices()
+	if u := sampleItem(v, 37.5); u == nil || !u.NoVoice {
+		t.Fatalf("with ask_unfingerprinted_samples: %+v", v.Unknown)
+	}
+}

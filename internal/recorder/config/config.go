@@ -222,6 +222,11 @@ type MeetingConfig struct {
 	// saved meeting, the recorder's folder moving to a new format
 	// (docs/data-safety.md, item 6). false: no copies, as before.
 	VoiceProfileBackups bool `toml:"voice_profile_backups"`
+	// AskUnfingerprintedSamples keeps asking "Who's this?" about samples
+	// taken out of a voice ("Not them") that have no fingerprints (too
+	// short for one): they can't be matched or named, only skipped.
+	// false: they aren't asked about.
+	AskUnfingerprintedSamples bool `toml:"ask_unfingerprinted_samples"`
 	// RefineSpeakerCuts, after each meeting is saved, moves each cut
 	// between back-to-back speakers to where the voice changes, from short
 	// fingerprints across it (a low-priority job, about 2 minutes of one

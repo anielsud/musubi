@@ -4142,3 +4142,9 @@ transcription is 41% lower; a 10-second stretch of speech takes about
 0.8 s per line.
 
 **Next to check:** the recorder's average in a meeting with 2 threads.
+
+**Checked (2026-11-13, 17:00 meeting):** with 2 threads the recorder
+averaged 38% of a core (47% before). Only 7 minutes were measured, in a
+different meeting from the 47%, so how much people talked differs too.
+Two `sample`s showed ONNX Runtime still doing the same work, with less
+spinning.

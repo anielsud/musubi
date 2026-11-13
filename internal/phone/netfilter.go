@@ -3,7 +3,6 @@ package phone
 import (
 	"net"
 	"net/netip"
-	"sort"
 	"sync"
 	"time"
 )
@@ -79,37 +78,4 @@ func (e *everyMinute) ok(now time.Time) bool {
 	}
 	e.last = now
 	return true
-}
-
-// LocalAddresses are this Mac's addresses a phone can reach it on
-// (private, not loopback or IPv6 link-local, which needs a zone), IPv4
-// first, for the pairing screen.
-func LocalAddresses() []string {
-	ifaces, err := net.InterfaceAddrs()
-	if err != nil {
-		return nil
-	}
-	var out []netip.Addr
-	for _, a := range ifaces {
-		pfx, err := netip.ParsePrefix(a.String())
-		if err != nil {
-			continue
-		}
-		ip := pfx.Addr().Unmap()
-		if ip.IsLoopback() || (ip.Is6() && ip.IsLinkLocalUnicast()) || !PrivateAddr(ip) {
-			continue
-		}
-		out = append(out, ip)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Is4() != out[j].Is4() {
-			return out[i].Is4()
-		}
-		return out[i].Less(out[j])
-	})
-	s := make([]string, len(out))
-	for i, ip := range out {
-		s[i] = ip.String()
-	}
-	return s
 }

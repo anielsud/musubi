@@ -245,9 +245,13 @@ enters the cold lane like any other source.
   `internal/phone`, an HTTPS server (Go's crypto/tls, a self-signed ECDSA
   P-256 certificate kept in `<data_dir>/phone/`, key 0600, pinned by the
   phone) that closes connections from non-private addresses at accept.
-  Settings → Phone turns it on, opens a pairing window (8-digit code, 5
-  minutes, single use, closed by 5 wrong codes) and lists and revokes
-  devices; only each token's SHA-256 is stored (`devices.json`). Paired
+  Settings → Phone turns it on and lists and revokes devices. While it
+  listens, the app advertises `_musubi._tcp` over Bonjour (on macOS the
+  system's `dns-sd -R` as a child process, `phone/advertise_darwin.go`).
+  Pairing starts on the phone and is confirmed on both sides with a
+  6-digit code derived from the certificate and two nonces
+  (`phone.PairCode`); the app brings its window forward to ask Allow /
+  Deny. Only each token's SHA-256 is stored (`devices.json`). Paired
   phones fetch the agenda (`phone.BuildAgenda`: calendar events in the
   owner's scope with their saved briefs and labels; a request starts the
   weekly drafting's path, `draftBriefsUntil`, for briefs missing in its

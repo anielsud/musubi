@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+
 	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/engine"
 	"github.com/anielsud/musubi/internal/phone"
@@ -27,25 +29,47 @@ type phoneState struct {
 	srv       *phone.Server
 	listening bool
 	err       string
-	pairing   *phone.Pairing
+	// served is closed when the last server has stopped serving (and
+	// advertising); a reopen and the app's exit wait for it.
+	served chan struct{}
 	// The drafting agenda requests start.
 	draft phone.Drafter
+}
+
+// waitPhone waits, at most a few seconds, for the last phone server to
+// stop: its Bonjour name and its port are then free.
+func (a *App) waitPhone() {
+	a.phone.mu.Lock()
+	served := a.phone.served
+	a.phone.mu.Unlock()
+	if served == nil {
+		return
+	}
+	select {
+	case <-served:
+	case <-time.After(5 * time.Second):
+		log.Printf("phone: the previous server is still stopping")
+	}
 }
 
 // startPhone opens the phone server for e and serves until ctx ends,
 // when [phone] enabled is set.
 func (a *App) startPhone(ctx context.Context, e *engine.Engine) {
+	a.waitPhone()
 	a.phone.mu.Lock()
-	a.phone.srv, a.phone.listening, a.phone.err, a.phone.pairing = nil, false, "", nil
+	a.phone.srv, a.phone.listening, a.phone.err = nil, false, ""
 	a.phone.mu.Unlock()
 	if !e.Cfg.Phone.Enabled {
 		return
 	}
 	srv, err := a.openPhone(ctx, e)
+	served := make(chan struct{})
 	a.phone.mu.Lock()
 	a.phone.srv = srv
 	if err != nil {
 		a.phone.err = err.Error()
+	} else {
+		a.phone.served = served
 	}
 	a.phone.mu.Unlock()
 	if err != nil {
@@ -53,6 +77,7 @@ func (a *App) startPhone(ctx context.Context, e *engine.Engine) {
 		return
 	}
 	go func() {
+		defer close(served)
 		// A reopen stops the old server just before this one starts, so
 		// the port can still be held for a moment.
 		for try := 0; ctx.Err() == nil; try++ {
@@ -99,10 +124,22 @@ func (a *App) openPhone(ctx context.Context, e *engine.Engine) (*phone.Server, e
 		Agenda: func(_ context.Context, days int) ([]phone.Event, error) {
 			return phone.BuildAgenda(e.Store, sensitivity.Owner(), time.Now(), days)
 		},
-		Drafting: func(until time.Time) int { return a.phoneDrafting(ctx, e, until) },
-		Logf:     log.Printf,
-		OnChange: func() { a.emit("phone:changed", nil) },
+		Drafting:      func(until time.Time) int { return a.phoneDrafting(ctx, e, until) },
+		Logf:          log.Printf,
+		OnChange:      func() { a.emit("phone:changed", nil) },
+		OnPairRequest: a.askPair,
 	})
+}
+
+// askPair brings the window forward, whatever screen is open, and asks
+// the owner to Allow or Deny a phone's pair request.
+func (a *App) askPair(p phone.PairPrompt) {
+	if a.ctx != nil && a.emitFn == nil {
+		wruntime.Show(a.ctx)
+		wruntime.WindowUnminimise(a.ctx)
+		wruntime.WindowShow(a.ctx)
+	}
+	a.emit("phone:pair", p)
 }
 
 // phoneDrafting starts drafting the briefs missing before until in the
@@ -146,7 +183,11 @@ type PhoneView struct {
 	Listening bool           `json:"listening"`
 	Error     string         `json:"error,omitempty"`
 	Devices   []phone.Device `json:"devices"`
-	Pairing   *phone.Pairing `json:"pairing,omitempty"`
+	// Advertised: the Mac is announced on the local network (Bonjour) as
+	// AdvertisedAs; AdvertiseError says why not, when it should be.
+	Advertised     bool   `json:"advertised"`
+	AdvertisedAs   string `json:"advertisedAs,omitempty"`
+	AdvertiseError string `json:"advertiseError,omitempty"`
 	// OfRecord: Musubi takes in the recorder's meetings, so imported
 	// phone recordings reach it ([recorder] of_record = "musubi").
 	OfRecord bool `json:"ofRecord"`
@@ -160,14 +201,10 @@ func (a *App) PhoneState() (PhoneView, error) {
 	a.phone.mu.Lock()
 	srv := a.phone.srv
 	v.Listening, v.Error = a.phone.listening, a.phone.err
-	if p := a.phone.pairing; p != nil && srv != nil {
-		if open, _ := srv.PairingOpen(); open {
-			v.Pairing = p
-		} else {
-			a.phone.pairing = nil
-		}
-	}
 	a.phone.mu.Unlock()
+	if srv != nil {
+		v.Advertised, v.AdvertisedAs, v.AdvertiseError = srv.Advertising()
+	}
 	if srv == nil {
 		srv, _ = a.phoneDevicesOnly()
 	}
@@ -198,33 +235,28 @@ func (a *App) SetPhoneEnabled(on bool) error {
 	return a.reopen("phone:changed")
 }
 
-// PhonePair opens a pairing window: the code, its expiry, the addresses
-// and the certificate fingerprint to compare.
-func (a *App) PhonePair() (*phone.Pairing, error) {
-	if a.eng == nil {
-		return nil, a.notReady()
-	}
+// PhonePairRequest is the phone's pair request waiting for the owner's
+// answer, or nil.
+func (a *App) PhonePairRequest() *phone.PairPrompt {
 	a.phone.mu.Lock()
-	defer a.phone.mu.Unlock()
-	if a.phone.srv == nil || !a.phone.listening {
-		return nil, errors.New("turn the phone server on first")
+	srv := a.phone.srv
+	a.phone.mu.Unlock()
+	if srv == nil {
+		return nil
 	}
-	p, err := a.phone.srv.Pair()
-	if err != nil {
-		return nil, err
-	}
-	a.phone.pairing = &p
-	return &p, nil
+	return srv.PairPrompt()
 }
 
-// PhoneCancelPairing closes the pairing window.
-func (a *App) PhoneCancelPairing() {
+// PhoneAnswerPair is the owner's Allow (allow true) or Deny of a pair
+// request; the phone gets its token once it has confirmed too.
+func (a *App) PhoneAnswerPair(id string, allow bool) error {
 	a.phone.mu.Lock()
-	defer a.phone.mu.Unlock()
-	if a.phone.srv != nil {
-		a.phone.srv.CancelPairing()
+	srv := a.phone.srv
+	a.phone.mu.Unlock()
+	if srv == nil {
+		return errors.New("the phone server is off")
 	}
-	a.phone.pairing = nil
+	return srv.AnswerPair(id, allow)
 }
 
 // PhoneRevoke unpairs a phone: its token stops working at once. What is

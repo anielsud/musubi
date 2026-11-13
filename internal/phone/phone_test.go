@@ -3,9 +3,11 @@ package phone
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -65,6 +67,62 @@ type harness struct {
 	clk *clock
 	rec *fakeRecorder
 	dir string
+	ads *fakeAdvertiser
+
+	logMu sync.Mutex
+	logs  []string
+	asked []PairPrompt
+}
+
+// logged is everything the server logged.
+func (h *harness) logged() string {
+	h.logMu.Lock()
+	defer h.logMu.Unlock()
+	return strings.Join(h.logs, "\n")
+}
+
+// fakeAdvertiser stands in for dns-sd.
+type fakeAdvertiser struct {
+	mu    sync.Mutex
+	err   error
+	calls []fakeAd
+}
+
+type fakeAd struct {
+	instance string
+	port     int
+	txt      []string
+	proc     *fakeProc
+}
+
+type fakeProc struct {
+	once    sync.Once
+	done    chan struct{}
+	stopped bool
+}
+
+func (p *fakeProc) Stop()                 { p.stopped = true; p.end() }
+func (p *fakeProc) end()                  { p.once.Do(func() { close(p.done) }) }
+func (p *fakeProc) Done() <-chan struct{} { return p.done }
+
+func (f *fakeAdvertiser) start(instance string, port int, txt []string) (advertProc, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
+	p := &fakeProc{done: make(chan struct{})}
+	f.calls = append(f.calls, fakeAd{instance, port, txt, p})
+	return p, nil
+}
+
+func (f *fakeAdvertiser) last() fakeAd {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) == 0 {
+		return fakeAd{}
+	}
+	return f.calls[len(f.calls)-1]
 }
 
 func newHarness(t *testing.T) *harness {
@@ -72,12 +130,26 @@ func newHarness(t *testing.T) *harness {
 	dir := t.TempDir()
 	clk := &clock{t: time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)}
 	rec := &fakeRecorder{running: true, state: control.ImportWaiting}
-	s, err := New(Config{Dir: filepath.Join(dir, "phone"), RecorderData: filepath.Join(dir, "recorder"), Import: rec.Import, Now: clk.now, Logf: t.Logf,
+	h := &harness{t: t, clk: clk, rec: rec, dir: dir, ads: &fakeAdvertiser{}}
+	s, err := New(Config{Dir: filepath.Join(dir, "phone"), RecorderData: filepath.Join(dir, "recorder"), Import: rec.Import, Now: clk.now,
+		Logf: func(f string, a ...any) {
+			h.logMu.Lock()
+			h.logs = append(h.logs, fmt.Sprintf(f, a...))
+			h.logMu.Unlock()
+			t.Logf(f, a...)
+		},
+		OnPairRequest: func(p PairPrompt) {
+			h.logMu.Lock()
+			h.asked = append(h.asked, p)
+			h.logMu.Unlock()
+		},
 		Agenda: func(context.Context, int) ([]Event, error) { return []Event{}, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &harness{t: t, s: s, h: s.Handler(), clk: clk, rec: rec, dir: dir}
+	s.advertise = h.ads.start // never the real dns-sd in tests
+	h.s, h.h = s, s.Handler()
+	return h
 }
 
 func (h *harness) do(method, path, token string, body []byte, hdr map[string]string) *httptest.ResponseRecorder {
@@ -96,93 +168,294 @@ func (h *harness) do(method, path, token string, body []byte, hdr map[string]str
 	return w
 }
 
+// pairRequest sends POST /v1/pair/request with a fresh nonce: the status,
+// the request id, the phone's and the Mac's nonces.
+func (h *harness) pairRequest(name string) (int, string, []byte, []byte) {
+	h.t.Helper()
+	nonce := make([]byte, 16)
+	rand.Read(nonce)
+	b, _ := json.Marshal(map[string]string{"device_name": name, "nonce": base64.StdEncoding.EncodeToString(nonce)})
+	w := h.do("POST", "/v1/pair/request", "", b, nil)
+	if w.Code != 200 {
+		return w.Code, "", nonce, nil
+	}
+	var r struct {
+		RequestID string `json:"request_id"`
+		Nonce     string `json:"nonce"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &r); err != nil {
+		h.t.Fatal(err)
+	}
+	mac, err := base64.StdEncoding.DecodeString(r.Nonce)
+	if err != nil || len(mac) != 16 || len(r.RequestID) != 32 {
+		h.t.Fatalf("pair request reply %s", w.Body)
+	}
+	return w.Code, r.RequestID, nonce, mac
+}
+
+func (h *harness) confirm(id string) int {
+	return h.do("POST", "/v1/pair/"+id+"/confirm", "", nil, nil).Code
+}
+
+// pairState is GET /v1/pair/{id}: the status and the reply.
+func (h *harness) pairState(id string) (int, map[string]string) {
+	w := h.do("GET", "/v1/pair/"+id, "", nil, nil)
+	var r map[string]string
+	json.Unmarshal(w.Body.Bytes(), &r)
+	return w.Code, r
+}
+
 // pairPhone pairs a device and returns its token.
 func (h *harness) pairPhone(name string) string {
 	h.t.Helper()
-	p, err := h.s.Pair()
-	if err != nil {
+	c, id, _, _ := h.pairRequest(name)
+	if c != 200 {
+		h.t.Fatalf("pair request: %d", c)
+	}
+	if err := h.s.AnswerPair(id, true); err != nil {
 		h.t.Fatal(err)
 	}
-	b, _ := json.Marshal(map[string]string{"code": p.Code, "device_name": name})
-	w := h.do("POST", "/v1/pair", "", b, nil)
-	if w.Code != 200 {
-		h.t.Fatalf("pair: %d %s", w.Code, w.Body)
+	if c := h.confirm(id); c != 204 {
+		h.t.Fatalf("confirm: %d", c)
 	}
-	var r struct{ DeviceID, Token string }
-	var raw map[string]string
-	json.Unmarshal(w.Body.Bytes(), &raw)
-	r.DeviceID, r.Token = raw["device_id"], raw["token"]
-	if r.DeviceID == "" || len(r.Token) < 40 {
-		h.t.Fatalf("pair reply %v", raw)
+	c, r := h.pairState(id)
+	if c != 200 || r["state"] != PairPaired || r["device_id"] == "" || len(r["token"]) < 40 {
+		h.t.Fatalf("pair state: %d %v", c, r)
 	}
-	return r.Token
+	return r["token"]
 }
 
-func TestPairingWindow(t *testing.T) {
+// The code derivation's fixed vector, also in docs/phone.md for the phone.
+func TestPairCodeVector(t *testing.T) {
+	seq := func(from, n int) []byte {
+		b := make([]byte, n)
+		for i := range b {
+			b[i] = byte(from + i)
+		}
+		return b
+	}
+	if got := PairCode(seq(0x00, 32), seq(0x20, 16), seq(0x30, 16)); got != "452561" {
+		t.Errorf("code %s, want 452561", got)
+	}
+	// Zero-padded to six digits.
+	for i := 0; i < 2000; i++ {
+		if c := PairCode(seq(i, 32), seq(i*7, 16), seq(i*13, 16)); len(c) != 6 || strings.Trim(c, "0123456789") != "" {
+			t.Fatalf("code %q", c)
+		}
+	}
+}
+
+// The code the owner sees is the one the phone computes from the
+// certificate it was shown and the two nonces.
+func TestPairCodeMatchesPhone(t *testing.T) {
 	h := newHarness(t)
-	pair := func(code string) int {
-		b, _ := json.Marshal(map[string]string{"code": code, "device_name": "Test phone"})
-		return h.do("POST", "/v1/pair", "", b, nil).Code
+	_, id, phoneNonce, macNonce := h.pairRequest("Test phone")
+	p := h.s.PairPrompt()
+	if p == nil || p.ID != id {
+		t.Fatalf("prompt %+v", p)
 	}
-	// No window open: refused.
-	if c := pair("12345678"); c != 403 {
-		t.Fatalf("closed window: %d", c)
+	fp, _ := hex.DecodeString(h.s.Fingerprint())
+	if want := PairCode(fp, phoneNonce, macNonce); p.Code != want {
+		t.Errorf("Mac shows %s, phone computes %s", p.Code, want)
 	}
-	// Expiry.
-	p, _ := h.s.Pair()
-	if len(p.Code) != 8 || strings.Trim(p.Code, "0123456789") != "" {
-		t.Fatalf("code %q", p.Code)
-	}
-	if got := p.Expires.Sub(h.clk.now()); got != 5*time.Minute {
+	if got := p.Expires.Sub(h.clk.now()); got != 2*time.Minute {
 		t.Errorf("valid for %s", got)
 	}
-	if len(strings.ReplaceAll(p.Fingerprint, " ", "")) != 16 || !strings.HasPrefix(strings.ToLower(strings.ReplaceAll(p.Fingerprint, " ", "")), h.s.Fingerprint()[:16]) {
-		t.Errorf("fingerprint %q vs %q", p.Fingerprint, h.s.Fingerprint())
+	if len(h.asked) != 1 || h.asked[0].Code != p.Code || h.asked[0].DeviceName != "Test phone" {
+		t.Errorf("owner asked %+v", h.asked)
 	}
-	h.clk.add(5 * time.Minute)
-	if c := pair(p.Code); c != 403 {
-		t.Errorf("expired code: %d", c)
+}
+
+func TestPairingBothOrders(t *testing.T) {
+	for _, phoneFirst := range []bool{true, false} {
+		h := newHarness(t)
+		_, id, _, _ := h.pairRequest("Test phone")
+		if _, r := h.pairState(id); r["state"] != PairPending {
+			t.Fatalf("state %v", r)
+		}
+		first, second := func() { h.confirm(id) }, func() { h.s.AnswerPair(id, true) }
+		if !phoneFirst {
+			first, second = second, first
+		}
+		first()
+		// One side alone gives nothing.
+		if c, r := h.pairState(id); c != 200 || r["state"] != PairPending || r["token"] != "" {
+			t.Fatalf("phoneFirst=%v one side: %d %v", phoneFirst, c, r)
+		}
+		if p := h.s.PairPrompt(); (p == nil) != !phoneFirst {
+			t.Errorf("phoneFirst=%v: prompt %+v", phoneFirst, p)
+		}
+		second()
+		if h.s.PairPrompt() != nil {
+			t.Error("prompt after both confirmed")
+		}
+		c, r := h.pairState(id)
+		if c != 200 || r["state"] != PairPaired || r["device_id"] == "" || r["token"] == "" {
+			t.Fatalf("phoneFirst=%v both: %d %v", phoneFirst, c, r)
+		}
+		// The token is returned once: the request is then gone.
+		if c, r2 := h.pairState(id); c != 404 || r2["token"] != "" {
+			t.Errorf("second collection: %d %v", c, r2)
+		}
+		if c := h.do("GET", "/v1/agenda", r["token"], nil, nil).Code; c != 200 {
+			t.Errorf("new token: %d", c)
+		}
+		devs := h.s.Devices()
+		if len(devs) != 1 || devs[0].ID != r["device_id"] || devs[0].Name != "Test phone" || devs[0].TokenHash != "" {
+			t.Errorf("devices %+v", devs)
+		}
+		// Nothing secret in the log.
+		logs := h.logged()
+		for _, secret := range []string{r["token"], id} {
+			if strings.Contains(logs, secret) {
+				t.Error("a token or request id was logged")
+			}
+		}
+		if p := h.asked[0]; strings.Contains(logs, p.Code) {
+			t.Error("the code was logged")
+		}
 	}
-	// Single use.
-	p, _ = h.s.Pair()
-	if c := pair(p.Code); c != 200 {
-		t.Fatalf("right code: %d", c)
+}
+
+func TestPairingDeny(t *testing.T) {
+	h := newHarness(t)
+	_, id, _, _ := h.pairRequest("Test phone")
+	if c := h.confirm(id); c != 204 {
+		t.Fatalf("confirm: %d", c)
 	}
-	if c := pair(p.Code); c != 403 {
-		t.Errorf("code used twice: %d", c)
+	if err := h.s.AnswerPair(id, false); err != nil {
+		t.Fatal(err)
 	}
-	// Five wrong codes close the window; the right one is then refused.
-	p, _ = h.s.Pair()
-	wrong := "00000000"
-	if p.Code == wrong {
-		wrong = "11111111"
+	if c, r := h.pairState(id); c != 200 || r["state"] != PairDenied || r["token"] != "" {
+		t.Errorf("denied: %d %v", c, r)
 	}
-	for i := 0; i < 4; i++ {
-		pair(wrong)
+	if c := h.confirm(id); c != 409 {
+		t.Errorf("confirm after deny: %d", c)
 	}
-	if open, _ := h.s.PairingOpen(); !open {
-		t.Fatal("window closed after 4 wrong codes")
+	if err := h.s.AnswerPair(id, true); err == nil {
+		t.Error("allowed after deny")
 	}
-	pair("not-a-code") // a malformed code counts as wrong
-	if open, _ := h.s.PairingOpen(); open {
-		t.Error("window open after 5 wrong codes")
-	}
-	if c := pair(p.Code); c != 403 {
-		t.Errorf("right code after lockout: %d", c)
-	}
-	if n := len(h.s.Devices()); n != 1 {
+	if n := len(h.s.Devices()); n != 0 {
 		t.Errorf("%d devices", n)
 	}
-	// Only the token's hash is stored.
-	b, _ := os.ReadFile(filepath.Join(h.dir, "phone", devicesFile))
-	if !strings.Contains(string(b), "token_sha256") {
-		t.Error("devices.json without hashes")
+	// Unknown and malformed ids.
+	if c := h.confirm(strings.Repeat("0", 32)); c != 404 {
+		t.Errorf("unknown id: %d", c)
 	}
-	if fi, _ := os.Stat(filepath.Join(h.dir, "phone", devicesFile)); fi.Mode().Perm() != 0o600 {
-		t.Errorf("devices.json mode %v", fi.Mode().Perm())
+	if c, _ := h.pairState(strings.Repeat("Z", 32)); c != 404 {
+		t.Errorf("bad id: %d", c)
 	}
-	if fi, _ := os.Stat(filepath.Join(h.dir, "phone", keyFile)); fi.Mode().Perm() != 0o600 {
-		t.Errorf("key mode %v", fi.Mode().Perm())
+	if err := h.s.AnswerPair("nope", true); err == nil {
+		t.Error("answered an unknown request")
+	}
+}
+
+func TestPairingExpiry(t *testing.T) {
+	h := newHarness(t)
+	_, id, _, _ := h.pairRequest("Test phone")
+	h.confirm(id)
+	h.clk.add(2 * time.Minute)
+	if h.s.PairPrompt() != nil {
+		t.Error("prompt after expiry")
+	}
+	if err := h.s.AnswerPair(id, true); err == nil {
+		t.Error("allowed after expiry")
+	}
+	if c, r := h.pairState(id); c != 200 || r["state"] != PairExpired {
+		t.Errorf("expired: %d %v", c, r)
+	}
+	// Both confirmed: the phone has two minutes to collect its token.
+	h.clk.add(time.Minute)
+	_, id, _, _ = h.pairRequest("Test phone")
+	h.clk.add(time.Minute + 50*time.Second)
+	h.s.AnswerPair(id, true)
+	h.confirm(id)
+	h.clk.add(2 * time.Minute)
+	if c, r := h.pairState(id); c != 200 || r["state"] != PairExpired || r["token"] != "" {
+		t.Errorf("uncollected: %d %v", c, r)
+	}
+	if n := len(h.s.Devices()); n != 0 {
+		t.Errorf("%d devices", n)
+	}
+	// A finished request is forgotten after a while.
+	h.clk.add(10 * time.Minute)
+	if c, _ := h.pairState(id); c != 404 {
+		t.Errorf("old request: %d", c)
+	}
+}
+
+func TestPairingLimits(t *testing.T) {
+	h := newHarness(t)
+	// One pending request at a time.
+	_, id, _, _ := h.pairRequest("First")
+	if c, _, _, _ := h.pairRequest("Second"); c != 409 {
+		t.Errorf("second pending request: %d", c)
+	}
+	if p := h.s.PairPrompt(); p == nil || p.ID != id {
+		t.Errorf("prompt replaced: %+v", p)
+	}
+	h.s.AnswerPair(id, true)
+	h.confirm(id)
+	h.pairState(id)
+	// Five requests per ten minutes.
+	for i := 0; i < 4; i++ {
+		h.clk.add(time.Second)
+		h.pairPhone(fmt.Sprintf("Phone %d", i))
+	}
+	if c, _, _, _ := h.pairRequest("Sixth"); c != 429 {
+		t.Errorf("sixth request: %d", c)
+	}
+	h.clk.add(10 * time.Minute)
+	h.pairPhone("Later")
+
+	// Three denials in ten minutes refuse requests for ten minutes.
+	h = newHarness(t)
+	for i := 0; i < 3; i++ {
+		c, id, _, _ := h.pairRequest("Pest")
+		if c != 200 {
+			t.Fatalf("request %d: %d", i, c)
+		}
+		h.s.AnswerPair(id, false)
+		h.clk.add(time.Minute)
+	}
+	if c, _, _, _ := h.pairRequest("Pest"); c != 429 {
+		t.Errorf("after 3 denials: %d", c)
+	}
+	h.clk.add(9 * time.Minute) // ten minutes after the third denial
+	h.pairPhone("Owner")
+}
+
+func TestPairRequestInput(t *testing.T) {
+	h := newHarness(t)
+	post := func(body string) int {
+		return h.do("POST", "/v1/pair/request", "", []byte(body), nil).Code
+	}
+	for _, n := range []int{0, 15, 17, 32} {
+		b, _ := json.Marshal(map[string]string{"device_name": "x", "nonce": base64.StdEncoding.EncodeToString(make([]byte, n))})
+		if c := post(string(b)); c != 400 {
+			t.Errorf("nonce of %d bytes: %d", n, c)
+		}
+	}
+	if c := post(`{"device_name":"x","nonce":"not base64!!"}`); c != 400 {
+		t.Errorf("bad base64: %d", c)
+	}
+	if c := post(`{"device_name":`); c != 400 {
+		t.Errorf("bad JSON: %d", c)
+	}
+	if c := post(`{"device_name":"` + strings.Repeat("a", 5000) + `","nonce":"AAAAAAAAAAAAAAAAAAAAAA=="}`); c != 413 {
+		t.Errorf("huge body: %d", c)
+	}
+	if h.s.PairPrompt() != nil {
+		t.Fatal("a bad request was put to the owner")
+	}
+	// The name is made fit to show.
+	b, _ := json.Marshal(map[string]string{"device_name": "  Evil\u202e\nphone\x00" + strings.Repeat("é", 100), "nonce": "AAAAAAAAAAAAAAAAAAAAAA"})
+	if c := post(string(b)); c != 200 {
+		t.Fatalf("unpadded nonce: %d", c)
+	}
+	p := h.s.PairPrompt()
+	if p == nil || !strings.HasPrefix(p.DeviceName, "Evilphone") || len([]rune(p.DeviceName)) != maxDeviceName || strings.ContainsAny(p.DeviceName, "\u202e\n\x00") {
+		t.Errorf("name %+v", p)
 	}
 }
 

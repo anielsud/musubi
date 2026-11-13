@@ -68,6 +68,13 @@ type M365 struct {
 	// (calendar window) as inbox meeting drops: the second copy of a meeting
 	// Tomoe recorded, the only copy of one it missed. Needs Calendar.
 	Transcripts bool `toml:"transcripts"`
+	// TeamsNames names a recorded meeting's unnamed speakers ("Person 3")
+	// from its Teams transcript, when the transcript's text lines up with
+	// the recording and one Teams name clearly covers that speaker's speech
+	// (session.AlignTeams). Names from the meeting window, voice profiles
+	// or the owner are never replaced. false: Teams transcripts only fill
+	// what the recording missed, as before.
+	TeamsNames bool `toml:"teams_names"`
 	// Unattended also keeps transcripts of meetings the owner was invited to
 	// but didn't join (no Tomoe recording, not among the speakers), including
 	// ones the owner was invited to only through a distribution list.
@@ -730,7 +737,7 @@ func DefaultConfig() Config {
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true, AutoBrief: true},
 		MCP:           MCP{Enabled: true, MaxShare: "owner-only", Write: true},
-		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, FirstDays: 42, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
+		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, FirstDays: 42, Reconnect: true, TomoeContext: true, Transcripts: true, TeamsNames: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
 		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0, Extract: "lean", StrictLinks: true, ImportKeepProposed: true, Grouping: "threads", Threads: Threads{Chunk: 70, Parallel: 8, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true, ConsolidateWindow: 24, InsertOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: false, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 16}, Digest: Digest{Enabled: true, ToDos: true, Parallel: 4, MinTopicStatements: 3}, AllowHosted: true, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true, HoldUpgrades: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true, PullMissing: true},
 		Live: Live{

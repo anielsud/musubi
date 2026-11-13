@@ -1,6 +1,7 @@
 package stages
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 	"unicode"
@@ -11,7 +12,8 @@ import (
 	"github.com/anielsud/musubi/internal/store"
 )
 
-const ResolveVersion = "m2"
+// m3 (2026-11-12): a transcript's named speakers take part as speakers.
+const ResolveVersion = "m3"
 
 // Matcher finds alias mentions in text. Built once per registry.
 type Matcher struct {
@@ -202,6 +204,9 @@ func Resolve(it item.Item, linked *item.Item, chunks []store.Chunk, reg *registr
 	if linked != nil {
 		addParts(linked.Participants)
 	}
+	for _, p := range transcriptSpeakers(it, linked) {
+		addIE(reg.Participant(p), "speaker")
+	}
 
 	seqOf := map[int]int{}
 	for _, c := range chunks {
@@ -350,4 +355,53 @@ func pick(c Candidate, seq, seg int, parts map[string]bool, prox *Proximity, oth
 		m.Confidence = 0.6
 	}
 	return m
+}
+
+// placeholderSpeaker is a label that names no one: a recorder's or a
+// transcript's "Person 3", "Speaker 2", "Unknown".
+var placeholderSpeaker = regexp.MustCompile(`(?i)^(person|speaker|unknown|guest)\s*\d*$`)
+
+// transcriptSpeakers are the people a meeting's lines name, for a meeting
+// whose source lists no speakers (a Teams transcript, an imported one):
+// the people are the same as in a recording, so they take part as
+// speakers too. A name is matched to the meeting's invitee of that name,
+// for their email; placeholders and "You" are left out.
+func transcriptSpeakers(it item.Item, linked *item.Item) []item.Participant {
+	if it.Kind != item.KindMeeting {
+		return nil
+	}
+	for _, p := range it.Participants {
+		if p.Role == "speaker" {
+			return nil // the source names its speakers itself
+		}
+	}
+	known := map[string]item.Participant{}
+	for _, p := range append(append([]item.Participant{}, it.Participants...), participantsOf(linked)...) {
+		if p.Name != "" && p.Email != "" {
+			known[strings.ToLower(strings.TrimSpace(p.Name))] = p
+		}
+	}
+	var out []item.Participant
+	seen := map[string]bool{}
+	for _, s := range it.Segments {
+		name := strings.TrimSpace(s.Speaker)
+		key := strings.ToLower(name)
+		if name == "" || seen[key] || key == "you" || placeholderSpeaker.MatchString(name) {
+			continue
+		}
+		seen[key] = true
+		p := item.Participant{Name: name, Email: s.Email, Role: "speaker"}
+		if k, ok := known[key]; ok && p.Email == "" {
+			p.Email = k.Email
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func participantsOf(it *item.Item) []item.Participant {
+	if it == nil {
+		return nil
+	}
+	return it.Participants
 }

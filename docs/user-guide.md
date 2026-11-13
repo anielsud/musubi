@@ -216,9 +216,13 @@ than taking them from the meeting platform:
 - Renaming a profile renames that person in past meetings too, without
   any model call, and can be undone.
 
-Teams transcripts name speakers too, but Musubi doesn't use their names
-on its recordings yet: it uses Teams transcripts to fill in meetings,
-or parts of meetings, it didn't record.
+**Teams transcripts** name everyone. When one arrives for a meeting
+Musubi recorded (usually within the hour), speakers still called
+"Person 3" get their Teams name, if the transcript's text lines up with
+the recording and one name clearly covers that speaker; names from the
+window, voice profiles or you are never replaced. Voice profiles learn
+from these names too. Meetings Musubi didn't record are filled in from
+the Teams transcript, with its speakers as the meeting's people.
 
 ## Models
 

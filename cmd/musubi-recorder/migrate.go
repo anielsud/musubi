@@ -17,6 +17,8 @@ import (
 
 	appconfig "github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/recorder/config"
+	"github.com/anielsud/musubi/internal/recorder/dataformat"
+	"github.com/anielsud/musubi/internal/recorder/voices"
 )
 
 // migrateCmd makes Musubi stand alone: it copies what the recorder and the
@@ -111,6 +113,9 @@ func (m *migration) fail(format string, args ...any) {
 func migrateFromTomoe(w io.Writer, o migrateOptions, now time.Time) error {
 	data, err := resolveDataDir(o.data)
 	if err != nil {
+		return err
+	}
+	if err := dataformat.Check(data); err != nil {
 		return err
 	}
 	tomoe, err := filepath.Abs(o.tomoe)
@@ -416,7 +421,6 @@ func (m *migration) copyVoices() {
 		m.fail("voices: %v", err)
 		return
 	}
-	backup := filepath.Join(m.data, "voices.bak-"+m.now.Format("20060102-150405"))
 	backedUp := false
 	for _, e := range ents {
 		// Tomoe's backups (name.json.bak-…) and half-written saves don't
@@ -452,7 +456,10 @@ func (m *migration) copyVoices() {
 			continue
 		}
 		if oerr == nil && !backedUp {
-			if err := copyTree(to, backup); err != nil {
+			// The same copies as before a relearn (voices.Backup): one
+			// naming, the newest five kept.
+			backup, err := voices.Backup(to, m.now)
+			if err != nil {
 				m.fail("voices: backing up %s: %v", to, err)
 				return
 			}

@@ -143,7 +143,8 @@ calendar context it wrote into Tomoe's sessions. `[recorder] tomoe`
   folder); the copy's `session.json` must parse before it is renamed into
   place. Voices: Tomoe's `*.json` over the recorder's, except where the
   recorder's file is newer (kept, and said), with what is replaced kept in
-  `<data>/voices.bak-<date>`. Models: each of Tomoe's not already in
+  `<data>/voices.bak-<date>` (the newest five such copies kept, shared
+  with the copies below). Models: each of Tomoe's not already in
   `<data>/models`, cloned. Settings: every key Tomoe's config sets in
   `[audio]`, `[transcription]` and `[meeting]` that the recorder reads and
   `[recorder.*]` doesn't set, written with the app's comment-keeping
@@ -445,6 +446,13 @@ Voices had a "Learn from saved meetings" button for after such fixes.
    the next start. Only when the recorder's own voices are of record (with
    Tomoe's copied over them it would run at every start) and voice
    profiles are on; `[meeting] voice_profile_relearn = false` turns it off.
+   Before it starts (and before `learn_saved`, or the first save of a
+   voices file converted on load) the voices folder is copied to
+   `<data>/voices.bak-<time>`, unless the last copy already matches
+   (`[recorder.meeting] voice_profile_backups = false`: no copy;
+   docs/data-safety.md, item 6). A voices file of a newer `version` is
+   neither read nor written: meetings record, nobody is learnt or named
+   by voice, and a health line says why.
 5. The button is gone (the app's `LearnSaved` binding with it;
    `learn_saved` stays in the protocol for tools). For 3 days after a
    relearn Explore → Voices shows "Voice profiles updated for new rules

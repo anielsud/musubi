@@ -216,6 +216,12 @@ type MeetingConfig struct {
 	// background between recordings. false: profiles keep what they were
 	// built with, and only new meetings follow the new rules.
 	VoiceProfileRelearn bool `toml:"voice_profile_relearn"`
+	// VoiceProfileBackups copies the voices folder to voices.bak-<time>
+	// (the newest five kept) before anything rewrites the profiles in
+	// bulk: a file converted on load, a relearn for new rules or of every
+	// saved meeting, the recorder's folder moving to a new format
+	// (docs/data-safety.md, item 6). false: no copies, as before.
+	VoiceProfileBackups bool `toml:"voice_profile_backups"`
 	// RefineSpeakerCuts, after each meeting is saved, moves each cut
 	// between back-to-back speakers to where the voice changes, from short
 	// fingerprints across it (a low-priority job, about 2 minutes of one
@@ -400,6 +406,7 @@ func DefaultConfig() *Config {
 		VoiceProfileMinMeetings: 2,
 		VoiceProfileMinLearn:    10,
 		VoiceProfileRelearn:     true,
+		VoiceProfileBackups:     true,
 		SnapReadsToInvitees:     true,
 		AutoSave:                true,
 		AutoDetect:              true,

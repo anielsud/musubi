@@ -166,6 +166,17 @@ Since 2026-11-12 (`internal/store/upgrade.go`):
 - **To go back:** quit Musubi (and stop `musubi mcp` servers), replace
   `musubi.db` in the data folder with the copy (remove `musubi.db-wal`
   and `musubi.db-shm` beside it), and install the version you came from.
+- **The recorder's folder has a format too** (a `format` file in it). A
+  recorder that finds a newer one records nothing and changes nothing
+  there, and Status says "written by a newer Musubi"; Musubi doesn't
+  read its meetings. An older folder has its `voices/` copied to
+  `voices.bak-<time>` before the format is recorded, and again before
+  voice profiles are relearnt or converted (the newest five kept;
+  `[recorder.meeting] voice_profile_backups = false` turns the copies
+  off). A voices file from a newer Musubi is left alone: meetings still
+  record, but nobody is named by voice. To go back, put a
+  `voices.bak-<time>` folder in place of `voices/` while the recorder is
+  stopped.
 
 For developers, the rules a change to what is stored must follow are in
 [data-safety.md](data-safety.md).

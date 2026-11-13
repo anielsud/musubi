@@ -254,12 +254,14 @@ func VoiceStore(m config.MeetingConfig, model string) (*voices.Store, error) {
 	path := voices.Path(config.DataDir(), model)
 	if s := voiceStores[path]; s != nil {
 		s.SetParams(params)
+		s.SetBackups(m.VoiceProfileBackups)
 		return s, nil
 	}
 	s, err := voices.Open(path, SameName, params)
 	if err != nil {
 		return nil, err
 	}
+	s.SetBackups(m.VoiceProfileBackups)
 	voiceStores[path] = s
 	return s, nil
 }

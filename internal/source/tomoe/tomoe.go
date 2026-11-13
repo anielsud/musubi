@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/anielsud/musubi/internal/recorder/dataformat"
 	"github.com/anielsud/musubi/internal/source"
 )
 
@@ -29,6 +30,11 @@ type Connector struct {
 func (c Connector) Name() string { return Name }
 
 func (c Connector) Fetch(ctx context.Context, emit func(source.Record) error) error {
+	// Sessions in a recorder folder a newer Musubi wrote may mean what
+	// this build can't tell (Tomoe's folder records no format: fine).
+	if err := dataformat.Check(filepath.Dir(c.Dir)); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(c.Dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil

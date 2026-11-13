@@ -35,6 +35,9 @@ func (a *Recorder) StartSession(micDevice, monitorDevice, lang, platform string)
 	if a.rec != nil {
 		return errRecording
 	}
+	if a.refused != nil {
+		return a.refused
+	}
 	// Each recording starts from Tomoe's voices, so names and the owner
 	// voice match what Tomoe would use for the same meeting, until the
 	// recorder is of record (Musubi's [recorder] of_record): from then on

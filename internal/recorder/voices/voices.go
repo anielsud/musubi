@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -118,6 +119,21 @@ type Heard struct {
 	Source  string    `json:"source"`
 	Voice   Voice     `json:"voice"`
 	Clip    Clip      `json:"clip"`
+	// Confirmed: the owner listened and said this meeting's voice is
+	// theirs, so it isn't offered for checking however unlike the others
+	// it scores (a few seconds of voice score low against everything).
+	Confirmed bool `json:"confirmed,omitempty"`
+	// ExcludedSpans are stretches of the meeting the owner said aren't
+	// the profile's person ("Not them" on a sample): their fingerprints
+	// are left out of Voice, and out of it again when the meeting is
+	// learnt again (see samples.go). Each is also a ReturnedSample, which
+	// keeps it out when the meeting's contribution is dropped and learnt
+	// again later.
+	ExcludedSpans []Clip `json:"excludedSpans,omitempty"`
+	// Assigned are samples of another profile's the owner named as this
+	// person under "Who's this?" (AssignReturned): their fingerprints are
+	// in Voice, and added again when the meeting is learnt again.
+	Assigned []AssignedSample `json:"assigned,omitempty"`
 }
 
 // Profile is one person's voice.
@@ -167,9 +183,21 @@ func (p *Profile) LastHeard() time.Time {
 	return t
 }
 
-func (p *Profile) refresh() {
-	v := p.Voice()
+func (p *Profile) refresh(minLearn int) {
+	v := p.LearnedVoice(minLearn)
 	p.centroid, p.n = v.Centroid(), v.N
+}
+
+// LearnedVoice is the profile's voice from the meetings with at least
+// minLearn fingerprints (all of them with 0): what identifies it.
+func (p *Profile) LearnedVoice(minLearn int) Voice {
+	var v Voice
+	for _, h := range p.Meetings {
+		if h.Voice.N >= minLearn {
+			v.Merge(h.Voice)
+		}
+	}
+	return v
 }
 
 // Params are the rules for naming a voice from the profiles.
@@ -180,22 +208,31 @@ type Params struct {
 	Margin float64
 	// MinFingerprints is the least a voice, and a profile, must have.
 	MinFingerprints int
+	// MinLearn is the least a meeting's voice must have to teach a
+	// profile, and to count in its voice and its meetings. Fewer is a few
+	// seconds, whose average is noise: on 2026-11-12 every meeting at 8-9
+	// fingerprints scored badly against its own (correct) profile, none
+	// from 10 up did. Such a voice still names a speaker (MinFingerprints);
+	// it just doesn't teach. 8 (MinFingerprints): learn from any, as before.
+	MinLearn int
 	// MinMeetings is how many meetings a profile must be heard in before
 	// it names anyone, unless the user confirmed it (or named the person
 	// themselves in one): one meeting's misread tile shouldn't name
 	// people in the next.
 	MinMeetings int
-	// LearnFloor: a meeting's voice that's less like the profile of the
-	// same name than this (once the profile has LearnFloorAfter
-	// fingerprints) isn't learnt: a misread name or a ring on the wrong
-	// tile, not a new side of the voice.
-	LearnFloor      float64
+	// LearnFloor: a meeting's voice that's less like a profile of the
+	// same name than this doesn't teach it: a misread name, a ring on
+	// the wrong tile or another person of that name, not a new side of
+	// the voice (Learn starts a new profile for it).
+	LearnFloor float64
+	// Deprecated: LearnFloorAfter was the size a profile needed before
+	// LearnFloor applied; Learn now applies it at any size (pickLocked).
 	LearnFloorAfter int
 }
 
 // DefaultParams are measured on saved meetings (see the package comment).
 func DefaultParams() Params {
-	return Params{Threshold: 0.7, Margin: 0.1, MinFingerprints: 8, MinMeetings: 2, LearnFloor: 0.5, LearnFloorAfter: 30}
+	return Params{Threshold: 0.7, Margin: 0.1, MinFingerprints: 8, MinLearn: 10, MinMeetings: 2, LearnFloor: 0.5, LearnFloorAfter: 30}
 }
 
 // Store is the profiles on disk. Safe for concurrent use.
@@ -210,6 +247,39 @@ type Store struct {
 	// modTime is the file's when last read or written: another process
 	// (the CLI's learn, the app) may have changed it since.
 	modTime time.Time
+	// rules is the LearnRules the profiles were last built under, and
+	// relearned what the last relearn for new rules changed.
+	rules     int
+	relearned *Relearned
+	// returned are samples the owner said aren't the profile that learnt
+	// them, and junk the stretches no profile learns from (returned.go).
+	returned []ReturnedSample
+	junk     []JunkSpan
+	deleted  []DeletedProfile
+}
+
+// LearnRules is the version of the rules for what a meeting teaches a
+// profile. Bump it when they change so that profiles built under the old
+// rules are learnt again from every saved meeting (the recorder does that
+// once, in the background). A file without it was built under rules 1.
+//
+// 2 (2026-11-12): a lit tile doesn't teach while the transcript names
+// someone else as speaking; learning a whole meeting again drops what it
+// automatically taught a profile it no longer teaches (LearnMeeting).
+// 3 (2026-11-12): a tile's voice never replaces a meeting the owner
+// named or moved to the profile; a meeting's Confirmed mark, samples
+// taken out ("Not them", returned.go), samples named as the profile and
+// junk are kept when the meeting is learnt again.
+const LearnRules = 3
+
+// Relearned is what a relearn for new rules did.
+type Relearned struct {
+	At       time.Time `json:"at"`
+	Meetings int       `json:"meetings"`
+	// Changed: profiles whose learnt voice changed; Added: profiles the
+	// relearn started.
+	Changed int `json:"changed"`
+	Added   int `json:"added"`
 }
 
 // Path is where a speaker model's profiles are kept.
@@ -230,13 +300,31 @@ func Open(path string, same func(a, b string) bool, params Params) (*Store, erro
 func (s *Store) SetParams(p Params) {
 	s.mu.Lock()
 	s.params = p
+	for _, pr := range s.profiles {
+		pr.refresh(p.MinLearn)
+	}
 	s.mu.Unlock()
+}
+
+// Params are the naming rules in use.
+func (s *Store) Params() Params {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.params
+}
+
+// MinLearn is the store's MinLearn.
+func (s *Store) MinLearn() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.params.MinLearn
 }
 
 func (s *Store) load() error {
 	st, err := os.Stat(s.path)
 	if errors.Is(err, os.ErrNotExist) {
-		s.profiles, s.modTime = nil, time.Time{}
+		// Nothing learnt yet: whatever is learnt is under today's rules.
+		s.profiles, s.modTime, s.rules, s.relearned, s.returned, s.junk = nil, time.Time{}, LearnRules, nil, nil, nil
 		return nil
 	}
 	if err != nil {
@@ -251,10 +339,44 @@ func (s *Store) load() error {
 		return fmt.Errorf("voice profiles %s: %w", s.path, err)
 	}
 	for _, p := range f.Profiles {
-		p.refresh()
+		// Merges before 2026-11-12 appended a meeting both profiles had
+		// twice; read as one.
+		p.Meetings = mergeMeetings(p.Meetings)
+		p.refresh(s.params.MinLearn)
 	}
 	s.profiles, s.forgotten, s.modTime = f.Profiles, f.Forgotten, st.ModTime()
+	s.rules, s.relearned = max(f.Rules, 1), f.Relearned
+	s.returned, s.junk, s.deleted = f.Returned, f.Junk, f.Deleted
+	s.migrateExcludedLocked()
 	return nil
+}
+
+// mergeMeetings folds meetings listed more than once (the same session)
+// into one: their voices summed, the earliest time, the longer clip, both
+// sets of taken-out stretches, confirmed if either was.
+func mergeMeetings(ms []Heard) []Heard {
+	at := map[string]int{}
+	out := ms[:0:0]
+	for _, h := range ms {
+		i, ok := at[h.Session]
+		if !ok {
+			at[h.Session] = len(out)
+			out = append(out, h)
+			continue
+		}
+		o := &out[i]
+		o.Voice.Merge(h.Voice)
+		if h.At.Before(o.At) {
+			o.At = h.At
+		}
+		if h.Clip.End-h.Clip.Start > o.Clip.End-o.Clip.Start {
+			o.Clip = h.Clip
+		}
+		o.ExcludedSpans = append(o.ExcludedSpans, h.ExcludedSpans...)
+		o.Assigned = append(o.Assigned, h.Assigned...)
+		o.Confirmed = o.Confirmed || h.Confirmed
+	}
+	return out
 }
 
 // syncLocked rereads the file if another process changed it. A file that
@@ -271,11 +393,22 @@ type file struct {
 	Profiles []*Profile `json:"profiles"`
 	// Forgotten are names the user forgot, never learnt again.
 	Forgotten []string `json:"forgotten,omitempty"`
+	// Rules is the LearnRules the profiles were last built under (absent:
+	// 1), Relearned what the last relearn for new rules did.
+	Rules     int        `json:"rules,omitempty"`
+	Relearned *Relearned `json:"relearned,omitempty"`
+	// Returned are samples taken out of a profile ("Not them"), Junk the
+	// stretches no profile learns from (returned.go).
+	Returned []ReturnedSample `json:"returned,omitempty"`
+	Junk     []JunkSpan       `json:"junk,omitempty"`
+	// Deleted are profiles the owner deleted (not forgotten): their names
+	// aren't learnt again from the same meetings, only from later ones.
+	Deleted []DeletedProfile `json:"deleted,omitempty"`
 }
 
 // saveLocked writes the profiles atomically.
 func (s *Store) saveLocked() error {
-	b, err := json.Marshal(file{Version: 1, Profiles: s.profiles, Forgotten: s.forgotten})
+	b, err := json.Marshal(file{Version: 1, Profiles: s.profiles, Forgotten: s.forgotten, Rules: s.rules, Relearned: s.relearned, Returned: s.returned, Junk: s.junk, Deleted: s.deleted})
 	if err != nil {
 		return err
 	}
@@ -320,77 +453,267 @@ type Learned struct {
 	Source string
 	Voice  Voice
 	Clip   Clip
+	// Parts are Voice's fingerprints and when each was heard, when the
+	// learner kept them (nil otherwise): a span the owner excluded is
+	// left out by them (samples.go).
+	Parts []Part
 }
 
-// Learn records what a meeting taught: each name's voice replaces what
-// that meeting taught the name's profile before (a new profile if no name
-// matches). A voice unlike its profile is skipped (Params.LearnFloor).
-// Returns the names learnt.
+// Learn records what a meeting taught. Each name's voice goes to the
+// profile it sounds like among those with the name (or once named it,
+// or a name same says is the same): the likest one it's at least
+// Params.LearnFloor like, replacing what that meeting taught it before.
+// If it's like none of them, it starts a new profile with the name, so
+// two people with one name get a profile each and a misread name doesn't
+// spoil a profile; the Voices view asks whether same-named profiles are
+// one person (SameNamed). Profiles are never merged here. A name given
+// twice keeps the last voice (the speakers the user named come after
+// the tiles, and win). Returns the names learnt.
 func (s *Store) Learn(sessionID string, at time.Time, learned []Learned) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncLocked()
-	var done []string
-	for _, l := range learned {
-		if l.Name == "" || l.Voice.N < s.params.MinFingerprints || s.forgottenLocked(l.Name) {
-			continue
-		}
-		p := s.findLocked(l.Name)
-		if p != nil && contains(p.Excluded, sessionID) {
-			continue
-		}
-		if p == nil {
-			p = &Profile{ID: newID(), Name: l.Name, Created: time.Now()}
-			s.profiles = append(s.profiles, p)
-		}
-		var others Voice
-		var kept []Heard
-		for _, h := range p.Meetings {
-			if h.Session != sessionID {
-				kept = append(kept, h)
-				others.Merge(h.Voice)
-			}
-		}
-		if others.N >= s.params.LearnFloorAfter && Similarity(others.Centroid(), l.Voice.Centroid()) < s.params.LearnFloor {
-			continue
-		}
-		p.Meetings = append(kept, Heard{Session: sessionID, At: at, Source: l.Source, Voice: l.Voice, Clip: l.Clip})
-		p.refresh()
-		done = append(done, p.Name)
-	}
+	done, _ := s.learnLocked(sessionID, at, learned)
 	if len(done) == 0 {
 		return nil, nil
 	}
 	return done, s.saveLocked()
 }
 
-// findLocked is the profile named name (or once named it), if any.
-func (s *Store) findLocked(name string) *Profile {
+// LearnMeeting is Learn for all a meeting teaches (learning it whole,
+// again or for the first time): what it taught a profile automatically
+// before (from a tile, not confirmed, not named or moved there by the
+// owner) and teaches it no longer is dropped, so learning a meeting again
+// replaces its automatic contributions entirely. What the owner named,
+// confirmed or moved stays. Returns the names learnt.
+func (s *Store) LearnMeeting(sessionID string, at time.Time, learned []Learned) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	done, taught := s.learnLocked(sessionID, at, learned)
+	dropped := false
 	for _, p := range s.profiles {
-		if p.Name == name || contains(p.Aliases, name) {
-			return p
+		if taught[p] {
+			continue
+		}
+		kept := p.Meetings[:0:0]
+		for _, h := range p.Meetings {
+			if h.Session == sessionID && h.Source == FromTile && !h.Confirmed {
+				dropped = true
+				continue
+			}
+			kept = append(kept, h)
+		}
+		if len(kept) != len(p.Meetings) {
+			p.Meetings = kept
+			p.refresh(s.params.MinLearn)
 		}
 	}
-	for _, p := range s.profiles {
-		if s.sameLocked(p.Name, name) {
-			return p
+	if len(done) == 0 && !dropped {
+		return nil, nil
+	}
+	return done, s.saveLocked()
+}
+
+// learnLocked records what a meeting taught (see Learn) without saving:
+// the names learnt and the profiles taught.
+func (s *Store) learnLocked(sessionID string, at time.Time, learned []Learned) ([]string, map[*Profile]bool) {
+	taught := map[*Profile]bool{}
+	last := map[string]int{}
+	for i, l := range learned {
+		last[l.Name] = i
+	}
+	var done []string
+	for i, l := range learned {
+		if l.Name == "" || last[l.Name] != i || l.Voice.N < max(s.params.MinFingerprints, s.params.MinLearn) || s.forgottenLocked(l.Name) || s.deletedLocked(l.Name, sessionID) {
+			continue
 		}
-		for _, a := range p.Aliases {
-			if s.sameLocked(a, name) {
-				return p
+		p, ok := s.pickLocked(sessionID, l)
+		if !ok {
+			continue
+		}
+		if p == nil {
+			p = &Profile{ID: newID(), Name: l.Name, Created: time.Now()}
+			s.profiles = append(s.profiles, p)
+		}
+		var kept []Heard
+		var before *Heard
+		for i, h := range p.Meetings {
+			if h.Session != sessionID {
+				kept = append(kept, h)
+			} else {
+				before = &p.Meetings[i]
 			}
 		}
+		// The owner's naming beats a tile: a meeting the owner named or
+		// moved to the profile isn't replaced by what its tile showed (on
+		// 2026-11-12 a relearn replaced a named meeting's voice so).
+		if before != nil && before.Source == FromNamed && l.Source == FromTile {
+			taught[p] = true
+			continue
+		}
+		h := Heard{Session: sessionID, At: at, Source: l.Source}
+		var spans []Clip
+		if before != nil {
+			spans = before.ExcludedSpans
+			h.Confirmed, h.Assigned = before.Confirmed, before.Assigned
+		}
+		spans = appendSpans(spans, s.notThemLocked(p.ID, sessionID)...)
+		h.ExcludedSpans = spans
+		// Junk and samples named as the profile are left out of what the
+		// meeting gives (the latter are added back whole, once).
+		drop := appendSpans(append([]Clip(nil), spans...), s.junkLocked(sessionID)...)
+		for _, a := range h.Assigned {
+			drop = appendSpans(drop, a.Span)
+		}
+		l = withoutSpans(l, drop)
+		h.Voice, h.Clip = l.Voice, l.Clip
+		for _, a := range h.Assigned {
+			h.Voice.Merge(a.Voice)
+		}
+		p.Meetings = append(kept, h)
+		p.refresh(s.params.MinLearn)
+		taught[p] = true
+		done = append(done, p.Name)
 	}
-	return nil
+	return done, taught
+}
+
+// Rules is the LearnRules the profiles were last built under, and what
+// the last relearn for new rules did (nil if none).
+func (s *Store) Rules() (int, *Relearned) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	if s.relearned == nil {
+		return s.rules, nil
+	}
+	r := *s.relearned
+	return s.rules, &r
+}
+
+// SetRules records that the profiles are built under rules version, and
+// what the relearn that did it changed.
+func (s *Store) SetRules(version int, r Relearned) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	s.rules, s.relearned = version, &r
+	return s.saveLocked()
+}
+
+// pickLocked is the profile a meeting's voice for a name teaches: of the
+// profiles with the name, the likest the voice that's at least
+// LearnFloor like it, by what its other meetings taught (or, if the
+// meeting is all it has, what the meeting taught it before). The bar is
+// the same for a young profile as for one with LearnFloorAfter
+// fingerprints: a profile is never merged with another automatically, so
+// a voice that doesn't fit one is better kept in its own (the user can
+// merge them, "Two profiles named X?") than mixed in. A profile with
+// nothing learnt (started over, or all its meetings taken out) takes a
+// voice none of the others fit. nil, true: a new profile. false: none,
+// as the user took this meeting out of a profile with the name and the
+// voice fits no other one.
+func (s *Store) pickLocked(sessionID string, l Learned) (*Profile, bool) {
+	c := l.Voice.Centroid()
+	var best, empty *Profile
+	bestSim, excluded := -2.0, false
+	for _, p := range s.namedLocked(l.Name) {
+		if contains(p.Excluded, sessionID) {
+			excluded = true
+			continue
+		}
+		var others, before Voice
+		for _, h := range p.Meetings {
+			if h.Session != sessionID {
+				others.Merge(h.Voice)
+			} else {
+				before.Merge(h.Voice)
+			}
+		}
+		if others.N == 0 {
+			others = before
+		}
+		if others.N == 0 {
+			if empty == nil {
+				empty = p
+			}
+			continue
+		}
+		if sim := Similarity(others.Centroid(), c); sim >= s.params.LearnFloor && sim > bestSim {
+			best, bestSim = p, sim
+		}
+	}
+	switch {
+	case best != nil:
+		return best, true
+	case empty != nil:
+		return empty, true
+	case excluded:
+		return nil, false
+	}
+	return nil, true
+}
+
+// namedLocked is every profile named name or once named it (an alias),
+// by same as well as exactly.
+func (s *Store) namedLocked(name string) []*Profile {
+	var out []*Profile
+	for _, p := range s.profiles {
+		if s.hasNameLocked(p, name) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (s *Store) hasNameLocked(p *Profile, name string) bool {
+	if s.sameLocked(p.Name, name) {
+		return true
+	}
+	for _, a := range p.Aliases {
+		if s.sameLocked(a, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) sameLocked(a, b string) bool {
 	return a == b || (s.same != nil && s.same(a, b))
 }
 
+// forgottenLocked: name was forgotten (Delete voice print). The same
+// name only, ignoring case and spacing: the loose match learning uses
+// made forgetting "Nikhil Narayen2" also forget "Nikhil Narayen"
+// (2026-11-12).
 func (s *Store) forgottenLocked(name string) bool {
 	for _, f := range s.forgotten {
-		if s.sameLocked(f, name) {
+		if sameExactName(f, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// SamePerson reports whether a and b are the same name, or both names of
+// one profile (its name or an old name kept when it was renamed): after a
+// rename the meeting window still shows the old name while the transcript
+// says the new one.
+func (s *Store) SamePerson(a, b string) bool {
+	if sameExactName(a, b) {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.profiles {
+		names := append([]string{p.Name}, p.Aliases...)
+		ha, hb := false, false
+		for _, n := range names {
+			ha = ha || sameExactName(n, a)
+			hb = hb || sameExactName(n, b)
+		}
+		if ha && hb {
 			return true
 		}
 	}
@@ -489,13 +812,18 @@ func (s *Store) Likest(voices map[int]Voice) map[int]Matched {
 	return out
 }
 
-// Knows reports whether a profile in use (see InUse) has the name.
+// Knows reports whether any profile in use (see InUse) has the name (or
+// once had it).
 func (s *Store) Knows(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncLocked()
-	p := s.findLocked(name)
-	return p != nil && s.inUseLocked(p)
+	for _, p := range s.namedLocked(name) {
+		if s.inUseLocked(p) {
+			return true
+		}
+	}
+	return false
 }
 
 // InUse reports whether a profile names voices: enough fingerprints, and
@@ -510,15 +838,17 @@ func (s *Store) inUseLocked(p *Profile) bool {
 	if p.n < s.params.MinFingerprints {
 		return false
 	}
-	if p.Confirmed || len(p.Meetings) >= s.params.MinMeetings {
-		return true
-	}
+	learnt := 0
 	for _, h := range p.Meetings {
+		if h.Voice.N < s.params.MinLearn {
+			continue
+		}
 		if h.Source == FromNamed {
 			return true
 		}
+		learnt++
 	}
-	return false
+	return p.Confirmed || learnt >= s.params.MinMeetings
 }
 
 // Confirm records that the profile is the person's voice.
@@ -582,7 +912,7 @@ func (s *Store) StartOver(id string) error {
 	}
 	p.Meetings = nil
 	p.Confirmed = false
-	p.refresh()
+	p.refresh(s.params.MinLearn)
 	return s.saveLocked()
 }
 
@@ -631,13 +961,32 @@ func (s *Store) Merge(into, from string) error {
 		return fmt.Errorf("can't merge voice profiles %q and %q", into, from)
 	}
 	// A meeting in both keeps both: they were two voices then.
-	a.Meetings = append(a.Meetings, b.Meetings...)
-	a.Aliases = appendOnce(a.Aliases, b.Name)
-	for _, n := range b.Aliases {
-		a.Aliases = appendOnce(a.Aliases, n)
+	a.Meetings = mergeMeetings(append(a.Meetings, b.Meetings...))
+	for _, n := range append([]string{b.Name}, b.Aliases...) {
+		if n != a.Name { // two profiles of one name: no alias needed
+			a.Aliases = appendOnce(a.Aliases, n)
+		}
 	}
-	a.refresh()
+	// Whoever the user said from isn't, into isn't either.
+	for _, id := range b.Apart {
+		if id != a.ID {
+			a.Apart = appendOnce(a.Apart, id)
+			if o := s.byIDLocked(id); o != nil {
+				o.Apart = appendOnce(o.Apart, a.ID)
+			}
+		}
+	}
+	a.refresh(s.params.MinLearn)
 	s.removeLocked(from)
+	for i := range s.returned {
+		r := &s.returned[i]
+		if r.From == b.ID {
+			r.From = a.ID
+		}
+		if r.To == b.ID {
+			r.To = a.ID
+		}
+	}
 	return s.saveLocked()
 }
 
@@ -672,8 +1021,93 @@ func (s *Store) Forget(id string) error {
 	return s.saveLocked()
 }
 
+// DeletedProfile is a deleted profile's names and the meetings it had
+// learnt from.
+type DeletedProfile struct {
+	Names    []string `json:"names"`
+	Sessions []string `json:"sessions"`
+}
+
+// Delete removes a profile without forgetting its name: a later meeting
+// can teach a new one, but the meetings it had learnt from don't rebuild
+// it (a relearn for new rules would otherwise bring it straight back).
+// Forget is the one that never learns the name again.
+func (s *Store) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	p := s.byIDLocked(id)
+	if p == nil {
+		return fmt.Errorf("no voice profile %q", id)
+	}
+	d := DeletedProfile{Names: append([]string{p.Name}, p.Aliases...)}
+	for _, h := range p.Meetings {
+		d.Sessions = appendOnce(d.Sessions, h.Session)
+	}
+	s.deleted = append(s.deleted, d)
+	s.removeLocked(id)
+	return s.saveLocked()
+}
+
+// deletedLocked: a deleted profile named name had learnt from sessionID.
+func (s *Store) deletedLocked(name, sessionID string) bool {
+	for _, d := range s.deleted {
+		for _, n := range d.Names {
+			if sameExactName(n, name) && contains(d.Sessions, sessionID) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Forgotten is the names never learnt again (Forget), for the owner to
+// see and allow again.
+func (s *Store) Forgotten() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	return append([]string(nil), s.forgotten...)
+}
+
+// Allow takes exactly name off the forgotten names.
+func (s *Store) Allow(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	kept := s.forgotten[:0:0]
+	for _, f := range s.forgotten {
+		if !sameExactName(f, name) {
+			kept = append(kept, f)
+		}
+	}
+	if len(kept) == len(s.forgotten) {
+		return nil
+	}
+	s.forgotten = kept
+	return s.saveLocked()
+}
+
 // ForgetMeeting drops what one meeting taught a profile, and it's never
 // learnt from that meeting again.
+// ConfirmMeeting marks what a meeting taught a profile as theirs.
+func (s *Store) ConfirmMeeting(id, sessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	p := s.byIDLocked(id)
+	if p == nil {
+		return fmt.Errorf("no voice profile %q", id)
+	}
+	for i := range p.Meetings {
+		if p.Meetings[i].Session == sessionID {
+			p.Meetings[i].Confirmed = true
+			return s.saveLocked()
+		}
+	}
+	return fmt.Errorf("%s didn't learn from that meeting", p.Name)
+}
+
 func (s *Store) ForgetMeeting(id, sessionID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -690,7 +1124,7 @@ func (s *Store) ForgetMeeting(id, sessionID string) error {
 	}
 	p.Meetings = kept
 	p.Excluded = appendOnce(p.Excluded, sessionID)
-	p.refresh()
+	p.refresh(s.params.MinLearn)
 	return s.saveLocked()
 }
 
@@ -698,6 +1132,7 @@ func (s *Store) ForgetMeeting(id, sessionID string) error {
 type Pair struct {
 	A, B       string // profile IDs
 	Similarity float64
+	Name       string // SameNamed: the name they share
 }
 
 // LookAlike lists pairs of profiles whose voices are at least min alike
@@ -714,7 +1149,7 @@ func (s *Store) LookAlike(min float64) []Pair {
 				continue
 			}
 			if sim := Similarity(a.centroid, b.centroid); sim >= min {
-				out = append(out, Pair{a.ID, b.ID, sim})
+				out = append(out, Pair{A: a.ID, B: b.ID, Similarity: sim})
 			}
 		}
 	}
@@ -722,8 +1157,58 @@ func (s *Store) LookAlike(min float64) []Pair {
 	return out
 }
 
+// SameNamed lists pairs of profiles that share a name (or an alias, or
+// names same says are one) and that the user hasn't said are different
+// people, likest first: one person whose voice Learn kept in two
+// profiles, or two people with one name. Similarity is -2 when either
+// has nothing learnt.
+func (s *Store) SameNamed() []Pair {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	var out []Pair
+	for i, a := range s.profiles {
+		for _, b := range s.profiles[i+1:] {
+			if contains(a.Apart, b.ID) {
+				continue
+			}
+			if name := s.sharedNameLocked(a, b); name != "" {
+				out = append(out, Pair{A: a.ID, B: b.ID, Similarity: Similarity(a.centroid, b.centroid), Name: name})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Similarity > out[j].Similarity })
+	return out
+}
+
+// sharedNameLocked is a name of a's that b has too ("" if none), a's
+// own name first. Only the same name, ignoring case and spacing: the
+// loose match learning uses (a cut-off "Kevin Gold" for "Kevin
+// Goldsmith") paired a bare "Kevin" with every Kevin, three different
+// people (2026-11-12).
+func (s *Store) sharedNameLocked(a, b *Profile) string {
+	for _, n := range append([]string{a.Name}, a.Aliases...) {
+		for _, m := range append([]string{b.Name}, b.Aliases...) {
+			if sameExactName(n, m) {
+				return n
+			}
+		}
+	}
+	return ""
+}
+
+// sameExactName: the same name once case and spacing are set aside.
+func sameExactName(a, b string) bool {
+	norm := func(x string) string { return strings.ToLower(strings.Join(strings.Fields(x), " ")) }
+	return a != "" && norm(a) == norm(b)
+}
+
 // Closest is the profile most like v and how alike (nil if none).
-func (s *Store) Closest(v Voice) (*Profile, float64) {
+func (s *Store) Closest(v Voice) (*Profile, float64) { return s.ClosestExcept(v, "") }
+
+// ClosestExcept is Closest leaving out profile skip (the one the owner
+// said a voice isn't).
+func (s *Store) ClosestExcept(v Voice, skip string) (*Profile, float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncLocked()
@@ -731,6 +1216,9 @@ func (s *Store) Closest(v Voice) (*Profile, float64) {
 	var best *Profile
 	bestSim := -2.0
 	for _, p := range s.profiles {
+		if p.ID == skip {
+			continue
+		}
 		if sim := Similarity(c, p.centroid); sim > bestSim {
 			best, bestSim = p, sim
 		}
@@ -793,11 +1281,12 @@ func contains(xs []string, x string) bool {
 }
 
 // Move says what a profile learnt from one meeting was someone else's:
-// it leaves the profile (never learnt by it again) and teaches toName's
-// profile instead, as the user's naming (a new profile if none matches).
-// v is the meeting's voice for the profile: what it learnt, or, for a
-// meeting already taken out, the voice worked out again from the meeting.
-func (s *Store) Move(fromID, sessionID string, at time.Time, v Voice, toName string) error {
+// it leaves the profile (never learnt by it again) and teaches the
+// profile toID instead, as the user's naming, or, with toID "", a new
+// profile named toName. v is the meeting's voice for the profile: what
+// it learnt, or, for a meeting already taken out, the voice worked out
+// again from the meeting.
+func (s *Store) Move(fromID, sessionID string, at time.Time, v Voice, toID, toName string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncLocked()
@@ -808,13 +1297,20 @@ func (s *Store) Move(fromID, sessionID string, at time.Time, v Voice, toName str
 	if v.N == 0 {
 		return fmt.Errorf("no voice to move")
 	}
-	to := s.findLocked(toName)
-	if to == from {
-		return fmt.Errorf("that's the same profile")
-	}
-	if to == nil {
+	var to *Profile
+	switch {
+	case toID != "":
+		if to = s.byIDLocked(toID); to == nil {
+			return fmt.Errorf("no voice profile %q", toID)
+		}
+		if to == from {
+			return fmt.Errorf("that's the same profile")
+		}
+	case toName != "":
 		to = &Profile{ID: newID(), Name: toName, Created: time.Now()}
 		s.profiles = append(s.profiles, to)
+	default:
+		return fmt.Errorf("no profile to move to")
 	}
 	kept := from.Meetings[:0]
 	for _, h := range from.Meetings {
@@ -824,7 +1320,7 @@ func (s *Store) Move(fromID, sessionID string, at time.Time, v Voice, toName str
 	}
 	from.Meetings = kept
 	from.Excluded = appendOnce(from.Excluded, sessionID)
-	from.refresh()
+	from.refresh(s.params.MinLearn)
 
 	to.Excluded = removeString(to.Excluded, sessionID)
 	merged := false
@@ -838,10 +1334,10 @@ func (s *Store) Move(fromID, sessionID string, at time.Time, v Voice, toName str
 	if !merged {
 		to.Meetings = append(to.Meetings, Heard{Session: sessionID, At: at, Source: FromNamed, Voice: v})
 	}
-	to.refresh()
+	to.refresh(s.params.MinLearn)
 	var keptForgotten []string
 	for _, f := range s.forgotten {
-		if !s.sameLocked(f, toName) {
+		if !s.sameLocked(f, to.Name) {
 			keptForgotten = append(keptForgotten, f)
 		}
 	}

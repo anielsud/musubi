@@ -23,7 +23,7 @@ type ThreadStatement struct {
 // said. Unscoped: it feeds the status writer, which labels what it writes
 // as sensitive as what it read.
 func (s *Store) ThreadStatements(topic int64) ([]ThreadStatement, error) {
-	rows, err := s.db.Query(`SELECT st.id, st.kind, st.status, st.who, st.holder, st.text, st.said_at,
+	rows, err := s.rdb.Query(`SELECT st.id, st.kind, st.status, st.who, st.holder, st.text, st.said_at,
 		max(st.level, coalesce(l.level, 0), coalesce(il.level, 0)), st.categories | coalesce(l.categories, 0) | coalesce(il.categories, 0),
 		ti.current, i.id, `+displayTitle("i")+`
 		FROM thread_items ti JOIN statements st ON st.id = ti.statement_id
@@ -102,7 +102,7 @@ func (s *Store) SetThreadStatus(r ThreadStatusRow) error {
 // see: "full" when its label is visible, else "open" when that is, else
 // none.
 func (s *Store) ThreadStatuses(sc sensitivity.Scope) (map[int64]ThreadStatusRow, error) {
-	rows, err := s.db.Query(`SELECT topic_id, variant, version, input_hash, body, level, categories, as_of FROM thread_status`)
+	rows, err := s.rdb.Query(`SELECT topic_id, variant, version, input_hash, body, level, categories, as_of FROM thread_status`)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +176,7 @@ type ThreadIndexRow struct {
 
 // ThreadIndex lists every thread that holds statements.
 func (s *Store) ThreadIndex() ([]ThreadIndexRow, error) {
-	rows, err := s.db.Query(`SELECT t.id, t.label, t.summary, t.label_level, t.centroid, t.size FROM topics t
+	rows, err := s.rdb.Query(`SELECT t.id, t.label, t.summary, t.label_level, t.centroid, t.size FROM topics t
 		WHERE EXISTS (SELECT 1 FROM thread_items ti WHERE ti.topic_id = t.id)`)
 	if err != nil {
 		return nil, err
@@ -199,7 +199,7 @@ func (s *Store) ThreadIndex() ([]ThreadIndexRow, error) {
 // ThreadMembership maps each statement to its threads (current or not).
 // Unscoped: an index; reads go through VisibleThreadItems.
 func (s *Store) ThreadMembership() (map[int64][]int64, error) {
-	rows, err := s.db.Query(`SELECT statement_id, topic_id FROM thread_items`)
+	rows, err := s.rdb.Query(`SELECT statement_id, topic_id FROM thread_items`)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +233,7 @@ func (s *Store) VisibleThreadItems(sc sensitivity.Scope, topics []int64) (map[in
 		args = append(args, t)
 	}
 	args = append(args, vargs...)
-	rows, err := s.db.Query(`SELECT ti.topic_id, ti.current, st.id, st.item_id, st.chunk_id, c.seq, st.line, st.kind, st.text, st.holder,
+	rows, err := s.rdb.Query(`SELECT ti.topic_id, ti.current, st.id, st.item_id, st.chunk_id, c.seq, st.line, st.kind, st.text, st.holder,
 		st.said_at, st.quote, coalesce(sc.claim_id, 0), i.kind, `+displayTitle("i")+`,
 		`+stLevel+`, `+stCats+`, st.status, st.who, st.evidence
 		FROM thread_items ti JOIN statements st ON st.id = ti.statement_id JOIN chunks c ON c.id = st.chunk_id

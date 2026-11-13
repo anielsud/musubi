@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Edit sets (or, with Delete, removes) one key of one table in a config
@@ -15,8 +16,8 @@ import (
 // Delete with no Key removes the whole table.
 type Edit struct {
 	Section, Key string
-	// Value is a string, bool, int, float64 or map[string]string (written
-	// as an inline table).
+	// Value is a string, bool, int, float64, time.Time or
+	// map[string]string (written as an inline table).
 	Value  any
 	Delete bool
 }
@@ -202,6 +203,9 @@ func tomlValue(v any) (string, error) {
 			s += ".0"
 		}
 		return s, nil
+	case time.Time:
+		// A TOML offset date-time, unquoted, so it loads as a time.
+		return x.Format(time.RFC3339), nil
 	case map[string]string:
 		keys := make([]string, 0, len(x))
 		for k := range x {

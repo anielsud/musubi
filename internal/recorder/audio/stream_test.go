@@ -110,6 +110,15 @@ func TestStreamCapturerCutsWindowsInOrder(t *testing.T) {
 	if all := sc.AllSamples(); len(all) != 7 || all[6] != 7 {
 		t.Errorf("AllSamples = %v, want all 7 samples including the partial window", all)
 	}
+	if n, r := sc.Recorded(), sc.RecordedRange(-2, 3); n != 7 || len(r) != 3 || r[2] != 3 {
+		t.Errorf("Recorded = %d, RecordedRange(-2, 3) = %v", n, r)
+	}
+	if r := sc.RecordedRange(5, 99); len(r) != 2 || r[1] != 7 {
+		t.Errorf("RecordedRange(5, 99) = %v", r)
+	}
+	if r := sc.RecordedRange(9, 12); r != nil {
+		t.Errorf("RecordedRange past the end = %v", r)
+	}
 }
 
 func TestStreamCapturerStopFlushesUnpolledAudio(t *testing.T) {

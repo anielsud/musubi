@@ -6,6 +6,7 @@ import (
 
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/sensitivity"
+	"github.com/anielsud/musubi/internal/store"
 )
 
 // Cards finds and builds topic cards (docs/topic-cards.md).
@@ -65,6 +66,11 @@ const nearMinSim = 0.6
 // Card builds a topic's card under a scope, from what was said by now;
 // nil when nothing is visible.
 func (c *Cards) Card(sc sensitivity.Scope, a knowledge.Anchor, now time.Time) (*knowledge.Card, error) {
-	v := knowledge.Views{Store: c.eng.Store, Scope: sc, Now: now}
+	return c.CardWith(nil, sc, a, now)
+}
+
+// CardWith is Card with its reads served by rc (nil: from the store).
+func (c *Cards) CardWith(rc *store.ReadCache, sc sensitivity.Scope, a knowledge.Anchor, now time.Time) (*knowledge.Card, error) {
+	v := knowledge.Views{Store: c.eng.Store, Scope: sc, Now: now, Cache: rc}
 	return v.Card(c.Index, a, c.eng.OwnerEntity(), c.eng.Cfg.Owner.Name)
 }

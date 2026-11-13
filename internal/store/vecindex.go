@@ -65,8 +65,8 @@ func (s *Store) passageIndex(model string) (*vindex.Index, error) {
 // ClaimIndex returns the code index of the claims' centroids.
 func (s *Store) ClaimIndex() (*vindex.Index, error) {
 	return s.codeIndex("claims", func() (*vindex.Index, error) {
-		if err := s.backfillCodes(`SELECT c.id, c.centroid FROM claims c LEFT JOIN claim_codes k ON k.claim_id = c.id
-			WHERE c.centroid IS NOT NULL AND length(c.centroid) > 0 AND k.claim_id IS NULL`, `INSERT OR REPLACE INTO claim_codes(claim_id, code) VALUES (?, ?)`); err != nil {
+		if err := s.backfillCodes(`SELECT id, cen FROM (SELECT c.id, `+claimCentroid+` AS cen FROM claims c LEFT JOIN claim_codes k ON k.claim_id = c.id
+			WHERE k.claim_id IS NULL) WHERE cen IS NOT NULL AND length(cen) > 0`, `INSERT OR REPLACE INTO claim_codes(claim_id, code) VALUES (?, ?)`); err != nil {
 			return nil, err
 		}
 		return s.loadCodes(`SELECT claim_id, code FROM claim_codes`)
@@ -148,7 +148,7 @@ func (s *Store) ClaimCentroidsOf(ids []int64) (map[int64][]float32, error) {
 			}
 			ph = append(ph, '?')
 		}
-		rows, err := s.db.Query(`SELECT id, centroid FROM claims WHERE centroid IS NOT NULL AND id IN (`+string(ph)+`)`, args...)
+		rows, err := s.db.Query(`SELECT c.id, `+claimCentroid+` FROM claims c WHERE c.id IN (`+string(ph)+`)`, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -158,6 +158,9 @@ func (s *Store) ClaimCentroidsOf(ids []int64) (map[int64][]float32, error) {
 			if err := rows.Scan(&id, &b); err != nil {
 				rows.Close()
 				return nil, err
+			}
+			if b == nil {
+				continue
 			}
 			out[id] = decodeVec(b)
 		}
@@ -171,7 +174,7 @@ func (s *Store) ClaimCentroidsOf(ids []int64) (map[int64][]float32, error) {
 // EachClaimCentroid calls fn with every claim's centroid, one at a time,
 // so callers that only aggregate don't hold them all.
 func (s *Store) EachClaimCentroid(fn func(id int64, v []float32)) error {
-	rows, err := s.db.Query(`SELECT id, centroid FROM claims WHERE centroid IS NOT NULL`)
+	rows, err := s.db.Query(`SELECT c.id, ` + claimCentroid + ` FROM claims c`)
 	if err != nil {
 		return err
 	}
@@ -181,6 +184,9 @@ func (s *Store) EachClaimCentroid(fn func(id int64, v []float32)) error {
 		var b []byte
 		if err := rows.Scan(&id, &b); err != nil {
 			return err
+		}
+		if b == nil {
+			continue
 		}
 		fn(id, decodeVec(b))
 	}

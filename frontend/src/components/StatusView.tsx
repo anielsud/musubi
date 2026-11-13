@@ -2,16 +2,18 @@ import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../api';
 import type { AppStatus, M365View, ProviderView, QueueView } from '../types';
 import { checkDoes, Spinner } from './common';
+import { RecordingCard } from './recorder';
 
 const levels = ['public', 'internal', 'confidential', 'restricted'];
 
-export function StatusView({ status }: { status: AppStatus | null }) {
+export function StatusView({ status, active }: { status: AppStatus | null; active: boolean }) {
   if (!status) return <div className="view"><Spinner /></div>;
   const s = status.stats;
   const chunkTotal = s ? levels.reduce((n, l) => n + (s.ChunkLevels[l] ?? 0), 0) : 0;
   return (
     <div className="view status-page">
       {status.error && <div className="error">{status.error}</div>}
+      <RecordingCard />
       <section className="tiles">
         <Tile n={s?.ItemsByKind.meeting ?? 0} label="meetings" />
         <Tile n={s?.ItemsByKind.event ?? 0} label="calendar events" />
@@ -37,7 +39,7 @@ export function StatusView({ status }: { status: AppStatus | null }) {
         )}
       </section>
 
-      <WorkQueue />
+      <WorkQueue active={active} />
 
       <Connections status={status} />
 
@@ -52,6 +54,7 @@ export function StatusView({ status }: { status: AppStatus | null }) {
         {status.updating ? <><Spinner /> Checking for new meetings…</> : 'Check for new meetings'}
       </button>
       <p className="dim small">{checkDoes(status)}</p>
+
     </div>
   );
 }
@@ -77,7 +80,9 @@ function Connections({ status }: { status: AppStatus }) {
       <Row k="AI Gateway" v={!gw ? '…' : gw.ready ? '✓ connected' : '✗ not connected: Settings → AI providers'} />
       {others.map((p) => <Row key={p.name} k={p.name} v={p.ready ? '✓ key in your Keychain' : '✗ no key: Settings → AI providers'} />)}
       <Row k="Ollama (this Mac)" v={status.ollamaUp ? '✓ running' : '✗ not running'} />
-      <Row k="Tomoe live feed" v={status.live.connected ? '✓ connected' : '✗ not connected'} />
+      {status.liveFrom === 'Musubi recorder'
+        ? <Row k="Live feed" v={(status.live.connected ? '✓ connected' : '✗ not connected') + ' · Musubi recorder'} />
+        : <Row k="Tomoe live feed" v={status.live.connected ? '✓ connected' : '✗ not connected'} />}
     </section>
   );
 }
@@ -96,18 +101,20 @@ const usd = (n: number) => (n < 1 ? `${Math.max(1, Math.round(n * 100))}¢` : `$
 // their own (new meetings, a few at a time), and what needs a run started
 // here (a big batch, or a backlog that only joins by rethreading in time
 // order).
-function WorkQueue() {
+function WorkQueue({ active }: { active: boolean }) {
   const [q, setQ] = useState<QueueView | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [confirm, setConfirm] = useState(false);
   const load = () => api.queue().then((v) => { setQ(v); setErr(null); }, (e) => setErr(String(e)));
   useEffect(() => {
+    // Only while Status is on screen: working the queue out holds the
+    // database. Other processes (the CLI, a run elsewhere) change it too.
+    if (!active) return;
     load();
-    // Other processes (the CLI, a run elsewhere) change the queue too.
     const t = setInterval(load, 30000);
     const offs = [on('queue:changed', load), on('update:done', load)];
     return () => { clearInterval(t); offs.forEach((f) => f()); };
-  }, []);
+  }, [active]);
   if (err) return <section><div className="section-head"><span>Work queue</span></div><div className="error">{err}</div></section>;
   if (!q) return null;
   const newN = q.newExtract + q.newThread;

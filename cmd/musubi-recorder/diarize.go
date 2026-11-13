@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -39,13 +40,13 @@ func init() {
 // diarizeSession relabels a saved session's speakers with sherpa-onnx's
 // diarization and saves it again, in the folder config.DataDir names.
 func diarizeSession(id string) error {
-	cfg, err := loadConfig(config.MusubiPath())
+	cfg, err := loadConfig(config.ResolveMusubiPath(config.DataDir()))
 	if err != nil {
 		return err
 	}
-	status := models.NewManager(cfg.Transcription.ModelPath).WithLiveModel(cfg.Transcription.LiveModel).Check()
+	status := models.NewManagerIn(config.ModelDirs(cfg)).WithLiveModel(cfg.Transcription.LiveModel).Check()
 	if !status.DiarizationReady() {
-		return fmt.Errorf("the diarization models aren't in %s", cfg.Transcription.ModelPath)
+		return fmt.Errorf("the diarization models aren't in %s", strings.Join(config.ModelDirs(cfg), " or "))
 	}
 	sessions := session.NewStore(config.SessionDir())
 	sess, err := sessions.Load(id)

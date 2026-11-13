@@ -54,7 +54,7 @@ const (
 	OpStop         = "stop"          // - → Status
 	OpSources      = "sources"       // - → Sources
 	OpSetSource    = "set_source"    // SetSourceArgs → Status (applies to the recording in progress, if any)
-	OpReloadConfig = "reload_config" // - → Status (re-read Musubi's [recorder] settings)
+	OpReloadConfig = "reload_config" // ReloadArgs (or none) → Status (re-read Musubi's [recorder] settings)
 
 	OpSession = "session"        // SessionArgs → session.Session as JSON (session.json, voice_names, voice_doubts included)
 	OpDelete  = "delete_session" // SessionArgs → - (refused for the recording in progress)
@@ -64,18 +64,34 @@ const (
 	OpSkipVoiceName  = "skip_voice_name"  // SpeakerArgs → -
 	OpSkipVoiceDoubt = "skip_voice_doubt" // SpeakerArgs → -
 
-	OpVoices             = "voices"               // - → VoicesView
-	OpRenameVoice        = "rename_voice"         // VoiceArgs (Name) → -
-	OpMergeVoices        = "merge_voices"         // VoiceArgs (ID = into, Other = from) → -
-	OpKeepApart          = "keep_apart"           // VoiceArgs (ID, Other) → -
-	OpForgetVoice        = "forget_voice"         // VoiceArgs → -
-	OpStartOver          = "start_over"           // VoiceArgs → -
-	OpConfirmVoice       = "confirm_voice"        // VoiceArgs → -
-	OpRemoveVoiceMeeting = "remove_voice_meeting" // VoiceArgs (Session) → -
-	OpMoveVoiceMeeting   = "move_voice_meeting"   // VoiceArgs (Session, Name = to) → -
-	OpLearnSaved         = "learn_saved"          // - → Count
-	OpVoiceClip          = "voice_clip"           // VoiceClip → Media (audio/mp4)
-	OpDiscardedClip      = "discarded_clip"       // VoiceArgs (Session) → VoiceClip
+	OpVoices              = "voices"                // - → VoicesView
+	OpRenameVoice         = "rename_voice"          // VoiceArgs (Name) → -
+	OpMergeVoices         = "merge_voices"          // VoiceArgs (ID = into, Other = from) → -
+	OpKeepApart           = "keep_apart"            // VoiceArgs (ID, Other) → -
+	OpForgetVoice         = "forget_voice"          // VoiceArgs → -: delete the profile and never learn its names again
+	OpDeleteVoice         = "delete_voice"          // VoiceArgs → -: delete the profile; later meetings can teach a new one
+	OpAllowName           = "allow_name"            // VoiceArgs (Model, Name) → -: take a name off the never-learnt names
+	OpStartOver           = "start_over"            // VoiceArgs → -
+	OpConfirmVoice        = "confirm_voice"         // VoiceArgs → -
+	OpRemoveVoiceMeeting  = "remove_voice_meeting"  // VoiceArgs (Session) → -
+	OpConfirmVoiceMeeting = "confirm_voice_meeting" // VoiceArgs (Session) → -: that meeting's voice is theirs
+	OpMoveVoiceMeeting    = "move_voice_meeting"    // VoiceArgs (Session, To = profile ID, or Name = a new profile's) → -
+	OpLearnSaved          = "learn_saved"           // - → Count
+	OpVoiceClip           = "voice_clip"            // VoiceClip → Media (audio/aac, ADTS)
+	OpDiscardedClip       = "discarded_clip"        // VoiceArgs (Session) → VoiceClip
+	// OpRelabelProfileMeetings puts a profile's current name on the
+	// speaker labels that still carry one of its old names, in the saved
+	// sessions it identified; OpUndoRelabel reverses one such batch.
+	OpRelabelProfileMeetings = "relabel_profile_meetings" // RelabelArgs (Model, ID) → RelabelResult
+	OpUndoRelabel            = "undo_relabel"             // RelabelArgs (Batch) → RelabelResult
+	// OpReturnVoiceMeeting is "Not them" on a profile's meeting: the
+	// meeting is taken out of the profile and, with Relabel, the speakers
+	// the profile named there go back to unnamed and are asked about
+	// again ("Who's this?"); Preview returns the session as it would be
+	// saved, changing nothing. OpSkipReturnedVoice is "Can't tell" on such
+	// a speaker.
+	OpReturnVoiceMeeting = "return_voice_meeting" // ReturnArgs → ReturnResult
+	OpSkipReturnedVoice  = "skip_returned_voice"  // SpeakerArgs → -
 
 	OpLooks     = "looks"      // SessionArgs → []LookView
 	OpLookTile  = "look_tile"  // LookArgs → Media (image/jpeg): the speaker's tile
@@ -99,12 +115,25 @@ type Status struct {
 	// found none). Both nil when all is well.
 	Silent  *Source `json:"silent,omitempty"`
 	Suggest *Source `json:"suggest,omitempty"`
+	// SuggestNote, while Silent is set and Suggest is not, says why the
+	// recorder offers nothing when it knows: for a silent mic, that the
+	// other mics with signal only hear the meeting audio from the
+	// speakers (recording one would capture the far side twice). Empty
+	// otherwise.
+	SuggestNote string `json:"suggest_note,omitempty"`
 	// Health is one line per problem (a missing permission, model or
 	// tool); empty when all is well. Details come from OpTools.
 	Health []string `json:"health,omitempty"`
 	// Busy says what long job is running (a model download, learning
 	// voices), "" if none.
 	Busy string `json:"busy,omitempty"`
+	// Restart names the changed settings that wait for the recorder to
+	// restart (its engines were built with the old ones); empty if none.
+	Restart []string `json:"restart,omitempty"`
+	// PID is the recorder's process id, so Musubi's resource readout
+	// finds the recorder serving its socket rather than guessing by
+	// name. 0 from a recorder built before it.
+	PID int `json:"pid,omitempty"`
 }
 
 // SessionInfo identifies a session; the live feed's SessionInfo.
@@ -143,6 +172,12 @@ type SetSourceArgs struct {
 	ID   string `json:"id"`
 }
 
+// ReloadArgs names the config file the Musubi app uses (its dataset's),
+// which the recorder reads from then on, restarts included.
+type ReloadArgs struct {
+	MusubiConfig string `json:"musubi_config,omitempty"`
+}
+
 type SessionArgs struct {
 	Session string `json:"session"`
 }
@@ -161,6 +196,60 @@ type VoiceArgs struct {
 	Other   string `json:"other,omitempty"`
 	Session string `json:"session,omitempty"`
 	Name    string `json:"name,omitempty"`
+	// To is the profile a meeting moves to (move_voice_meeting); empty
+	// moves it to a new profile named Name.
+	To string `json:"to,omitempty"`
+}
+
+// RelabelArgs names a voice profile (relabel_profile_meetings) or a batch
+// of relabels to reverse (undo_relabel).
+type RelabelArgs struct {
+	Model string `json:"model,omitempty"`
+	ID    string `json:"id,omitempty"`
+	Batch string `json:"batch,omitempty"`
+}
+
+// ReturnArgs addresses a profile's meeting for return_voice_meeting.
+type ReturnArgs struct {
+	Model   string `json:"model"`
+	ID      string `json:"id"`
+	Session string `json:"session"`
+	Relabel bool   `json:"relabel,omitempty"`
+	Preview bool   `json:"preview,omitempty"`
+}
+
+// ReturnResult is what return_voice_meeting changed (or, with Preview,
+// would change): the labels put back to unnamed, under Batch in the
+// relabel log, and those left as they were and why. Session is the
+// session as it would be saved, on a preview only.
+type ReturnResult struct {
+	Batch   string          `json:"batch,omitempty"`
+	Changed []RelabelChange `json:"changed"`
+	Left    []RelabelLeft   `json:"left"`
+	Session json.RawMessage `json:"session,omitempty"`
+}
+
+// RelabelResult is what a relabel (or its undo) changed, and the labels
+// it left alone and why.
+type RelabelResult struct {
+	Batch   string          `json:"batch"`
+	Changed []RelabelChange `json:"changed"`
+	Left    []RelabelLeft   `json:"left"`
+}
+
+// RelabelChange is one label renamed in one session.
+type RelabelChange struct {
+	Session  string `json:"session"`
+	OldLabel string `json:"old_label"`
+	NewLabel string `json:"new_label"`
+	Lines    int    `json:"lines"`
+}
+
+// RelabelLeft is a label carrying an old name that wasn't renamed.
+type RelabelLeft struct {
+	Session string `json:"session"`
+	Label   string `json:"label"`
+	Why     string `json:"why"`
 }
 
 type LookArgs struct {
@@ -204,8 +293,15 @@ type VoiceMeetingView struct {
 	Source       string    `json:"source"`
 	Fingerprints int       `json:"fingerprints"`
 	Agreement    float64   `json:"agreement"`
-	Clip         VoiceClip `json:"clip"`
-	Tiles        []TileRef `json:"tiles"`
+	// Compared: other meetings that teach the profile exist to compare
+	// with; false, Agreement means nothing (it reads 0).
+	Compared  bool      `json:"compared"`
+	Clip      VoiceClip `json:"clip"`
+	Tiles     []TileRef `json:"tiles"`
+	Confirmed bool      `json:"confirmed,omitempty"`
+	// Learned: the meeting has enough voice to teach the profile; a
+	// shorter one names the speaker but isn't in the profile's voice.
+	Learned bool `json:"learned"`
 }
 
 type VoiceProfileView struct {
@@ -225,6 +321,9 @@ type VoiceProfileView struct {
 	Face         *TileRef           `json:"face,omitempty"`
 	InUse        bool               `json:"inUse"`
 	Confirmed    bool               `json:"confirmed"`
+	// Aliases are the profile's earlier names (renamed from, or merged
+	// in): what relabel_profile_meetings takes off meeting labels.
+	Aliases []string `json:"aliases,omitempty"`
 }
 
 type NamedByVoiceView struct {
@@ -261,6 +360,21 @@ type VoicePairView struct {
 	Similarity float64 `json:"similarity"`
 }
 
+// SameNameView is two profiles that share a name the user hasn't kept
+// apart: one person or two? Similarity is -2 when either has nothing
+// learnt.
+type SameNameView struct {
+	Model      string    `json:"model"`
+	A          string    `json:"a"`
+	B          string    `json:"b"`
+	Name       string    `json:"name"`
+	Similarity float64   `json:"similarity"`
+	MeetingsA  int       `json:"meetingsA"`
+	MeetingsB  int       `json:"meetingsB"`
+	ClipA      VoiceClip `json:"clipA"`
+	ClipB      VoiceClip `json:"clipB"`
+}
+
 type UnknownVoice struct {
 	Session    string    `json:"session"`
 	Title      string    `json:"title"`
@@ -270,6 +384,15 @@ type UnknownVoice struct {
 	Clip       VoiceClip `json:"clip"`
 	SoundsLike string    `json:"soundsLike,omitempty"`
 	Similarity float64   `json:"similarity,omitempty"`
+	// Returned: a profile named this speaker until the user said "Not
+	// them" (ReturnedFrom is its name then); shown whatever its age or
+	// length.
+	Returned     bool   `json:"returned,omitempty"`
+	ReturnedFrom string `json:"returnedFrom,omitempty"`
+	// Sample: a single sample taken out of a profile with "Not them"
+	// (Returned is set too), named with name_returned_sample, not by
+	// renaming the speaker.
+	Sample *SampleRef `json:"sample,omitempty"`
 }
 
 type VoicesView struct {
@@ -279,6 +402,27 @@ type VoicesView struct {
 	Unknown      []UnknownVoice     `json:"unknown"`
 	NamedByVoice []NamedByVoiceView `json:"namedByVoice"`
 	Doubts       []VoiceDoubtView   `json:"doubts"`
+	// SameName: profiles sharing a name (pairs here aren't in Pairs).
+	SameName []SameNameView `json:"sameName"`
+	// Forgotten: names never learnt again (Never learn this name), by
+	// speaker model, for the owner to see and allow again.
+	Forgotten []ForgottenName `json:"forgotten,omitempty"`
+	// Building: the review lists (Unknown, NamedByVoice, Doubts) are
+	// still being gathered after the recorder started; they are empty
+	// until then.
+	Building bool `json:"building,omitempty"`
+	// Relearned: the last relearn for new learning rules (nil if none).
+	Relearned *RelearnedView `json:"relearned,omitempty"`
+}
+
+// RelearnedView is what the last relearn for new learning rules did:
+// when, from how many meetings, how many profiles' learnt voice changed
+// and how many profiles it started.
+type RelearnedView struct {
+	At       time.Time `json:"at"`
+	Meetings int       `json:"meetings"`
+	Changed  int       `json:"changed"`
+	Added    int       `json:"added"`
 }
 
 // LookView is one meeting-window look (Tomoe's hint timeline entry),
@@ -325,7 +469,7 @@ type ToolFix struct {
 // segment (livefeed). Readers that do not know a type skip it.
 const (
 	FeedStatus = "status" // {"v":1,"type":"status","status":Status}
-	FeedAudio  = "audio"  // {"v":1,"type":"audio","status":Status}: Silent / Suggest changed
+	FeedAudio  = "audio"  // {"v":1,"type":"audio","status":Status}: Silent / Suggest / SuggestNote changed
 	FeedDiag   = "diag"   // {"v":1,"type":"diag","session_id":"...","diag":Diag}
 	FeedLook   = "look"   // {"v":1,"type":"look","session_id":"...","look":LookView}
 )
@@ -339,4 +483,185 @@ type Diag struct {
 	Label  string            `json:"label,omitempty"`
 	Detail string            `json:"detail"`
 	Fields map[string]string `json:"fields,omitempty"`
+}
+
+// The recorder's models (sherpa-onnx / ONNX Runtime, run in the
+// recorder's process), for the Musubi app's Models screen.
+const (
+	OpModels        = "models"         // - → []RecModel
+	OpDownloadModel = "download_model" // ModelArgs → - (runs in the background; progress as Status.Busy, a failure as a health line)
+)
+
+// RecModel is one model the recorder can use.
+type RecModel struct {
+	ID        string `json:"id"`   // the config value, e.g. "parakeet-v2-en"
+	Name      string `json:"name"` // shown
+	Task      string `json:"task"` // "transcription", "live", "speaker", "vad", "segmentation" or "ocr"
+	Installed bool   `json:"installed"`
+	Size      int64  `json:"size"` // bytes on disk; 0 when not installed
+	// Selectable: the task has a config choice (ConfigKey) and this is
+	// one of its values.
+	Selectable bool   `json:"selectable"`
+	InUse      bool   `json:"in_use"`     // used by recordings with the current config
+	ConfigKey  string `json:"config_key"` // "transcription.model", "meeting.speaker_model" or ""
+	// Restart: loaded when the recorder starts, so a new choice or a
+	// download takes effect after a restart.
+	Restart bool `json:"restart"`
+}
+
+type ModelArgs struct {
+	ID string `json:"id"`
+}
+
+// Voice samples: every stretch of a meeting a voice profile learnt from,
+// so a profile's blend can be heard and a stretch that isn't the person
+// taken out.
+const (
+	OpProfileSamples = "profile_samples" // VoiceArgs (Model, ID) → ProfileSamplesView
+	// OpExcludeSample is "Not them": the sample leaves the profile and is
+	// asked about under "Who's this?" (UnknownVoice.Sample).
+	OpExcludeSample = "exclude_sample" // SampleArgs → -
+	// OpJunkSample: the sample is noise; no profile learns from that
+	// stretch of the meeting again.
+	OpJunkSample    = "junk_sample"    // SampleArgs → -
+	OpIncludeSample = "include_sample" // SampleArgs → -: undoes exclude_sample or junk_sample ("Put back")
+	// OpNameReturnedSample names a sample taken out with "Not them" (ID is
+	// the profile it came from): its fingerprints teach the profile named
+	// Name (an existing one of exactly that name its voice fits, else a
+	// new one). OpSkipReturnedSample is "Can't tell" on it.
+	OpNameReturnedSample = "name_returned_sample" // SampleArgs (Name) → NamedSample
+	OpSkipReturnedSample = "skip_returned_sample" // SampleArgs → -
+	// OpSplitLabelByVoice gives each line of a label in one saved session
+	// to the candidate profile its voice matches best, by a margin.
+	OpSplitLabelByVoice = "split_label_by_voice" // SplitArgs → SplitResult
+)
+
+// SampleArgs addresses one sample of a profile's meeting, by its span as
+// ProfileSamplesView (or, for a returned sample, UnknownVoice.Sample)
+// gave it. Name is the name given (name_returned_sample).
+type SampleArgs struct {
+	Model   string  `json:"model"`
+	ID      string  `json:"id"`
+	Session string  `json:"session"`
+	Start   float64 `json:"start"`
+	End     float64 `json:"end"`
+	Name    string  `json:"name,omitempty"`
+}
+
+// NamedSample is the profile a returned sample now teaches.
+type NamedSample struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Created bool   `json:"created,omitempty"`
+}
+
+// SampleRef addresses a returned sample under "Who's this?": Profile is
+// the one it was taken out of.
+type SampleRef struct {
+	Model   string  `json:"model"`
+	Profile string  `json:"profile"`
+	Start   float64 `json:"start"`
+	End     float64 `json:"end"`
+}
+
+// SplitArgs asks split_label_by_voice to share Label's lines in Session
+// among Into (at least two). Preview works the split out without saving.
+type SplitArgs struct {
+	Session string        `json:"session"`
+	Label   string        `json:"label"`
+	Into    []SplitTarget `json:"into"`
+	Preview bool          `json:"preview,omitempty"`
+}
+
+// SplitTarget is a candidate: a profile by ID (of the session's speaker
+// model) or by exact name, and the label its lines get (default: the
+// profile's name).
+type SplitTarget struct {
+	ID    string `json:"id,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Label string `json:"label,omitempty"`
+}
+
+// SplitResult is what a split did (or, with Preview, would do): lines per
+// candidate, lines left as they were (Undecided: no fingerprints, or no
+// candidate ahead by the margin), each line's decision, and the batch in
+// the relabel log (undo_relabel undoes it).
+type SplitResult struct {
+	Batch     string       `json:"batch,omitempty"`
+	Counts    []SplitCount `json:"counts"`
+	Undecided int          `json:"undecided"`
+	Lines     []SplitLine  `json:"lines"`
+}
+
+// SplitCount is one candidate's share.
+type SplitCount struct {
+	Profile string `json:"profile"`
+	Name    string `json:"name"`
+	Label   string `json:"label"`
+	Lines   int    `json:"lines"`
+}
+
+// SplitLine is one line's decision: Label "" when left as it was; Best
+// and Second are its voice's similarity to the likest candidate and the
+// next (-2 without fingerprints).
+type SplitLine struct {
+	Start        float64 `json:"start"`
+	End          float64 `json:"end"`
+	Fingerprints int     `json:"fingerprints"`
+	Label        string  `json:"label,omitempty"`
+	Best         float64 `json:"best"`
+	Second       float64 `json:"second"`
+}
+
+// VoiceSampleView is one stretch a profile learnt from. Similarity is
+// the sample's voice against the profile's (-2 when the profile has
+// nothing learnt), RestSimilarity against the meeting's other samples
+// (-2 when there are none). Label is the transcript's speaker over it.
+// Excluded: the owner said it isn't the person.
+type VoiceSampleView struct {
+	Session        string  `json:"session"`
+	Start          float64 `json:"start"`
+	End            float64 `json:"end"`
+	Fingerprints   int     `json:"fingerprints"`
+	Similarity     float64 `json:"similarity"`
+	RestSimilarity float64 `json:"restSimilarity"`
+	Label          string  `json:"label,omitempty"`
+	Excluded       bool    `json:"excluded,omitempty"`
+	// Junk: taken out as junk (no profile learns from it), not "Not them".
+	Junk bool `json:"junk,omitempty"`
+}
+
+// MeetingSamplesView is one meeting's samples, worst match first.
+// Fingerprints is what the profile holds from the meeting, Rebuilt how
+// many the saved meeting gives again (they differ when the meeting was
+// learnt live, from reads the saved meeting doesn't keep). Voices is how
+// many voices the samples sound like. NoDiarization: the meeting's
+// fingerprints aren't saved, so only its one Clip is known; Note says
+// why else there are no samples.
+type MeetingSamplesView struct {
+	Session       string            `json:"session"`
+	Fingerprints  int               `json:"fingerprints"`
+	Rebuilt       int               `json:"rebuilt"`
+	Voices        int               `json:"voices"`
+	NoDiarization bool              `json:"noDiarization,omitempty"`
+	Note          string            `json:"note,omitempty"`
+	Clip          VoiceClip         `json:"clip"`
+	Samples       []VoiceSampleView `json:"samples"`
+}
+
+// ProfileSamplesView is a profile's samples by meeting: Samples counts
+// those it learns from, Voices is the most voices any one meeting's
+// samples sound like.
+type ProfileSamplesView struct {
+	Model    string               `json:"model"`
+	ID       string               `json:"id"`
+	Samples  int                  `json:"samples"`
+	Voices   int                  `json:"voices"`
+	Meetings []MeetingSamplesView `json:"meetings"`
+}
+
+// ForgottenName is a name a speaker model's profiles never learn.
+type ForgottenName struct {
+	Model string `json:"model"`
+	Name  string `json:"name"`
 }

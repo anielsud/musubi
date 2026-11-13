@@ -151,6 +151,11 @@ type Live struct {
 	chips           []Suggestion
 	lastModelVer    int
 	lastModelRun    time.Time
+	// lastModelInput is what the last model run read (scope and window),
+	// so a run with nothing new is skipped (live.skip_idle).
+	lastModelInput string
+	// rc keeps the meeting's repeated reads (live.cache, reads.go).
+	rc *store.ReadCache
 
 	traceMu sync.Mutex
 	traces  []Trace
@@ -224,6 +229,7 @@ func (l *Live) Reload() (err error) {
 	l.sug = s
 	l.topicIx = cs
 	l.spell = knowledge.Spellings(sp)
+	l.rc = nil
 	l.mu.Unlock()
 	return nil
 }
@@ -340,7 +346,7 @@ func (l *Live) Run(ctx context.Context) {
 	if err := l.Reload(); err != nil {
 		l.emit("live:error", err.Error())
 	}
-	go Follow(ctx, l.eng.Cfg.Live.TomoeSocket, func(ev Event) { l.handle(ev, "live") }, func(up bool) {
+	go Follow(ctx, l.eng.Cfg.LiveSocket(), func(ev Event) { l.handle(ev, "live") }, func(up bool) {
 		l.mu.Lock()
 		l.connected = up
 		l.mu.Unlock()
@@ -367,9 +373,10 @@ func (l *Live) handle(ev Event, mode string) {
 		switch ev.State {
 		case "started":
 			tomoeTitle := ev.Session.Title
-			if t, invited, err := l.eng.Store.EventAt(ev.Session.CreatedAt); err == nil && t != "" {
+			if id, t, invited, err := l.eng.Store.EventMatchAt(ev.Session.CreatedAt); err == nil && t != "" {
 				ev.Session.Title = t
 				ev.Session.Invited = others(invited, l.eng.Cfg.Owner.Name, l.eng.Cfg.Owner.Email)
+				ev.Session.EventID = id
 			}
 			l.mu.Lock()
 			if mode == "live" {
@@ -391,6 +398,8 @@ func (l *Live) handle(ev Event, mode string) {
 			l.pk = newPickState()
 			l.places = nil
 			l.lastModelVer = 0
+			l.lastModelInput = ""
+			l.rc = nil
 			l.mu.Unlock()
 			l.resetTraces()
 			l.trace(0, "feed", "meeting started ("+mode+")", 0, map[string]any{"tomoeTitle": tomoeTitle, "calendarTitle": ev.Session.Title, "id": ev.Session.ID})
@@ -454,7 +463,7 @@ func (l *Live) handle(ev Event, mode string) {
 			}
 			if l.eng.Cfg.Live.FastLane {
 				seg := *ev.Segment
-				l.spawn(func() { l.fastLane(seg) })
+				l.spawn(func() { labelled("fastlane", func() { l.fastLane(seg) }) })
 			}
 		}
 	}
@@ -641,9 +650,20 @@ func (l *Live) modelLoop(ctx context.Context) {
 		recent, lines := m.Recent(window), m.RecentLines(window)
 		exclude := []string{"tomoe:" + m.Session.ID}
 		scopeName := l.scope
+		// A line can change without changing what the model reads (a
+		// draft sent again, a line outside the window): the run would
+		// read the same as the last one, so it is skipped, on the same
+		// cadence.
+		input := scopeName + "\x00" + recent
+		same := l.eng.Cfg.Live.SkipIdle && input == l.lastModelInput
+		l.lastModelInput = input
 		l.mu.Unlock()
+		if same {
+			l.trace(0, "cycle", "model run skipped: nothing new since the last", 0, nil)
+			continue
+		}
 		if strings.TrimSpace(recent) != "" {
-			l.modelCycle(ctx, sug, recent, lines, exclude, scopeName)
+			labelled("suggest", func() { l.modelCycle(ctx, sug, recent, lines, exclude, scopeName) })
 		}
 	}
 }
@@ -987,7 +1007,7 @@ func (l *Live) cards(sc sensitivity.Scope, spotted []Spotted, exclude []string) 
 		if e.ID == l.eng.OwnerEntity() {
 			continue
 		}
-		g, err := l.eng.Store.EntityGraph(sc, e.ID, []string{l.eng.OwnerEntity()}, 4)
+		g, err := l.entityGraph(sc, e.ID, []string{l.eng.OwnerEntity()}, 4)
 		if err != nil || g == nil {
 			continue
 		}
@@ -1044,8 +1064,9 @@ func (l *Live) SessionAudio(sessionID string) (string, bool) {
 	if !validSessionID(sessionID) {
 		return "", false
 	}
-	p := filepath.Join(l.eng.Cfg.TomoeSessions, sessionID, "audio.m4a")
-	if _, err := os.Stat(p); err != nil {
+	dir := l.eng.Cfg.SessionDir(sessionID)
+	p := filepath.Join(dir, "audio.m4a")
+	if _, err := os.Stat(p); dir == "" || err != nil {
 		return "", false
 	}
 	return p, true
@@ -1074,7 +1095,11 @@ func (l *Live) loadSession(sessionID string) (Session, []Segment, error) {
 	if !validSessionID(sessionID) {
 		return Session{}, nil, fmt.Errorf("not a session id: %q", sessionID)
 	}
-	b, err := os.ReadFile(filepath.Join(l.eng.Cfg.TomoeSessions, sessionID, "session.json"))
+	dir := l.eng.Cfg.SessionDir(sessionID)
+	if dir == "" {
+		return Session{}, nil, fmt.Errorf("no saved session %s", sessionID)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "session.json"))
 	if err != nil {
 		return Session{}, nil, err
 	}
@@ -1135,6 +1160,7 @@ func (l *Live) ReplayClock(t float64) {
 		l.briefed = map[string]time.Time{}
 		l.chips = nil
 		l.lastModelVer = 0
+		l.lastModelInput = ""
 		c.last = t
 		l.mu.Unlock()
 		l.emit("live:reset", c.session)
@@ -1223,7 +1249,7 @@ func (l *Live) threadStatus(ctx context.Context, sc sensitivity.Scope, query str
 	if len(m) == 0 || m[0].Score < liveStatusMin {
 		return nil
 	}
-	sts, err := l.eng.Store.ThreadStatuses(sc)
+	sts, err := l.threadStatuses(sc)
 	if err != nil {
 		return nil
 	}

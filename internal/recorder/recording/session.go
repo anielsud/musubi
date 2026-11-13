@@ -39,7 +39,8 @@ func (a *Recorder) StartSession(micDevice, monitorDevice, lang, platform string)
 	// voice match what Tomoe would use for the same meeting, until the
 	// recorder is of record (Musubi's [recorder] of_record): from then on
 	// its own voices, edited through the Musubi app, are the ones used.
-	if !a.cfg.MusubiOfRecord {
+	// With Tomoe off ([recorder] tomoe) its voices are never read.
+	if a.cfg.CopiesTomoeVoices() {
 		if err := a.copyVoices(); err != nil {
 			fmt.Printf("Warning: voices not copied from Tomoe: %v\n", err)
 		} else {
@@ -208,6 +209,9 @@ func (a *Recorder) beginLocked(micDevice, monitorDevice, lang, platform string) 
 	followCtx, followCancel := context.WithCancel(videoHintCtx)
 	a.followMeetingAudio(followCtx, audioAuto)
 	a.src.beginLocked(videoHintCtx, coordinator, micDevice, micSwitch, systemSelection(monitorDevice, cfg.MonitorCapturer != nil), sysSwitch, audioAuto, followCancel)
+	if cfg.MonitorCapturer != nil { // never a typed nil in the interface
+		a.src.meeting = cfg.MonitorCapturer
+	}
 	if micDevice != "" {
 		go a.watchMic(videoHintCtx, coordinator, micDevice)
 	}
@@ -348,14 +352,14 @@ func (a *Recorder) persistSession(req *saveRequest) {
 	a.titleFromWindow(sess)
 
 	// Written before any diarization, which can crash.
-	if err := a.store.Save(sess); err != nil {
+	if err := a.saveSession(sess); err != nil {
 		fmt.Printf("session %s: not saved: %v\n", sess.ID, err)
 	}
 
 	// Diarized during the meeting: its final labels replace the
 	// post-meeting pass (which still runs if that failed).
 	if req.diar != nil && finishMeetingDiarizer(req.diar, sess) {
-		if err := a.store.Save(sess); err != nil {
+		if err := a.saveSession(sess); err != nil {
 			fmt.Printf("Error saving session: %v\n", err)
 		}
 		a.feedSession(livefeed.StateSaved, sess)
@@ -373,6 +377,7 @@ func (a *Recorder) persistSession(req *saveRequest) {
 		if err := session.RunDiarizeWithRetry(sess.ID, session.DefaultDiarizeAttempts); err != nil {
 			fmt.Printf("session %s: kept without post-meeting diarization: %v\n", sess.ID, err)
 		}
+		a.reindexSession(sess.ID, nil) // the worker rewrote session.json
 	}
 	a.feedSession(livefeed.StateSaved, sess)
 }

@@ -529,3 +529,26 @@ CREATE TABLE IF NOT EXISTS prep_briefs (
 	categories INTEGER NOT NULL DEFAULT 0,
 	made_at    INTEGER NOT NULL
 );
+
+-- Speaker relabels (docs/recorder-screens.md, "Renaming a voice profile
+-- renames its speakers"): what a relabel of an item's stored copies
+-- replaced and wrote (JSON: before, after), so it can be undone. batch
+-- ties it to the recorder's relabel of the session file.
+CREATE TABLE IF NOT EXISTS speaker_relabels (
+	id      INTEGER PRIMARY KEY,
+	batch   TEXT NOT NULL,
+	item_id TEXT NOT NULL,
+	at      INTEGER NOT NULL,
+	undone  INTEGER NOT NULL DEFAULT 0,
+	body    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS speaker_relabels_batch ON speaker_relabels(batch, item_id);
+
+-- Facts about the stored data itself: one-off data upgrades done (claim
+-- centroids deduplicated: since then a NULL claims.centroid means the
+-- claim's one statement's vector) and which vector encodings are present
+-- (vecenc.go). Derived like the tables it describes.
+CREATE TABLE IF NOT EXISTS store_meta (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);

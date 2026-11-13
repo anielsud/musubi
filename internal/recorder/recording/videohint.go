@@ -93,17 +93,19 @@ func (a *Recorder) onLook(hs *hintSession, l videohint.Look) {
 	if err := hs.log.Write(l); err != nil {
 		fmt.Printf("videohint: recording look %d: %v\n", l.ID, err)
 	}
-	if l.Usable && l.Name != "" {
+	// The owner's own tile never names a speaker (they're "You").
+	name, candidates := diarize.WithoutOwner(a.config().OwnerName, l.Name, l.Candidates)
+	if l.Usable && name != "" {
 		if hs.changes != nil && hs.coordinator != nil {
-			hs.changes.NameSeen(hs.coordinator.SessionTime(l.Time), l.Name)
+			hs.changes.NameSeen(hs.coordinator.SessionTime(l.Time), name)
 		}
 		if hs.diar != nil {
-			hs.diar.AddHint(hs.coordinator.SessionTime(l.Time), l.Name)
+			hs.diar.AddHint(hs.coordinator.SessionTime(l.Time), name)
 		} else if a.tracker != nil {
-			a.tracker.SetHintForRecent(l.Name, videohint.HintAttachMaxAge)
+			a.tracker.SetHintForRecent(name, videohint.HintAttachMaxAge)
 		}
-	} else if hs.diar != nil && len(l.Candidates) > 1 {
-		hs.diar.AddCandidates(hs.coordinator.SessionTime(l.Time), l.Candidates)
+	} else if hs.diar != nil && len(candidates) > 1 {
+		hs.diar.AddCandidates(hs.coordinator.SessionTime(l.Time), candidates)
 	}
 	meta := l
 	meta.Thumb = nil
@@ -173,6 +175,10 @@ const micSilentAfter = 20 * time.Second
 // watchMic logs when the mic goes silent for micSilentAfter, and when
 // sound returns, and tells the source check (markSilent, clearSilent).
 func (a *Recorder) watchMic(ctx context.Context, c *live.Coordinator, device string) {
+	if device == "default" {
+		// So that a silent default mic is reported by its device's name.
+		a.refreshDefaultMic(true)
+	}
 	name := micName(device)
 	warned := false
 	t := time.NewTicker(5 * time.Second)
@@ -205,14 +211,23 @@ func micName(device string) string {
 	if device != "default" {
 		return device
 	}
+	if name := defaultInputName(); name != "" {
+		return name + " (the system default)"
+	}
+	return "the default mic"
+}
+
+// defaultInputName is the name of the system's default input device, ""
+// if it can't be found.
+func defaultInputName() string {
 	devices, err := audio.ListDevices()
 	if err != nil {
-		return "the default mic"
+		return ""
 	}
 	for _, d := range devices {
 		if d.IsDefault && d.DeviceType == audio.Input {
-			return d.Name + " (the system default)"
+			return d.Name
 		}
 	}
-	return "the default mic"
+	return ""
 }

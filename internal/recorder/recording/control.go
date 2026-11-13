@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -58,6 +59,18 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 		}
 		return a.setSource(p)
 	case control.OpReloadConfig:
+		var p control.ReloadArgs
+		if len(args) > 0 {
+			if err := decode(args, &p); err != nil {
+				return nil, err
+			}
+		}
+		if p.MusubiConfig != "" {
+			if err := config.StoreMusubiPath(config.DataDir(), p.MusubiConfig); err != nil {
+				return nil, err
+			}
+			a.SetMusubiConfig(p.MusubiConfig)
+		}
 		return a.reloadConfig()
 
 	case control.OpSession:
@@ -100,13 +113,37 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 
 	case control.OpVoices:
 		return a.Voices()
-	case control.OpRenameVoice, control.OpMergeVoices, control.OpKeepApart, control.OpForgetVoice,
-		control.OpStartOver, control.OpConfirmVoice, control.OpRemoveVoiceMeeting, control.OpMoveVoiceMeeting:
+	case control.OpRenameVoice, control.OpMergeVoices, control.OpKeepApart, control.OpForgetVoice, control.OpDeleteVoice, control.OpAllowName,
+		control.OpStartOver, control.OpConfirmVoice, control.OpRemoveVoiceMeeting, control.OpConfirmVoiceMeeting, control.OpMoveVoiceMeeting:
 		var p control.VoiceArgs
 		if err := decode(args, &p); err != nil {
 			return nil, err
 		}
 		return nil, a.editVoice(op, p)
+	case control.OpRelabelProfileMeetings:
+		var p control.RelabelArgs
+		if err := decode(args, &p); err != nil {
+			return nil, err
+		}
+		return a.RelabelProfileMeetings(p.Model, p.ID)
+	case control.OpReturnVoiceMeeting:
+		var p control.ReturnArgs
+		if err := decode(args, &p); err != nil {
+			return nil, err
+		}
+		return a.ReturnVoiceMeeting(p)
+	case control.OpSkipReturnedVoice:
+		var p control.SpeakerArgs
+		if err := decode(args, &p); err != nil {
+			return nil, err
+		}
+		return nil, a.SkipReturnedVoice(p.Session, p.Label)
+	case control.OpUndoRelabel:
+		var p control.RelabelArgs
+		if err := decode(args, &p); err != nil {
+			return nil, err
+		}
+		return a.UndoRelabel(p.Batch)
 	case control.OpLearnSaved:
 		n, err := a.learnSaved()
 		if err != nil {
@@ -122,7 +159,7 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 		if err != nil {
 			return nil, err
 		}
-		return control.Media{Type: "audio/mp4", Data: b}, nil
+		return control.Media{Type: "audio/aac", Data: b}, nil
 	case control.OpDiscardedClip:
 		var p control.VoiceArgs
 		if err := decode(args, &p); err != nil {
@@ -165,6 +202,18 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 			return nil, err
 		}
 		return nil, a.FixTool(p.ID)
+
+	case control.OpModels:
+		return a.Models(), nil
+	case control.OpDownloadModel:
+		var p control.ModelArgs
+		if err := decode(args, &p); err != nil {
+			return nil, err
+		}
+		return nil, a.DownloadModel(p.ID)
+	}
+	if r, ok, err := a.handleSamples(op, args); ok {
+		return r, err
 	}
 	return nil, fmt.Errorf("%w %q", control.ErrUnknownOp, op)
 }
@@ -207,10 +256,15 @@ type sourceState struct {
 	nextMic, nextSystem *string
 
 	// silent is a source in use with no signal for a while and suggest a
-	// source heard instead (sourcecheck.go).
+	// source heard instead (sourcecheck.go); suggestNote says why there
+	// is none when the check knows.
 	silent, suggest *control.Source
+	suggestNote     string
 	probing         map[string]bool
 	lastProbe       map[string]time.Time
+	// meeting is the recording's system-audio capture, which the source
+	// check compares other mics with; nil without system audio.
+	meeting meetingTap
 }
 
 // beginLocked records a new recording's sources.
@@ -280,6 +334,37 @@ func micSource(sel string) control.Source {
 	return control.Source{Kind: "mic", ID: sel, Name: sel}
 }
 
+// micSourceLocked is micSource with the system default named after the
+// device behind it (defaultMic), so that "no sound from ..." names the
+// mic the owner can look at. Caller holds mu.
+func (a *Recorder) micSourceLocked(sel string) control.Source {
+	s := micSource(sel)
+	if sel == "default" && a.defaultMic != "" {
+		s.Name = a.defaultMic + " (system default)"
+	}
+	return s
+}
+
+// refreshDefaultMic looks up the system's default input again if the
+// name held is older than healthEvery (or always, with force), and tells
+// the feed if it changed. Never called with mu held: it lists devices.
+func (a *Recorder) refreshDefaultMic(force bool) {
+	a.mu.Lock()
+	fresh := !force && time.Since(a.defaultMicAt) < healthEvery
+	a.mu.Unlock()
+	if fresh {
+		return
+	}
+	name := a.probes.defaultMic()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	changed := name != a.defaultMic
+	a.defaultMic, a.defaultMicAt = name, time.Now()
+	if changed {
+		a.publishStatusLocked()
+	}
+}
+
 // micSelection is a control mic ID as StartSession takes it.
 func micSelection(id string) string {
 	switch id {
@@ -294,6 +379,7 @@ func micSelection(id string) string {
 // Status is the recorder's state now.
 func (a *Recorder) Status() control.Status {
 	a.refreshHealth(false)
+	a.refreshDefaultMic(false)
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.statusLocked()
@@ -302,13 +388,13 @@ func (a *Recorder) Status() control.Status {
 // statusLocked builds Status from what the recorder holds, without
 // looking at devices (callers hold mu, often on the recording's path).
 func (a *Recorder) statusLocked() control.Status {
-	st := control.Status{Version: Version, Recording: a.rec != nil, Busy: a.busy}
+	st := control.Status{Version: Version, Recording: a.rec != nil, Busy: a.busy, Restart: slices.Clone(a.restart), PID: os.Getpid()}
 	if a.currentSess != nil {
 		info := control.SessionInfo(livefeed.InfoFor(a.currentSess))
 		st.Session, st.StartedAt = &info, a.currentSess.CreatedAt
 	}
 	if a.src.recording {
-		st.Mic = micSource(a.src.mic)
+		st.Mic = a.micSourceLocked(a.src.mic)
 		st.System = control.Source{Kind: "system", ID: a.src.system, Name: a.src.sysName}
 		if a.src.auto != nil {
 			a.videoHintMu.Lock()
@@ -319,7 +405,7 @@ func (a *Recorder) statusLocked() control.Status {
 		}
 	} else {
 		mic, system := a.nextSourcesLocked()
-		st.Mic = micSource(mic)
+		st.Mic = a.micSourceLocked(mic)
 		st.System = control.Source{Kind: "system", ID: system, Name: meetingaudio.SourceName(system)}
 	}
 	if a.src.silent != nil {
@@ -329,6 +415,9 @@ func (a *Recorder) statusLocked() control.Status {
 	if a.src.suggest != nil {
 		s := *a.src.suggest
 		st.Suggest = &s
+	}
+	if a.src.silent != nil {
+		st.SuggestNote = a.src.suggestNote
 	}
 	st.Health = append(st.Health, a.health...)
 	for _, k := range slices.Sorted(maps.Keys(a.notes)) {
@@ -482,7 +571,7 @@ func (a *Recorder) setSource(p control.SetSourceArgs) (control.Status, error) {
 	}
 	a.mu.Lock()
 	if a.src.silent != nil && a.src.silent.Kind == p.Kind {
-		a.src.silent, a.src.suggest = nil, nil
+		a.src.silent, a.src.suggest, a.src.suggestNote = nil, nil, ""
 		a.publishAudioLocked()
 	}
 	a.publishStatusLocked()
@@ -599,7 +688,8 @@ func (a *Recorder) keepForNext(mic, system *string) {
 	}
 }
 
-// reloadConfig re-reads Tomoe's config with Musubi's [recorder.*] over it
+// reloadConfig re-reads Tomoe's config (unless [recorder] tomoe = "off")
+// with Musubi's [recorder.*] over it
 // and applies what can be applied now: speaker clustering tuning, the
 // live feed, and everything a recording reads when it starts (sources,
 // line cutting, video hints), from the next recording. Settings the
@@ -612,8 +702,8 @@ func (a *Recorder) reloadConfig() (control.Status, error) {
 	if err != nil {
 		return control.Status{}, err
 	}
+	config.SetTomoeOff(next.TomoeOff)
 	a.mu.Lock()
-	old := a.cfg
 	a.cfg = next
 	tracker := a.tracker
 	feedOn := a.liveFeed != nil
@@ -630,8 +720,16 @@ func (a *Recorder) reloadConfig() (control.Status, error) {
 	case !next.Meeting.LiveFeed && feedOn:
 		a.stopLiveFeed()
 	}
-	if parts := needsRestart(old, next); len(parts) > 0 {
+	// Against the config the engines were built with, not the previous
+	// reload: changing a setting back needs no restart.
+	a.mu.Lock()
+	parts := needsRestart(a.bootCfg, next)
+	a.restart = parts
+	a.mu.Unlock()
+	if len(parts) > 0 {
 		a.setNote("restart", "Restart the recorder to apply the new "+strings.Join(parts, ", ")+" settings")
+	} else {
+		a.setNote("restart", "")
 	}
 	fmt.Println("config: reloaded")
 	a.publishStatus()
@@ -644,6 +742,11 @@ func needsRestart(old, next *config.Config) []string {
 	var parts []string
 	if old.Transcription != next.Transcription {
 		parts = append(parts, "transcription")
+	}
+	// The engines were built from models found with or without Tomoe's
+	// folder, and Tomoe's config file is watched only from the start.
+	if old.TomoeOff != next.TomoeOff {
+		parts = append(parts, "standalone")
 	}
 	if old.Meeting.SpeakerModel != next.Meeting.SpeakerModel || old.Meeting.MicVoices != next.Meeting.MicVoices {
 		parts = append(parts, "speaker model")
@@ -724,6 +827,7 @@ func (a *Recorder) deleteSession(id string) error {
 	if err := a.store.Delete(id); err != nil {
 		return err
 	}
+	a.dropReview(id)
 	fmt.Printf("session %s: deleted\n", id)
 	return nil
 }

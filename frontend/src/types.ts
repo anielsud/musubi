@@ -37,6 +37,8 @@ export interface Session {
   created_at: string;
   // The other people on the calendar event under way, when there is one.
   invited?: string[];
+  // That calendar event's item id (the prep card loads its prep).
+  eventId?: string;
 }
 
 export interface LiveStatus {
@@ -207,6 +209,8 @@ export interface AppStatus {
   lastUpdate: string;
   stats?: Stats;
   live: LiveStatus;
+  // The live feed of record: "Musubi recorder" or "Tomoe".
+  liveFrom: string;
   dataset: string;
   m365: boolean;
   onUpdate: boolean;
@@ -428,6 +432,16 @@ export interface PrepTarget {
   recordingId?: string;
 }
 
+// LivePrep is the prep for the meeting under way (live.prep_card), read in
+// the panel's scope.
+export interface LivePrep {
+  sessionId: string;
+  eventId: string;
+  scope: string;
+  view: PrepView | null;
+  brief?: SavedBrief | null;
+}
+
 // SavedBrief is talking points drafted ahead of a meeting (prep.auto_brief).
 export interface SavedBrief {
   itemId: string;
@@ -457,6 +471,8 @@ export interface PrepSubject {
 export interface PrepView {
   title: string;
   people: string[] | null;
+  // The people none of the owner's meetings had in them.
+  new?: string[] | null;
   since: string;
   met: number;
   subjects: PrepSubject[] | null;
@@ -627,7 +643,7 @@ export interface GatewayModel {
 
 export interface ProviderView {
   name: string;
-  kind: 'gateway' | 'custom' | 'ollama';
+  kind: 'gateway' | 'custom' | 'ollama' | 'onnx';
   title: string;
   url: string;
   ready: boolean;
@@ -640,6 +656,8 @@ export interface ProviderView {
   tokenId?: string;
   startOllama: boolean;
   pullMissing: boolean;
+  models?: string[] | null;
+  error?: string;
 }
 
 export interface TestResult {
@@ -679,7 +697,7 @@ export interface ModelRow {
   source: string;
   id: string;
   formats: string[] | null;
-  kind: 'chat' | 'decision';
+  kind: 'chat' | 'decision' | 'recording';
   priceIn: number;
   priceOut: number;
   context: number;
@@ -689,6 +707,11 @@ export interface ModelRow {
   note?: string;
   usedBy: string[] | null;
   size: number;
+  // The recorder's ONNX models (source "onnx").
+  name?: string;
+  task?: string;
+  missing?: boolean;
+  restart?: boolean;
 }
 
 export interface ModelCatalog {
@@ -780,3 +803,97 @@ export interface PersonPage {
   headshot?: string;
   voice?: { session: string; start: number; end: number; title: string; at: string; text: string };
 }
+
+// The recorder (internal/recorder/control): its state, sources, tools,
+// live labelling, window looks and voices, as the control socket sends
+// them.
+export interface RecSource { kind: string; id: string; name: string }
+export interface RecSessionInfo { id: string; title: string; platform: string; created_at: string }
+export interface RecStatus {
+  version: string;
+  recording: boolean;
+  session?: RecSessionInfo;
+  started_at?: string;
+  mic: RecSource;
+  system: RecSource;
+  silent?: RecSource;
+  suggest?: RecSource;
+  health?: string[];
+  busy?: string;
+  restart?: string[];
+  suggest_note?: string;
+}
+export interface RecorderWatch { down: boolean; since?: string; tried?: string; problem?: string }
+export interface RecorderView { running: boolean; status?: RecStatus; ofRecord: string; editable: boolean; relabel?: boolean; error?: string }
+export interface RecSources { mics: RecSource[] | null; system: RecSource[] | null }
+export interface ToolFix { kind: 'action' | 'command'; label: string; command?: string }
+export interface ToolStatus { id: string; name: string; group: string; ok: boolean; required: boolean; neededFor: string; detail: string; fix?: ToolFix }
+export interface RecDiag { at: string; kind: string; line?: string; label?: string; detail: string; fields?: Record<string, string> }
+export interface Ring { X: number; Y: number; Width: number; Height: number }
+export interface LookView {
+  id: number; time: string; sessionTime: number; stage: string; detail: string; window?: string; name?: string;
+  fromCache?: boolean; usable: boolean; ring?: Ring; rings?: Ring[]; candidates?: string[]; width?: number; height?: number;
+  thumb?: string; thumbOf?: number;
+}
+export interface VoiceClip { session: string; start: number; end: number }
+export interface TileRef { session: string; look: number }
+export interface VoiceMeeting { session: string; title: string; at: string; source: string; fingerprints: number; agreement: number; clip: VoiceClip; tiles: TileRef[] | null; confirmed?: boolean; learned?: boolean; compared?: boolean }
+export interface VoiceProfile {
+  model: string; id: string; name: string; meetings: number; fingerprints: number; fromTiles: number; fromNamed: number;
+  lastHeard: string; clip: VoiceClip; heard: VoiceMeeting[] | null; rejected: number; startedOver: boolean;
+  takenOut: VoiceMeeting[] | null; face?: TileRef; inUse: boolean; confirmed: boolean; aliases?: string[] | null;
+}
+// A speaker relabel (internal/engine RelabelResult): the recorder's part
+// and Musubi's, meeting by meeting.
+export interface RelabelChange { session: string; old_label: string; new_label: string; lines: number }
+export interface RelabelResult {
+  batch: string;
+  recorder?: { batch: string; changed: RelabelChange[] | null; left: { session: string; label: string; why: string }[] | null };
+  meetings: { item: string; lines: number }[] | null;
+  skipped?: Record<string, string> | null;
+}
+export interface NamedByVoice { session: string; title: string; at: string; label: string; name: string; model: string; profile: string; similarity: number; seconds: number; clip: VoiceClip; window?: string }
+export interface VoiceDoubt { session: string; title: string; at: string; label: string; window: string; name: string; similarity: number; seconds: number; clip: VoiceClip; noProfile: boolean }
+export interface VoicePair { model: string; a: string; b: string; similarity: number }
+export interface SameNamePair { model: string; a: string; b: string; name: string; similarity: number; meetingsA: number; meetingsB: number; clipA: VoiceClip; clipB: VoiceClip }
+export interface UnknownVoice { session: string; title: string; at: string; label: string; seconds: number; clip: VoiceClip; soundsLike?: string; similarity?: number; returned?: boolean; returnedFrom?: string; sample?: SampleRef }
+// SampleRef: a single sample taken out of a profile with "Not them" (profile: the one it came from).
+export interface SampleRef { model: string; profile: string; start: number; end: number }
+export interface ForgottenName { model: string; name: string }
+export interface VoicesView {
+  forgotten?: ForgottenName[] | null;
+  enabled: boolean; profiles: VoiceProfile[] | null; pairs: VoicePair[] | null; unknown: UnknownVoice[] | null;
+  namedByVoice: NamedByVoice[] | null; doubts: VoiceDoubt[] | null; sameName?: SameNamePair[] | null;
+  building?: boolean;
+  relearned?: { at: string; meetings: number; changed: number; added: number } | null;
+}
+export interface ReturnVoiceResult {
+  recorder: { batch?: string; changed: RelabelChange[] | null; left: { session: string; label: string; why: string }[] | null } | null;
+  relabelled: boolean; why?: string;
+}
+export interface VoiceArgs { model: string; id: string; other?: string; session?: string; name?: string; to?: string }
+export interface SpeakerCount { label: string; lines: number; seconds: number }
+export interface MeetingSpeakers { session: string; speakers: SpeakerCount[]; editable: boolean; why?: string }
+export interface RecOption { value: string; label: string }
+export interface RecField { table: string; key: string; label: string; help?: string; type: 'bool' | 'int' | 'float' | 'string' | 'select'; step?: number; min: number; options?: RecOption[]; value: unknown; set: boolean; restart?: boolean }
+export interface RecGroup { title: string; fields: RecField[] }
+export interface RecModelField extends RecField { missing?: string[] | null; inUse?: string }
+export interface RecordingModels { fields: RecModelField[]; error?: string; tomoe: 'on' | 'off' }
+export interface RecordingSettings { ofRecord: string; since: string; groups: RecGroup[]; tomoeConfig: string; tomoe: 'on' | 'off' }
+
+/* Resource readout (internal/procstat) */
+export interface ResPart { name: string; pid: number; cpu: number; rss: number; footprint: number }
+export interface ResReading { key: string; name: string; cpu: number; rss: number; footprint: number; parts: ResPart[] }
+export interface ResSample { at: string; components: ResReading[] | null }
+export interface ResSnapshot { supported: boolean; reason?: string; machine: { cores: number; memory: number }; intervalMs: number; history: ResSample[] | null }
+
+/* Voice samples: the stretches of each meeting a voice profile learnt from (recorder op profile_samples) */
+export interface VoiceSample { session: string; start: number; end: number; fingerprints: number; similarity: number; restSimilarity: number; label?: string; excluded?: boolean; junk?: boolean }
+export interface MeetingSamples { session: string; fingerprints: number; rebuilt: number; voices: number; noDiarization?: boolean; note?: string; clip: VoiceClip; samples: VoiceSample[] | null }
+export interface ProfileSamples { model: string; id: string; samples: number; voices: number; meetings: MeetingSamples[] | null }
+export interface SampleArgs { model: string; id: string; session: string; start: number; end: number }
+export interface NamedSample { id: string; name: string; created?: boolean }
+export interface SplitTarget { model: string; id: string; label?: string }
+export interface SplitCount { profile: string; name: string; label: string; lines: number }
+export interface SplitLine { start: number; end: number; fingerprints: number; label?: string; best: number; second: number }
+export interface SplitResult { batch?: string; counts: SplitCount[] | null; undecided: number; lines: SplitLine[] | null }

@@ -120,6 +120,27 @@ func (s *StreamCapturer) AllSamples() []float32 {
 	return append(make([]float32, 0, len(s.allSamples)), s.allSamples...)
 }
 
+// Recorded is how many samples the recording holds so far: a position
+// to read a later stretch from with RecordedRange, without copying the
+// whole meeting the way AllSamples does.
+func (s *StreamCapturer) Recorded() int {
+	s.allMu.Lock()
+	defer s.allMu.Unlock()
+	return len(s.allSamples)
+}
+
+// RecordedRange is a copy of samples [from, to) of the recording,
+// clipped to what it holds.
+func (s *StreamCapturer) RecordedRange(from, to int) []float32 {
+	s.allMu.Lock()
+	defer s.allMu.Unlock()
+	from, to = max(from, 0), min(to, len(s.allSamples))
+	if from >= to {
+		return nil
+	}
+	return append([]float32(nil), s.allSamples[from:to]...)
+}
+
 // Close stops capture if it is running and releases the device. Safe to
 // call more than once.
 func (s *StreamCapturer) Close() {

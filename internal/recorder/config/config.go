@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,7 +27,24 @@ type Config struct {
 	// Only Musubi's config sets it (OverlayMusubi); false ("tomoe", the
 	// default) keeps copying, as before.
 	MusubiOfRecord bool `toml:"-"`
+
+	// OwnerName is Musubi's [owner] name: the owner is always "You" (the
+	// mic), so a meeting window showing their own tile never names anyone
+	// else (Zoom lights the owner's tile as they speak, and a late look
+	// put their name on the next remote speaker).
+	OwnerName string `toml:"-"`
+
+	// TomoeOff is Musubi's [recorder] tomoe = "off": the recorder stands
+	// alone, reading neither Tomoe's config file nor its models folder
+	// and copying none of its voices (LoadRecorder, ModelDirs). Only
+	// Musubi's config sets it; false ("on", the default) keeps reading
+	// Tomoe's, as before.
+	TomoeOff bool `toml:"-"`
 }
+
+// CopiesTomoeVoices reports whether the recorder starts each recording
+// from a copy of Tomoe's voices: only while Tomoe is of record and on.
+func (c *Config) CopiesTomoeVoices() bool { return !c.MusubiOfRecord && !c.TomoeOff }
 
 // AudioConfig picks the microphone.
 type AudioConfig struct {
@@ -184,6 +202,15 @@ type MeetingConfig struct {
 	// heard in this many meetings, unless the user confirmed it or named
 	// the person themselves (1: any profile names voices, as before).
 	VoiceProfileMinMeetings int `toml:"voice_profile_min_meetings"`
+	// VoiceProfileMinLearn: the least fingerprints a meeting's voice needs
+	// to teach a profile (voices.Params.MinLearn); fewer still names a
+	// speaker. 8: learn from any voice, as before.
+	VoiceProfileMinLearn int `toml:"voice_profile_min_learn"`
+	// VoiceProfileRelearn: when the learning rules change
+	// (voices.LearnRules), learn every saved meeting again once, in the
+	// background between recordings. false: profiles keep what they were
+	// built with, and only new meetings follow the new rules.
+	VoiceProfileRelearn bool `toml:"voice_profile_relearn"`
 	// RefineSpeakerCuts, after each meeting is saved, moves each cut
 	// between back-to-back speakers to where the voice changes, from short
 	// fingerprints across it (a low-priority job, about 2 minutes of one
@@ -288,6 +315,12 @@ type MeetingConfig struct {
 	// (Status.Silent and Status.Suggest). false only logs the silent mic,
 	// as before.
 	SourceCheck bool `toml:"source_check"`
+	// SourceCheckEcho, during the source check, compares what another mic
+	// hears with the meeting audio being captured and does not offer a
+	// mic that only hears the speakers (a webcam mic in the same room
+	// would record the far side twice and not the owner). false offers
+	// any mic with signal, as before.
+	SourceCheckEcho bool `toml:"source_check_echo"`
 }
 
 // VideoHintsOn reports whether video hints run: on macOS (the only platform
@@ -358,6 +391,8 @@ func DefaultConfig() *Config {
 		VoiceProfileThreshold:   0.7,
 		VoiceProfileMargin:      0.1,
 		VoiceProfileMinMeetings: 2,
+		VoiceProfileMinLearn:    10,
+		VoiceProfileRelearn:     true,
 		SnapReadsToInvitees:     true,
 		AutoSave:                true,
 		AutoDetect:              true,
@@ -381,7 +416,8 @@ func DefaultConfig() *Config {
 		VideoHintLearnInterval: 1.0,
 		VideoHintCheckInterval: 1.0,
 
-		SourceCheck: true,
+		SourceCheck:     true,
+		SourceCheckEcho: true,
 	}
 	return cfg
 }
@@ -415,12 +451,21 @@ func TomoeDataDir() string {
 var (
 	dataDirMu sync.RWMutex
 	dataDir   string // "" until SetDataDir: Tomoe's folder
+	tomoeOff  bool   // SetTomoeOff
 )
+
+// SetTomoeOff records the process's [recorder] tomoe = "off", for model
+// lookups made without a Config at hand (ModelDirs(nil)).
+func SetTomoeOff(off bool) {
+	dataDirMu.Lock()
+	defer dataDirMu.Unlock()
+	tomoeOff = off
+}
 
 // SetDataDir moves what the recorder writes (sessions, voices, the live
 // feed's socket, hint analysis) to dir, so a recorder running beside
-// Tomoe never touches Tomoe's files. Models stay where Tomoe keeps them
-// (ModelDir). "" goes back to Tomoe's folder, which offline commands
+// Tomoe never touches Tomoe's files. Models are looked for in dir/models
+// first and then where Tomoe keeps them (ModelDirs). "" goes back to Tomoe's folder, which offline commands
 // such as session replay read.
 func SetDataDir(dir string) {
 	dataDirMu.Lock()
@@ -440,10 +485,61 @@ func DataDir() string {
 	return TomoeDataDir()
 }
 
-// ModelDir is where downloaded models are kept: Tomoe's, read-only to the
+// ModelDir is where Tomoe keeps downloaded models: read-only to the
 // recorder, whatever SetDataDir says.
 func ModelDir() string {
 	return filepath.Join(TomoeDataDir(), "models")
+}
+
+// OwnModelDir is the recorder's own model folder, DataDir/models, where
+// it downloads models; "" while DataDir is Tomoe's folder (offline
+// commands), which has only Tomoe's.
+func OwnModelDir() string {
+	dataDirMu.RLock()
+	dir := dataDir
+	dataDirMu.RUnlock()
+	if dir == "" || filepath.Clean(dir) == filepath.Clean(TomoeDataDir()) {
+		return ""
+	}
+	return filepath.Join(dir, "models")
+}
+
+// ModelDirs are the folders models are looked for in, in order: the
+// recorder's own (OwnModelDir), then cfg's model_path (Tomoe's folder by
+// default; ModelDir when cfg is nil), so a model Tomoe downloaded is used
+// where it is. Downloads go to the first. With Tomoe off (cfg.TomoeOff or
+// SetTomoeOff) Tomoe's folder is never among them, whatever model_path
+// says.
+func ModelDirs(cfg *Config) []string {
+	dataDirMu.RLock()
+	off := tomoeOff
+	dataDirMu.RUnlock()
+	if cfg != nil && cfg.TomoeOff {
+		off = true
+	}
+	tomoe := ModelDir()
+	if cfg != nil && cfg.Transcription.ModelPath != "" {
+		tomoe = cfg.Transcription.ModelPath
+	}
+	if off {
+		var out []string
+		for _, d := range []string{OwnModelDir(), tomoe} {
+			if d != "" && !inside(d, ModelDir()) && (len(out) == 0 || filepath.Clean(out[0]) != filepath.Clean(d)) {
+				out = append(out, d)
+			}
+		}
+		return out
+	}
+	if own := OwnModelDir(); own != "" && filepath.Clean(own) != filepath.Clean(tomoe) {
+		return []string{own, tomoe}
+	}
+	return []string{tomoe}
+}
+
+// inside reports whether path is dir or within it, by name.
+func inside(path, dir string) bool {
+	rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(path))
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // SessionDir is where recorded sessions are saved (DataDir/sessions).

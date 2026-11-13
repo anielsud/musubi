@@ -620,8 +620,10 @@ func (d *SessionDiarizer) tileTimeline() (func(t float64) string, float64) {
 
 // learnLocked returns what teaches the voice profiles from this meeting,
 // to run once the lock is released: the voices heard while a person's own
-// tile was lit (except speakers the window and the voice disagree on),
-// then those of the speakers the user named (which win). Call after
+// tile was lit (except speakers the window and the voice disagree on, and
+// while the transcript names someone else), then those of the speakers
+// the user named (which win), replacing what the meeting taught
+// automatically before (voices.Store.LearnMeeting). Call after
 // markVoiceNamesLocked.
 func (d *SessionDiarizer) learnLocked() func() {
 	hints := append([]Hint(nil), d.hints...)
@@ -652,7 +654,7 @@ func (d *SessionDiarizer) learnLocked() func() {
 			_ = store.Unforget(n) // the user named someone that: they mean it
 		}
 		p := d.stream.Prepared()
-		learned := voicesFromTilesSkipping(p, hints, offset, unsureAt(segs, unsure))
+		learned := voicesFromTilesSkipping(p, hints, offset, unsureAt(segs, unsure), lineNames(segs))
 		if len(renamed) > 0 {
 			learned = append(learned, VoicesFromSpeakers(p, offset, SpeakerAt(segs, func(label string) string {
 				if renamed[label] {
@@ -661,7 +663,7 @@ func (d *SessionDiarizer) learnLocked() func() {
 				return ""
 			}))...)
 		}
-		names, err := store.Learn(id, at, learned)
+		names, err := store.LearnMeeting(id, at, learned)
 		if err != nil {
 			fmt.Printf("session %s: couldn't save voice profiles: %v\n", id, err)
 		} else if len(names) > 0 {

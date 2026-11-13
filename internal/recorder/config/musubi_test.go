@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -139,5 +140,120 @@ func TestOverlayMusubiOfRecord(t *testing.T) {
 	cfg := DefaultConfig()
 	if _, err := OverlayMusubi(cfg, writeConfig(t, "[recorder]\nof_record = \"both\"\n")); err == nil {
 		t.Error("an unknown of_record was accepted")
+	}
+}
+
+// With [recorder] tomoe = "off" Tomoe's file isn't read at all: the
+// defaults, with models in the recorder's own folder, and Musubi's keys.
+func TestLoadRecorderTomoeOffIgnoresTomoesFile(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	defer SetDataDir("")
+	rec := t.TempDir()
+	SetDataDir(rec)
+	tomoe := writeConfig(t, tomoeFile+"\n[transcription.broken\n") // would not even parse
+	musubi := writeConfig(t, `
+[recorder]
+tomoe = "off"
+
+[recorder.meeting]
+speaker_threshold = 0.7
+`)
+	cfg, err := LoadRecorder(tomoe, musubi)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.TomoeOff || cfg.Audio.Device != "default" || cfg.Meeting.MonitorDevice != "" || cfg.Meeting.SpeakerThreshold != 0.7 {
+		t.Errorf("TomoeOff %v device %q monitor %q threshold %v", cfg.TomoeOff, cfg.Audio.Device, cfg.Meeting.MonitorDevice, cfg.Meeting.SpeakerThreshold)
+	}
+	if want := filepath.Join(rec, "models"); cfg.Transcription.ModelPath != want {
+		t.Errorf("model_path %q, want %q", cfg.Transcription.ModelPath, want)
+	}
+	if dirs := ModelDirs(cfg); len(dirs) != 1 || dirs[0] != filepath.Join(rec, "models") {
+		t.Errorf("ModelDirs %v, want only the recorder's", dirs)
+	}
+	for _, bad := range []string{`tomoe = "maybe"`, `tomoe = true`} {
+		if _, err := LoadRecorder(tomoe, writeConfig(t, "[recorder]\n"+bad+"\n")); err == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+	if off, err := MusubiTomoeOff(filepath.Join(t.TempDir(), "none.toml")); off || err != nil {
+		t.Errorf("missing file: off %v err %v", off, err)
+	}
+}
+
+// With Tomoe off, Tomoe's models folder is never searched, even when
+// model_path names it or no Config is at hand.
+func TestModelDirsTomoeOff(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	defer SetDataDir("")
+	defer SetTomoeOff(false)
+	rec := t.TempDir()
+	SetDataDir(rec)
+	cfg := DefaultConfig() // model_path: Tomoe's folder
+	cfg.TomoeOff = true
+	own := filepath.Join(rec, "models")
+	if dirs := ModelDirs(cfg); len(dirs) != 1 || dirs[0] != own {
+		t.Errorf("ModelDirs(cfg) = %v", dirs)
+	}
+	cfg.Transcription.ModelPath = filepath.Join(ModelDir(), "sub")
+	if dirs := ModelDirs(cfg); len(dirs) != 1 {
+		t.Errorf("a folder inside Tomoe's was kept: %v", dirs)
+	}
+	cfg.Transcription.ModelPath = "/elsewhere"
+	if dirs := ModelDirs(cfg); len(dirs) != 2 || dirs[1] != "/elsewhere" {
+		t.Errorf("ModelDirs = %v", dirs)
+	}
+	SetTomoeOff(true)
+	if dirs := ModelDirs(nil); len(dirs) != 1 || dirs[0] != own {
+		t.Errorf("ModelDirs(nil) = %v", dirs)
+	}
+	SetTomoeOff(false)
+	if dirs := ModelDirs(nil); len(dirs) != 2 || dirs[1] != ModelDir() {
+		t.Errorf("Tomoe on: ModelDirs(nil) = %v", dirs)
+	}
+}
+
+// FileValues lists the recorder keys Tomoe's file sets, typed as Config
+// reads them, and nothing else.
+func TestFileValues(t *testing.T) {
+	path := writeConfig(t, tomoeFile+`
+[hotkey]
+key = "F5"
+`+"\n")
+	// An unknown key in a known table is left out.
+	b, _ := os.ReadFile(path)
+	os.WriteFile(path, []byte(strings.Replace(string(b), "[meeting]\n", "[meeting]\nnot_a_key = 3\n", 1)), 0o600)
+	got, err := FileValues(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]map[string]any{
+		"audio":         {"device": "Desk Mic"},
+		"transcription": {"two_pass": true, "decoding_method": "modified_beam_search"},
+		"meeting":       {"monitor_device": "everything", "speaker_threshold": 0.6, "mic_voices": false},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("FileValues = %v, want %v", got, want)
+	}
+	if v, ok := Field(DefaultConfig(), "meeting", "max_speech_duration"); !ok || v != 30.0 {
+		t.Errorf("Field = %v, %v", v, ok)
+	}
+	for _, k := range [][2]string{{"meeting", "nope"}, {"nope", "device"}, {"audio", ""}} {
+		if _, ok := Field(DefaultConfig(), k[0], k[1]); ok {
+			t.Errorf("Field(%v) found", k)
+		}
+	}
+}
+
+// The owner's name comes from Musubi's [owner] table.
+func TestOverlayMusubiOwner(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.toml")
+	os.WriteFile(p, []byte("[owner]\nname = \"Ilse Novak\"\n"), 0o600)
+	cfg := DefaultConfig()
+	if _, err := OverlayMusubi(cfg, p); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OwnerName != "Ilse Novak" {
+		t.Errorf("OwnerName = %q", cfg.OwnerName)
 	}
 }

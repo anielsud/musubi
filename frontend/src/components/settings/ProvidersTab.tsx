@@ -5,7 +5,8 @@ import { Spinner } from '../common';
 import { formatName, Row, TestNote, UsedBy } from './shared';
 
 // ProvidersTab: where models come from — the AI Gateway, other providers
-// such as Baseten, and Ollama on this Mac — each on the same kind of card.
+// such as Baseten, Ollama on this Mac, and ONNX (the recorder's models,
+// run in its own process) — each on the same kind of card.
 export function ProvidersTab() {
   const [ps, setPs] = useState<ProviderView[] | null>(null);
   const [adding, setAdding] = useState(false);
@@ -31,7 +32,9 @@ function ProviderCard({ p, onChanged }: { p: ProviderView; onChanged: () => void
   const [test, setTest] = useState<TestResult | 'running'>();
   const [err, setErr] = useState('');
   const runTest = () => { setTest('running'); api.testProvider(p.name).then(setTest); };
-  const status = p.kind === 'ollama' ? (p.ready ? '✓ running' : '✗ not running') : p.ready ? '✓ ready' : p.kind === 'gateway' && !p.configured ? '✗ not connected' : '✗ no key';
+  const status = p.kind === 'ollama' ? (p.ready ? '✓ running' : '✗ not running')
+    : p.kind === 'onnx' ? (p.ready ? '✓ recorder running' : '✗ recorder not running')
+    : p.ready ? '✓ ready' : p.kind === 'gateway' && !p.configured ? '✗ not connected' : '✗ no key';
   const remove = () => {
     const msg = p.kind === 'gateway'
       ? 'Disconnect from the AI Gateway? The token is deleted from your Keychain, and models on the gateway stop working until you connect again.'
@@ -42,7 +45,7 @@ function ProviderCard({ p, onChanged }: { p: ProviderView; onChanged: () => void
   return (
     <section className="kv provider">
       <div className="section-head"><span>{p.title}</span><span className={p.ready ? 'ok-text small' : 'warn small'}>{status}</span></div>
-      {p.kind === 'gateway' && !p.configured ? <GatewayForm p={p} onDone={onChanged} /> : (
+      {p.kind === 'onnx' ? <OnnxBody p={p} test={test} onTest={runTest} /> : p.kind === 'gateway' && !p.configured ? <GatewayForm p={p} onDone={onChanged} /> : (
         <>
           <Row k="address" v={p.url} />
           {p.kind !== 'ollama' && <Row k="key" v={p.hasKey ? `in your Keychain (${(p.keyRef ?? '').replace('keychain:', '')})` : `none at ${p.keyRef}`} />}
@@ -67,6 +70,25 @@ function ProviderCard({ p, onChanged }: { p: ProviderView; onChanged: () => void
       )}
       {err && <div className="error small">{err}</div>}
     </section>
+  );
+}
+
+// OnnxBody: the recorder's models, run in its process by sherpa-onnx and
+// ONNX Runtime. Nothing to set up: they are downloaded in Settings →
+// Models and chosen in Settings → Processing.
+function OnnxBody({ p, test, onTest }: { p: ProviderView; test?: TestResult | 'running'; onTest: () => void }) {
+  return (
+    <>
+      <Row k="runs in" v="Musubi Recorder (sherpa-onnx, ONNX Runtime)" />
+      <Row k="installed" v={p.ready ? (p.models?.length ? <span className="v-list">{p.models.map((m) => <span key={m}>{m}</span>)}</span> : <span className="dim">none</span>) : <span className="dim">{p.error || 'unknown'}</span>} />
+      <Row k="formats" v={p.formats.map(formatName).join(', ')} />
+      <Row k="used by" v={<UsedBy list={p.usedBy} />} />
+      {!p.ready && <p className="dim small">The recorder starts at login; Status shows its state. Its models are listed once it answers.</p>}
+      <div className="row-buttons">
+        <button onClick={onTest}>Test</button>
+        <TestNote r={test} />
+      </div>
+    </>
   );
 }
 

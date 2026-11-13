@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -31,8 +33,13 @@ func newTestRecorder(t *testing.T) *Recorder {
 	t.Helper()
 	config.SetDataDir(t.TempDir())
 	t.Cleanup(func() { config.SetDataDir("") })
-	r := New(config.DefaultConfig())
+	cfg := config.DefaultConfig()
+	// Never this Mac's models, and never the network.
+	cfg.Transcription.ModelPath = filepath.Join(t.TempDir(), "tomoe-models")
+	r := New(cfg)
 	r.copyVoices = func() error { return nil }
+	r.probes.defaultMic = func() string { return "" } // never this Mac's devices
+	r.modelFetch = func(string) (io.ReadCloser, int64, error) { return nil, 0, errors.New("no network in tests") }
 	return r
 }
 

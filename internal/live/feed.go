@@ -39,6 +39,8 @@ type Session struct {
 	// Invited are the other people on the calendar event under way, set
 	// here (Tomoe doesn't send them).
 	Invited []string `json:"invited,omitempty"`
+	// EventID is that calendar event's item, for the panel's prep card.
+	EventID string `json:"eventId,omitempty"`
 }
 
 // Event is one feed message.

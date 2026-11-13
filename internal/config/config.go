@@ -34,11 +34,15 @@ type Config struct {
 	M365        M365        `toml:"m365"`
 	MCP         MCP         `toml:"mcp"`
 	Gateway     Gateway     `toml:"gateway"`
+	Recorder    Recorder    `toml:"recorder"`
+	Store       Store       `toml:"store"`
+	Diagnostics Diagnostics `toml:"diagnostics"`
 	// Providers are hosted endpoints set up once and named, for models to
 	// use with `via` (Settings → AI providers).
 	Providers map[string]Provider `toml:"providers"`
 }
 
+// Store is how the database keeps what it derives.
 // M365 reads the owner's Microsoft 365 data through Microsoft Graph
 // (internal/m365) once the owner has connected from Settings or
 // `musubi m365 connect`. Until then nothing changes.
@@ -573,6 +577,56 @@ type Live struct {
 	// opening its nearest topic (research log 2026-10-28: 80–90% of cards
 	// on topic against 12%).
 	Pick Pick `toml:"pick"`
+	// Cache keeps, for the meeting, the reads Live repeats (topic infos,
+	// cards' evidence, thread statuses, entity graphs, statement vectors),
+	// each under the scope it was read in, until the database changes.
+	// false: read every time, as before.
+	Cache bool `toml:"cache"`
+	// SkipIdle skips a pick, or a model suggestion run, whose input (the
+	// conversation it reads and, for a pick, its candidates) hasn't changed
+	// since the last; the cadence stays. false: run every time, as before.
+	SkipIdle bool `toml:"skip_idle"`
+	// PrepCard shows the meeting's prep at the top of the panel's cards
+	// while a meeting matched to a calendar event is under way: its
+	// drafted talking points and what is open with the people in it, read
+	// in the panel's scope; nothing is drafted unless asked. false: no
+	// prep card, as before.
+	PrepCard bool `toml:"prep_card"`
+}
+
+// Store tunes the database's connections (store.Options). Measured on
+// the all-t4 dataset (766 MB), docs/research-log.md, 2026-11-12.
+type Store struct {
+	// CacheMB is each connection's page cache, in MiB. 0 (default):
+	// SQLite's own (2 MB), as before; with mmap_mb on, 64 measured no
+	// faster.
+	CacheMB int `toml:"cache_mb"`
+	// MmapMB maps up to this much of the database file for reads (default
+	// 2048; the all-t4 file is 766 MB). It took the most mentioned
+	// entity's graph from 42.7 s to 14.0 s. 0: off, as before.
+	MmapMB int `toml:"mmap_mb"`
+	// ReadConns is how many read-only connections serve the screens' and
+	// Live's reads while the one writer writes (default 4: a read during
+	// a 2.4 s backup took 78 ms instead of 2.3 s). 1: everything shares
+	// the single connection, as before.
+	ReadConns int `toml:"read_conns"`
+	// VectorEncoding is how embedding vectors are written: "f16" (half
+	// precision, half the space; measured 2026-11-12, docs/research-log.md)
+	// or "f32" (full precision, the earlier behaviour). Both always read;
+	// `musubi vectors encode` rewrites what is already stored.
+	VectorEncoding string `toml:"vector_encoding"`
+}
+
+// Diagnostics: tools in the diagnostics panel.
+type Diagnostics struct {
+	// Profiling offers "Record a 30 s profile" (a CPU profile and a
+	// goroutine dump under the data folder's profiles/). It only runs when
+	// pressed. false: no button.
+	Profiling bool `toml:"profiling"`
+	// Resources offers the "resources" view: CPU and memory of Musubi,
+	// its web view, the recorder, Ollama and Tomoe, sampled every 2 s only
+	// while the diagnostics panel is open. false: no view, never sampled.
+	Resources bool `toml:"resources"`
 }
 
 type Pick struct {
@@ -641,7 +695,11 @@ func DefaultConfig() Config {
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
 			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
+			Cache: true, SkipIdle: true, PrepCard: true,
 		},
+		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16"},
+		Diagnostics: Diagnostics{Profiling: true, Resources: true},
+		Recorder:    Recorder{OfRecord: "tomoe", Watchdog: true, Relabel: true, Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}
 }
 

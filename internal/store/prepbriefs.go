@@ -54,7 +54,7 @@ func (s *Store) PrepBriefFor(sc sensitivity.Scope, itemID string) (*PrepBrief, e
 	var lvl int
 	var cats int64
 	var made int64
-	err := s.db.QueryRow(`SELECT item_id, input, model, text, sources, threads, level, categories, made_at FROM prep_briefs WHERE item_id = ?`, itemID).
+	err := s.rdb.QueryRow(`SELECT item_id, input, model, text, sources, threads, level, categories, made_at FROM prep_briefs WHERE item_id = ?`, itemID).
 		Scan(&b.ItemID, &b.Input, &b.Model, &b.Text, &src, &th, &lvl, &cats, &made)
 	if err == sql.ErrNoRows {
 		return nil, nil

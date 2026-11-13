@@ -25,8 +25,22 @@ case "$data" in
 *'|'* | *'&'*) echo "Data folder may not contain | or &: $data" >&2; exit 1 ;;
 esac
 
-# Stop the running one before its files are replaced.
-launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+domain="gui/$(id -u)"
+
+# Stop the running one before its files are replaced, and wait until it
+# has gone: it saves a recording in progress first, and loading the new
+# one while launchd still holds the old fails ("Bootstrap failed: 5"),
+# which left no recorder running at all.
+launchctl bootout "$domain/$label" 2>/dev/null || true
+i=0
+while launchctl print "$domain/$label" >/dev/null 2>&1; do
+	i=$((i + 1))
+	if [ "$i" -gt 180 ]; then
+		echo "The old recorder hasn't stopped after 3 minutes; not installing." >&2
+		exit 1
+	fi
+	sleep 1
+done
 
 mkdir -p "$HOME/Applications" "$data/logs"
 rm -rf "$app"
@@ -38,5 +52,24 @@ sed -e "s|__EXECUTABLE__|$exe|g" -e "s|__DATA__|$data|g" \
 plutil -lint "$agent" >/dev/null
 
 # The recorder checks the data folder itself and exits if it is Tomoe's.
-launchctl bootstrap "gui/$(id -u)" "$agent"
-echo "Installed $app; agent $label loaded. Log: $data/logs/recorder.log"
+n=0
+until launchctl bootstrap "$domain" "$agent" 2>/dev/null; do
+	n=$((n + 1))
+	if [ "$n" -ge 10 ]; then
+		echo "Couldn't load $label: the recorder is NOT running." >&2
+		exit 1
+	fi
+	sleep 3
+done
+
+# Loaded is not running: check it came up.
+n=0
+until launchctl print "$domain/$label" 2>/dev/null | grep -q "state = running"; do
+	n=$((n + 1))
+	if [ "$n" -ge 30 ]; then
+		echo "$label is loaded but not running: the recorder is NOT recording. See $data/logs/recorder.log" >&2
+		exit 1
+	fi
+	sleep 1
+done
+echo "Installed $app; $label running. Log: $data/logs/recorder.log"

@@ -103,7 +103,7 @@ func TestMatchNeedsMargin(t *testing.T) {
 	}
 }
 
-func TestLearnReplacesTheMeetingAndSkipsUnlikeVoices(t *testing.T) {
+func TestLearnReplacesTheMeetingAndKeepsUnlikeVoicesApart(t *testing.T) {
 	s, _ := open(t)
 	_, _ = s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(40, unit(0, 1, 0))}})
 	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "ilse novak", Voice: voiceOf(10, unit(0, 1, 0.1))}})
@@ -112,10 +112,115 @@ func TestLearnReplacesTheMeetingAndSkipsUnlikeVoices(t *testing.T) {
 	if len(ps) != 1 || len(ps[0].Meetings) != 2 || ps[0].Voice().N != 52 {
 		t.Fatalf("relearning a meeting should replace it: %+v", ps)
 	}
-	// A misread name: the voice is nothing like the profile's.
-	names, _ := s.Learn("m3", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(10, unit(3, 2, 0))}})
-	if len(names) != 0 || len(s.Profiles()[0].Meetings) != 2 {
-		t.Errorf("an unlike voice was learnt: %v", names)
+	// A misread name, or another Ilse: the voice is nothing like the
+	// profile's, so it starts its own profile instead of being dropped.
+	names, _ := s.Learn("m3", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(14, unit(3, 2, 0))}})
+	ps = s.Profiles()
+	if len(names) != 1 || len(ps) != 2 {
+		t.Fatalf("an unlike voice should start a second profile: %v, %+v", names, ps)
+	}
+	for _, p := range ps {
+		if p.Name != "Ilse Novak" || len(p.Meetings) != map[bool]int{true: 1, false: 2}[p.Meetings[0].Session == "m3"] {
+			t.Errorf("profile %+v", p)
+		}
+	}
+}
+
+func TestLearnPicksTheLikestSameNamedProfile(t *testing.T) {
+	s, _ := open(t)
+	_, _ = s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))}})
+	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(2, 3, 0))}}) // another Ilse
+	if n := len(s.Profiles()); n != 2 {
+		t.Fatalf("%d profiles, want 2: a young profile also keeps an unlike voice out", n)
+	}
+	// Each later meeting joins the Ilse it sounds like.
+	_, _ = s.Learn("m3", time.Now(), []Learned{{Name: "ilse novak", Voice: voiceOf(14, unit(2, 3, 0.1))}})
+	_, _ = s.Learn("m4", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(14, unit(0, 1, 0.1))}})
+	ps := s.Profiles()
+	if len(ps) != 2 {
+		t.Fatalf("%d profiles, want 2", len(ps))
+	}
+	for _, p := range ps {
+		var sessions []string
+		for _, h := range p.Meetings {
+			sessions = append(sessions, h.Session)
+		}
+		got := strings.Join(sessions, ",")
+		if got != "m1,m4" && got != "m2,m3" {
+			t.Errorf("profile %s learnt %s", p.ID, got)
+		}
+	}
+	// Relearning a meeting replaces it in the profile it joined.
+	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(12, unit(2, 3, 0))}})
+	total := 0
+	for _, p := range s.Profiles() {
+		total += len(p.Meetings)
+	}
+	if total != 4 {
+		t.Errorf("relearning m2 left %d meetings, want 4", total)
+	}
+	// A name given twice keeps the last voice (the user's naming wins).
+	_, _ = s.Learn("m5", time.Now(), []Learned{
+		{Name: "Ilse Novak", Source: FromTile, Voice: voiceOf(14, unit(3, 1, 0))},
+		{Name: "Ilse Novak", Source: FromNamed, Voice: voiceOf(14, unit(0, 1, 0.05))},
+	})
+	if n := len(s.Profiles()); n != 2 {
+		t.Errorf("%d profiles after a name given twice, want 2", n)
+	}
+}
+
+func TestSameNamed(t *testing.T) {
+	s, _ := open(t)
+	_, _ = s.Learn("m1", time.Now(), []Learned{
+		{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))},
+		{Name: "Wayde Tyrrel", Voice: voiceOf(20, unit(1, 0, 0))},
+	})
+	if got := s.SameNamed(); len(got) != 0 {
+		t.Fatalf("SameNamed with one profile per name = %v", got)
+	}
+	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(2, 3, 0))}})
+	_, _ = s.Learn("m3", time.Now(), []Learned{{Name: "ilse novak", Voice: voiceOf(20, unit(3, 2, 0))}})
+	got := s.SameNamed()
+	if len(got) != 3 {
+		t.Fatalf("SameNamed = %v, want the three pairs of Ilses", got)
+	}
+	// Different people: the pair isn't offered again.
+	if err := s.Apart(got[0].A, got[0].B); err != nil {
+		t.Fatal(err)
+	}
+	if after := s.SameNamed(); len(after) != 2 {
+		t.Errorf("after keeping a pair apart: %v", after)
+	}
+	// Same person: one profile, no alias of its own name, and still apart
+	// from whoever the merged-away profile was kept apart from.
+	into, from := got[1].A, got[1].B
+	if err := s.Merge(into, from); err != nil {
+		t.Fatal(err)
+	}
+	if after := s.SameNamed(); len(after) != 0 {
+		t.Errorf("after merging, the pair kept apart is offered again: %v", after)
+	}
+	for _, p := range s.Profiles() {
+		if p.ID == into && contains(p.Aliases, p.Name) {
+			t.Errorf("merging same-named profiles added the name as an alias: %v", p.Aliases)
+		}
+	}
+}
+
+func TestKnowsAnySameNamedProfile(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "v.json"), sameFold, DefaultParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Source: FromTile, Voice: voiceOf(20, unit(0, 1, 0))}})
+	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Source: FromNamed, Voice: voiceOf(20, unit(2, 3, 0))}})
+	// The first Ilse (one meeting, from a tile) isn't in use; the second
+	// (named by the user) is.
+	if !s.Knows("ilse novak") {
+		t.Error("Knows missed the second, in-use profile of the name")
+	}
+	if s.Knows("Wayde Tyrrel") {
+		t.Error("Knows a name with no profile")
 	}
 }
 
@@ -158,7 +263,8 @@ func TestMergeApartForget(t *testing.T) {
 	// Learning under a merged-away or old name teaches the same profile.
 	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "I. Novak (guest)", Voice: voiceOf(20, unit(0, 1, 0.05))}})
 	_, _ = s.Learn("m3", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0.05))}})
-	if ps := s.Profiles(); len(ps) != 1 || len(ps[0].Meetings) != 4 {
+	// m1 (both merged profiles learnt from it, once), m2, m3.
+	if ps := s.Profiles(); len(ps) != 1 || len(ps[0].Meetings) != 3 {
 		t.Errorf("old names should teach the profile they're part of: %+v", ps)
 	}
 	if err := s.Forget(ids["Ilse Novak"]); err != nil || len(s.Profiles()) != 0 {
@@ -282,33 +388,352 @@ func TestMove(t *testing.T) {
 		{Name: "Ilse Novak", Source: FromTile, Voice: voiceOf(20, unit(0, 1, 0))},
 		{Name: "Wayde Tyrrel", Source: FromTile, Voice: voiceOf(20, unit(1, 0, 0))},
 	})
-	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Source: FromTile, Voice: voiceOf(30, unit(1, 0, 0.05))}}) // Wayde, misread
-	var ilse Profile
+	// Wayde, under a misread name: unlike Ilse, so a second Ilse profile.
+	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Source: FromTile, Voice: voiceOf(30, unit(1, 0, 0.05))}})
+	var misread, wayde Profile
 	for _, p := range s.Profiles() {
-		if p.Name == "Ilse Novak" {
-			ilse = p
+		switch {
+		case p.Name == "Wayde Tyrrel":
+			wayde = p
+		case len(p.Meetings) == 1 && p.Meetings[0].Session == "m2":
+			misread = p
 		}
 	}
-	if err := s.Move(ilse.ID, "m2", time.Now(), ilse.Meetings[1].Voice, "wayde tyrrel"); err != nil {
+	if misread.ID == "" || wayde.ID == "" {
+		t.Fatalf("setup: %+v", s.Profiles())
+	}
+	if err := s.Move(misread.ID, "m2", time.Now(), misread.Meetings[0].Voice, misread.ID, ""); err == nil {
+		t.Error("moving a meeting to its own profile")
+	}
+	if err := s.Move(misread.ID, "m2", time.Now(), misread.Meetings[0].Voice, wayde.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range s.Profiles() {
-		switch p.Name {
-		case "Ilse Novak":
-			if len(p.Meetings) != 1 || !contains(p.Excluded, "m2") {
-				t.Errorf("Ilse after the move: %+v", p.Meetings)
+		switch p.ID {
+		case misread.ID:
+			if len(p.Meetings) != 0 || !contains(p.Excluded, "m2") {
+				t.Errorf("the misread profile after the move: %+v", p)
 			}
-		case "Wayde Tyrrel":
+		case wayde.ID:
 			if len(p.Meetings) != 2 || p.Voice().N != 50 {
 				t.Errorf("Wayde after the move: %d meetings, %d fingerprints", len(p.Meetings), p.Voice().N)
 			}
 		}
 	}
-	// Ilse never learns m2 again.
+	// No Ilse learns m2 again, and no new one is made for it.
 	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(30, unit(1, 0, 0.05))}})
+	n := len(s.Profiles())
 	for _, p := range s.Profiles() {
-		if p.Name == "Ilse Novak" && len(p.Meetings) != 1 {
-			t.Errorf("a moved meeting came back: %+v", p.Meetings)
+		for _, h := range p.Meetings {
+			if p.Name == "Ilse Novak" && h.Session == "m2" {
+				t.Errorf("a moved meeting came back: %+v", p.Meetings)
+			}
 		}
+	}
+	if n != 3 {
+		t.Errorf("%d profiles, want 3", n)
+	}
+	// To a new profile, by name: a profile of its own even when the name
+	// is taken.
+	ilse := s.Profiles()
+	var first Profile
+	for _, p := range ilse {
+		if p.Name == "Ilse Novak" && len(p.Meetings) == 1 {
+			first = p
+		}
+	}
+	if err := s.Move(first.ID, "m1", time.Now(), first.Meetings[0].Voice, "", "Wayde Tyrrel"); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(s.Profiles()); got != 4 {
+		t.Errorf("%d profiles after moving to a new one, want 4", got)
+	}
+	if err := s.Move(first.ID, "m1", time.Now(), first.Meetings[0].Voice, "", ""); err == nil {
+		t.Error("a move with no profile to move to")
+	}
+}
+
+// A bare first name matches every full name starting with it for
+// learning, but three people called Kevin are never offered as one.
+func TestSameNamedNeedsTheSameName(t *testing.T) {
+	prefix := func(a, b string) bool {
+		a, b = strings.ToLower(a), strings.ToLower(b)
+		return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
+	}
+	s, err := Open(filepath.Join(t.TempDir(), "v.json"), prefix, DefaultParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = s.Learn("m1", time.Now(), []Learned{
+		{Name: "Kevin Li", Voice: voiceOf(20, unit(1, 0, 0))},
+		{Name: "Kevin Goldsmith", Voice: voiceOf(20, unit(0, 1, 0))},
+	})
+	_, _ = s.Learn("m2", time.Now(), []Learned{{Name: "Kevin", Voice: voiceOf(20, unit(0, 0, 1))}})
+	if got := s.SameNamed(); len(got) != 0 {
+		t.Fatalf("Kevin, Kevin Li and Kevin Goldsmith offered as one: %v", got)
+	}
+	_, _ = s.Learn("m3", time.Now(), []Learned{{Name: "kevin  li", Voice: voiceOf(20, unit(0, 1, 1))}})
+	if got := s.SameNamed(); len(got) != 1 || got[0].Name != "Kevin Li" {
+		t.Errorf("two Kevin Lis: %v", got)
+	}
+}
+
+// A confirmed meeting stays in the profile and is marked; a meeting the
+// profile didn't learn from can't be confirmed.
+func TestConfirmMeeting(t *testing.T) {
+	s, _ := open(t)
+	_, _ = s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))}})
+	p := s.Profiles()[0]
+	if err := s.ConfirmMeeting(p.ID, "m1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Profiles()[0]; len(got.Meetings) != 1 || !got.Meetings[0].Confirmed {
+		t.Errorf("after confirming: %+v", got.Meetings)
+	}
+	if err := s.ConfirmMeeting(p.ID, "m9"); err == nil {
+		t.Error("confirmed a meeting the profile never heard")
+	}
+}
+
+// A few seconds of voice names a speaker but doesn't teach: a voice under
+// MinLearn isn't learnt, and one already in a profile (learnt before the
+// cutoff) is left out of its voice and its meeting count.
+func TestThinVoicesDontTeach(t *testing.T) {
+	s, _ := open(t)
+	params := DefaultParams() // MinMeetings 2: does a thin meeting count?
+	s.SetParams(params)
+	if names, _ := s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(9, unit(0, 1, 0))}}); len(names) != 0 || len(s.Profiles()) != 0 {
+		t.Fatalf("learnt from 9 fingerprints: %v", names)
+	}
+	_, _ = s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(40, unit(0, 1, 0))}})
+	// An old thin meeting, as profiles learnt with the earlier floor hold.
+	s.mu.Lock()
+	p := s.profiles[0]
+	p.Meetings = append(p.Meetings, Heard{Session: "m2", At: time.Now(), Voice: voiceOf(8, unit(1, 0, 0))})
+	p.refresh(s.params.MinLearn)
+	s.mu.Unlock()
+	got := s.Profiles()[0]
+	if got.LearnedVoice(s.MinLearn()).N != 40 {
+		t.Errorf("thin meeting in the voice: %d fingerprints", got.LearnedVoice(s.MinLearn()).N)
+	}
+	if s.InUse(&got) {
+		t.Error("one learnt meeting and a thin one put the profile in use (MinMeetings 2)")
+	}
+}
+
+// Merging two profiles that both learnt from one meeting keeps one entry
+// for it, with both voices.
+func TestMergeFoldsTheSameMeeting(t *testing.T) {
+	s, _ := open(t)
+	_, _ = s.Learn("m1", time.Now(), []Learned{
+		{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))},
+		{Name: "Wayde Tyrrel", Voice: voiceOf(15, unit(0, 1, 0.1))},
+	})
+	ps := s.Profiles()
+	if err := s.Merge(ps[0].ID, ps[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	got := s.Profiles()
+	if len(got) != 1 || len(got[0].Meetings) != 1 || got[0].Meetings[0].Voice.N != 35 {
+		t.Fatalf("after merging: %+v", got)
+	}
+}
+
+// Learning a meeting whole again drops what it taught a profile
+// automatically and teaches it no longer; what the owner named,
+// confirmed or moved there stays. Plain Learn drops nothing.
+func TestLearnMeetingReplacesAutomaticContributions(t *testing.T) {
+	s, _ := open(t)
+	at := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	learn := func(name string, axis int, source string) {
+		t.Helper()
+		if _, err := s.Learn("m1", at, []Learned{{Name: name, Source: source, Voice: voiceOf(20, unit(axis, (axis+1)%4, 0.1))}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	learn("Tile Only", 0, FromTile)
+	learn("Confirmed Tile", 1, FromTile)
+	learn("Owner Named", 2, FromNamed)
+	learn("Moved From", 3, FromTile)
+	learn("Moved To", 0, FromTile)
+	learn("Kept By Relearn", 1, FromTile)
+	// Each also has another meeting, so a profile emptied of m1 shows.
+	for i, n := range []string{"Tile Only", "Confirmed Tile", "Owner Named", "Moved To", "Kept By Relearn"} {
+		if _, err := s.Learn("m2", at, []Learned{{Name: n, Source: FromTile, Voice: voiceOf(20, unit(i%4, (i%4+1)%4, 0.1))}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	id := func(name string) string {
+		for _, p := range s.Profiles() {
+			if p.Name == name {
+				return p.ID
+			}
+		}
+		t.Fatalf("no profile %s", name)
+		return ""
+	}
+	if err := s.ConfirmMeeting(id("Confirmed Tile"), "m1"); err != nil {
+		t.Fatal(err)
+	}
+	moved := voiceOf(20, unit(3, 0, 0.1))
+	if err := s.Move(id("Moved From"), "m1", at, moved, id("Moved To"), ""); err != nil {
+		t.Fatal(err)
+	}
+	has := func(name string) bool {
+		for _, p := range s.Profiles() {
+			if p.Name == name {
+				for _, h := range p.Meetings {
+					if h.Session == "m1" {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+
+	// Plain Learn of nothing changes nothing.
+	if _, err := s.Learn("m1", at, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !has("Tile Only") {
+		t.Fatal("Learn dropped a contribution")
+	}
+
+	// The relearn teaches only Kept By Relearn.
+	names, err := s.LearnMeeting("m1", at, []Learned{{Name: "Kept By Relearn", Source: FromTile, Voice: voiceOf(12, unit(1, 2, 0.1))}})
+	if err != nil || len(names) != 1 {
+		t.Fatalf("LearnMeeting: %v %v", names, err)
+	}
+	for name, want := range map[string]bool{"Tile Only": false, "Confirmed Tile": true, "Owner Named": true, "Moved To": true, "Kept By Relearn": true} {
+		if has(name) != want {
+			t.Errorf("%s keeps m1: %v, want %v", name, has(name), want)
+		}
+	}
+	for _, p := range s.Profiles() {
+		if p.Name == "Kept By Relearn" {
+			for _, h := range p.Meetings {
+				if h.Session == "m1" && h.Voice.N != 12 {
+					t.Errorf("relearnt voice %d fingerprints, want 12", h.Voice.N)
+				}
+			}
+		}
+		if p.Name == "Tile Only" && p.LearnedVoice(10).N != 20 {
+			t.Errorf("Tile Only's learnt voice %d, want m2's 20", p.LearnedVoice(10).N)
+		}
+	}
+	// Persisted.
+	s2, err := Open(s.path, sameFold, s.Params())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range s2.Profiles() {
+		if p.Name == "Tile Only" && len(p.Meetings) != 1 {
+			t.Errorf("reopened: %+v", p.Meetings)
+		}
+	}
+}
+
+// The rules version: a new store is under today's rules; a file written
+// before the field is under rules 1; SetRules keeps the version and the
+// summary across opens.
+func TestLearnRulesVersion(t *testing.T) {
+	s, path := open(t)
+	if v, r := s.Rules(); v != LearnRules || r != nil {
+		t.Fatalf("new store: rules %d %+v", v, r)
+	}
+	old := filepath.Join(filepath.Dir(path), "old.json")
+	if err := os.MkdirAll(filepath.Dir(old), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(old, []byte(`{"version":1,"profiles":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o, err := Open(old, sameFold, DefaultParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := o.Rules(); v != 1 {
+		t.Fatalf("old file: rules %d, want 1", v)
+	}
+	at := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+	if err := o.SetRules(LearnRules, Relearned{At: at, Meetings: 3, Changed: 2, Added: 1}); err != nil {
+		t.Fatal(err)
+	}
+	o2, err := Open(old, sameFold, DefaultParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, r := o2.Rules(); v != LearnRules || r == nil || !r.At.Equal(at) || r.Meetings != 3 || r.Changed != 2 || r.Added != 1 {
+		t.Fatalf("reopened: rules %d %+v", v, r)
+	}
+}
+
+// Forgetting a name forgets that name only, not one it is a prefix of;
+// SamePerson joins a profile's name and its old names.
+func TestForgetExactAndSamePerson(t *testing.T) {
+	prefix := func(a, b string) bool {
+		a, b = strings.ToLower(a), strings.ToLower(b)
+		return strings.HasPrefix(a, b) || strings.HasPrefix(b, a)
+	}
+	s, err := Open(filepath.Join(t.TempDir(), "v.json"), prefix, DefaultParams())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = s.Learn("m1", time.Now(), []Learned{
+		{Name: "Ilse Novak2", Voice: voiceOf(20, unit(0, 1, 0))},
+		{Name: "Wayde Tyrrel", Voice: voiceOf(20, unit(1, 0, 0))},
+	})
+	var junk, wayde string
+	for _, p := range s.Profiles() {
+		if p.Name == "Ilse Novak2" {
+			junk = p.ID
+		} else {
+			wayde = p.ID
+		}
+	}
+	if err := s.Forget(junk); err != nil {
+		t.Fatal(err)
+	}
+	if names, _ := s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))}}); len(names) != 1 {
+		t.Fatalf("forgetting Ilse Novak2 also forgot Ilse Novak: %v", names)
+	}
+	if err := s.Rename(wayde, "Wayde T. Tyrrel"); err != nil {
+		t.Fatal(err)
+	}
+	if !s.SamePerson("Wayde Tyrrel", "Wayde T. Tyrrel") || s.SamePerson("Wayde Tyrrel", "Ilse Novak") {
+		t.Error("SamePerson: a renamed profile's old and new names should match, others not")
+	}
+}
+
+// Delete removes a profile without forgetting the name: its old meetings
+// don't rebuild it, a new meeting teaches a new one. Allow unblocks a
+// forgotten name exactly.
+func TestDeleteAndAllow(t *testing.T) {
+	s, _ := open(t)
+	_, _ = s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))}})
+	id := s.Profiles()[0].ID
+	if err := s.Delete(id); err != nil {
+		t.Fatal(err)
+	}
+	if names, _ := s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))}}); len(names) != 0 {
+		t.Errorf("a deleted profile was rebuilt from its own meeting: %v", names)
+	}
+	if names, _ := s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))}}); len(names) != 1 {
+		t.Errorf("a later meeting didn't teach a new profile: %v", names)
+	}
+	_, _ = s.Learn("m3", time.Now(), []Learned{{Name: "Saved More filters", Voice: voiceOf(20, unit(1, 0, 0))}})
+	for _, p := range s.Profiles() {
+		if p.Name == "Saved More filters" {
+			if err := s.Forget(p.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if f := s.Forgotten(); len(f) != 1 || f[0] != "Saved More filters" {
+		t.Fatalf("forgotten = %v", f)
+	}
+	if err := s.Allow("saved more  filters"); err != nil || len(s.Forgotten()) != 0 {
+		t.Errorf("Allow: %v, still forgotten %v", err, s.Forgotten())
 	}
 }

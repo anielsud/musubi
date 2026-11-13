@@ -140,6 +140,29 @@ func canonicalNames(names []string) map[string]string {
 // person's (see sameName).
 func SameName(a, b string) bool { return sameName(normalizeName(a), normalizeName(b)) }
 
+// WithoutOwner drops the owner's own name from window reads: the owner is
+// "You" on the mic, so their tile naming a speaker in the meeting's audio
+// is always wrong. A read with candidates keeps the others (one left is a
+// plain name). owner "" changes nothing.
+func WithoutOwner(owner, name string, candidates []string) (string, []string) {
+	if owner == "" {
+		return name, candidates
+	}
+	if name != "" && SameName(name, owner) {
+		name = ""
+	}
+	var kept []string
+	for _, c := range candidates {
+		if !SameName(c, owner) {
+			kept = append(kept, c)
+		}
+	}
+	if name == "" && len(kept) == 1 && len(candidates) > 1 {
+		return kept[0], nil
+	}
+	return name, kept
+}
+
 // sameName reports whether two normalized names are one person's: a
 // prefix of the other (at least 4 characters) or within an edit or two.
 func sameName(a, b string) bool {

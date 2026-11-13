@@ -30,10 +30,6 @@ import (
 	"github.com/anielsud/musubi/internal/provider"
 	"github.com/anielsud/musubi/internal/raw"
 	"github.com/anielsud/musubi/internal/sensitivity"
-	"github.com/anielsud/musubi/internal/source"
-	"github.com/anielsud/musubi/internal/source/bluedot"
-	"github.com/anielsud/musubi/internal/source/mcpdrop"
-	"github.com/anielsud/musubi/internal/source/tomoe"
 	"github.com/anielsud/musubi/internal/store"
 )
 
@@ -54,7 +50,7 @@ func root() *cobra.Command {
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
 	r.AddCommand(importItemsCmd(), extractLeanCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), aliasesCmd(), liveCmd(),
-		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd())
+		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd(), vectorsCmd(), relabelCmd())
 	return r
 }
 
@@ -64,6 +60,12 @@ func load() (config.Config, *store.Store, error) {
 		return cfg, nil, err
 	}
 	st, err := store.Open(cfg.DBPath())
+	if err == nil {
+		if err = st.SetVectorEncoding(cfg.Store.VectorEncoding); err != nil {
+			st.Close()
+			st = nil
+		}
+	}
 	return cfg, st, err
 }
 
@@ -101,21 +103,7 @@ func runner(cfg config.Config, st *store.Store, embs []provider.Embedder, inbox,
 	if err != nil {
 		return nil, err
 	}
-	var conns []source.Connector
-	if cfg.TomoeSessions != "" {
-		conns = append(conns, tomoe.Connector{Dir: cfg.TomoeSessions})
-	}
-	if cfg.BluedotDir != "" {
-		conns = append(conns, bluedot.Connector{Dir: cfg.BluedotDir, Since: cfg.BluedotSince, Known: func(ref string) bool {
-			for _, src := range []string{"teams", "teams-elt"} {
-				if _, ok, _ := st.ManifestHash(src, ref); ok {
-					return true
-				}
-			}
-			return false
-		}})
-	}
-	conns = append(conns, mcpdrop.Connector{Dir: inbox})
+	conns := engine.Connectors(cfg, st, inbox)
 	return &pipeline.Runner{Cfg: cfg, Store: st, Raw: rs, Connectors: conns, Embedders: embs, CuratedPath: curated, Log: os.Stderr}, nil
 }
 
@@ -450,6 +438,9 @@ the cases. Exits non-zero on any leak.`,
 				return err
 			}
 			defer st.Close()
+			if err := st.SetVectorEncoding(cfg.Store.VectorEncoding); err != nil {
+				return err
+			}
 			embs, err := parseEmbedders(embed, cfg)
 			if err != nil {
 				return err

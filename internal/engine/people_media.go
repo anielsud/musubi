@@ -78,16 +78,32 @@ func speakerName(s string) string {
 func (e *Engine) faces() map[string][]faceCandidate {
 	e.fi.mu.Lock()
 	defer e.fi.mu.Unlock()
-	dir := e.Cfg.TomoeSessions
-	ents, err := os.ReadDir(dir)
-	if err != nil {
+	// Every folder sessions may be in: after the switch to Musubi's
+	// recorder, earlier meetings' looks are still in Tomoe's.
+	type sessionDir struct {
+		path string
+		info os.FileInfo
+	}
+	var ents []sessionDir
+	read := false
+	for _, dir := range e.Cfg.SessionDirs() {
+		ds, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		read = true
+		for _, d := range ds {
+			if info, err := d.Info(); err == nil {
+				ents = append(ents, sessionDir{filepath.Join(dir, d.Name()), info})
+			}
+		}
+	}
+	if !read {
 		return nil
 	}
 	h := sha1.New()
 	for _, d := range ents {
-		if info, err := d.Info(); err == nil {
-			fmt.Fprintf(h, "%s %d|", d.Name(), info.ModTime().Unix())
-		}
+		fmt.Fprintf(h, "%s %d|", d.path, d.info.ModTime().Unix())
 	}
 	sig := hex.EncodeToString(h.Sum(nil))
 	if sig == e.fi.sig && e.fi.best != nil {
@@ -95,7 +111,7 @@ func (e *Engine) faces() map[string][]faceCandidate {
 	}
 	best := map[string][]faceCandidate{}
 	for _, d := range ents {
-		sd := filepath.Join(dir, d.Name())
+		sd := d.path
 		f, err := os.Open(filepath.Join(sd, "looks.jsonl"))
 		if err != nil {
 			continue
@@ -223,7 +239,7 @@ func sortCandidates(cs []faceCandidate) {
 // "": a tile with the camera on when there is one (largest first),
 // otherwise the profile picture in the middle of a camera-off tile.
 func (e *Engine) headshot(p *person) string {
-	if e.Cfg.TomoeSessions == "" {
+	if len(e.Cfg.SessionDirs()) == 0 {
 		return ""
 	}
 	if shot, ok := e.cachedHeadshot(p); ok {
@@ -296,7 +312,7 @@ func (e *Engine) Headshot(entityID string, choose bool) (string, error) {
 		return "", err
 	}
 	p := ps[entityID]
-	if p == nil || e.Cfg.TomoeSessions == "" {
+	if p == nil || len(e.Cfg.SessionDirs()) == 0 {
 		return "", nil
 	}
 	if !choose {
@@ -533,7 +549,7 @@ type VoiceClip struct {
 // the person's between 5 and 15 seconds (long enough to recognise, short
 // enough to play at once), in a session whose audio is on disk.
 func (e *Engine) voiceClip(p *person, items []item.Item) *VoiceClip {
-	if e.Cfg.TomoeSessions == "" {
+	if len(e.Cfg.SessionDirs()) == 0 {
 		return nil
 	}
 	var recs []*item.Item
@@ -558,7 +574,8 @@ func (e *Engine) voiceClip(p *person, items []item.Item) *VoiceClip {
 		if best == nil {
 			continue
 		}
-		if _, err := os.Stat(filepath.Join(e.Cfg.TomoeSessions, filepath.Base(it.Ref), "audio.m4a")); err != nil {
+		dir := e.Cfg.SessionDir(filepath.Base(it.Ref))
+		if _, err := os.Stat(filepath.Join(dir, "audio.m4a")); dir == "" || err != nil {
 			continue
 		}
 		title := it.Title

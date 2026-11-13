@@ -99,12 +99,15 @@ func callVoices(store *voices.Store, vs map[int]voices.Voice, names map[int]stri
 	return call
 }
 
-// unsureLabels are the labels whose name the window and the voice
-// disagree on (sess.VoiceNames with a window name, and unresolved
-// sess.VoiceDoubts): their speech teaches no profile from the window's
-// tiles until the user says who it is.
+// unsureLabels are the labels whose speech teaches no profile from the
+// window's tiles: the owner's ("You"), and those whose name the window and
+// the voice disagree on (sess.VoiceNames with a window name, and
+// unresolved sess.VoiceDoubts) until the user says who it is.
 func unsureLabels(sess *session.Session) map[string]bool {
-	out := map[string]bool{}
+	// The owner's own lines too: a tile is lit for a remote speaker, so a
+	// window under it while the owner speaks is crosstalk at best. Their
+	// samples were the worst fits in a room's profile (2026-11-12).
+	out := map[string]bool{"You": true}
 	for _, vn := range sess.VoiceNames {
 		if vn.Window != "" {
 			out[vn.Label] = true

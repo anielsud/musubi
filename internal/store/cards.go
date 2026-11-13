@@ -24,7 +24,7 @@ type CardRow struct {
 // because it builds an index, not a view: nothing from it is shown. Cards
 // are read through Evidence, which is scoped.
 func (s *Store) CardRows() ([]CardRow, error) {
-	rows, err := s.db.Query(`SELECT st.id, sc.claim_id, coalesce(c.topic_id, 0), st.item_id, st.said_at, st.text, st.holder, st.who
+	rows, err := s.rdb.Query(`SELECT st.id, sc.claim_id, coalesce(c.topic_id, 0), st.item_id, st.said_at, st.text, st.holder, st.who
 		FROM statements st JOIN statement_claims sc ON sc.statement_id = st.id JOIN claims c ON c.id = sc.claim_id
 		ORDER BY st.item_id, st.said_at, st.id`)
 	if err != nil {
@@ -51,7 +51,7 @@ func (s *Store) CardRows() ([]CardRow, error) {
 // ClaimCentroids loads every claim's centroid, for finding the claims
 // nearest a query.
 func (s *Store) ClaimCentroids() (map[int64][]float32, error) {
-	rows, err := s.db.Query(`SELECT id, centroid FROM claims WHERE centroid IS NOT NULL`)
+	rows, err := s.rdb.Query(`SELECT c.id, ` + claimCentroid + ` FROM claims c`)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,9 @@ func (s *Store) ClaimCentroids() (map[int64][]float32, error) {
 		var id int64
 		var b []byte
 		rows.Scan(&id, &b)
-		out[id] = decodeVec(b)
+		if b != nil {
+			out[id] = decodeVec(b)
+		}
 	}
 	return out, rows.Err()
 }
@@ -72,7 +74,7 @@ func (s *Store) ClaimCentroids() (map[int64][]float32, error) {
 func (s *Store) PersonNameParts() (map[string]bool, error) {
 	out := map[string]bool{}
 	add := func(q string, split func(string) []string) error {
-		rows, err := s.db.Query(q)
+		rows, err := s.rdb.Query(q)
 		if err != nil {
 			return err
 		}
@@ -101,7 +103,7 @@ func (s *Store) PersonNameParts() (map[string]bool, error) {
 // ClaimRelations lists every relation between claims, for benchmarks.
 // Unscoped like Claims: it feeds tools, not views.
 func (s *Store) ClaimRelations() ([]Relation, error) {
-	rows, err := s.db.Query(`SELECT from_claim, to_claim, rel, statement_id FROM claim_relations`)
+	rows, err := s.rdb.Query(`SELECT from_claim, to_claim, rel, statement_id FROM claim_relations`)
 	if err != nil {
 		return nil, err
 	}

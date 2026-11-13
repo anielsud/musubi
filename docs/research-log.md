@@ -3672,3 +3672,342 @@ some models spend many times more on it.
 Settings groups them as extraction and threading ~255K in / 30K out,
 statuses and summaries ~145K / 19K: with Haiku 5.5 about $0.04 and $0.02 a
 meeting hour. One-meeting figures (extraction, threading) are rough.
+
+## 2026-11-12: recorder source check — telling a room mic from the speakers' echo
+
+Seen live: the default mic (a speakerphone muted in the call) went silent
+and the source check offered a webcam mic in the same room, which mostly
+heard the far side coming out of the speakers, already captured as system
+audio. The check now compares each candidate mic's 1.5 s probe with the
+system audio over the same moments (`audio.MatchEcho`): 20 ms RMS
+envelopes, Pearson correlation of the whole probe against the system
+audio from 600 ms before to 300 ms after it (lags −300…+600 ms).
+
+Method chosen on synthetic data (1,000 seeds each; speech-like bursts;
+the echo delayed 30–480 ms, attenuated 0.02–0.22, through a sparse reverb
+tail of RT60 0.2–0.7 s, with room noise):
+
+| Probe | p5 | p50 | p95 | ≥ 0.8 |
+|---|---|---|---|---|
+| Echo of the system audio | 0.88 | 0.96 | 0.99 | 98% |
+| Independent speech in the room | 0.26 | 0.47 | 0.74 | 2% |
+| Own speech plus the echo | 0.27 | 0.50 | 0.73 | 1% |
+
+Log-energy envelopes, onset (positive log-difference) envelopes and 40 ms
+frames all separated worse (best alternative: echo p5 0.63 against own
+p95 0.55 for onsets, with less margin at the threshold). Threshold 0.8: a
+false "only hears the speakers" just waits for the next check a minute
+later, while a missed echo would record the far side twice.
+
+When the speakers played nothing (no frame above about −50 dBFS) the
+probe is offered only if it heard events (a frame 12 dB above its median),
+else the check tries again next minute. Without system audio (a mic-only
+recording) any mic with signal is offered, as before. Off with
+`[meeting] source_check_echo = false`.
+
+Unverified: real rooms (webcam processing, AGC, reverb heavier than the
+model), the alignment of the two captures on this Mac, and the false-alarm
+rate on real speech. Needs a real meeting.
+
+## 2026-11-12: Live's CPU during a meeting — what it was, and what was cut
+
+**Seen:** in a live Zoom meeting on the all-t4 dataset (766 MB file) the
+app used about 45% of a core while the feed was quiet. `sample` showed
+SQLite stepping through scans with many page reads; the Go callers didn't
+show through cgo.
+
+**Measured** with `TestLivePerf` (`internal/live/perf_test.go`) on a copy
+of the 2026-11-12 backup. No model was called: the embedder and the
+classifier were stand-ins. Runs were niced, on a loaded Mac (load average
+8–12), so the numbers are ±20%. "Cold" is the first call on a freshly
+opened store (SQLite's cache empty, the OS's file cache warm); "warm" is
+the median of the next three.
+
+| Read | Before | After (defaults) |
+|---|---|---|
+| EntityGraph, most mentioned entity (1,249 items) | 42.7 s cold, 31.6 s warm | 14.0 s cold (mmap), 0.1 ms warm (cache) |
+| Card ×20 (largest topics) | 10.0 s cold, 9.0 s warm | 0.97 s cold, 0.74 s warm |
+| StatementsNear ×11 (400 claims) | 534–679 ms cold, 57–75 ms warm | 80–354 ms cold, 13.5 ms warm (cache) |
+| TopicInfos | 39–68 ms | 36 ms cold, 0 warm (cache) |
+| ThreadStatuses | 65–93 ms | 77 ms cold, 0 warm (cache) |
+| AllItems | 395–410 ms cold, 125–162 ms warm | 124–253 ms cold, 127–139 ms warm |
+| Work queue, person page | 245 ms, 250 ms | unchanged (234–278, 225 ms) |
+| A read while a backup holds the writer (2.4 s) | 2,278 ms (waits) | 78 ms (read pool) |
+| Synthetic meeting, CPU per meeting minute | 85.8 s (5 min) | 11.0 s (1 min) |
+
+**Where the time went:**
+
+- **Cards were Go CPU, not SQL.** A profile of Card ×20 put 5.8 of 7.8 s
+  in `dedupeLines`, which split both lines into words for every pair it
+  compared. Each line's words are now read once (identical output,
+  `TestDedupeLinesMatchesPairwise`). That took it from 9.2 to 2.5 s, and
+  the same for the Now-against-rules check to 1.75 s. Evidence was 0.12 s
+  of it. Every pick, focus refresh and finished brief rebuilds every card
+  on the panel (the 4 shown and up to `keep_topics` kept), so a meeting
+  paid this many times a minute.
+- **Entity graphs scan `mentions` once per item.** `EntityGraph` asks
+  each of an entity's items for its neighbours with
+  `WHERE c.item_id = ?`. Nothing indexes that through `mentions`, so
+  every item scans all 122k mentions: 1,249 scans for the most mentioned
+  entity. The fast lane builds up to six graphs whenever a line names
+  someone not looked up in the last 5 minutes. Memory-mapped reads took
+  it from 42.7 to 14.0 s, and the meeting cache makes the repeats free.
+  **Not changed (proposal):** adding `mm.item_id = ?` (always equal to
+  the chunk's item, 0 mismatches) uses the `mentions_item` index. Tried
+  on the copy, it took the most mentioned entity to 0.25 s and all 50 to
+  3.4 s (2.7 s with mmap).
+- **Page cache and mmap** (`[store]`): with the OS cache warm, `mmap_mb`
+  alone did as well as `cache_mb = 64` with mmap (StatementsNear cold
+  80 against 124 ms; AllItems 124 against 128 ms), and better than
+  `cache_mb = 64` alone on the graph scan (14.0 against 27.8 s). So the
+  defaults are `mmap_mb = 2048`, `cache_mb = 0`. The cost is resident
+  memory: mapped file pages count in it. The 1-minute meeting peaked at
+  1,398 MB with mmap against 512 MB without, and used 11.0 against 17.3 s
+  of CPU. The pages are clean and shared, so the OS reclaims them first,
+  but Activity Monitor shows them.
+- **Skipping idle runs** (`live.skip_idle`) skipped nothing in the
+  synthetic meeting. Drafts change the text and every said term adds a
+  vote, so no pick or model run had the same input twice. It only saves
+  work when a line arrives without changing what is read (a pending line
+  carrying its draft's text). Menu ranking already reran only when its
+  cards changed.
+
+**Only a real meeting can tell:** how often names and terms come up (they
+decide how many graphs and cards are built), whether quiet stretches send
+lines at all, how much of the 45% the graph scans were, and how the
+mapped memory sits beside the recorder. The diagnostics panel's "Record
+a 30 s profile" during a meeting answers the first and third: Live's
+steps carry pprof labels.
+
+## 2026-11-12: vector storage — claim centroids once, vectors as float16 (LEVER WE PULLED)
+
+**This is a lever we pulled.** Two storage changes, both on branch
+`vec-storage`; they take effect for a database when a build with them
+opens it (the centroid change) and when its vectors are re-encoded (the
+float16 change). The owner's live database is re-encoded by hand with
+`musubi vectors encode f16`; note the date here when that runs.
+
+What changed:
+1. **Claim centroids stored once.** A claim of one statement no longer
+   stores a centroid: it reads its statement's vector (a NULL
+   `claims.centroid`, read through `statement_vecs` by every centroid
+   read). A centroid is written when a second statement joins. Opening a
+   database converts it once (`store_meta` key `claim_centroids_dedup`),
+   NULLing only centroids equal byte for byte to their single statement's
+   vector, so every read returns the same bits: lossless.
+2. **Vectors as IEEE half precision.** `[store] vector_encoding = "f16"`
+   (the new default) writes passage, statement, claim and thread vectors
+   as float16 (a tag byte, then 2 bytes a component); `"f32"` writes them
+   as before. Both always read, decoded to float32 for scoring. Passage
+   search runs sqlite-vec's query exactly as before until a database holds
+   f16 passage vectors (`store_meta` key `chunk_vecs_f16`); then it scores
+   the candidates in Go, the way `vec_distance_cosine` does. Lossy: each
+   component keeps 11 significant bits.
+
+Measured on a copy of the `all-t4-pre-switch-20261112-100328` backup
+(stored vectors only, no model calls; nomic-embed-text, 768-d; 50,924
+passage vectors, 38,439 statement vectors, 38,310 claims):
+
+| File | Size | chunk_vecs | statement_vecs | claims |
+|---|---|---|---|---|
+| Before (VACUUMed: unchanged) | 762.5 MB | 209.1 MB | 157.8 MB | 157.3 MB |
+| After 1 (centroids once), VACUUM INTO | 607.1 MB (−20%) | 209.1 MB | 157.8 MB | 1.9 MB |
+| After 1 + 2 (f16), VACUUM | 420.7 MB (−45%) | 104.6 MB | 78.9 MB | 1.4 MB |
+
+38,062 of the 38,310 centroids (99.4%) repeated their statement's vector
+byte for byte; 248 stay stored (119 single-statement claims whose centroid
+differs from today's statement vector, and the claims of two or more).
+After the upgrade every centroid read (`ClaimCentroids`,
+`ClaimCentroidsOf`, `EachClaimCentroid`, `Claims`) returned identical bits
+for all 38,310 claims. A 3 KB vector took a whole 4 KB page; at 1.5 KB two
+fit, so f16 halves the vector tables exactly. Re-encoding the copy took
+9 s plus the VACUUM.
+
+Agreement, float16 against float32 (queries are float32, as from the
+embedder; each query is a stored vector of a held-out row):
+
+| Read | Queries | Top-1 changed | Top-10 overlap | Top-50 overlap | Spearman (common top-50) |
+|---|---|---|---|---|---|
+| `StatementsNear` (400 claims, own meeting excluded) | 500 | 0 | 99.98% | 99.99% | 1.0000 |
+| Passage search (code candidates + re-rank) | 500 | 0 | 99.98% | 99.99% | 1.0000 |
+| Passage, exact over all 50,924 | 500 | 0 | 99.98% | 99.99% | 1.0000 |
+
+Claim matching (1,000 statements against all 38,309 other claims, both
+the statement vector and the centroids as stored in each encoding): cosine
+similarity moved by 7.1e-6 on average, 5.0e-5 at most. The most similar
+candidate above `considerAt` (0.72) was the same claim for all 1,000; the
+three judged candidates differed for 2 (a near-tie swapped at the third
+place); no pair crossed `sameAt` (0.97) either way; 292 of 38.3 million
+pairs crossed `considerAt` (0.0008%, all within 5e-5 of it, where 91
+candidates a statement sit within ±0.001) and 645 crossed `rareFloor`
+(0.55), which only matters past the top three.
+
+What I would have called bad (and stopped on): top-1 changing for more
+than 1% of queries, top-10 overlap under 98%, or the joined claim or a
+`sameAt` decision flipping for more than 0.5% of statements. All are far
+below.
+
+Read time (warm OS file cache; a true cold read needs `purge`, which needs
+root; the machine was loaded, load average ~12, so ±30%): passage search
+6–7 ms a query in f32 against 8–10 ms in f16 (the f16 candidates are
+decoded and scored in Go); `StatementsNear` 6–13 ms against 6–7 ms (no
+change: it already scored in Go, and reads half the bytes); the exact
+scan over all passages 140–240 ms against 180–230 ms. On a cold disk f16
+reads half the pages.
+
+**Symptom to watch for:** Live briefings, topic cards or search showing
+off-topic or junk results, or claims that should have joined one another
+appearing as separate duplicates after new meetings are linked.
+
+**How to undo:**
+1. Set `[store] vector_encoding = "f32"` in `~/.config/musubi/config.toml`
+   (new vectors are written full precision again).
+2. `musubi vectors encode f32` (with `--db` for another file) rewrites
+   what is stored as float32 and returns passage search to sqlite-vec.
+   This only widens the rounded values; it does not bring back the
+   original precision.
+3. For the exact original vectors, restore the backup taken before the
+   re-encode, or re-embed. No command re-embeds stored vectors in place
+   today: `musubi update` embeds passages whose embed stamp is missing or
+   stale (`stages.EmbedVersion`), and `musubi knowledge` embeds statements
+   that have no vector, so re-embedding means clearing those first (the
+   `embed/…` rows of `stage_runs`, and `statement_vecs`) and running both
+   (the embedding model, no LLM). Single-statement claims follow their
+   statement's new vector; stored centroids keep the rounded values until
+   the claims are relinked (`musubi knowledge --redo links`).
+
+The centroid change needs no undo (lossless), but a build from before it
+reads single-statement claims as having no centroid, and one from before
+f16 misreads f16 vectors: don't open an upgraded database with an older
+build.
+
+## 2026-11-12: a learning cutoff for voice profiles (fingerprints identify; enough of them teach)
+
+The owner listened to two meetings flagged "may be someone else" (Erik
+Hole, Joe Timko): both were the right person. Each had 8 fingerprints, a
+few seconds of voice. Agreement of each meeting with the rest of its
+profile, over the 300 meetings in profiles with 3+ meetings:
+
+| fingerprints | meetings | median agreement | below 0.6 |
+|---|---|---|---|
+| 8-9 | 3 | 0.59 | 2 |
+| 10-14 | 6 | 0.86 | 0 (min 0.73) |
+| 15-29 | 22 | 0.86-0.87 | 0 |
+| 30+ | 269 | 0.88-0.95 | 0 |
+
+The thin meeting barely moves its profile (Joe: cosine 1.00000 with and
+without it, 8 of 3,999 fingerprints; Erik: 0.99997) but its own average is
+noise (Joe's: 0.38 against the rest, his other meetings 0.80-0.95), and in
+a young profile it would count as a whole meeting towards MinMeetings.
+
+Change: `voices.Params.MinLearn` = 10 (`[meeting] voice_profile_min_learn`;
+8 restores learning from any voice). A voice under it still names a
+speaker (MinFingerprints 8 unchanged); it isn't learnt, and meetings
+already in a profile under it are left out of the profile's voice and its
+meeting count (kept on record, shown as "names the speaker, too little to
+learn from"). Effect on the 137 profiles: 5 meetings left out; one
+profile, built from a single 8-fingerprint meeting the owner named, stops
+naming people until a meeting with more voice or the owner confirms it. 12 was considered and
+rejected: it would also drop five 11-fingerprint meetings the data shows
+are fine.
+
+## 2026-11-12: voice learning rules 2 — a lit tile under someone else's line, specks of crosstalk, relearning replaces
+
+Two profiles the owner checked looked like a blend. In one, the person's
+tile was still lit while the transcript gave a stretch of 10
+fingerprints to another speaker ("Person 2 (<another name>)"), and the
+profile learnt it. In the other, many one- and two-fingerprint samples
+(crosstalk) added up to a "second voice". And learning a meeting again
+only replaced what it taught a profile it still taught: a contribution
+the meeting no longer gives stayed for good.
+
+Changes (`voices.LearnRules` 2):
+
+1. Tile learning skips a window when the transcript line over it names
+   someone (a name the owner gave, or the window's name in "Person N
+   (Name)") who isn't the tile's person (`diarize.SameName`). In every
+   learning path: at save, `LearnSaved`, and `SavedLearning`, which the
+   samples view rebuilds from, so samples and learning agree.
+2. A meeting's "voices" count (`profile_samples`) clusters only samples of
+   at least `MinLearn` (10) fingerprints.
+3. Learning a meeting whole (`Store.LearnMeeting`, used by `LearnSaved`
+   and save-time learning) drops what it taught a profile automatically
+   (from a tile, not confirmed, not named or moved there by the owner)
+   when it no longer teaches it. Plain `Learn` is unchanged.
+4. Profiles built under older rules are learnt again from every saved
+   meeting once, in the background after the recorder's models load,
+   only while nothing records or saves, at low priority; the version and
+   a summary are stored in the voices file (`rules`, `relearned`).
+   `[meeting] voice_profile_relearn = false` turns that off.
+
+**Measured** on an APFS clone of the recorder's 207 sessions (185 with
+fingerprints) and voices (144 profiles, 419 profile meetings), the
+originals only read; the relearn run as the recorder runs it
+(`relearnForRules`, utility QoS):
+
+- Time: 49 s for 185 meetings (the old `learn_saved` loop: 34 s at normal
+  priority).
+- Summary: 106 profiles' learnt voice changed, 2 new. Most of that is
+  relearning as such: relearning the same copy with the old code
+  (`learn_saved`) changed 75 profiles and added 2 (live learning at save
+  saw name reads and fingerprints the saved meeting rebuilds a little
+  differently; learnt fingerprints 159,912 before, 137,109 after the old
+  relearn, 134,426 after the new). Between the two relearns, 81 profiles
+  differ, 15 profile meetings are gone and 167 have different counts
+  (1,292 fewer fingerprints).
+- The tile case: its meetings went from 36/367/1,613/151/61 fingerprints
+  to 32/345/1,613/118/34, and its samples' count of voices from 2 to 1
+  (120 samples to 114).
+- The crosstalk case: 4 meetings to 3 (an 8-fingerprint meeting, under
+  `MinLearn` and kept on record until now, isn't taught, so the relearn
+  drops it), samples 35 to 30, voices still 2: in its largest meeting,
+  which the owner named, about 200 fingerprints in samples of 16-77 are
+  0.68-0.72 like the profile against 0.88-0.94 for the rest; that is a
+  second voice under the owner's name for the line, not specks, and these
+  rules don't touch named lines.
+- The 15 meetings dropped: 11 the saved meeting no longer gives the
+  profile at all, even under the old rules (4 of them under `MinLearn`);
+  4 (57-127 fingerprints) where every window under the person's tile is
+  under a line naming someone else (in one meeting the transcript has
+  just two remote speakers, both named, while two other people's tiles
+  were lit: either the diarizer merged them or the tiles were wrong; the
+  owner can listen).
+- Profiles left with no meeting: 6 (two weren't naming anyone: one with
+  only an 8-fingerprint meeting, one heard in a single meeting and never
+  confirmed); profiles that stop naming people (in use 136 →
+  132): 5, four of those with no meeting left and one down to a single
+  meeting; one new profile, from a speaker the owner named, starts naming.
+- Owner's word: the 55 named or moved profile meetings and the 3 with
+  samples taken out are all kept; no profile meeting was confirmed in
+  this copy. One named meeting's voice is replaced by its tile's, as the
+  old relearn did too (Learn's last-wins order).
+
+## 2026-11-12: splitting a merged label by voice, first run (copy)
+
+One owner-named label in one meeting covered two people (the second
+person's samples matched the second person's profile at 1.00 and the
+named person's at 0.73). `split_label_by_voice`, run on copies of the
+session and of the voices file, gave each line to the profile its own
+fingerprints matched by the 0.1 margin (`Params.Margin`); a fingerprint
+counts for a line when most of its speech falls in the line (0.5; the
+learning share of 0.8 would leave most short lines with none):
+
+| | lines |
+|---|---|
+| to the named person | 66 |
+| to the second person | 35 (all 34-54 min) |
+| left: no fingerprints | 59 |
+| left: within the margin | 3 |
+
+Fingerprints per line: none 59, one 15, two 5, three 5, four 8, five or
+more 71. Lines with 3+ fingerprints scored about 0.8-0.96 against the
+profile they went to and 0.3-0.5 against the other; some one- and
+two-fingerprint lines were decided on 0.40-0.67 against 0.09-0.30
+(by the transcript, those read as the second person's). The candidate
+voice leaves out what the label itself taught a profile (the named
+person's profile had learnt 544 fingerprints from this label, both
+voices); the second person's profile, learnt only from their tile in
+this meeting, is compared whole. 0.1 s; undo restored every line. Not
+done: lines without fingerprints could follow their neighbours (a
+proposal, not built).
+

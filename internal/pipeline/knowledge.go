@@ -353,6 +353,16 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 			}
 			continue
 		}
+		// Extracted from these passages before a speaker relabel rewrote
+		// them (store.RelabelledStage): the relabel rewrote its statements
+		// too, so they stand under the new stamp.
+		if cur != "" {
+			if carried, err := r.carryRelabelled(it.ID, cur, version+"/"+h, input, stampsFor, textKey, o.Plan); err != nil {
+				return ks, err
+			} else if carried {
+				continue
+			}
+		}
 		// Only the chunk stamp changed (a new title, say), not the text or
 		// how it's extracted: its statements stand.
 		if text != "" && cur != "" {
@@ -374,7 +384,17 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 			// (or it is new) → extract; only the version changed → keep it
 			// until asked. Items extracted before inputs were recorded count
 			// as unchanged.
-			if in, _ := r.Store.StageStamp("extract-input", it.ID); in == "" || in == "in/"+input {
+			in, _ := r.Store.StageStamp("extract-input", it.ID)
+			if in != "" && in != "in/"+input {
+				// Its input was the passages before a speaker relabel: the
+				// same input, so it stays an earlier version's, kept.
+				if same, err := r.carryRelabelledInput(it.ID, in, input, stampsFor, o.Plan); err != nil {
+					return ks, err
+				} else if same {
+					in = "in/" + input
+				}
+			}
+			if in == "" || in == "in/"+input {
 				older = append(older, j)
 				continue
 			}
@@ -1443,6 +1463,16 @@ func (r *Runner) labelStatements(ctx context.Context, o KnowledgeOptions, ks *Kn
 	return ctx.Err()
 }
 
+// statusInputs are what a thread's "full" and "open" statuses are written
+// from (statements already read through the spelling rules).
+func statusInputs(name, scope string, sts []store.ThreadStatement) (full, open knowledge.StatusInput) {
+	shared := sensitivity.SharedScreen()
+	visible := func(s store.ThreadStatement) bool {
+		return sensitivity.Visible(sensitivity.Label{Level: s.Level, Categories: s.Categories}, nil, shared)
+	}
+	return knowledge.StatusInputFor(name, scope, sts, nil), knowledge.StatusInputFor(name, scope, sts, visible)
+}
+
 func (r *Runner) statusLLM(o KnowledgeOptions) (provider.LLM, error) {
 	m := r.Cfg.Knowledge.Status.Model
 	if o.StatusLLM != nil {
@@ -1494,10 +1524,6 @@ func (r *Runner) writeStatuses(ctx context.Context, o KnowledgeOptions, ks *Know
 		variant string
 		in      knowledge.StatusInput
 	}
-	shared := sensitivity.SharedScreen()
-	open := func(s store.ThreadStatement) bool {
-		return sensitivity.Visible(sensitivity.Label{Level: s.Level, Categories: s.Categories}, nil, shared)
-	}
 	var jobs []job
 	for _, th := range threads {
 		sts, err := r.Store.ThreadStatements(th.ID)
@@ -1508,7 +1534,7 @@ func (r *Runner) writeStatuses(ctx context.Context, o KnowledgeOptions, ks *Know
 			sts[i].Text = fix.Text(sts[i].ID, sts[i].Text)
 		}
 		have := stamps[th.ID]
-		full := knowledge.StatusInputFor(th.Name, th.Scope, sts, nil)
+		full, op := statusInputs(th.Name, th.Scope, sts)
 		if len(full.Items) == 0 {
 			continue
 		}
@@ -1517,7 +1543,6 @@ func (r *Runner) writeStatuses(ctx context.Context, o KnowledgeOptions, ks *Know
 		} else if err := r.Store.RelabelThreadStatus(th.ID, "full", full.Label); err != nil {
 			return err
 		}
-		op := knowledge.StatusInputFor(th.Name, th.Scope, sts, open)
 		switch {
 		case len(op.Items) == 0 || op.Hash == full.Hash:
 			if have["open"] != "" {
@@ -1602,6 +1627,55 @@ func (r *Runner) extractLean(ctx context.Context, llm provider.LLM, reg *registr
 
 // leanPeople is who the lean prompt may recognise: the configured
 // directory ("- Name: title (office)"), else the people Musubi knows.
+// carryRelabelled restamps an item's extraction (and the to-do matching
+// made from it) when its stamp cur was made from passages the item had
+// before a speaker relabel, for the same rules: the relabel rewrote the
+// statements with the passages. In a plan it only says so.
+func (r *Runner) carryRelabelled(itemID, cur, want, input string, stampsFor func(cs string) (version, known, h, input string), textKey func() string, plan bool) (bool, error) {
+	for _, was := range r.Store.RelabelledChunkStamps(itemID) {
+		v, _, h, _ := stampsFor(was)
+		if cur != v+"/"+h {
+			continue
+		}
+		if plan {
+			return true, nil
+		}
+		version, hash, _ := strings.Cut(want, "/")
+		if err := r.Store.KeepStatements(itemID, version, hash, input); err != nil {
+			return false, err
+		}
+		if k := textKey(); k != "" {
+			r.Store.SetExtractText(itemID, k)
+		}
+		if dl, _ := r.Store.StageStamp("digest-link", itemID); dl == "l/"+hashOf("digest-link", knowledge.DigestVersion, cur) {
+			if err := r.Store.SetDigestLinkStamp(itemID, hashOf("digest-link", knowledge.DigestVersion, want)); err != nil {
+				return false, err
+			}
+		}
+		r.logf("extract %s: kept its statements (relabelled speakers)", itemID)
+		return true, nil
+	}
+	return false, nil
+}
+
+// carryRelabelledInput restamps the input of an item extracted under an
+// earlier version when that input was the passages it had before a
+// speaker relabel: still the same input, so the extraction stays kept.
+func (r *Runner) carryRelabelledInput(itemID, in, input string, stampsFor func(cs string) (version, known, h, input string), plan bool) (bool, error) {
+	for _, was := range r.Store.RelabelledChunkStamps(itemID) {
+		if _, _, _, wi := stampsFor(was); in != "in/"+wi {
+			continue
+		}
+		if !plan {
+			if err := r.Store.SetStageInput("extract-input", itemID, input); err != nil {
+				return false, err
+			}
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
 func (r *Runner) leanPeople(reg *registry.Registry) (string, error) {
 	var b strings.Builder
 	if path := r.Cfg.Knowledge.Lean.Directory; path != "" {

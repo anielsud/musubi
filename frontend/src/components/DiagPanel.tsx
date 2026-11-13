@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { on } from '../api';
+import { api, on } from '../api';
+import { LabellingPane, LookTimeline } from './recorder';
+import { ResourcesPane, useResources } from './ResourcesPane';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export interface Trace {
@@ -19,6 +21,12 @@ const filters: Record<string, string[]> = {
   model: ['llm', 'summary'],
   search: ['rank', 'search', 'brief'],
   input: ['feed', 'line', 'cycle', 'entities', 'phrases'],
+  // speakers and window are the recorder's, not Musubi's own steps: its
+  // live labelling, and what it saw of the meeting window (its looks).
+  speakers: [],
+  window: [],
+  // resources: CPU and memory per component ([diagnostics] resources).
+  resources: [],
 };
 
 export function mmss(s: number): string {
@@ -28,11 +36,18 @@ export function mmss(s: number): string {
 }
 
 // DiagPanel shows how the live panel is processing the conversation, step
-// by step, grouped by suggestion cycle, newest first.
+// by step, grouped by suggestion cycle, newest first; and, under
+// "speakers" and "window", the recorder's live labelling and what it saw
+// of the meeting window; under "resources", CPU and memory per component.
 export function DiagPanel() {
   const [traces, setTraces] = useState<Trace[]>([]);
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState<Record<number, boolean>>({});
+  const [resOn, setResOn] = useState(false);
+  useEffect(() => { api.resourcesOn().then(setResOn, () => {}); }, []);
+  // Sampled while the panel is open, whichever view shows, so the chart
+  // has the minutes before "resources" was picked.
+  const res = useResources(resOn);
 
   useEffect(() => {
     window.go?.gui?.App?.Traces().then((t: Trace[] | null) => setTraces(t ?? []));
@@ -59,13 +74,15 @@ export function DiagPanel() {
     <aside className="diag">
       <header className="diag-head">
         <div className="diag-title">How Musubi is thinking</div>
+        <ProfileButton />
         <div className="diag-filters">
-          {Object.keys(filters).map((f) => (
+          {Object.keys(filters).filter((f) => f !== 'resources' || resOn).map((f) => (
             <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>{f}</button>
           ))}
         </div>
       </header>
 
+      {filter === 'speakers' ? <div className="diag-list"><LabellingPane /></div> : filter === 'window' ? <div className="diag-list"><LookTimeline /></div> : filter === 'resources' ? <div className="diag-list"><ResourcesPane res={res} /></div> : <>
       <section className="diag-stats">
         <Stat label="model runs" v={String(stats.cycles)} />
         <Stat label="lines in" v={`${stats.finals} final · ${stats.drafts} draft`} />
@@ -95,7 +112,31 @@ export function DiagPanel() {
           ),
         )}
       </div>
+      </>}
     </aside>
+  );
+}
+
+// ProfileButton records a 30 s CPU profile of the app ([diagnostics]
+// profiling) and shows where it was written.
+function ProfileButton() {
+  const [shown, setShown] = useState(false);
+  const [state, setState] = useState<'idle' | 'recording'>('idle');
+  const [msg, setMsg] = useState('');
+  useEffect(() => { api.profilingOn().then(setShown, () => {}); }, []);
+  if (!shown) return null;
+  const record = () => {
+    setState('recording');
+    setMsg('');
+    api.recordProfile().then((p) => setMsg('Profile written to ' + p), (e) => setMsg(String(e))).finally(() => setState('idle'));
+  };
+  return (
+    <div className="diag-profile">
+      <button disabled={state === 'recording'} onClick={record}>
+        {state === 'recording' ? 'Recording a 30 s profile…' : 'Record a 30 s profile'}
+      </button>
+      {msg && <div className="dim diag-profile-msg">{msg}</div>}
+    </div>
   );
 }
 

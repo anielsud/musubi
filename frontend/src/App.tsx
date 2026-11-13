@@ -8,8 +8,10 @@ import { ExploreView } from './components/ExploreView';
 import { StatusView } from './components/StatusView';
 import { SettingsView } from './components/SettingsView';
 import { PeopleProvider } from './components/people';
+import { NavContext } from './components/nav';
 import { SourceDrawer, type SourceRef } from './components/SourceDrawer';
 import { DiagPanel } from './components/DiagPanel';
+import { RecordButton } from './components/recorder';
 import { SelectionMenu, type Picked } from './components/SelectionMenu';
 
 type View = 'live' | 'meetings' | 'to-do' | 'explore' | 'status' | 'settings';
@@ -57,6 +59,7 @@ export function App() {
   const scope = sharing ? 'shared-screen' : 'owner';
   const openHit = (h: Hit, sc: string) => setSource({ itemId: h.itemId, chunkId: h.chunkId, scope: sc });
   const openEntity = (id: string) => { setFocus(id); setView('explore'); };
+  const openPerson = (id: string) => { setSource(null); openEntity(id); };
   const [topicReq, setTopicReq] = useState<{ id: number; n: number } | null>(null);
   const [meetingReq, setMeetingReq] = useState<{ id: string; n: number } | null>(null);
   const openMeeting = (id: string) => { setMeetingReq({ id, n: Date.now() }); setView('meetings'); };
@@ -77,7 +80,9 @@ export function App() {
       <header className="titlebar" style={{ ['--wails-draggable' as string]: 'drag' }}>
         <div className="brand"><span className="mark">結</span> Musubi</div>
         <div className="dots">
-          <span className={'dot ' + (live?.connected ? 'ok' : 'off')} title={live?.connected ? 'Tomoe feed connected' : 'Tomoe feed not connected'}>T</span>
+          {status?.liveFrom === 'Musubi recorder'
+            ? <span className={'dot ' + (live?.connected ? 'ok' : 'off')} title={live?.connected ? 'Live feed connected (Musubi recorder)' : 'Live feed not connected (Musubi recorder)'}>L</span>
+            : <span className={'dot ' + (live?.connected ? 'ok' : 'off')} title={live?.connected ? 'Tomoe feed connected' : 'Tomoe feed not connected'}>T</span>}
           <span className={'dot ' + (status?.ollamaUp ? 'ok' : 'off')} title={status?.ollamaUp ? 'Local models ready' : 'Ollama not reachable'}>M</span>
         </div>
         <div className="title-actions" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
@@ -101,9 +106,11 @@ export function App() {
             {v}
           </button>
         ))}
+        <span className="tabs-end"><RecordButton /></span>
       </nav>
 
-      <PeopleProvider scope={scope} onOpen={(id) => { setSource(null); openEntity(id); }}>
+      <NavContext.Provider value={{ openMeeting: (id) => { setSource(null); openMeeting(id); }, openPerson, openTranscript: (id, at) => setSource({ itemId: id, scope, at }), scope }}>
+      <PeopleProvider scope={scope} onOpen={openPerson}>
       <main>
         <div hidden={view !== 'live'}><LiveView status={live} onOpen={openHit} onEntity={openEntity} onTopic={openTopic} scope={scope} prefill={askReq} /></div>
         <div hidden={view !== 'to-do'}><ToDoView onOpen={openHit} scope={scope} onTopic={openTopic} onMeeting={openMeeting} /></div>
@@ -112,7 +119,7 @@ export function App() {
           <ExploreView scope={scope} focus={focus} setFocus={setFocus} onOpen={openHit} topicReq={topicReq} correctReq={correctReq}
             onOpenItem={(id, sc) => setSource({ itemId: id, scope: sc })} />
         </div>
-        <div hidden={view !== 'status'}><StatusView status={status} /></div>
+        <div hidden={view !== 'status'}><StatusView status={status} active={view === 'status'} /></div>
         <div hidden={view !== 'settings'}><SettingsView status={status} /></div>
       </main>
 
@@ -120,6 +127,7 @@ export function App() {
       {toast && <div className="toast">{toast}</div>}
       <SelectionMenu onAsk={askAbout} onCorrect={correct} onSource={(itemId, chunkId) => setSource({ itemId, chunkId, scope })} />
       </PeopleProvider>
+      </NavContext.Provider>
       </div>
       {diag && <DiagPanel />}
     </div>

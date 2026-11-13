@@ -129,3 +129,19 @@ func TestCanonicalNamesIgnoresTrailingJunk(t *testing.T) {
 		t.Errorf("Ana Lomax. -> %q", c["Ana Lomax."])
 	}
 }
+
+// The owner's own tile never names a speaker in the meeting's audio.
+func TestWithoutOwner(t *testing.T) {
+	if n, c := WithoutOwner("Ilse Novak", "Ilse Novak", nil); n != "" || c != nil {
+		t.Errorf("the owner's name kept: %q %v", n, c)
+	}
+	if n, _ := WithoutOwner("Ilse Novak", "Wayde Tyrrel", nil); n != "Wayde Tyrrel" {
+		t.Errorf("someone else's name dropped: %q", n)
+	}
+	if n, c := WithoutOwner("Ilse Novak", "", []string{"Ilse Novak", "Wayde Tyrrel"}); n != "Wayde Tyrrel" || len(c) != 0 {
+		t.Errorf("two lit tiles, one the owner's: %q %v, want Wayde alone", n, c)
+	}
+	if n, c := WithoutOwner("", "Ilse Novak", nil); n != "Ilse Novak" || c != nil {
+		t.Errorf("no owner known changed the read: %q %v", n, c)
+	}
+}

@@ -16,7 +16,8 @@ on 2026-11-10). Authorship was read with `git blame` at that commit.
 Files with no upstream-authored lines, copied with import paths changed:
 
 - `audiosources`, `axtree`, `diarize`, `eval`, `livefeed`, `ocr`, `onnxrt`,
-  `teamsvideo`, `toolpath`, `voices`: whole packages.
+  `teamsvideo`, `toolpath`, `voices`: whole packages. `voices` has since
+  changed (below, "Changed since").
 - `cmd/musubi-recorder`: `replay.go`, `textdiff.go`, `pipeline.go` (edited
   only to drop the GPU, hotwords and multilingual settings) and
   `fingerprints.go` (`loadFingerprints`, from Tomoe's `cmd/tomoe/tune.go`).
@@ -52,6 +53,9 @@ Files with no upstream-authored lines, copied with import paths changed:
     sessions are loaded by exact ID and edits refuse one still being
     saved, `cutVoiceClip` makes AAC in MP4 instead of WAV, and
     `PlayVoiceClip` and `GetLookTile` gave way to control ops.
+  - `reviewindex.go` (2026-11-12): reading a session's review items,
+    moved from `voices.go`'s `recentVoices` and `suggest` (owner
+    lines) into the review index; the index itself is new.
   - `speakers.go`: `RenameSpeaker` and `renameLines`, from
     `videohint.go` (owner lines; the upstream `a.fixSignals()` is not
     carried over), sending relabelled lines to the live feed instead of
@@ -63,14 +67,52 @@ Files with no upstream-authored lines, copied with import paths changed:
   - `tools.go`, `tools_darwin.go`, from `tools.go` and `tools_darwin.go`
     (all owner lines): the ffmpeg, diarization worker, model and
     permission statuses, `FixTool` and `runStreaming`. Dropped: GPU,
-    Bengali, Linux tools and the model download (models are Tomoe's
-    folder, so their fix is a command); progress and outcome go to
+    Bengali, Linux tools and Tomoe's model download (models were read
+    from Tomoe's folder only, so their fix was a command; the recorder's
+    own download, below, is new code); progress and outcome go to
     `Status.Busy` and the health lines instead of window events.
     `permissions_darwin.go` gains the permission table,
     `openPrivacySettings` and the accessibility prompt from Tomoe's
     `permissions_darwin.go` (all owner lines).
 - `control/server.go`: the private listen and stale-socket removal are
   the live feed's (`livefeed`, owner), adapted.
+
+## Changed since
+
+Behaviour that now differs from Tomoe at `8d0e659`, all in owner-authored
+code.
+
+- **Voice profiles learn by voice, not by name** (2026-11-12, owner's
+  decision). `voices.Store.Learn` used to put a named voice into the first
+  profile with that name, alias or `same` name, and drop it silently when
+  the profile had 30 or more fingerprints and the voice was less than
+  `LearnFloor` (0.5) like it. Now the voice joins the likest of all the
+  profiles with the name that it is at least `LearnFloor` like, at any
+  profile size (`LearnFloorAfter` is no longer used: a young profile is
+  held to the same bar, as a voice that doesn't fit is now kept in its own
+  profile rather than lost, and mixing it in would spoil a profile that
+  is just starting). A voice like none of them starts a new profile with
+  the same name; profiles are never merged automatically. A profile with
+  nothing learnt takes a voice none of the others fit, and a meeting the
+  user took out of a profile with the name still isn't learnt (no new
+  profile is made for it). A name given twice in one meeting keeps the
+  last voice (the user's naming, after the tiles). `Knows` is true when
+  any profile in use has the name; forgetting stays by name. `Move`
+  targets a profile by ID, or a new profile with a name, instead of the
+  first profile with a typed name. `Merge` no longer adds the kept
+  profile's own name as an alias, and carries the merged profile's
+  "different people" marks over. New: `SameNamed` (pairs of profiles
+  sharing a name the user hasn't kept apart), shown in the Voices view as
+  "Two profiles named X?". Existing profiles keep their IDs, aliases and
+  merges; there is no migration.
+- **Learning rules 2** (2026-11-12, owner's decision). Tile learning
+  skips a window when the transcript line over it names someone other
+  than the tile's person; `Store.LearnMeeting` (learning a meeting whole)
+  drops a meeting's automatic contribution to a profile it no longer
+  teaches; the voices file records `rules` (`voices.LearnRules`) and the
+  last relearn's summary, and the recorder relearns every saved meeting
+  once when the rules are newer than the file's. A meeting's voice count
+  on the samples view ignores samples under `MinLearn` fingerprints.
 
 ## Rewritten
 
@@ -110,6 +152,16 @@ behaviour. `diag.go` writes in Go what Tomoe's diagnostics pane
 (`frontend/src/components/DiagnosticsPane.tsx`, all owner lines) showed
 for each line.
 
+New for the Models screen (2026-11-12), with no Tomoe lines:
+`models/catalog.go` (the catalog, `Installed`, `DownloadModel` and its
+staged archive unpacking), `recording/models.go` (the `models` and
+`download_model` ops and the Tools entries' Download fix), the fallback
+folders and injectable `Fetcher` in `models/manager.go` (`dirFor`,
+`WithFallback`, `NewManagerIn`, `own`) and `config.OwnModelDir` /
+`ModelDirs`, and their tests. Tomoe's own model download (its `tools.go`
+and `cmd/tomoe model download`) was not copied; the existing rewritten
+download functions in `models` are reused.
+
 New, with no Tomoe source: `recording/voicecopy.go`,
 `recording/permissions_other.go`, the `recording` tests other than the
 two lifted ones, `cmd/musubi-recorder` `run.go`, `datadir.go`,
@@ -129,3 +181,13 @@ and voices pages' data through the control socket), its settings page,
 session list/export/re-transcribe, title editing, notifications,
 multilingual mode (language detection, Bengali, the multi-engine switcher),
 hotwords, GPU libraries, Linux meeting detection.
+
+## App screens (frontend)
+
+The recorder screens in the Musubi app (`frontend/src/components/voices.tsx`,
+`recorder.tsx`, `settings/RecordingTab.tsx`) port Tomoe's `VoicesPanel`,
+`DiagnosticsPane`, `HintTimeline` and `ToolsPanel`, owner-authored
+throughout at `8d0e659`, restyled for Musubi. From `SettingsPanel` only the
+owner-authored rows' labels and hints were taken (into
+`internal/gui/recorder_settings.go`); its upstream-authored lines (the
+panel's shell and loading) were not used.

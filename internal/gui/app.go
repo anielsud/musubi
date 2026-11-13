@@ -23,10 +23,13 @@ import (
 )
 
 type App struct {
-	ctx  context.Context
-	eng  *engine.Engine
-	live *live.Live
-	err  string
+	ctx context.Context
+	// qcache: see queueCache. recMedia: see mediaCache.
+	qcache   queueCache
+	recMedia mediaCache
+	eng      *engine.Engine
+	live     *live.Live
+	err      string
 
 	// cfgPath is the open dataset's config; liveCancel stops its live lane
 	// when another dataset is opened in this window.
@@ -47,11 +50,22 @@ type App struct {
 	// the app last opened one by itself.
 	m365Connecting bool
 	m365AutoAt     time.Time
+	// updateAgain: a meeting was edited during an update, which may have
+	// read it before the edit.
+	updateAgain bool
+	rec         recorderState
+	res         resourceState
+	// emitFn replaces the Wails event bus in tests.
+	emitFn func(string, any)
 }
 
 func NewApp() *App { return &App{} }
 
 func (a *App) emit(ev string, data any) {
+	if a.emitFn != nil {
+		a.emitFn(ev, data)
+		return
+	}
 	if a.ctx != nil {
 		wruntime.EventsEmit(a.ctx, ev, data)
 	}
@@ -95,6 +109,8 @@ func (a *App) openConfig(path string) error {
 		}
 	}()
 	go a.live.Run(lctx)
+	go a.followRecorder(lctx, e.Cfg.RecorderLiveSocket())
+	go a.watchRecorder(lctx)
 	if e.Cfg.Prep.AutoBrief && e.AskLLM != nil {
 		go a.draftBriefs(lctx)
 	}
@@ -126,6 +142,7 @@ func (a *App) openConfig(path string) error {
 }
 
 func (a *App) Shutdown(ctx context.Context) {
+	a.UnwatchResources()
 	if a.liveCancel != nil {
 		a.liveCancel()
 	}
@@ -145,7 +162,10 @@ type AppStatus struct {
 	LastUpdate time.Time    `json:"lastUpdate"`
 	Stats      *store.Stats `json:"stats,omitempty"`
 	Live       live.Status  `json:"live"`
-	Dataset    string       `json:"dataset"`
+	// LiveFrom names the live feed of record: "Musubi recorder" or
+	// "Tomoe" ([recorder] of_record).
+	LiveFrom string `json:"liveFrom"`
+	Dataset  string `json:"dataset"`
 	// What "Check for new meetings" does: sync Microsoft 365 (when on),
 	// then process up to AutoMax new meetings (0: all) when OnUpdate; and
 	// how often it runs by itself (minutes, 0: never).
@@ -174,6 +194,10 @@ func (a *App) Status() AppStatus {
 	}
 	st.Stats, _ = a.eng.Store.Stats()
 	st.Live = a.live.Status()
+	st.LiveFrom = "Tomoe"
+	if a.eng.Cfg.MusubiRecords() {
+		st.LiveFrom = "Musubi recorder"
+	}
 	return st
 }
 
@@ -219,6 +243,13 @@ func (a *App) Update() {
 		a.emit("update:done", msg)
 		a.emit("app:status", a.Status())
 		a.emit("queue:changed", nil)
+		a.mu.Lock()
+		again := a.updateAgain
+		a.updateAgain = false
+		a.mu.Unlock()
+		if again {
+			a.Update()
+		}
 	}()
 }
 
@@ -399,9 +430,15 @@ func (a *App) HasAudio(ref string) bool {
 
 // AudioHandler serves /replay-audio/<session id> to the app's own webview
 // for audio replays. http.ServeContent handles range requests, so seeking
-// works. Nothing but Tomoe session audio can be served.
+// works. Nothing but Tomoe session audio can be served, and the
+// recorder's voice clips and window tiles under /recorder-media/
+// (recorderMedia).
 func (a *App) AudioHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/recorder-media/") && a.eng != nil {
+			a.recorderMedia(w, r)
+			return
+		}
 		id, ok := strings.CutPrefix(r.URL.Path, "/replay-audio/")
 		if !ok || a.live == nil {
 			http.NotFound(w, r)

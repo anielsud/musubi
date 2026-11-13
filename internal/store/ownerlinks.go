@@ -93,7 +93,7 @@ func (s *Store) toDoKeys(ids []int64) ([]StatementKey, error) {
 // OwnerLinks lists the links in force, oldest first (a later mark on the
 // same statement overrides an earlier one).
 func (s *Store) OwnerLinks() ([]OwnerLink, error) {
-	rows, err := s.db.Query(`SELECT id, item_id, text, rel, other_item, other_text, note, by, at FROM owner_links WHERE undone = 0 ORDER BY id`)
+	rows, err := s.rdb.Query(`SELECT id, item_id, text, rel, other_item, other_text, note, by, at FROM owner_links WHERE undone = 0 ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (s *Store) UndoOwnerLink(id int64) error {
 // statements it was written from are (the caller checks it against the
 // scope).
 func (s *Store) ThreadLabels() (map[int64]TopicInfo, error) {
-	rows, err := s.db.Query(`SELECT id, label, label_level FROM topics`)
+	rows, err := s.rdb.Query(`SELECT id, label, label_level FROM topics`)
 	if err != nil {
 		return nil, err
 	}

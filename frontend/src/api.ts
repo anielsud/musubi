@@ -1,6 +1,9 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
+import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LivePrep, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
+import type { ResSnapshot } from './types';
+import type { NamedSample, ProfileSamples, SampleArgs, SplitResult, SplitTarget } from './types';
+import type { LookView, MeetingSpeakers, RecDiag, RecordingModels, RecordingSettings, RecorderView, RecSources, RecStatus, RelabelResult, ReturnVoiceResult, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -34,6 +37,11 @@ export const api = {
   hasAudio: (ref: string): Promise<boolean> => app().HasAudio(ref),
   setOnTop: (on: boolean): Promise<void> => app().SetOnTop(on),
   setDiagnostics: (on: boolean): Promise<void> => app().SetDiagnostics(on),
+  profilingOn: (): Promise<boolean> => app().ProfilingOn(),
+  recordProfile: (): Promise<string> => app().RecordProfile(),
+  resourcesOn: (): Promise<boolean> => app().ResourcesOn(),
+  watchResources: (): Promise<ResSnapshot> => app().WatchResources(),
+  unwatchResources: (): Promise<void> => app().UnwatchResources(),
   knowledgeCounts: (): Promise<KnowledgeCounts> => app().KnowledgeCounts(),
   topics: (scope: string): Promise<TopicSummary[] | null> => app().Topics(scope),
   topic: (id: number, scope: string): Promise<TopicView | null> => app().Topic(id, scope),
@@ -60,11 +68,15 @@ export const api = {
   toDos: (proposals: boolean, scope: string): Promise<ToDo[] | null> => app().ToDos(proposals, scope),
   meetingList: (scope: string, limit = 200): Promise<MeetingListItem[] | null> => app().MeetingList(scope, limit),
   meetingPage: (id: string, scope: string): Promise<MeetingPage | null> => app().MeetingPage(id, scope),
+  itemsExist: (ids: string[], scope: string): Promise<string[] | null> => app().ItemsExist(ids, scope),
+  saveTranscript: (id: string, scope: string): Promise<string> => app().SaveTranscript(id, scope),
   linkToDo: (id: number, rel: string, other: number, note = ''): Promise<number> => app().LinkToDo(id, rel, other, note),
   undoToDoLink: (id: number): Promise<void> => app().UndoToDoLink(id),
   savedPrepBrief: (itemId: string, scope: string): Promise<SavedBrief | null> => app().SavedPrepBrief(itemId, scope),
   prep: (req: PrepRequest, scope: string): Promise<PrepView> => app().Prep(req, scope),
   prepBrief: (id: string, req: PrepRequest, scope: string): Promise<void> => app().PrepBrief(id, req, scope),
+  livePrep: (): Promise<LivePrep | null> => app().LivePrep(),
+  livePrepBrief: (id: string): Promise<void> => app().LivePrepBrief(id),
   m365: (): Promise<M365View> => app().M365(),
   m365Connect: (): Promise<void> => app().M365Connect(),
   m365SignOut: (): Promise<void> => app().M365SignOut(),
@@ -93,7 +105,45 @@ export const api = {
   headshot: (id: string, scope: string): Promise<string> => app().Headshot(id, scope),
   personPage: (id: string, scope: string): Promise<PersonPage | null> => app().PersonPage(id, scope),
   peopleNames: (scope: string): Promise<Record<string, string> | null> => app().PeopleNames(scope),
+  recorderState: (): Promise<RecorderView> => app().RecorderState(),
+  recorderStart: (): Promise<RecStatus> => app().RecorderStart(),
+  recorderStop: (): Promise<RecStatus> => app().RecorderStop(),
+  restartRecorder: (): Promise<void> => app().RestartRecorder(),
+  recorderSources: (): Promise<RecSources> => app().RecorderSources(),
+  recorderSetSource: (kind: string, id: string): Promise<RecStatus> => app().RecorderSetSource(kind, id),
+  recorderTools: (): Promise<ToolStatus[] | null> => app().RecorderTools(),
+  recorderFixTool: (id: string): Promise<void> => app().RecorderFixTool(id),
+  copyText: (s: string): Promise<void> => app().CopyText(s),
+  recorderDiags: (): Promise<RecDiag[] | null> => app().RecorderDiags(),
+  recorderLiveLooks: (): Promise<{ session: string; looks: LookView[] | null }> => app().RecorderLiveLooks(),
+  recorderLooks: (session: string): Promise<LookView[] | null> => app().RecorderLooks(session),
+  voices: (): Promise<VoicesView> => app().Voices(),
+  recorderSpeaker: (op: string, session: string, label: string, name = ''): Promise<void> => app().RecorderSpeaker(op, session, label, name),
+  recorderVoice: (op: string, args: VoiceArgs): Promise<void> => app().RecorderVoice(op, args),
+  allowVoiceName: (model: string, name: string): Promise<void> => app().AllowVoiceName(model, name),
+  relabelProfileMeetings: (model: string, id: string): Promise<RelabelResult> => app().RelabelProfileMeetings(model, id),
+  undoRelabel: (batch: string): Promise<RelabelResult> => app().UndoRelabel(batch),
+  returnVoiceMeeting: (model: string, id: string, session: string): Promise<ReturnVoiceResult> => app().ReturnVoiceMeeting(model, id, session),
+  discardedClip: (model: string, id: string, session: string): Promise<VoiceClip> => app().DiscardedClip(model, id, session),
+  meetingSpeakers: (itemId: string): Promise<MeetingSpeakers | null> => app().MeetingSpeakers(itemId),
+  deleteMeeting: (itemId: string): Promise<void> => app().DeleteMeeting(itemId),
+  recordingSettings: (): Promise<RecordingSettings> => app().RecordingSettings(),
+  setRecordingSetting: (table: string, key: string, value: boolean | number | string): Promise<void> => app().SetRecordingSetting(table, key, value),
+  setOfRecord: (v: string): Promise<void> => app().SetOfRecord(v),
+  recordingModels: (): Promise<RecordingModels> => app().RecordingModels(),
+  downloadRecorderModel: (id: string): Promise<void> => app().DownloadRecorderModel(id),
+  profileSamples: (model: string, id: string): Promise<ProfileSamples> => app().ProfileSamples(model, id),
+  voiceSample: (action: 'not_them' | 'junk' | 'put_back', args: SampleArgs): Promise<void> => app().VoiceSample(action, args),
+  nameReturnedSample: (args: SampleArgs, name: string): Promise<NamedSample> => app().NameReturnedSample(args, name),
+  skipReturnedSample: (args: SampleArgs): Promise<void> => app().SkipReturnedSample(args),
+  splitSpeakerByVoice: (session: string, label: string, into: SplitTarget[], preview: boolean): Promise<SplitResult> => app().SplitSpeakerByVoice(session, label, into, preview),
+  undoSplit: (batch: string): Promise<void> => app().UndoSplit(batch),
 };
+
+// Recorder media, served by the app (internal/gui recorderMedia).
+export const clipURL = (c: VoiceClip) => `/recorder-media/clip?session=${encodeURIComponent(c.session)}&start=${c.start}&end=${c.end}`;
+export const tileURL = (session: string, look: number) => `/recorder-media/tile/${encodeURIComponent(session)}/${look}`;
+export const thumbURL = (session: string, look: number) => `/recorder-media/thumb/${encodeURIComponent(session)}/${look}`;
 
 export function on<T>(event: string, fn: (data: T) => void): () => void {
   if (!window.runtime) return () => {};

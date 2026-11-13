@@ -6,6 +6,8 @@ import { StatusView } from './Knowledge';
 import { Names } from './people';
 import { AskCard, askExamples, useAsk } from './AskView';
 import type { ThreadDetail } from '../types';
+import { SourceBanner, useRecorder } from './recorder';
+import { PrepCard } from './LivePrep';
 
 const kindGlyph: Record<string, string> = { llm: '✦', entity: '◉', phrase: '¶', typed: '›' };
 
@@ -36,6 +38,10 @@ export function LiveView({ status, onOpen, onEntity, onTopic, scope: askScope, p
   const tail = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const ask = useAsk(askScope);
+  const rec = useRecorder();
+  // Renaming a speaker reaches the recording in progress only when it is
+  // the Musubi recorder's (the one Live then follows).
+  const canRename = !!rec?.editable && status?.mode === 'live';
   useEffect(() => {
     if (!prefill) return;
     setTyped(prefill.text);
@@ -121,6 +127,7 @@ export function LiveView({ status, onOpen, onEntity, onTopic, scope: askScope, p
     <div className={'view live' + (active ? '' : ' idle-mode')}>
       <div className="live-left">
       <MeetingHeader status={status} />
+      <SourceBanner rec={rec} />
       {active && <WithLine invited={status?.session?.invited ?? []} segs={segs} />}
 
       {!active && (
@@ -145,7 +152,7 @@ export function LiveView({ status, onOpen, onEntity, onTopic, scope: askScope, p
           <div className={'lines' + (showAll ? ' all' : '')}>
             {visibleSegs.map((s) => (
               <div key={s.id} className={'line ' + (s.status === 'live' ? 'draft' : s.status === 'pending' ? 'pending' : 'final')}>
-                <span className="who">{speakerName(s.speaker) || '…'}</span> {s.text}
+                {canRename && s.speaker && s.speaker !== 'You' ? <RenameSpeaker label={s.speaker} /> : <span className="who">{speakerName(s.speaker) || '…'}</span>} {s.text}
               </div>
             ))}
             {segs.length === 0 && <div className="line draft">Waiting for speech…</div>}
@@ -182,6 +189,10 @@ export function LiveView({ status, onOpen, onEntity, onTopic, scope: askScope, p
       </div>
 
       <div className="live-right">
+      {active && status?.session?.eventId && (
+        <PrepCard sessionId={status.session.id} scope={scope} onOpen={onOpen} onTopic={onTopic} />
+      )}
+
       {ask.turns.length > 0 && (
         <section className="asked">
           {ask.turns.map((t) => <AskCard key={t.id} t={t} onOpen={onOpen} onTopic={onTopic} onClose={() => ask.dismiss(t.id)} />)}
@@ -254,6 +265,29 @@ export function LiveView({ status, onOpen, onEntity, onTopic, scope: askScope, p
       )}
       </div>
     </div>
+  );
+}
+
+// RenameSpeaker is a line's speaker; a click names them in the recording
+// in progress (every line of that speaker, and the voice from then on).
+function RenameSpeaker({ label }: { label: string }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState('');
+  const [err, setErr] = useState('');
+  if (!editing) {
+    return <button className="who who-edit" title="Name this speaker" onClick={() => { setName(speakerName(label).startsWith('Person ') ? '' : speakerName(label)); setEditing(true); }}>{speakerName(label) || '…'}</button>;
+  }
+  const save = () => {
+    if (!name.trim()) return;
+    api.recorderSpeaker('rename_speaker', '', label, name.trim()).then(() => setEditing(false), (e) => setErr(String(e)));
+  };
+  return (
+    <form className="rename-inline" onSubmit={(e) => { e.preventDefault(); save(); }}>
+      <input value={name} autoFocus placeholder="Who is it?" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setEditing(false)} />
+      <button type="submit" className="link">save</button>
+      <button type="button" className="link" onClick={() => setEditing(false)}>cancel</button>
+      {err && <span className="error small">{err}</span>}
+    </form>
   );
 }
 

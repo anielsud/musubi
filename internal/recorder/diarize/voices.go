@@ -26,12 +26,15 @@ const learnShare = 0.8
 // tile is lit for everyone in it). offset converts the fingerprints' time
 // to session time (StreamInfo.Offset).
 func VoicesFromTiles(p *Prepared, hints []Hint, offset float64) []voices.Learned {
-	return voicesFromTilesSkipping(p, hints, offset, nil)
+	return voicesFromTilesSkipping(p, hints, offset, nil, nil)
 }
 
 // voicesFromTilesSkipping is VoicesFromTiles, leaving out session times
-// skip says are unsure (nil: none).
-func voicesFromTilesSkipping(p *Prepared, hints []Hint, offset float64, skip func(t float64) bool) []voices.Learned {
+// skip says are unsure (nil: none) and those where line (nil: none) names
+// someone other than the lit tile as speaking: a tile stays lit a moment
+// after its person stops, and a profile learnt 10 fingerprints of the
+// next speaker that way (2026-11-12).
+func voicesFromTilesSkipping(p *Prepared, hints []Hint, offset float64, skip func(t float64) bool, line func(t float64) string) []voices.Learned {
 	at := TileTimeline(hints, hintLag)
 	display := tileDisplayNames(hints)
 	return voicesBy(p, offset, func(t float64) string {
@@ -42,8 +45,57 @@ func voicesFromTilesSkipping(p *Prepared, hints []Hint, offset float64, skip fun
 		if k == "" || IsRoomTile(k) || !learnableName(display[k]) {
 			return ""
 		}
+		if line != nil {
+			if n := line(t); n != "" && !samePerson(n, display[k]) {
+				return ""
+			}
+		}
 		return display[k]
 	}, voices.FromTile)
+}
+
+// samePerson: a and b are one person's names: the same name, or names
+// of one voice profile in any open store (a profile renamed from "Blean"
+// to its person's name: the window still shows Blean, the transcript the
+// new name, and treating them as two people dropped the meeting).
+func samePerson(a, b string) bool {
+	if SameName(a, b) {
+		return true
+	}
+	voiceStoreMu.Lock()
+	stores := make([]*voices.Store, 0, len(voiceStores))
+	for _, s := range voiceStores {
+		stores = append(stores, s)
+	}
+	voiceStoreMu.Unlock()
+	for _, s := range stores {
+		if s.SamePerson(a, b) {
+			return true
+		}
+	}
+	return false
+}
+
+// lineNames says who the transcript names as speaking at session time t
+// (see lineName), "" where nobody.
+func lineNames(segs []session.Segment) func(t float64) string {
+	return SpeakerAt(segs, lineName)
+}
+
+// lineName is the person a transcript label names: a name the user gave
+// (GivenName), or the window's name in "Person 2 (Ana)"; "" for an
+// unnamed or provisional label, the owner ("You") or a room.
+func lineName(label string) string {
+	if n := GivenName(label); n != "" {
+		return n
+	}
+	if isProvisional(label) {
+		return ""
+	}
+	if n := session.HintName(label); n != "" && !IsRoomTile(n) {
+		return n
+	}
+	return ""
 }
 
 // VoicesFromSpeakers is each named speaker's voice in a meeting: who(t)
@@ -91,8 +143,11 @@ func voicesBy(p *Prepared, offset float64, who func(t float64) string, source st
 	out := make([]voices.Learned, 0, len(by))
 	for name, idx := range by {
 		var v voices.Voice
+		parts := make([]voices.Part, 0, len(idx))
 		for _, i := range idx {
 			v.Add(p.Embeddings[i])
+			start, end, _ := p.pairSpan(i)
+			parts = append(parts, voices.Part{Start: start + offset, End: end + offset, Emb: p.Embeddings[i]})
 		}
 		// The clip: of the fingerprints with a few seconds of speech, the
 		// likest the voice as a whole; else the one with the most speech.
@@ -112,7 +167,7 @@ func voicesBy(p *Prepared, offset float64, who func(t float64) string, source st
 			best = mostSpeech
 		}
 		start, end, _ := p.pairSpan(best)
-		out = append(out, voices.Learned{Name: name, Source: source, Voice: v, Clip: voices.Clip{Start: start + offset, End: end + offset}})
+		out = append(out, voices.Learned{Name: name, Source: source, Voice: v, Clip: voices.Clip{Start: start + offset, End: end + offset}, Parts: parts})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -173,8 +228,10 @@ var (
 
 // VoiceStore is the process's voice profiles for a speaker model
 // (DataDir/voices/<model>.json: another model's fingerprints can't be
-// compared), with m's naming rules; one Store per model per process, so
-// the app's edits and a meeting's learning go through the same one.
+// compared), with m's naming rules; one Store per file per process, so
+// the app's edits and a meeting's learning go through the same one. Keyed
+// by the file, not the model: a different data folder (SetDataDir) is a
+// different set of profiles.
 func VoiceStore(m config.MeetingConfig, model string) (*voices.Store, error) {
 	if model == "" {
 		return nil, fmt.Errorf("no speaker model named")
@@ -191,15 +248,19 @@ func VoiceStore(m config.MeetingConfig, model string) (*voices.Store, error) {
 	if m.VoiceProfileMinMeetings > 0 {
 		params.MinMeetings = m.VoiceProfileMinMeetings
 	}
-	if s := voiceStores[model]; s != nil {
+	if m.VoiceProfileMinLearn > 0 {
+		params.MinLearn = m.VoiceProfileMinLearn
+	}
+	path := voices.Path(config.DataDir(), model)
+	if s := voiceStores[path]; s != nil {
 		s.SetParams(params)
 		return s, nil
 	}
-	s, err := voices.Open(voices.Path(config.DataDir(), model), SameName, params)
+	s, err := voices.Open(path, SameName, params)
 	if err != nil {
 		return nil, err
 	}
-	voiceStores[model] = s
+	voiceStores[path] = s
 	return s, nil
 }
 
@@ -259,8 +320,10 @@ func modelBySettings(threshold float64) string {
 
 // LearnSaved teaches the voice profiles from a saved session: the voices
 // heard while a person's own tile was lit (except speakers the window and
-// the voice disagree on), and the speakers given a name (GivenName).
-// hints are the session's name reads.
+// the voice disagree on, and while the transcript names someone else),
+// and the speakers given a name (GivenName). It replaces what the meeting
+// taught automatically before (voices.Store.LearnMeeting). hints are the
+// session's name reads.
 func LearnSaved(m config.MeetingConfig, dir string, sess *session.Session, hints []Hint) ([]string, error) {
 	p, info, err := LoadSaved(dir)
 	if err != nil {
@@ -273,9 +336,7 @@ func LearnSaved(m config.MeetingConfig, dir string, sess *session.Session, hints
 	if err != nil {
 		return nil, err
 	}
-	learned := voicesFromTilesSkipping(p, hints, info.Offset, unsureAt(sess.Segments, unsureLabels(sess)))
-	learned = append(learned, VoicesFromSpeakers(p, info.Offset, SpeakerAt(sess.Segments, GivenName))...)
-	return store.Learn(sess.ID, sess.CreatedAt, learned)
+	return store.LearnMeeting(sess.ID, sess.CreatedAt, SavedLearning(p, info.Offset, sess, hints))
 }
 
 // learnableName reports whether a tile's name can be a person's: the

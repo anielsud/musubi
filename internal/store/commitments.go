@@ -67,7 +67,7 @@ func (s *Store) Commitments(sc sensitivity.Scope, proposals bool) ([]Commitment,
 func (s *Store) loadCommitments(sc sensitivity.Scope, cond string, condArgs []any) ([]Commitment, error) {
 	vis, vargs := statementVis(sc)
 	args := append(append([]any{}, condArgs...), vargs...)
-	rows, err := s.db.Query(`SELECT `+commitmentCols+`,
+	rows, err := s.rdb.Query(`SELECT `+commitmentCols+`,
 		coalesce((SELECT t.topic_id FROM thread_items t WHERE t.statement_id = st.id ORDER BY t.current DESC, t.added_at DESC LIMIT 1), 0)
 		FROM statements st JOIN chunks c ON c.id = st.chunk_id JOIN items i ON i.id = st.item_id`+chunkVisJoin+`
 		WHERE `+cond+` AND `+vis+`
@@ -103,7 +103,7 @@ func (s *Store) loadCommitments(sc sensitivity.Scope, cond string, condArgs []an
 			a = append(a, id)
 		}
 		a = append(a, vargs...)
-		rows, err := s.db.Query(`SELECT `+commitmentCols+`, r.earlier, r.rel
+		rows, err := s.rdb.Query(`SELECT `+commitmentCols+`, r.earlier, r.rel
 			FROM statement_relations r JOIN statements st ON st.id = r.later JOIN chunks c ON c.id = st.chunk_id
 			JOIN items i ON i.id = st.item_id`+chunkVisJoin+`
 			WHERE r.earlier IN (`+strings.TrimSuffix(strings.Repeat("?,", len(part)), ",")+`) AND `+vis+`

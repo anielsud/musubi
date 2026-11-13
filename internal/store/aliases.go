@@ -136,7 +136,7 @@ func (s *Store) threadMentions(tid int64, re *regexp.Regexp) (bool, error) {
 // (kind spelling, everywhere), lower-cased, for matching names and terms.
 func (s *Store) ConfirmedSpellings() (map[string]string, error) {
 	out := map[string]string{}
-	rows, err := s.db.Query(`SELECT keep, variant FROM learned_aliases WHERE status = 'confirmed' AND kind = 'spelling' AND scope = ''`)
+	rows, err := s.rdb.Query(`SELECT keep, variant FROM learned_aliases WHERE status = 'confirmed' AND kind = 'spelling' AND scope = ''`)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return out, nil
@@ -278,7 +278,7 @@ func (a LearnedAlias) Reviewed() map[int64]bool {
 // ScopedSpellings maps statements to the aliases confirmed for them only
 // (statement → variant lower-cased → kept form).
 func (s *Store) ScopedSpellings() (map[int64]map[string]string, error) {
-	rows, err := s.db.Query(`SELECT keep, variant, scope FROM learned_aliases WHERE status = 'confirmed' AND scope != ''`)
+	rows, err := s.rdb.Query(`SELECT keep, variant, scope FROM learned_aliases WHERE status = 'confirmed' AND scope != ''`)
 	if err != nil {
 		return nil, err
 	}

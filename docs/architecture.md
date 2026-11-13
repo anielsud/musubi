@@ -89,7 +89,7 @@ Planned connectors, in order:
 
 | Connector | Access |
 |---|---|
-| `tomoe` | reads `~/.local/share/tomoe/sessions/*/session.json` |
+| `tomoe` | reads `*/session.json` in the sessions folder of the recorder of record: Tomoe's (`tomoe_sessions`, default) or, with `[recorder] of_record = "musubi"`, Musubi's recorder's (`[recorder] data`/sessions), then only sessions created after `[recorder] since` |
 | `calendar` | ICS or Graph; gives meetings their titles and attendees |
 | `mcpdrop` | an inbox directory that scheduled Claude Code jobs fill from the approved M365 / Salesforce / Zoom connectors, as JSON |
 | `graph` | direct Microsoft Graph (mail, chat), once an Entra app registration is approved; until then `internal/m365` signs in as Microsoft's already-consented Graph Command Line Tools client and writes calendar events (and, next, Teams transcripts) into the inbox: docs/teams-design.md |
@@ -138,6 +138,21 @@ output: its prompt version, model, rules in code and settings.
   silently left their threads.
 - **Old behaviour:** `knowledge.updates = "auto"` redoes everything when
   a version changes.
+- **Speaker relabels** (`[recorder] relabel`; docs/recorder-screens.md,
+  "Renaming a voice profile renames its speakers"): a corrected speaker
+  label is written into a meeting's stored copies (item, passages,
+  statements, digest, thread prose and statuses) by
+  `pipeline.Runner.RelabelSpeaker` and `store.RelabelSpeaker`, in one
+  transaction and with no model calls, when it changes nothing but labels
+  and passage boundaries. The new chunk stamp is written and the one it
+  replaces kept in the `chunk-relabelled` stage row; extraction and
+  digests whose stamp (or, kept from an earlier version, whose input) was
+  made from a kept chunk stamp are restamped, not run. Changed passages
+  and statements are embedded again locally; the registry, links,
+  classify and resolve then re-run as on any import of a new name. The
+  next import of the rewritten session translates to the same
+  `content_hash` and changes nothing. `speaker_relabels` keeps each
+  field's before and after, for undo.
 
 | Stage | Output |
 |---|---|
@@ -194,7 +209,105 @@ cold lane like any other source.
 `cmd/musubi-gui` is a Wails app (`internal/gui` backend, React frontend in
 `frontend/`), installed with `make install-gui-mac`.
 
-- **Live** (`internal/live`): follows Tomoe's feed ([tomoe-live-feed.md](tomoe-live-feed.md)),
+- **Recorder** ([recorder-screens.md](recorder-screens.md)): `[recorder]`
+  `of_record` is `"tomoe"` (default: meetings from `tomoe_sessions`, Live
+  from `[live] tomoe_socket`, as before) or `"musubi"` (both from the
+  recorder's folder, `[recorder] data`, default
+  `~/.local/share/musubi/recorder`: `sessions/`, `live.sock`,
+  `control.sock`). Switching to `"musubi"` in Settings sets `since`;
+  ingest then takes only recorder sessions created after it, since
+  earlier ones shadowed meetings Tomoe already gave. Files (audio, looks)
+  of meetings imported from Tomoe before the switch are still read from
+  Tomoe's folder (`Config.SessionDirs`), unless `[recorder] tomoe =
+  "off"`: then only the recorder's folder, into which `musubi-recorder
+  migrate-from-tomoe` copies Tomoe's sessions, voices, models and
+  settings (recorder-screens.md, "Standalone"); the recorder then reads
+  nothing of Tomoe's. After the switch, calendar context is written into
+  the recorder's sessions only (`Config.ContextSessionsDir`). The app always follows the
+  recorder's live feed for its `status`, `audio`, `diag` and `look`
+  messages (re-emitted as `recorder:*` events) and asks it everything
+  else over `control.sock` (`internal/recorder/control`): start, stop,
+  sources, tools and fixes, voices, speaker and voice edits, looks,
+  clips and tiles (served to the webview under `/recorder-media/`), and
+  delete. Musubi never writes the recorder's folder. Speaker and voice
+  edits and delete are offered only with `of_record = "musubi"`. A speaker
+  edit on a saved meeting changes its `session.json`, so an update is
+  queued and that meeting is re-extracted; delete removes the recording
+  through the recorder, then forgets the item (`knowledge.ForgetItem`:
+  its statements leave their threads, and it is never imported again).
+  `[recorder.audio]`, `[recorder.transcription]` and `[recorder.meeting]`
+  override the keys of the same tables in Tomoe's config (with Tomoe
+  off, the recorder's built-in defaults) for the recorder; Settings → Recording writes them and asks the recorder to
+  reload (`reload_config`).
+- **Voice samples**: a voice profile keeps per meeting only the sum of
+  its fingerprints and one clip, so `profile_samples` works the rest out
+  again from each saved meeting (`diarization.gob`, no model run): the
+  windows learning picked for the profile (`diarize.SavedLearning`, what
+  `LearnSaved` teaches; each `voices.Learned` now carries its `Parts`,
+  fingerprint plus time), grouped into samples where the pauses are at
+  most 1.5 s. Each sample is scored against the profile's learnt voice
+  and against the meeting's other samples, and each meeting's sample
+  means are clustered as a meeting's fingerprints are, at the profile
+  threshold, leaving out samples under `MinLearn` fingerprints (specks of
+  crosstalk added up to a false second voice); a cluster counts as a
+  voice only with at least `MinLearn` fingerprints and 5% of the meeting's (a person's tail of odd seconds
+  stays under that: on 2026-11-12 one meeting room's profile counted 4
+  voices, matching the 4 speakers the diarizer heard under its tile, and
+  a single person's 10 meetings 1 each). Results are cached per profile
+  and meeting in the recorder until the meeting's voice, its session or
+  its fingerprints change. "Not them" on a sample (`exclude_sample`)
+  takes its fingerprints out of the meeting's voice, records the span
+  on it (`Heard.ExcludedSpans`) and keeps it as a returned sample in the
+  voices file (`voices/returned.go`), which "Who's this?" asks about;
+  learning leaves both out whenever the meeting is learnt again, also
+  after the meeting's contribution was dropped. Naming a returned sample
+  (`name_returned_sample`) adds its fingerprints to a profile of that
+  name (`Heard.Assigned`, kept through relearns); "Can't tell"
+  (`skip_returned_sample`) stops asking. "Junk" (`junk_sample`) keeps
+  the span per meeting in the voices file, and no profile learns from
+  it. `include_sample` puts either back. `split_label_by_voice` gives each
+  line of one label in a saved session to the candidate profile its own
+  fingerprints match by `Margin`, logged per line in `relabels.jsonl`
+  (recorder-screens.md, "Not them and Junk on a sample; split a speaker
+  by voice"). The
+  Voices card (`voicesamples.tsx`) lists per meeting the samples under
+  85% like the profile, the rest behind "+N more that fit well". A
+  meeting learnt live, from name reads the saved meeting doesn't keep,
+  can rebuild a slightly different set (shown as "N of M fingerprints").
+- **Voice learning rules**: tile learning skips windows where the
+  transcript names someone else; learning a whole meeting
+  (`Store.LearnMeeting`) replaces its automatic contributions; the voices
+  file records the `voices.LearnRules` its profiles were built under, and
+  the recorder relearns every saved meeting once, in the background
+  between recordings, when that is older (`recording/relearn.go`;
+  recorder-screens.md, "Voice learning rules and automatic relearn").
+- **Voices review index**: the recorder gathers the Voices page's review
+  lists (who's this, 90 days, plus any voice taken out of a profile with
+  "Not them"; named by voice and window or voice, 14 days) once in the
+  background at start and keeps them in memory, reading a session again
+  when it saves it or its files change on disk; the Voices op reads the
+  index (`reviewindex.go`; recorder-screens.md, "Voice profile edits
+  after samples"). "Not them" on a profile's meeting
+  (`return_voice_meeting`) takes the meeting out of the profile and puts
+  its profile-named speakers back to unnamed through the cheap relabel,
+  checked first with `pipeline.RelabelRequest.Check`.
+- **Models and providers** (Settings): AI providers lists the AI
+  Gateway, custom providers (`[providers.*]`), Ollama and **ONNX (this
+  Mac)**: the recorder's models (transcription, live text, speaker
+  voices, speech detection, segmentation, text reading), run in its
+  process by sherpa-onnx and ONNX Runtime; ONNX is ready when the
+  recorder answers. Settings → Models lists every source's models in
+  three sections (in use, recording models, everything else) with
+  search, source filter and sort; the recorder's come from its `models`
+  op, and a missing one is downloaded with `download_model`, into the
+  recorder's own folder (`[recorder] data`/models). The recorder looks
+  for models there first and then in Tomoe's folder
+  (`config.ModelDirs`; not with `[recorder] tomoe = "off"`), so nothing
+  is downloaded twice, and never writes Tomoe's. Settings → Processing chooses the transcription and speaker
+  voice models (`[recorder.transcription] model`,
+  `[recorder.meeting] speaker_model`, read when the recorder starts);
+  they are no longer in Settings → Recording.
+- **Live** (`internal/live`): follows the recorder of record's feed ([tomoe-live-feed.md](tomoe-live-feed.md)),
   keeps the meeting so far, and every `suggest_every` seconds of new speech
   turns the last `window` seconds into suggestions from three sources:
   entities named (unambiguous aliases only), phrases that are rare in the
@@ -216,6 +329,22 @@ cold lane like any other source.
   whenever the scope changes. A replay sees only what was known when the
   replayed meeting happened: its card index is built from what was said
   before it.
+- **Prep card** (`live.prep_card`, default on; false: no card, as
+  before): when a meeting starts, the calendar event the title and "With"
+  line come from (`store.EventMatchAt`, the same match as `EventAt`) is
+  kept on the session (`eventId`), and the top of the cards shows that
+  event's prep, read in the panel's scope (taken from Live, not from the
+  screen, so the shared screen gets what the Prep tab shows there): the
+  talking points drafted ahead (`prep_briefs`) with their sources, then
+  what is open with the people in it, what the last meeting of the series
+  left open, and who is new. It is compact (the first three talking
+  points, or the first three open items) until "more", and × collapses it
+  to one line for that meeting (remembered per viewer). Without drafted
+  talking points, "Draft prep" runs the Prep tab's path (`PrepBrief`,
+  same local/hosted rule); nothing is drafted unless pressed. Loading it
+  runs no chat model; like the Prep tab, finding the threads the event
+  is about embeds its title once. Talking points are not tracked against
+  what is said.
 - **Focus** (`live.focus`): each card is cut to the three lines closest
   to the last 90 s (embedding similarity), with the line of the
   conversation that raised it; lookups quote theirs too. Subjects last
@@ -260,6 +389,35 @@ cold lane like any other source.
   the menu shows those five, the rest a click away. Briefs are kept per scope, so one written in
   private doesn't show on a shared screen. Research log 2026-10-28:
   80–90% of cards on topic against 12%.
+- **Cost during a meeting** (research log 2026-11-12): with `live.cache`
+  (default on) the reads Live repeats are kept for the meeting in a
+  `store.ReadCache`: topic infos, each card's evidence, thread statuses,
+  entity graphs, and for statement lookups each claim's visible statements
+  and each statement's vector. Each result is kept under the whole scope
+  it was read in (so a toggle to the shared screen never sees what was
+  read in private) and everything is dropped when `KnowledgeSignature`
+  moves (any write: an import, a knowledge run, a correction). A new
+  cache starts with each meeting and each Reload. With `live.skip_idle`
+  (default on) a due pick, or a model suggestion run, whose input is what
+  the last one read (the conversation it reads, the scope and, for a
+  pick, its votes) is skipped and the cadence kept. Menu ranking already
+  runs only when the cards it ranks change. The diagnostics panel's
+  "Record a 30 s profile" (`[diagnostics] profiling`) writes a CPU profile
+  and a goroutine dump under the data folder's `profiles/`; Live's steps
+  carry pprof labels (`step` = pick, suggest, fastlane, cards; queue for
+  the work queue).
+  Its "resources" view (`[diagnostics] resources`, default on) shows CPU
+  (share of one core, from the change in each process's CPU time) and
+  memory (macOS footprint and resident) for Musubi, its web view, the
+  recorder, Ollama and Tomoe, with each one's child processes, over the
+  last 15 minutes (`internal/procstat`, libproc on macOS; other systems
+  say it isn't supported). It samples every 2 s only while the panel is
+  open: the panel holds a watch it renews, and sampling stops when it
+  closes or stops renewing. The recorder is the pid its control Status
+  reports (`pid`), else its app path or `musubi-recorder run`; the web
+  view is the WebKit web content process macOS holds responsible for the
+  app (left out where that can't be asked); a process counts in one
+  component only.
 - **Stepped replay** (`musubi live --replay ID --stepped`): the meeting
   line by line on its own clock, each line's work (lookups, cards,
   suggestions, summaries) done before the next, so the result doesn't
@@ -586,7 +744,10 @@ between claims record how it bears on others:
 - supersedes: a decision changed;
 - answers: resolves an open question.
 
-A claim's centroid is the mean of its statements' vectors.
+A claim's centroid is the mean of its statements' vectors. It is stored
+only for claims of two or more statements; a claim of one reads its
+statement's vector (a NULL `claims.centroid`), written when a second
+statement joins (2026-11-12: 99.4% of claims hold one statement).
 
 ### Belief (computed when read, never stored)
 
@@ -997,9 +1158,10 @@ stay cheap.
   statement, kind, holder, certainty, and a raw value. Entities, normalised
   values and sensitivity are derived in code. The JSON schema keeps replies
   well-formed, so a smaller model can be tried.
-- **Vectors are kept full** (float32). Re-embedding is the second costliest
-  recompute, and every compact form can be derived from full vectors without
-  it:
+- **Vectors were kept full** (float32) until 2026-11-12, when half precision
+  (float16) became the default after measuring no change in results (a lever
+  pulled: research log, 2026-11-12). Re-embedding is the second costliest
+  recompute; the compact forms below derive from stored vectors without it:
   - Matryoshka truncation;
   - int8;
   - binary codes for a first-pass scan with re-ranking.
@@ -1095,12 +1257,32 @@ version.
 
 **Technology.** `mattn/go-sqlite3` (cgo, built with the `sqlite_fts5` tag)
 and `sqlite-vec`, in WAL mode with foreign keys on, a 10 s busy timeout and
-a single connection (one writer at a time is SQLite's model; it also keeps
-transactions from interleaving between goroutines). Vectors are float32
-blobs (nomic-embed-text: 768 dimensions, 3 KB each) compared exactly by
-sqlite-vec, with the 1-bit codes above in front past 2,000.
+a single connection for writing (one writer at a time is SQLite's model; it
+also keeps transactions from interleaving between goroutines). `[store]`
+(`store.Options`) adds, per connection, a page cache of `cache_mb` and
+memory-mapped reads up to `mmap_mb` (applied by a connect hook; sqlite-vec
+is an auto extension, so every connection has it), and `read_conns`
+read-only connections (`mode=ro` and `query_only`) for the read paths, so
+a screen or Live doesn't wait behind a long write. Only plain reads go to
+the pool (the list is in `internal/store/reads.go`); writes, reads inside
+a write transaction and reads made by a writing method stay on the
+writer. `KnowledgeSignature` is then read from a read-only connection of
+its own (its `data_version` moves with every commit), not the writer's.
+Defaults: `mmap_mb = 2048`, `cache_mb = 0` (SQLite's own; no faster
+with mmap on), `read_conns = 4`; `mmap_mb = 0`, `read_conns = 1` restore
+one connection with SQLite's defaults. Mapped pages count in the app's
+resident memory. Measured: research log, 2026-11-12. Vectors
+(nomic-embed-text: 768 dimensions) are blobs in one of two encodings, told
+apart by length (`internal/store/vecenc.go`): float32 (3 KB, sqlite-vec's
+format) or float16 (a tag byte and 1.5 KB, two to a page), written as
+`store.vector_encoding` says (default `"f16"`; `"f32"` is the earlier
+behaviour) and both always read as float32. `musubi vectors encode
+f16|f32` rewrites what is stored. While a database holds only float32
+passage vectors sqlite-vec compares them exactly, as before; once it holds
+float16 ones (`store_meta`), the candidates are decoded and compared in
+Go the same way. The 1-bit codes above stay in front past 2,000.
 
-**Schema** (`internal/store/schema.sql`, version 4; 34 tables), by layer:
+**Schema** (`internal/store/schema.sql`, version 4; 36 tables), by layer:
 
 | Layer | Tables |
 |---|---|
@@ -1110,7 +1292,7 @@ sqlite-vec, with the 1-bit codes above in front past 2,000.
 | Knowledge | `statements`, `statement_vecs`, `claims`, `claim_codes`, `statement_claims`, `claim_relations`, `statement_relations` |
 | Topics and threads | `topics`, `topic_relations`, `topic_entities`, `topic_events`, `thread_items`, `thread_runs`, `thread_status` |
 | Owner's decisions (kept across rebuilds) | `corrections`, `learned_aliases`, `thread_edits`, `owner_links`, `forgotten`, `audit`, `judgments` |
-| Stage bookkeeping | `stage_runs`, `global_runs` |
+| Stage bookkeeping | `stage_runs`, `global_runs`, `store_meta` (one-off data upgrades done, vector encodings present), `speaker_relabels` (what a speaker relabel replaced, for undo) |
 
 **Size, measured (the "All" dataset, 2026-10-21):** 268 MB for 165
 meetings and 55 other items (9,494 passages, 20,879 statements, 690
@@ -1120,7 +1302,10 @@ vectors 39 MB; statements 14 MB, passages 10 MB, items 10 MB, the
 FTS index 4 MB. 99.6% of claims hold a single statement, so their
 centroids repeat the statement's vector: a third of the file. Storing a
 centroid only for claims of two or more, and vectors as float16, would
-take it to about 120 MB, under half of today's size.
+take it to about 120 MB, under half of today's size. Done 2026-11-12
+(research log, "vector storage"): on the all-t4 copy (50,924 passages,
+38,439 statements) 762.5 MB became 607.1 MB with centroids stored once
+and 420.7 MB with float16 vectors.
 
 **Scaling.** `tools/scale-bench` times the read paths on a synthetic
 corpus shaped like the leadership meetings (research log, "Reads at

@@ -150,9 +150,13 @@ type contextPerson struct {
 
 // WriteTomoeContext writes calendar.json next to every Tomoe recording
 // linked to a calendar event, and removes it from one that no longer is.
-// It returns how many files changed.
+// It returns how many files changed. Once Musubi's recorder is of record
+// it writes only into the recorder's sessions (Cfg.ContextSessionsDir),
+// never Tomoe's: meetings recorded before the switch get theirs once
+// copied there (migrate-from-tomoe).
 func (e *Engine) WriteTomoeContext() (int, error) {
-	if !e.Cfg.M365.TomoeContext || e.Cfg.TomoeSessions == "" {
+	sessions := e.Cfg.ContextSessionsDir()
+	if !e.Cfg.M365.TomoeContext || sessions == "" {
 		return 0, nil
 	}
 	links, err := e.Store.LinksFrom("occurred_as")
@@ -186,7 +190,7 @@ func (e *Engine) WriteTomoeContext() (int, error) {
 		if m.Source != "tomoe" || m.Kind != item.KindMeeting {
 			continue
 		}
-		dir := filepath.Join(e.Cfg.TomoeSessions, filepath.Base(m.Ref))
+		dir := filepath.Join(sessions, filepath.Base(m.Ref))
 		if _, err := os.Stat(filepath.Join(dir, "session.json")); err != nil {
 			continue
 		}

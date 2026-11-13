@@ -46,7 +46,8 @@ func (a *Recorder) RenameSpeaker(id, label, name string) error {
 	}
 	a.correctVoiceName(saved, label, name)
 	dropVoiceDoubt(saved, label)
-	if err := a.store.Save(saved); err != nil {
+	dropReturned(saved, label)
+	if err := a.saveSession(saved); err != nil {
 		return err
 	}
 	a.learnNamedLater(saved)
@@ -79,14 +80,20 @@ func (a *Recorder) editVoice(op string, p control.VoiceArgs) error {
 		return a.KeepVoicesApart(p.Model, p.ID, p.Other)
 	case control.OpForgetVoice:
 		return a.ForgetVoice(p.Model, p.ID)
+	case control.OpDeleteVoice:
+		return a.DeleteVoice(p.Model, p.ID)
+	case control.OpAllowName:
+		return a.AllowName(p.Model, p.Name)
 	case control.OpStartOver:
 		return a.StartVoiceOver(p.Model, p.ID)
 	case control.OpConfirmVoice:
 		return a.ConfirmVoice(p.Model, p.ID)
 	case control.OpRemoveVoiceMeeting:
 		return a.RemoveVoiceMeeting(p.Model, p.ID, p.Session)
+	case control.OpConfirmVoiceMeeting:
+		return a.ConfirmVoiceMeeting(p.Model, p.ID, p.Session)
 	case control.OpMoveVoiceMeeting:
-		return a.MoveVoiceMeeting(p.Model, p.ID, p.Session, p.Name)
+		return a.MoveVoiceMeeting(p.Model, p.ID, p.Session, p.To, p.Name)
 	}
 	return fmt.Errorf("%w %q", control.ErrUnknownOp, op)
 }
@@ -95,14 +102,11 @@ func (a *Recorder) editVoice(op string, p control.VoiceArgs) error {
 // it runs (it reads every saved meeting's fingerprints), one at a time.
 func (a *Recorder) learnSaved() (int, error) {
 	const what = "Learning voices from saved meetings"
-	a.mu.Lock()
-	if a.busy == what {
-		a.mu.Unlock()
+	if !a.learnMu.TryLock() {
 		return 0, fmt.Errorf("already learning voices")
 	}
-	a.busy = what
-	a.publishStatusLocked()
-	a.mu.Unlock()
-	defer a.setBusy("")
+	defer a.learnMu.Unlock()
+	a.setBusy(what)
+	defer a.clearBusy(what)
 	return a.LearnVoicesFromSavedSessions()
 }

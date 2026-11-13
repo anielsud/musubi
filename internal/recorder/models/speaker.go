@@ -99,7 +99,7 @@ func ResolveSpeakerModel(setting, lang string) SpeakerModel {
 
 // SpeakerModelPath is where model lives in the model directory.
 func (s *Status) SpeakerModelPath(m SpeakerModel) string {
-	return filepath.Join(s.ModelDir, m.File)
+	return filepath.Join(s.dirFor("", m.File), m.File)
 }
 
 // SpeakerModelReady reports whether model is downloaded.
@@ -132,7 +132,7 @@ func (m *Manager) DownloadSpeakerModels(setting string, langs []string, force bo
 			continue
 		}
 		fmt.Printf("Downloading speaker model %s...\n", sm.Name)
-		if err := downloadFile(sm.URL, status.SpeakerModelPath(sm), "Speaker model: "+sm.Name, onProgress); err != nil {
+		if err := downloadFileWith(m.fetcher(), sm.URL, filepath.Join(m.modelDir, sm.File), "Speaker model: "+sm.Name, onProgress); err != nil {
 			return fmt.Errorf("downloading speaker model %s: %w", sm.Name, err)
 		}
 	}

@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
-
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/sensitivity"
 	"github.com/anielsud/musubi/internal/vindex"
@@ -68,7 +66,7 @@ func (s *Store) UpsertItem(it item.Item) (bool, error) {
 
 // AllItems loads every item, oldest first.
 func (s *Store) AllItems() ([]item.Item, error) {
-	rows, err := s.db.Query(`SELECT id, source, ref, raw_hash, kind, title, occurred_at, ended_at, thread, segments, participants, native FROM items ORDER BY occurred_at, id`)
+	rows, err := s.rdb.Query(`SELECT id, source, ref, raw_hash, kind, title, occurred_at, ended_at, thread, segments, participants, native FROM items ORDER BY occurred_at, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +90,7 @@ func (s *Store) AllItems() ([]item.Item, error) {
 
 func (s *Store) StageStamp(stage, itemID string) (string, error) {
 	var h string
-	err := s.db.QueryRow(`SELECT version || '/' || input_hash FROM stage_runs WHERE stage = ? AND item_id = ?`, stage, itemID).Scan(&h)
+	err := s.rdb.QueryRow(`SELECT version || '/' || input_hash FROM stage_runs WHERE stage = ? AND item_id = ?`, stage, itemID).Scan(&h)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -108,7 +106,7 @@ func stamp(tx *sql.Tx, stage, itemID, version, hash string) error {
 
 func (s *Store) GlobalStamp(step string) (string, error) {
 	var h string
-	err := s.db.QueryRow(`SELECT input_hash FROM global_runs WHERE step = ?`, step).Scan(&h)
+	err := s.rdb.QueryRow(`SELECT input_hash FROM global_runs WHERE step = ?`, step).Scan(&h)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -135,6 +133,11 @@ type Chunk struct {
 // hashes include the chunk stage's.
 func (s *Store) ReplaceChunks(itemID, version, hash string, chunks []Chunk) error {
 	return s.tx(func(tx *sql.Tx) error {
+		// New passages (or a new title) are new input: what came from the
+		// passages before a relabel no longer stands for them.
+		if _, err := tx.Exec(`DELETE FROM stage_runs WHERE stage = ? AND item_id = ?`, RelabelledStage, itemID); err != nil {
+			return err
+		}
 		// The same passages under a new title (the meeting was linked to its
 		// calendar event, or renamed) keep their rows: deleting them would
 		// cascade to the statements, digests and vectors that point at them.
@@ -164,7 +167,7 @@ func (s *Store) ReplaceChunks(itemID, version, hash string, chunks []Chunk) erro
 // ChunkTitle is the title an item's passages carry ("" when it has none).
 func (s *Store) ChunkTitle(itemID string) (string, error) {
 	var t string
-	err := s.db.QueryRow(`SELECT title FROM chunks WHERE item_id = ? ORDER BY seq LIMIT 1`, itemID).Scan(&t)
+	err := s.rdb.QueryRow(`SELECT title FROM chunks WHERE item_id = ? ORDER BY seq LIMIT 1`, itemID).Scan(&t)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
@@ -199,7 +202,7 @@ func sameChunks(tx *sql.Tx, itemID string, chunks []Chunk) (bool, error) {
 }
 
 func (s *Store) Chunks(itemID string) ([]Chunk, error) {
-	rows, err := s.db.Query(`SELECT id, item_id, seq, seg_from, seg_to, start_s, end_s, speakers, title, text FROM chunks WHERE item_id = ? ORDER BY seq`, itemID)
+	rows, err := s.rdb.Query(`SELECT id, item_id, seq, seg_from, seg_to, start_s, end_s, speakers, title, text FROM chunks WHERE item_id = ? ORDER BY seq`, itemID)
 	if err != nil {
 		return nil, err
 	}
@@ -255,11 +258,13 @@ func (s *Store) PutVecs(itemID, stage, model, version, hash string, vecs map[int
 		if _, err := tx.Exec(`DELETE FROM chunk_codes WHERE model = ? AND chunk_id IN (SELECT id FROM chunks WHERE item_id = ?)`, model, itemID); err != nil {
 			return err
 		}
-		for id, v := range vecs {
-			b, err := sqlite_vec.SerializeFloat32(v)
-			if err != nil {
+		if s.VectorEncoding == VecF16 && len(vecs) > 0 {
+			if err := metaSet(tx, metaChunkF16, "1"); err != nil {
 				return err
 			}
+		}
+		for id, v := range vecs {
+			b := s.encodeVec(v)
 			if _, err := tx.Exec(`INSERT INTO chunk_vecs(chunk_id, model, vec) VALUES (?,?,?)`, id, model, b); err != nil {
 				return err
 			}
@@ -324,7 +329,7 @@ func (s *Store) ReplaceEntities(ents []Entity, aliases []Alias) error {
 }
 
 func (s *Store) AllAliases() ([]Alias, error) {
-	rows, err := s.db.Query(`SELECT alias, entity_id, kind FROM entity_aliases`)
+	rows, err := s.rdb.Query(`SELECT alias, entity_id, kind FROM entity_aliases`)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +366,7 @@ func (s *Store) ReplaceLinks(rel string, links []Link) error {
 
 // LinksFrom returns item → linked item ids for rel.
 func (s *Store) LinksFrom(rel string) (map[string]string, error) {
-	rows, err := s.db.Query(`SELECT item_id, other_id FROM item_links WHERE rel = ?`, rel)
+	rows, err := s.rdb.Query(`SELECT item_id, other_id FROM item_links WHERE rel = ?`, rel)
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +501,7 @@ type Stats struct {
 func (s *Store) Stats() (*Stats, error) {
 	st := &Stats{ItemsByKind: map[string]int{}, ItemLevels: map[string]int{}, ChunkLevels: map[string]int{}, Categories: map[string]int{}, Vectors: map[string]int{}, Entities: map[string]int{}}
 	count := func(q string, into map[string]int, name func(string) string) error {
-		rows, err := s.db.Query(q)
+		rows, err := s.rdb.Query(q)
 		if err != nil {
 			return err
 		}
@@ -532,7 +537,7 @@ func (s *Store) Stats() (*Stats, error) {
 			return nil, err
 		}
 	}
-	rows, err := s.db.Query(`SELECT categories FROM labels WHERE categories != 0`)
+	rows, err := s.rdb.Query(`SELECT categories FROM labels WHERE categories != 0`)
 	if err != nil {
 		return nil, err
 	}
@@ -544,17 +549,17 @@ func (s *Store) Stats() (*Stats, error) {
 		}
 	}
 	rows.Close()
-	s.db.QueryRow(`SELECT count(*) FROM chunks`).Scan(&st.Chunks)
-	s.db.QueryRow(`SELECT count(*), count(*) FILTER (WHERE entity_id IS NULL) FROM mentions`).Scan(&st.Mentions, &st.Ambiguous)
-	s.db.QueryRow(`SELECT count(*) FROM items WHERE kind = 'meeting'`).Scan(&st.Meetings)
-	s.db.QueryRow(`SELECT count(*) FROM item_links WHERE rel = 'occurred_as'`).Scan(&st.MeetingsLinked)
+	s.rdb.QueryRow(`SELECT count(*) FROM chunks`).Scan(&st.Chunks)
+	s.rdb.QueryRow(`SELECT count(*), count(*) FILTER (WHERE entity_id IS NULL) FROM mentions`).Scan(&st.Mentions, &st.Ambiguous)
+	s.rdb.QueryRow(`SELECT count(*) FROM items WHERE kind = 'meeting'`).Scan(&st.Meetings)
+	s.rdb.QueryRow(`SELECT count(*) FROM item_links WHERE rel = 'occurred_as'`).Scan(&st.MeetingsLinked)
 	return st, nil
 }
 
 // ItemLabels returns an item's own label and its chunk escalations, for
 // inspection by the owner.
 func (s *Store) ItemLabels(itemID string) (map[int]sensitivity.Label, error) {
-	rows, err := s.db.Query(`SELECT chunk_seq, level, categories, origin, confidence, reason FROM labels WHERE item_id = ?`, itemID)
+	rows, err := s.rdb.Query(`SELECT chunk_seq, level, categories, origin, confidence, reason FROM labels WHERE item_id = ?`, itemID)
 	if err != nil {
 		return nil, err
 	}
@@ -627,7 +632,7 @@ type MeetingRef struct {
 // Meetings lists Tomoe recordings with their linked titles, newest first,
 // for the owner's replay picker.
 func (s *Store) Meetings(limit int) ([]MeetingRef, error) {
-	rows, err := s.db.Query(`SELECT i.id, i.ref, `+displayTitle("i")+`, i.occurred_at, (SELECT count(*) FROM chunks c WHERE c.item_id = i.id)
+	rows, err := s.rdb.Query(`SELECT i.id, i.ref, `+displayTitle("i")+`, i.occurred_at, (SELECT count(*) FROM chunks c WHERE c.item_id = i.id)
 		FROM items i LEFT JOIN item_links l ON l.item_id = i.id AND l.rel = 'occurred_as' LEFT JOIN items e ON e.id = l.other_id
 		WHERE i.kind = 'meeting' ORDER BY i.occurred_at DESC LIMIT ?`, limit)
 	if err != nil {
@@ -648,7 +653,7 @@ func (s *Store) Meetings(limit int) ([]MeetingRef, error) {
 // EntityNames maps entity ids to name and type, for the live spotter. The
 // spotter's output is shown only through scoped reads (EntityGraph).
 func (s *Store) EntityNames() (map[string][2]string, error) {
-	rows, err := s.db.Query(`SELECT id, name, type FROM entities`)
+	rows, err := s.rdb.Query(`SELECT id, name, type FROM entities`)
 	if err != nil {
 		return nil, err
 	}
@@ -669,23 +674,31 @@ func (s *Store) EntityNames() (map[string][2]string, error) {
 // one they organized or accepted comes first, then tentative ones, then the
 // latest to start.
 func (s *Store) EventAt(t time.Time) (string, []item.Participant, error) {
-	var title, ps string
-	err := s.db.QueryRow(`SELECT title, participants FROM items WHERE kind = 'event' AND occurred_at <= ? AND ended_at > ?
+	_, title, invited, err := s.EventMatchAt(t)
+	return title, invited, err
+}
+
+// EventMatchAt is EventAt with the event's item id, so the live panel can
+// load that event's prep. Owner-only display; the prep itself is read
+// through scoped reads.
+func (s *Store) EventMatchAt(t time.Time) (string, string, []item.Participant, error) {
+	var id, title, ps string
+	err := s.rdb.QueryRow(`SELECT id, title, participants FROM items WHERE kind = 'event' AND occurred_at <= ? AND ended_at > ?
 		AND ended_at - occurred_at <= 4 * 3600 AND native NOT LIKE '%"allDay":"true"%' AND native NOT LIKE '%"cancelled":"true"%'
 		AND native NOT LIKE '%"showAs":"free"%' AND native NOT LIKE '%"response":"declined"%'
 		ORDER BY (native LIKE '%"response":"organizer"%' OR native LIKE '%"response":"accepted"%') DESC,
-			native LIKE '%"response":"tentativelyAccepted"%' DESC, occurred_at DESC LIMIT 1`, t.Unix()+15*60, t.Unix()).Scan(&title, &ps)
+			native LIKE '%"response":"tentativelyAccepted"%' DESC, occurred_at DESC LIMIT 1`, t.Unix()+15*60, t.Unix()).Scan(&id, &title, &ps)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil, nil
+		return "", "", nil, nil
 	}
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	var invited []item.Participant
 	if err := json.Unmarshal([]byte(ps), &invited); err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
-	return title, invited, nil
+	return id, title, invited, nil
 }
 
 func textHash(s string) string {
@@ -699,7 +712,7 @@ type ItemTitle struct{ Title, Source, Input string }
 
 // GivenTitles returns the names Musubi gave items, by item.
 func (s *Store) GivenTitles() (map[string]ItemTitle, error) {
-	rows, err := s.db.Query(`SELECT item_id, title, source, input FROM item_titles`)
+	rows, err := s.rdb.Query(`SELECT item_id, title, source, input FROM item_titles`)
 	if err != nil {
 		return nil, err
 	}
@@ -729,4 +742,26 @@ func (s *Store) SetItemTitle(itemID, title, source, input string) error {
 // it, else its own title.
 func displayTitle(a string) string {
 	return `coalesce((SELECT de.title FROM item_links dl JOIN items de ON de.id = dl.other_id WHERE dl.item_id = ` + a + `.id AND dl.rel = 'occurred_as'), (SELECT dt.title FROM item_titles dt WHERE dt.item_id = ` + a + `.id), ` + a + `.title)`
+}
+
+// WorkStamp changes whenever the work queue's answer can: an item
+// imported, changed or forgotten (the manifest records each fetch that
+// changed it), a stage run, a thread placement. It reads only counts and
+// maxima, so asking it is cheap where the queue itself reads every item.
+func (s *Store) WorkStamp() (string, error) {
+	var items, threadItems, maxThreadRow int64
+	var maxFetch, maxRun sql.NullInt64
+	if err := s.rdb.QueryRow(`SELECT count(*) FROM items`).Scan(&items); err != nil {
+		return "", err
+	}
+	if err := s.rdb.QueryRow(`SELECT max(fetched_at) FROM raw_manifest`).Scan(&maxFetch); err != nil {
+		return "", err
+	}
+	if err := s.rdb.QueryRow(`SELECT max(ran_at) FROM stage_runs`).Scan(&maxRun); err != nil {
+		return "", err
+	}
+	if err := s.rdb.QueryRow(`SELECT count(*), coalesce(max(rowid), 0) FROM thread_items`).Scan(&threadItems, &maxThreadRow); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d/%d/%d/%d/%d", items, maxFetch.Int64, maxRun.Int64, threadItems, maxThreadRow), nil
 }

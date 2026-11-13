@@ -163,7 +163,15 @@ func (s *Store) vectorIDs(sc sensitivity.Scope, q SearchQuery, depth int) ([]int
 	}
 	vis, vargs := visSQL(sc, "il", "cl", "c.item_id")
 	ts, targs := timeSQL(q)
+	f16, err := s.metaGet(metaChunkF16)
+	if err != nil {
+		return nil, err
+	}
 	exact := func() ([]int64, error) {
+		if f16 != "" {
+			args := append([]any{q.Model}, vargs...)
+			return s.rankMixed(`WHERE v.model = ? AND `+vis+ts, append(args, targs...), q.Vec, depth)
+		}
 		query := `SELECT c.id FROM chunk_vecs v JOIN chunks c ON c.id = v.chunk_id JOIN items i ON i.id = c.item_id` + chunkVisJoin +
 			`WHERE v.model = ? AND ` + vis + ts + ` ORDER BY vec_distance_cosine(v.vec, ?) LIMIT ?`
 		args := append([]any{q.Model}, vargs...)
@@ -189,15 +197,21 @@ func (s *Store) vectorIDs(sc sensitivity.Scope, q SearchQuery, depth int) ([]int
 		}
 		cands := ix.Nearest(q.Vec, k)
 		ph := strings.TrimSuffix(strings.Repeat("?,", len(cands)), ",")
-		query := `SELECT c.id FROM chunk_vecs v JOIN chunks c ON c.id = v.chunk_id JOIN items i ON i.id = c.item_id` + chunkVisJoin +
-			`WHERE v.model = ? AND v.chunk_id IN (` + ph + `) AND ` + vis + ts + ` ORDER BY vec_distance_cosine(v.vec, ?)`
 		args := []any{q.Model}
 		for _, id := range cands {
 			args = append(args, id)
 		}
 		args = append(args, vargs...)
-		args = append(append(args, targs...), b)
-		ids, err := s.ids(query, args...)
+		args = append(args, targs...)
+		var ids []int64
+		var err error
+		if f16 != "" {
+			ids, err = s.rankMixed(`WHERE v.model = ? AND v.chunk_id IN (`+ph+`) AND `+vis+ts, args, q.Vec, 0)
+		} else {
+			query := `SELECT c.id FROM chunk_vecs v JOIN chunks c ON c.id = v.chunk_id JOIN items i ON i.id = c.item_id` + chunkVisJoin +
+				`WHERE v.model = ? AND v.chunk_id IN (` + ph + `) AND ` + vis + ts + ` ORDER BY vec_distance_cosine(v.vec, ?)`
+			ids, err = s.ids(query, append(args, b)...)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -207,8 +221,46 @@ func (s *Store) vectorIDs(sc sensitivity.Scope, q SearchQuery, depth int) ([]int
 	}
 }
 
+// rankMixed orders the passages matching where (over chunk_vecs v, chunks
+// c, items i and the visibility join) nearest first, when some vectors are
+// f16, which sqlite-vec can't read: every vector is decoded and scored in
+// Go the way vec_distance_cosine scores it. limit 0 keeps all.
+func (s *Store) rankMixed(where string, args []any, q []float32, limit int) ([]int64, error) {
+	rows, err := s.db.Query(`SELECT c.id, v.vec FROM chunk_vecs v JOIN chunks c ON c.id = v.chunk_id JOIN items i ON i.id = c.item_id`+chunkVisJoin+where, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	type scored struct {
+		id int64
+		d  float64
+	}
+	var all []scored
+	for rows.Next() {
+		var r scored
+		var b []byte
+		if err := rows.Scan(&r.id, &b); err != nil {
+			return nil, err
+		}
+		r.d = cosineDistance32(decodeVec(b), q)
+		all = append(all, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.SliceStable(all, func(i, j int) bool { return all[i].d < all[j].d })
+	if limit > 0 && len(all) > limit {
+		all = all[:limit]
+	}
+	out := make([]int64, len(all))
+	for i, r := range all {
+		out[i] = r.id
+	}
+	return out, nil
+}
+
 func (s *Store) ids(query string, args ...any) ([]int64, error) {
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.rdb.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +290,7 @@ func (s *Store) hit(sc sensitivity.Scope, chunkID int64) (*Hit, error) {
 	var occ int64
 	var lvl int
 	var cats int64
-	err := s.db.QueryRow(q, args...).Scan(&h.ChunkID, &h.ItemID, &h.Kind, &h.Title, &occ, &h.Seq, &h.Start, &h.End, &h.Speakers, &h.Text, &lvl, &cats, &h.Label.Reason)
+	err := s.rdb.QueryRow(q, args...).Scan(&h.ChunkID, &h.ItemID, &h.Kind, &h.Title, &occ, &h.Seq, &h.Start, &h.End, &h.Speakers, &h.Text, &lvl, &cats, &h.Label.Reason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -306,7 +358,7 @@ func (s *Store) FindEntities(sc sensitivity.Scope, q string) ([]EntityRef, error
 	lq := strings.ToLower(strings.TrimSpace(q))
 	// Exact matches first (an id, a bare email or domain, an alias, a
 	// name), then names containing the text, for typing "dana" or "acme".
-	rows, err := s.db.Query(`SELECT e.id, e.type, e.name, e.origin, e.level, min(r) FROM (
+	rows, err := s.rdb.Query(`SELECT e.id, e.type, e.name, e.origin, e.level, min(r) FROM (
 			SELECT e.id, 0 r FROM entities e WHERE e.id IN (?, 'person:' || ?, 'org:' || ?, 'term:' || ?)
 			UNION ALL SELECT a.entity_id, 1 FROM entity_aliases a WHERE a.alias = ?
 			UNION ALL SELECT e.id, 1 FROM entities e WHERE lower(e.name) = ?
@@ -373,7 +425,7 @@ func (s *Store) entityItems(sc sensitivity.Scope, entityID string, limit int) ([
 	args = append(args, entityID)
 	args = append(args, iargs...)
 	args = append(args, limit)
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.rdb.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +451,7 @@ func (s *Store) entityItems(sc sensitivity.Scope, entityID string, limit int) ([
 func (s *Store) EntityGraph(sc sensitivity.Scope, entityID string, exclude []string, limit int) (*Graph, error) {
 	var e Entity
 	var lvl int
-	err := s.db.QueryRow(`SELECT id, type, name, origin, level FROM entities WHERE id = ?`, entityID).Scan(&e.ID, &e.Type, &e.Name, &e.Origin, &lvl)
+	err := s.rdb.QueryRow(`SELECT id, type, name, origin, level FROM entities WHERE id = ?`, entityID).Scan(&e.ID, &e.Type, &e.Name, &e.Origin, &lvl)
 	e.Level = sensitivity.Level(lvl)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -452,14 +504,16 @@ func (s *Store) EntityGraph(sc sensitivity.Scope, entityID string, exclude []str
 		cvis, cargs := visSQL(sc, "il", "cl", "c.item_id")
 		ivis, iargs := visSQL(sc, "il", "", "ie.item_id")
 		q := `SELECT en.id, en.type, en.name, en.level FROM mentions mm JOIN chunks c ON c.id = mm.chunk_id` + chunkVisJoin + `
-			JOIN entities en ON en.id = mm.entity_id WHERE c.item_id = ? AND ` + cvis + `
+			JOIN entities en ON en.id = mm.entity_id WHERE mm.item_id = ? AND c.item_id = ? AND ` + cvis + `
 			UNION
 			SELECT en.id, en.type, en.name, en.level FROM item_entities ie JOIN labels il ON il.item_id = ie.item_id AND il.chunk_seq = -1
 			JOIN entities en ON en.id = ie.entity_id WHERE ie.item_id = ? AND ` + ivis
-		args := append([]any{it.ID}, cargs...)
+		// mm.item_id lets SQLite use mentions_item instead of scanning every
+		// mention for each item (a mention's item is its passage's).
+		args := append([]any{it.ID, it.ID}, cargs...)
 		args = append(args, it.ID)
 		args = append(args, iargs...)
-		rows, err := s.db.Query(q, args...)
+		rows, err := s.rdb.Query(q, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -502,7 +556,7 @@ func (s *Store) Audit(sc sensitivity.Scope, op, detail string) error {
 
 // AuditCounts counts the audited reads made under a scope name, by op.
 func (s *Store) AuditCounts(scope string) (map[string]int, error) {
-	rows, err := s.db.Query(`SELECT op, count(*) FROM audit WHERE scope = ? GROUP BY op`, scope)
+	rows, err := s.rdb.Query(`SELECT op, count(*) FROM audit WHERE scope = ? GROUP BY op`, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -526,7 +580,7 @@ func (s *Store) ChunkLabel(chunkID int64) (sensitivity.Label, []string, error) {
 	var lvl int
 	var cats int64
 	var itemID string
-	err := s.db.QueryRow(`SELECT c.item_id, max(il.level, coalesce(cl.level, 0)), (il.categories | coalesce(cl.categories, 0))
+	err := s.rdb.QueryRow(`SELECT c.item_id, max(il.level, coalesce(cl.level, 0)), (il.categories | coalesce(cl.categories, 0))
 		FROM chunks c`+chunkVisJoin+`WHERE c.id = ?`, chunkID).Scan(&itemID, &lvl, &cats)
 	if err != nil {
 		return sensitivity.Label{}, nil, fmt.Errorf("chunk %d has no label: %w", chunkID, err)
@@ -539,7 +593,7 @@ func (s *Store) ChunkLabel(chunkID int64) (sensitivity.Label, []string, error) {
 func (s *Store) ItemLabel(itemID string) (sensitivity.Label, []string, error) {
 	var lvl int
 	var cats int64
-	err := s.db.QueryRow(`SELECT level, categories FROM labels WHERE item_id = ? AND chunk_seq = -1`, itemID).Scan(&lvl, &cats)
+	err := s.rdb.QueryRow(`SELECT level, categories FROM labels WHERE item_id = ? AND chunk_seq = -1`, itemID).Scan(&lvl, &cats)
 	if err != nil {
 		return sensitivity.Label{}, nil, fmt.Errorf("item %s has no label: %w", itemID, err)
 	}
@@ -548,7 +602,7 @@ func (s *Store) ItemLabel(itemID string) (sensitivity.Label, []string, error) {
 }
 
 func (s *Store) audience(itemID string) ([]string, error) {
-	rows, err := s.db.Query(`SELECT principal FROM item_audience WHERE item_id = ?`, itemID)
+	rows, err := s.rdb.Query(`SELECT principal FROM item_audience WHERE item_id = ?`, itemID)
 	if err != nil {
 		return nil, err
 	}
@@ -586,7 +640,7 @@ type ItemView struct {
 // Item returns the visible chunks of an item, in order.
 func (s *Store) Item(sc sensitivity.Scope, itemID string) (*ItemView, error) {
 	vis, vargs := visSQL(sc, "il", "cl", "c.item_id")
-	rows, err := s.db.Query(`SELECT c.id FROM chunks c`+chunkVisJoin+`WHERE c.item_id = ? AND `+vis+` ORDER BY c.seq`, append([]any{itemID}, vargs...)...)
+	rows, err := s.rdb.Query(`SELECT c.id FROM chunks c`+chunkVisJoin+`WHERE c.item_id = ? AND `+vis+` ORDER BY c.seq`, append([]any{itemID}, vargs...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -633,7 +687,7 @@ func (s *Store) ItemTitles(sc sensitivity.Scope, ids []string) (map[string]ItemR
 			args = append(args, id)
 		}
 		args = append(args, vargs...)
-		rows, err := s.db.Query(q, args...)
+		rows, err := s.rdb.Query(q, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -675,7 +729,7 @@ func (s *Store) EntityTopicRefs(entityID string, names []string, limit int) ([]T
 		}
 	}
 	args = append(args, entityID, limit)
-	rows, err := s.db.Query(`SELECT id, label, sum(n) FROM (
+	rows, err := s.rdb.Query(`SELECT id, label, sum(n) FROM (
 			SELECT t.id, t.label, count(*) AS n FROM thread_items ti JOIN statements st ON st.id = ti.statement_id JOIN topics t ON t.id = ti.topic_id
 			WHERE ti.current = 1 AND (st.holder_id = ? OR lower(st.holder) IN (`+in+`)) AND t.label != '' GROUP BY t.id
 			UNION ALL

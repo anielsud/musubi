@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/anielsud/musubi/internal/recorder/speaker"
 	"github.com/anielsud/musubi/internal/recorder/transcribe"
 	"github.com/anielsud/musubi/internal/recorder/videohint"
+	"github.com/anielsud/musubi/internal/recorder/voices"
 )
 
 // meetingLanguages are the languages a meeting can be recorded in. The
@@ -34,11 +36,18 @@ var meetingLanguages = []string{"en"}
 type Recorder struct {
 	// cfg is replaced whole by reload_config, never changed in place, so
 	// whoever took the pointer (under mu) keeps a consistent config.
-	cfg   *config.Config
-	store *session.Store
+	cfg *config.Config
+	// bootCfg is the config the engines were built with: a reload that
+	// differs from it in what is only read at start waits for a restart.
+	bootCfg *config.Config
+	restart []string // needsRestart(bootCfg, cfg) at the last reload; under mu
+	store   *session.Store
 	// musubiConfig is Musubi's config file, whose [recorder.*] tables
 	// overlay Tomoe's (config.LoadRecorder).
 	musubiConfig string
+	// modelFetch downloads models (download_model); nil is HTTP. Tests
+	// replace it.
+	modelFetch models.Fetcher
 
 	// bundle holds the transcription/streaming engines, speaker
 	// embedder and model manager (see engineBundle). Guarded by mu.
@@ -115,9 +124,23 @@ type Recorder struct {
 	// health caches the tools' problems (healthLines); see refreshHealth.
 	health   []string
 	healthAt time.Time
+	// defaultMic caches the name of the system's default input, for
+	// naming a "default" mic selection in Status (refreshDefaultMic).
+	defaultMic   string
+	defaultMicAt time.Time
 
 	// The source check's probes (sourcecheck.go); tests swap them.
 	probes sourceProbes
+
+	// review is the Voices page's review lists (reviewindex.go).
+	review reviewIndex
+
+	// learnMu is held while every saved meeting is learnt (learn_saved,
+	// the relearn for new rules: relearn.go), one at a time.
+	learnMu sync.Mutex
+	// relearnStores, when set (tests), lists the stores the relearn
+	// checks instead of voiceStores.
+	relearnStores func() (map[string]*voices.Store, error)
 }
 
 // activeRecording is what a recording in progress needs to be stopped.
@@ -154,6 +177,7 @@ var (
 func New(cfg *config.Config) *Recorder {
 	r := &Recorder{
 		cfg:          cfg,
+		bootCfg:      cfg,
 		store:        session.NewStore(config.SessionDir()),
 		musubiConfig: config.MusubiPath(),
 		saves:        make(chan *saveRequest, pendingSaves),
@@ -174,31 +198,36 @@ func New(cfg *config.Config) *Recorder {
 // the engines, the speaker tracker and the meeting detector.
 func (a *Recorder) Start(ctx context.Context) error {
 	cfg := a.currentConfig()
+	a.startReviewIndex()
 	if err := a.startLiveFeed(cfg.Meeting.LiveFeed); err != nil {
 		fmt.Printf("Warning: live feed not started: %v\n", err)
 	}
 	// Before the owner voice is first read (and perhaps seeded), so it
 	// starts from Tomoe's; not once the recorder's own voices are of
-	// record.
-	if cfg.MusubiOfRecord {
-		fmt.Println("voices: the recorder is of record; Tomoe's voices are not copied")
+	// record, nor with Tomoe off.
+	if !cfg.CopiesTomoeVoices() {
+		fmt.Println("voices: the recorder is of record or Tomoe is off; Tomoe's voices are not copied")
 	} else if err := a.copyVoices(); err != nil {
 		fmt.Printf("Warning: voices not copied from Tomoe: %v\n", err)
 	}
-	status := models.NewManager(cfg.Transcription.ModelPath).WithLiveModel(cfg.Transcription.LiveModel).Check()
+	status := modelManager(cfg).Check()
 	a.setupEngines(ctx, cfg, status)
 	a.mu.Lock()
 	ready := a.bundle.engines != nil
 	a.mu.Unlock()
 	if !ready {
-		return fmt.Errorf("no transcription engine: are Tomoe's models in %s?", cfg.Transcription.ModelPath)
+		return fmt.Errorf("no transcription engine: are the models in %s?", strings.Join(config.ModelDirs(cfg), " or "))
+	}
+	// Only the recorder's own profiles: while Tomoe's are copied over
+	// them they'd be learnt again at every start.
+	if cfg.Meeting.VoiceProfiles && cfg.Meeting.VoiceProfileRelearn && !cfg.CopiesTomoeVoices() {
+		go a.relearnForRules(ctx)
 	}
 	return nil
 }
 
 // SetMusubiConfig points the recorder at Musubi's config file for
 // reload_config and the config watcher (config.MusubiPath by default).
-// Call before Start.
 func (a *Recorder) SetMusubiConfig(path string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -233,17 +262,12 @@ func (a *Recorder) setupEngines(ctx context.Context, cfg *config.Config, status 
 	// rebuild, no relaunch. See MeetingConfig's doc comment for why this
 	// exists. tracker has its own internal lock (see speaker.Tracker), so
 	// this closure needs no synchronization against a.mu of its own.
-	configWatchStop := config.Watch(config.Path(), 2*time.Second, func(newCfg *config.Config) {
-		// Musubi's [recorder.*] keys still win over the edited file.
-		a.mu.Lock()
-		musubi := a.musubiConfig
-		a.mu.Unlock()
-		if _, err := config.OverlayMusubi(newCfg, musubi); err != nil {
-			fmt.Printf("config: %v; tuning from Tomoe's file alone\n", err)
-		}
-		tracker.SetTuning(tuningFromConfig(newCfg))
-		fmt.Printf("config: reloaded speaker clustering tuning: %+v\n", tracker.Tuning())
-	})
+	// With Tomoe off its file isn't watched (nor read): Musubi's settings
+	// arrive through reload_config.
+	configWatchStop := func() {}
+	if !cfg.TomoeOff {
+		configWatchStop = a.watchTomoeConfig(tracker)
+	}
 
 	detector := startDetector(ctx, cfg)
 
@@ -264,6 +288,28 @@ func (a *Recorder) setupEngines(ctx context.Context, cfg *config.Config, status 
 	a.configWatchStop = configWatchStop
 	a.detector = detector
 	a.mu.Unlock()
+}
+
+// watchTomoeConfig retunes tracker whenever Tomoe's config file changes,
+// with Musubi's [recorder.*] keys still over it; ignored once a
+// reload_config has turned Tomoe off.
+func (a *Recorder) watchTomoeConfig(tracker *speaker.Tracker) (stop func()) {
+	return config.Watch(config.Path(), 2*time.Second, func(newCfg *config.Config) {
+		a.mu.Lock()
+		musubi, off := a.musubiConfig, a.cfg.TomoeOff
+		a.mu.Unlock()
+		if off {
+			return
+		}
+		if _, err := config.OverlayMusubi(newCfg, musubi); err != nil {
+			fmt.Printf("config: %v; tuning from Tomoe's file alone\n", err)
+		}
+		if newCfg.TomoeOff {
+			return
+		}
+		tracker.SetTuning(tuningFromConfig(newCfg))
+		fmt.Printf("config: reloaded speaker clustering tuning: %+v\n", tracker.Tuning())
+	})
 }
 
 // engineBundle is everything built from the config and the downloaded
@@ -305,7 +351,7 @@ func engineConfig(cfg *config.Config, status *models.Status) transcribe.Config {
 // aren't downloaded (or fail to load) is left nil; callers already treat
 // each piece as optional except engines, which StartSession requires.
 func buildEngines(cfg *config.Config, status *models.Status) engineBundle {
-	b := engineBundle{modelMgr: models.NewManager(cfg.Transcription.ModelPath).WithLiveModel(cfg.Transcription.LiveModel)}
+	b := engineBundle{modelMgr: modelManager(cfg)}
 	videohint.SetOCRModels(status.OCRModelPath(models.OCRDetector), status.OCRModelPath(models.OCRRecognizer))
 
 	// Without the final models there is nothing to record with; Start

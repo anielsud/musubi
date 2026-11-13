@@ -3,6 +3,8 @@ import { api, fmtDate } from '../api';
 import type { DirectoryPerson, PersonPage } from '../types';
 import { Spinner } from './common';
 import { Name } from './people';
+import { ActNotes, ReviewItems, VoiceProfileCard, VoicesError, readOnlyWhy, useAct, useEditable, useVoices } from './voices';
+import type { VoicesView } from '../types';
 
 // PersonView is a person's page: who they are (Microsoft 365 directory),
 // what they look and sound like (from Tomoe's recordings), and what the
@@ -83,8 +85,38 @@ export function PersonView({ id, scope, onPick, onOpenItem, onTopic }: {
         ))}</ul>
       </>}
 
+      <PersonVoice names={[p.name, ...p.names]} />
+
       {p.names.length > 1 && <div className="dim small">also known as {p.names.filter((n) => n !== p.name.toLowerCase()).slice(0, 6).map((n, i) => <span key={n}>{i > 0 && ', '}<Name name={n} /></span>)}</div>}
     </div>
+  );
+}
+
+// PersonVoice is the recorder's voice profiles for this person, matched by
+// name (all of them: two people can share a name), with the "Same
+// person?" and "Two profiles, one name?" pairs they are in.
+function PersonVoice({ names }: { names: string[] }) {
+  const { view, err } = useVoices();
+  const a = useAct();
+  const editable = useEditable();
+  const fold = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+  // The person's own name and other full names only: a bare first name
+  // ("kevin") would put a "Kevin" profile on every Kevin's page.
+  const want = new Set(names.map(fold).filter((n, i) => i === 0 || n.includes(' ')));
+  const profiles = (view?.profiles ?? []).filter((v) => want.has(fold(v.name)));
+  if (err) return <><div className="section-head"><span>Voice</span></div><VoicesError err={err} /></>;
+  if (!view || profiles.length === 0) return null;
+  const ids = new Set(profiles.map((x) => x.id));
+  const pairs: VoicesView = { ...view, namedByVoice: [], doubts: [], unknown: [], pairs: (view.pairs ?? []).filter((x) => ids.has(x.a) || ids.has(x.b)),
+    sameName: (view.sameName ?? []).filter((x) => ids.has(x.a) || ids.has(x.b)) };
+  return (
+    <>
+      <div className="section-head"><span>Voice</span></div>
+      {!editable && <div className="dim small">{readOnlyWhy}</div>}
+      {profiles.map((v) => <VoiceProfileCard key={v.model + '/' + v.id} p={v} editable={editable} a={a} />)}
+      <ReviewItems view={pairs} editable={editable} a={a} />
+      <ActNotes a={a} />
+    </>
   );
 }
 

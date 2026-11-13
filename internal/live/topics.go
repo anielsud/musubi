@@ -210,6 +210,10 @@ func (l *Live) showTopic(cycle int, topic knowledge.Anchor, why string, spokenAg
 // emitTopics rebuilds every card on the panel under the current scope and
 // sends them: a scope change (screen sharing) narrows them at once.
 func (l *Live) emitTopics(cycle int) {
+	labelled("cards", func() { l.emitTopicsNow(cycle) })
+}
+
+func (l *Live) emitTopicsNow(cycle int) {
 	t0 := time.Now()
 	l.mu.Lock()
 	cs, shown, scopeName := l.topicIx, append([]shownTopic(nil), l.topics...), l.scope
@@ -230,7 +234,7 @@ func (l *Live) emitTopics(cycle int) {
 	out, kept := []TopicCard{}, []TopicCard{}
 	if cs != nil {
 		if sc, err := l.eng.Scope(scopeName); err == nil {
-			sts, _ := l.eng.Store.ThreadStatuses(sc)
+			sts, _ := l.threadStatuses(sc)
 			build := func(t shownTopic) *TopicCard {
 				c, err := l.cardOf(cs, sc, scopeName, t.id, now)
 				if err != nil || c == nil {

@@ -6,11 +6,12 @@ import { ModelsTab } from './settings/ModelsTab';
 import { Prefs, StorageCard } from './settings/Prefs';
 import { ProcessingTab } from './settings/ProcessingTab';
 import { ProvidersTab } from './settings/ProvidersTab';
+import { RecordingTab } from './settings/RecordingTab';
 
 // Settings is what to set up once and leave alone; what to watch and act
 // on is on Status.
-type Tab = 'accounts' | 'providers' | 'models' | 'processing' | 'dataset';
-const tabs: [Tab, string][] = [['accounts', 'Accounts'], ['providers', 'AI providers'], ['models', 'Models'], ['processing', 'Processing'], ['dataset', 'Dataset']];
+type Tab = 'accounts' | 'providers' | 'models' | 'processing' | 'recording' | 'dataset';
+const tabs: [Tab, string][] = [['accounts', 'Accounts'], ['providers', 'AI providers'], ['models', 'Models'], ['processing', 'Processing'], ['recording', 'Recording'], ['dataset', 'Dataset']];
 
 export function SettingsView({ status }: { status: AppStatus | null }) {
   const [tab, setTab] = useState<Tab>(() => {
@@ -18,15 +19,18 @@ export function SettingsView({ status }: { status: AppStatus | null }) {
   });
   const pick = (t: Tab) => { setTab(t); try { localStorage.setItem('settings-tab', t); } catch { /* not kept */ } };
   return (
-    <div className="view status-page">
+    <div className="view status-page settings-page">
       <nav className="subtabs">
         {tabs.map(([t, label]) => <button key={t} className={tab === t ? 'active' : ''} onClick={() => pick(t)}>{label}</button>)}
       </nav>
+      <div className="settings-body">
       {tab === 'accounts' && <><M365Card status={status} /><Prefs tab="accounts" /></>}
       {tab === 'providers' && <ProvidersTab />}
       {tab === 'models' && <ModelsTab />}
       {tab === 'processing' && <ProcessingTab />}
+      {tab === 'recording' && <RecordingTab />}
       {tab === 'dataset' && <><StorageCard /><Prefs tab="dataset" /></>}
+      </div>
     </div>
   );
 }

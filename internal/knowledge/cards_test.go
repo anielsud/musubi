@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -225,5 +226,52 @@ func TestWordUseStrayPossessive(t *testing.T) {
 	u := wordUse([]store.CardRow{{Text: "the team's 's plan ' and Jo said Ana 's"}})
 	if u.total["plan"] != 1 || u.speaker["jo"] != 1 {
 		t.Fatalf("usage = %+v", u)
+	}
+}
+
+// dedupeLines keeps exactly what comparing each pair with wordOverlap kept.
+func TestDedupeLinesMatchesPairwise(t *testing.T) {
+	texts := []string{
+		"The launch moved to May after the vendor slipped",
+		"Launch moved to May because the vendor slipped again",
+		"Budget for the pilot is approved",
+		"The pilot budget was approved by finance",
+		"",
+		"ok",
+		"Hiring plan: two engineers in Lisbon",
+		"Two engineers in Lisbon are in the hiring plan",
+		"Vendor contract renewal is due in June",
+	}
+	var in []CardLine
+	for i, s := range texts {
+		in = append(in, CardLine{Text: s, Salience: float64(len(texts) - i%4)})
+	}
+	pairwise := func(in []CardLine) []string {
+		in = append([]CardLine(nil), in...)
+		sort.SliceStable(in, func(i, j int) bool { return in[i].Salience > in[j].Salience })
+		var out []string
+		var kept []CardLine
+		for _, l := range in {
+			dup := false
+			for _, o := range kept {
+				dup = dup || wordOverlap(l.Text, o.Text) >= 0.6
+			}
+			if !dup {
+				kept = append(kept, l)
+				out = append(out, l.Text)
+			}
+		}
+		return out
+	}
+	want := pairwise(in)
+	var got []string
+	for _, l := range dedupeLines(append([]CardLine(nil), in...)) {
+		got = append(got, l.Text)
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+	if len(want) == len(texts) {
+		t.Error("nothing was a repeat: the test proves nothing")
 	}
 }

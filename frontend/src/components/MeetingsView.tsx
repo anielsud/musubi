@@ -1,9 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { api, fmtDate } from '../api';
+import { api, fmtDate, on, speakerName } from '../api';
 import type { Hit, MeetingListItem, MeetingPage, MeetingToDo, PrepRequest, PrepTarget } from '../types';
 import { Empty, Spinner } from './common';
 import { Names } from './people';
 import { PrepPage } from './PrepView';
+import { LookTimeline } from './recorder';
+import { ActNotes, ReviewItems, VoicesError, openReviews, readOnlyWhy, useAct, useVoices } from './voices';
+import type { MeetingSpeakers, SplitResult, VoiceProfile } from '../types';
 
 // A meeting's page shows the summary in sections (each linked to where
 // in the meeting it was said), the to-dos said in it and how they stand
@@ -85,7 +88,8 @@ export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
     };
     const t = setTimeout(load, 150);
     const every = setInterval(load, 5 * 60 * 1000);
-    return () => { clearTimeout(t); clearInterval(every); };
+    const off = on<string>('meetings:changed', (id) => { setSel((s) => (s?.kind === 'recap' && s.id === id ? null : s)); load(); });
+    return () => { clearTimeout(t); clearInterval(every); off(); };
   }, [scope, active]);
   useEffect(() => { if (req) setSel({ kind: 'recap', id: req.id }); }, [req]);
 
@@ -323,6 +327,7 @@ function MeetingPageView({ id, scope, onBack, onOpen, onTopic, onPrep }: {
       {page && (
         <>
           <h2 className="meeting-h">{page.title || page.itemId} <span className="dim small">{fmtDate(page.start)}</span></h2>
+          <MeetingExport page={page} scope={scope} />
           <p className="meeting-overview">{page.overview}</p>
           {(page.topics?.length ?? 0) > 0 && (
             <div className="chips" title="Threads this meeting's statements are in">
@@ -365,6 +370,211 @@ function MeetingPageView({ id, scope, onBack, onOpen, onTopic, onPrep }: {
           </ul>
         </>
       )}
+      {scope === 'owner' && <MeetingRecording itemId={id} />}
     </div>
+  );
+}
+
+// notesMarkdown is the meeting page as Markdown: what the page shows in
+// its scope (the speakers only where the page lists them, owner scope),
+// nothing more.
+function notesMarkdown(page: MeetingPage, speakers: string[]): string {
+  const one = (x: string) => x.replace(/\s+/g, ' ').trim();
+  const at = new Date(page.start);
+  const out: string[] = [`# ${one(page.title || page.itemId)}`];
+  if (!isNaN(at.getTime()) && at.getFullYear() >= 2000) {
+    out.push(at.toLocaleString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }));
+  }
+  out.push('');
+  if (speakers.length) out.push(`**Speakers:** ${speakers.join(', ')}`);
+  if ((page.topics?.length ?? 0) > 0) out.push(`**Threads:** ${page.topics!.map((t) => one(t.label)).join(', ')}`);
+  if (speakers.length || (page.topics?.length ?? 0) > 0) out.push('');
+  if (page.overview) out.push(one(page.overview), '');
+  const sections = page.sections ?? [];
+  if (sections.length) {
+    out.push('## Summary', '');
+    for (const sec of sections) {
+      out.push(`### ${one(sec.subject)}`, one(sec.text));
+      if ((sec.people?.length ?? 0) > 0) out.push(`_${sec.people!.join(', ')}_`);
+      out.push('');
+    }
+  }
+  const todos = page.todos ?? [];
+  out.push(`## To-dos (${todos.length})`, '');
+  if (todos.length === 0) out.push('None listed.');
+  for (const t of todos) {
+    const bits = [(t.owners?.length ?? 0) > 0 ? t.owners!.join(', ') : 'owner unclear'];
+    if (t.due) bits.push(`due ${t.due}`); else if (t.dueText) bits.push(one(t.dueText));
+    bits.push(stateWords[t.state]);
+    if (agreedWords[t.agreed] && t.state !== 'declined') bits.push(agreedWords[t.agreed]);
+    out.push(`- [${t.state === 'done' ? 'x' : ' '}] ${one(t.text)} (${bits.join(' · ')})`);
+  }
+  return out.join('\n').trimEnd() + '\n';
+}
+
+// MeetingExport copies the page's notes and saves its transcript, each
+// under the page's scope.
+function MeetingExport({ page, scope }: { page: MeetingPage; scope: string }) {
+  const [note, setNote] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!note) return;
+    const t = setTimeout(() => setNote(''), 2500);
+    return () => clearTimeout(t);
+  }, [note]);
+  const copy = async () => {
+    setErr(''); setNote('');
+    try {
+      // The Speakers section is on the page in owner scope only.
+      const sp = scope === 'owner' ? await api.meetingSpeakers(page.itemId).catch(() => null) : null;
+      await api.copyText(notesMarkdown(page, (sp?.speakers ?? []).map((x) => speakerName(x.label))));
+      setNote('Copied');
+    } catch (e) { setErr(String(e)); }
+  };
+  const save = () => {
+    setErr(''); setNote(''); setBusy(true);
+    api.saveTranscript(page.itemId, scope).then((path) => { setBusy(false); if (path) setNote('Saved'); }, (e) => { setBusy(false); setErr(String(e)); });
+  };
+  return (
+    <div className="meeting-export">
+      <button className="link small" onClick={copy} title={scope === 'owner' ? 'Copy this page as Markdown' : 'Copy this page as Markdown: what the shared screen shows'}>Copy notes</button>
+      <button className="link small" onClick={save} disabled={busy} title={scope === 'owner' ? 'Save the transcript as a text file' : 'Save the transcript as a text file: the passages fine for a shared screen'}>Download transcript</button>
+      {note && <span className="ok-text small">{note}</span>}
+      {err && <span className="error small">{err}</span>}
+    </div>
+  );
+}
+
+// MeetingRecording is the recording behind a meeting: its speakers, with
+// the voice review for this meeting and renames; what the recorder saw of
+// the meeting window; and delete. Owner scope only: names come straight
+// from the recording. Edits need Musubi's recorder of record (and its
+// recording of this meeting).
+function MeetingRecording({ itemId }: { itemId: string }) {
+  const [sp, setSp] = useState<MeetingSpeakers | null | undefined>(undefined);
+  const { view, err } = useVoices();
+  const a = useAct();
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [splitting, setSplitting] = useState<string | null>(null);
+  const [split, setSplit] = useState<SplitResult | null>(null);
+  const [looks, setLooks] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  useEffect(() => {
+    const load = () => api.meetingSpeakers(itemId).then(setSp, () => setSp(null));
+    load();
+    return on('voices:changed', load);
+  }, [itemId]);
+  if (!sp) return null;
+  const editable = sp.editable;
+  const reviews = openReviews(view, sp.session);
+  const rename = (label: string, name: string) => {
+    setRenaming(null);
+    a.act('rename/' + label, () => api.recorderSpeaker('rename_speaker', sp.session, label, name), `Named ${speakerName(label)} ${name}.`);
+  };
+  return (
+    <>
+      <div className="section-head"><span>Speakers ({sp.speakers.length})</span>{reviews > 0 && <span className="badge">{reviews} to check</span>}</div>
+      {!editable && <div className="dim small">{sp.why || readOnlyWhy}</div>}
+      <VoicesError err={err} />
+      {view && <ReviewItems view={view} session={sp.session} editable={editable} a={a} showTitle={false} />}
+      {sp.speakers.length > 0 && <div className="review-head">Everyone heard</div>}
+      <ul className="speaker-list">
+        {sp.speakers.map((s) => (
+          <li key={s.label}>
+            {renaming === s.label ? <SpeakerNameForm start={speakerName(s.label).startsWith('Person ') ? '' : speakerName(s.label)} onName={(n) => rename(s.label, n)} onCancel={() => setRenaming(null)} /> : (
+              <>
+                <span>{speakerName(s.label)}</span>
+                <span className="dim small"> · {s.lines} {s.lines === 1 ? 'line' : 'lines'}, {Math.round(s.seconds / 60) || '<1'} min</span>
+                {editable && s.label !== 'You' && <button className="link" disabled={a.busy !== null} title="Give this speaker another name in this meeting; their voice learns from it" onClick={() => setRenaming(s.label)}>rename</button>}
+                {editable && s.label !== 'You' && (view?.profiles ?? []).length >= 2 && <button className="link" disabled={a.busy !== null} title="Two people under one name? Give each line to the voice it sounds like" onClick={() => { setSplit(null); setSplitting(s.label); }}>split by voice…</button>}
+              </>
+            )}
+            {splitting === s.label && <SplitForm session={sp.session} label={s.label} profiles={view?.profiles ?? []} a={a}
+              onDone={(r) => { setSplitting(null); setSplit(r); }} onCancel={() => setSplitting(null)} />}
+          </li>
+        ))}
+      </ul>
+      {split?.batch && (
+        <div className="confirm-row">
+          <span className="small">Split by voice: {(split.counts ?? []).filter((c) => c.lines > 0).map((c) => `${c.lines} to ${c.label}`).join(', ')}{split.undecided > 0 && `, ${split.undecided} left as they were`}.</span>
+          <button disabled={a.busy !== null} title="Put those lines back on the speaker they had; Musubi reads the meeting again" onClick={() => { const b = split.batch!; setSplit(null); a.act('split', () => api.undoSplit(b), 'Put the lines back.'); }}>Undo</button>
+          <button title="Keep the split" onClick={() => setSplit(null)}>OK</button>
+        </div>
+      )}
+      <ActNotes a={a} />
+      <div className="section-head"><span>What Musubi saw</span><button className="link" onClick={() => setLooks(!looks)}>{looks ? 'hide' : 'the meeting window, look by look'}</button></div>
+      {looks && <LookTimeline session={sp.session} />}
+      {editable && (deleting ? (
+        <div className="confirm-row">
+          <span className="small">Delete this meeting? The recording and its audio are deleted, and what Musubi learnt from it leaves its subjects. This can&apos;t be undone.</span>
+          <button className="primary danger" disabled={a.busy !== null} onClick={() => { setDeleting(false); a.act('delete', () => api.deleteMeeting(itemId)); }}>Delete</button>
+          <button onClick={() => setDeleting(false)}>Keep</button>
+        </div>
+      ) : <button className="link danger-link" onClick={() => setDeleting(true)}>Delete meeting…</button>)}
+    </>
+  );
+}
+
+// SplitForm picks the voices a speaker's lines may belong to (two or
+// more), shows how the recorder would share them out, and splits on
+// confirm. Profiles heard in this meeting, or named like the speaker,
+// come first.
+function SplitForm({ session, label, profiles, a, onDone, onCancel }: {
+  session: string; label: string; profiles: VoiceProfile[]; a: ReturnType<typeof useAct>; onDone: (r: SplitResult) => void; onCancel: () => void;
+}) {
+  const [picked, setPicked] = useState<string[]>([]);
+  const [q, setQ] = useState('');
+  const [pre, setPre] = useState<SplitResult | null>(null);
+  const [err, setErr] = useState('');
+  const fold = (x: string) => x.trim().toLowerCase();
+  const near = (p: VoiceProfile) => (p.heard ?? []).some((h) => h.session === session) || fold(p.name) === fold(speakerName(label));
+  const key = (p: VoiceProfile) => p.model + '/' + p.id;
+  const words = fold(q).split(/\s+/).filter(Boolean);
+  const list = profiles
+    .filter((p) => picked.includes(key(p)) || near(p) || (words.length > 0 && words.every((w) => fold(p.name).includes(w))))
+    .sort((x, y) => Number(near(y)) - Number(near(x)) || x.name.localeCompare(y.name))
+    .slice(0, 12);
+  const into = () => picked.map((k) => profiles.find((p) => key(p) === k)).filter((p): p is VoiceProfile => !!p).map((p) => ({ model: p.model, id: p.id }));
+  const toggle = (k: string) => { setPre(null); setPicked(picked.includes(k) ? picked.filter((x) => x !== k) : [...picked, k]); };
+  const preview = () => { setErr(''); api.splitSpeakerByVoice(session, label, into(), true).then(setPre, (e) => setErr(String(e))); };
+  const go = () => a.act('split', async () => { const r = await api.splitSpeakerByVoice(session, label, into(), false); onDone(r); return r; },
+    (r) => (r.batch ? '' : 'No line changed speaker.'));
+  const shares = pre ? (pre.counts ?? []).map((c) => `${c.lines} ${c.lines === 1 ? 'line' : 'lines'} to ${c.label}`).join(', ') : '';
+  return (
+    <div className="split-form">
+      <div className="dim small">Which voices are under {speakerName(label)}? Pick two or more.</div>
+      <input className="search" placeholder="Find a voice by name" value={q} onChange={(e) => setQ(e.target.value)} />
+      <div className="split-picks">
+        {list.map((p) => (
+          <label key={key(p)} className="small"><input type="checkbox" checked={picked.includes(key(p))} onChange={() => toggle(key(p))} /> {p.name} <span className="dim">({p.meetings} {p.meetings === 1 ? 'meeting' : 'meetings'})</span></label>
+        ))}
+        {list.length === 0 && <span className="dim small">No voice heard here: find one by name.</span>}
+      </div>
+      {pre ? (
+        <div className="confirm-row">
+          <span className="small">Split {speakerName(label)}: {shares}{pre.undecided > 0 && `; ${pre.undecided} left as they are (no voice to go by, or too close to call)`}. Who said what changes, so Musubi reads this meeting again (re-extracts it) at the next update.</span>
+          <button className="primary" disabled={a.busy !== null} title="Give each line to the voice it sounds like; lines too close to call keep the speaker. You can undo it." onClick={go}>Split</button>
+          <button title="Change nothing" onClick={onCancel}>Cancel</button>
+        </div>
+      ) : (
+        <div className="voice-actions">
+          <button className="primary" disabled={picked.length < 2} title="See how the lines would be shared out; nothing changes yet" onClick={preview}>Split by voice…</button>
+          <button title="Change nothing" onClick={onCancel}>Cancel</button>
+        </div>
+      )}
+      {err && <div className="error small">{err}</div>}
+    </div>
+  );
+}
+
+function SpeakerNameForm({ start, onName, onCancel }: { start: string; onName: (n: string) => void; onCancel: () => void }) {
+  const [n, setN] = useState(start);
+  return (
+    <form className="voice-name" onSubmit={(e) => { e.preventDefault(); if (n.trim()) onName(n.trim()); }}>
+      <input value={n} autoFocus placeholder="Who is it?" onChange={(e) => setN(e.target.value)} />
+      <button className="primary" type="submit" disabled={!n.trim()}>Save</button>
+      <button type="button" onClick={onCancel}>Cancel</button>
+    </form>
   );
 }

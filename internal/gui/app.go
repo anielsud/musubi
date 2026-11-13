@@ -491,8 +491,11 @@ func (a *App) SetWindowHidden(hidden bool) {
 	a.mu.Lock()
 	a.windowHidden = hidden
 	a.mu.Unlock()
-	if l := a.live; l != nil && l.SetHidden(hidden) && !hidden {
-		go l.Redraw()
+	if l := a.live; l != nil && l.SetHidden(hidden) {
+		log.Printf("window %s: Live %s", map[bool]string{true: "hidden", false: "shown"}[hidden], map[bool]string{true: "works lightly", false: "redraws the panel"}[hidden])
+		if !hidden {
+			go l.Redraw()
+		}
 	}
 }
 

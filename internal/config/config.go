@@ -608,6 +608,14 @@ type Live struct {
 	// conversation it reads and, for a pick, its candidates) hasn't changed
 	// since the last; the cadence stays. false: run every time, as before.
 	SkipIdle bool `toml:"skip_idle"`
+	// Background: while the app's window can't be seen (minimized, on a
+	// Space not shown, covered; another monitor showing it counts as
+	// seen), Live does only what the topic cards depend on: picks and the
+	// picked cards' briefs, with lookups that only put topics forward and
+	// model suggestions on complete lines. Entity graphs, card drawing,
+	// the menu's ranking and lookup summaries wait; the panel is rebuilt
+	// once the window shows. false: full work whether seen or not.
+	Background bool `toml:"background"`
 	// PrepCard shows the meeting's prep at the top of the panel's cards
 	// while a meeting matched to a calendar event is under way: its
 	// drafted talking points and what is open with the people in it, read
@@ -743,7 +751,7 @@ func DefaultConfig() Config {
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
 			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
-			Cache: true, SkipIdle: true, PrepCard: true, UpdateEvery: 30, KeepTopics: 24, Pick: Pick{Enabled: true, MinP: 0.4},
+			Cache: true, SkipIdle: true, Background: true, PrepCard: true, UpdateEvery: 30, KeepTopics: 24, Pick: Pick{Enabled: true, MinP: 0.4},
 		},
 		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16", BackupBeforeUpgrade: true, CheckCounts: true},
 		Backup:      Backup{Daily: true, KeepDaily: 7, BeforeChanges: true, KeepBefore: 5},

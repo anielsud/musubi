@@ -260,6 +260,10 @@ func (l *Live) emitTopicsNow(cycle int) {
 				}
 				return &tc
 			}
+			if l.hidden.Load() && focus && l.picking() {
+				l.briefHidden(cycle, shown, build, t0)
+				return
+			}
 			for _, t := range shown {
 				if tc := build(t); tc != nil {
 					out = append(out, *tc)
@@ -330,6 +334,29 @@ func (l *Live) emitTopicsNow(cycle int) {
 		b.Rated = true
 		l.emit("live:brief", b)
 	}
+}
+
+// briefHidden is emitTopics while the window is hidden: it builds only
+// the picked cards, so their briefs are written and ready when the window
+// shows, and sends nothing to the panel. The kept cards, their lines, the
+// menu's ranking and the panel wait for SetHidden(false).
+func (l *Live) briefHidden(cycle int, shown []shownTopic, build func(shownTopic) *TopicCard, t0 time.Time) {
+	l.mu.Lock()
+	picked := l.pk.picked
+	l.mu.Unlock()
+	var open []TopicCard
+	for _, t := range shown {
+		tc := build(t)
+		if tc == nil {
+			continue
+		}
+		if p, ok := picked[tc.TopicID]; ok {
+			tc.Active, tc.Fit = true, p
+			open = append(open, *tc)
+		}
+	}
+	l.trace(cycle, "topic", fmt.Sprintf("hidden: %d picked card(s) briefed, panel not drawn", len(open)), time.Since(t0).Milliseconds(), nil)
+	l.briefCards(cycle, open, nil)
 }
 
 // focusCards marks the cards to keep open (the most recently raised, a

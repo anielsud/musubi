@@ -29,6 +29,7 @@ export const api = {
   item: (id: string, scope: string): Promise<ItemView | null> => app().Item(id, scope),
   liveStatus: (): Promise<LiveStatus> => app().LiveStatus(),
   setSharing: (on: boolean): Promise<void> => app().SetSharing(on),
+  setWindowHidden: (hidden: boolean): Promise<void> => app().SetWindowHidden(hidden),
   lookUp: (q: string, why: string, kind: string): Promise<void> => app().LookUp(q, why, kind),
   meetings: (): Promise<MeetingRef[] | null> => app().Meetings(),
   replay: (ref: string, speed: number): Promise<void> => app().Replay(ref, speed),

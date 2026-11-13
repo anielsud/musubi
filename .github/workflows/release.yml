@@ -46,3 +46,20 @@ jobs:
           pre=""
           case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" build/Musubi-*.dmg --title "Musubi $GITHUB_REF_NAME" --generate-notes $pre
+      # The same DMG on the public releases-only repository, which the
+      # app's update check reads ([updates]). Only the DMG and a fixed
+      # line go there: notes stay here, as they name PRs and docs. Needs
+      # RELEASES_TOKEN (fine-grained, Contents: write on that repository).
+      - name: Publish the DMG for the update check
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::RELEASES_TOKEN is not set; the update check won't see $GITHUB_REF_NAME"
+            exit 0
+          fi
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" build/Musubi-*.dmg -R anielsud/musubi-releases \
+            --title "Musubi $GITHUB_REF_NAME" --notes "Musubi $GITHUB_REF_NAME for macOS." $pre

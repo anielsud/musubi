@@ -38,6 +38,7 @@ type Config struct {
 	Store       Store       `toml:"store"`
 	Backup      Backup      `toml:"backup"`
 	Diagnostics Diagnostics `toml:"diagnostics"`
+	Updates     Updates     `toml:"updates"`
 	// Providers are hosted endpoints set up once and named, for models to
 	// use with `via` (Settings → AI providers).
 	Providers map[string]Provider `toml:"providers"`
@@ -666,6 +667,19 @@ type Backup struct {
 }
 
 // Diagnostics: tools in the diagnostics panel.
+// Updates: the app asks GitHub once a day whether a newer Musubi has been
+// released and says so in its header, with a link to download it. The
+// request is anonymous and carries nothing about the user or their data;
+// nothing is downloaded or installed by itself.
+type Updates struct {
+	// Check: false never contacts GitHub (the behaviour before).
+	Check bool `toml:"check"`
+	// Prereleases also offers release candidates (vX.Y.Z-rcN).
+	Prereleases bool `toml:"prereleases"`
+	// Repo is the public releases-only repository, owner/name.
+	Repo string `toml:"repo"`
+}
+
 type Diagnostics struct {
 	// Profiling offers "Record a 30 s profile" (a CPU profile and a
 	// goroutine dump under the data folder's profiles/). It only runs when
@@ -748,6 +762,7 @@ func DefaultConfig() Config {
 		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16", BackupBeforeUpgrade: true, CheckCounts: true},
 		Backup:      Backup{Daily: true, KeepDaily: 7, BeforeChanges: true, KeepBefore: 5},
 		Diagnostics: Diagnostics{Profiling: true, Resources: true},
+		Updates:     Updates{Check: true, Repo: "anielsud/musubi-releases"},
 		Recorder:    Recorder{OfRecord: "tomoe", Watchdog: true, InstallAgent: true, Relabel: true, Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}
 }

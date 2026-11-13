@@ -46,6 +46,14 @@ customers are made up.
 
    You only do this once per version.
 
+**Updates:** once a day Musubi asks GitHub whether a newer version has
+been released. When there is one, a button such as **↑ v0.2.1** appears
+at the top of the window; it opens the release page, where you download
+the DMG and install it the same way. The check is anonymous: it sends
+nothing about you or your data, and nothing is installed by itself. Set
+`[updates] check = false` to switch it off, or `prereleases = true` to
+be offered release candidates too.
+
 ### 3. First launch
 
 When Musubi opens for the first time it sets itself up:

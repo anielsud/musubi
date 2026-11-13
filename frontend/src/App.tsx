@@ -86,6 +86,12 @@ export function App() {
           <span className={'dot ' + (status?.ollamaUp ? 'ok' : 'off')} title={status?.ollamaUp ? 'Local models ready' : 'Ollama not reachable'}>M</span>
         </div>
         <div className="title-actions" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
+          {status?.newVersion && (
+            <button className="toggle on" title={`You have ${status.version}. Opens the release page to download the new version.`}
+              onClick={() => api.openNewVersion().catch((e) => setToast(String(e)))}>
+              ↑ {status.newVersion.version}
+            </button>
+          )}
           <button className={'toggle' + (sharing ? ' on' : '')} title="Screen-safe: show only what's fine on a shared screen"
             onClick={() => api.setSharing(!sharing).then(refresh)}>
             {sharing ? '◑ screen-safe' : '◐ private'}

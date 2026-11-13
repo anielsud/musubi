@@ -25,6 +25,7 @@ import (
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/live"
 	"github.com/anielsud/musubi/internal/store"
+	"github.com/anielsud/musubi/internal/updates"
 )
 
 type App struct {
@@ -157,6 +158,9 @@ func (a *App) openConfig(path, why string) (err error) {
 	go a.followRecorder(lctx, e.Cfg.RecorderLiveSocket())
 	go a.watchRecorder(lctx)
 	go a.dailyBackups(lctx, e, path)
+	if e.Cfg.Updates.Check {
+		go a.checkUpdates(lctx, e.Cfg.Updates.Repo, e.Cfg.Updates.Prereleases)
+	}
 	if e.Cfg.Prep.AutoBrief && e.AskLLM != nil {
 		go a.draftBriefs(lctx)
 	}
@@ -237,10 +241,14 @@ type AppStatus struct {
 	OnUpdate    bool `json:"onUpdate"`
 	AutoMax     int  `json:"autoMax"`
 	UpdateEvery int  `json:"updateEvery"`
+	// Version is this app's; NewVersion a newer release, when the daily
+	// check ([updates]) found one.
+	Version    string           `json:"version"`
+	NewVersion *updates.Release `json:"newVersion,omitempty"`
 }
 
 func (a *App) Status() AppStatus {
-	st := AppStatus{Error: a.err, Dataset: datasetName(a.cfgPath)}
+	st := AppStatus{Error: a.err, Dataset: datasetName(a.cfgPath), Version: Version, NewVersion: currentNewVersion()}
 	if a.eng == nil {
 		return st
 	}

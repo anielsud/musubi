@@ -450,6 +450,12 @@ enters the cold lane like any other source.
   view is the WebKit web content process macOS holds responsible for the
   app (left out where that can't be asked); a process counts in one
   component only.
+  The update check (`internal/updates`, `[updates]`, default on) asks
+  GitHub's API once a day, anonymously, for the releases of the public
+  releases-only repository (`anielsud/musubi-releases`; the source
+  repository is private), and the header offers a newer release's page.
+  Development builds (a `git describe` past a tag) are never offered
+  anything; nothing is downloaded or installed by the app.
 - **Stepped replay** (`musubi live --replay ID --stepped`): the meeting
   line by line on its own clock, each line's work (lookups, cards,
   suggestions, summaries) done before the next, so the result doesn't

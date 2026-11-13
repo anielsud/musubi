@@ -88,6 +88,11 @@ func (s *Store) ReplaceDigest(itemID, version, hash, input string, d Digest) err
 				return err
 			}
 		}
+		// New to-dos are matched with the statements again, even when the
+		// statements are the same as when the old ones were.
+		if _, err := tx.Exec(`DELETE FROM stage_runs WHERE stage = 'digest-link' AND item_id = ?`, itemID); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`INSERT INTO meeting_digests(item_id, version, overview, level, categories, made_at) VALUES (?,?,?,?,?,?)`,
 			itemID, version, d.Overview, int(d.OverviewOwn.Level), int64(d.OverviewOwn.Categories), time.Now().Unix()); err != nil {
 			return err

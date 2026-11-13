@@ -142,12 +142,18 @@ func TestDigestStage(t *testing.T) {
 	if s, _ := st.StageStamp("digest", id); s != stamp {
 		t.Fatalf("test setup moved the stamp: %s -> %s", stamp, s)
 	}
+	if l, _ := st.StageStamp("digest-link", id); l != "" {
+		t.Errorf("a replaced digest kept its link stamp %q", l)
+	}
 	base := fake.calls.Load()
 	if ks := run("m1"); ks.Digested != 1 || fake.calls.Load() != base+2 {
 		t.Fatalf("stand-in digest: %d read (%d calls)", ks.Digested, fake.calls.Load())
 	}
 	if ks := run("m1"); ks.Digested != 0 {
 		t.Fatalf("repaired digest read again: %d", ks.Digested)
+	}
+	if l, _ := st.StageStamp("digest-link", id); l == "" {
+		t.Error("repaired digest's to-dos weren't matched with statements")
 	}
 
 	// Off: no digest, and the to-do view reads statements.

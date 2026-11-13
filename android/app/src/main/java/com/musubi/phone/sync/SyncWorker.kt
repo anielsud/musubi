@@ -14,6 +14,7 @@ import com.musubi.phone.App
 import com.musubi.phone.core.SyncEngine
 import com.musubi.phone.core.SyncOutcome
 import com.musubi.phone.net.HttpMacApi
+import com.musubi.phone.net.MacLocator
 import com.musubi.phone.net.MacSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -52,12 +53,17 @@ object SyncScheduler {
     fun runOnce(ctx: Context) {
         synchronized(lock) {
             val settings = MacSettings(ctx)
-            val addr = settings.address
             val pin = settings.pin
             val token = settings.token()
-            if (addr == null || pin == null || token == null) return
+            if (!settings.isPaired || pin == null || token == null) return
             running = true
             try {
+                // The address may change between syncs: re-find the Mac, always by its pinned certificate.
+                val addr = MacLocator.locate(ctx, settings, pin)
+                if (addr == null) {
+                    settings.lastResult = "Mac not found on this network"
+                    return
+                }
                 val report = SyncEngine(App.store(ctx), App.agenda(ctx), HttpMacApi(addr, pin, token)).run()
                 if (report.outcome == SyncOutcome.DONE) settings.lastSyncAt = System.currentTimeMillis()
                 settings.lastResult = report.message

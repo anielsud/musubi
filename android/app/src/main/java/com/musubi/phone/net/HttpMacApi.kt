@@ -3,8 +3,8 @@ package com.musubi.phone.net
 import com.musubi.phone.core.ApiResult
 import com.musubi.phone.core.Files
 import com.musubi.phone.core.MacApi
+import com.musubi.phone.core.PairParse
 import com.musubi.phone.core.RecordingMeta
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -12,7 +12,7 @@ import java.net.Proxy
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 
-/** Validated Mac address entered by the owner: a host name or IP literal and a port. */
+/** A Mac address: a host name or IP literal and a port (found by Bonjour, or typed under Advanced). */
 data class MacAddress(val host: String, val port: Int) {
     fun url(path: String): URL = URL("https", host, port, path)
 
@@ -72,12 +72,26 @@ class HttpMacApi(
     override fun agenda(days: Int): ApiResult =
         call("GET", "/v1/agenda?days=${days.coerceIn(1, 14)}", AGENDA_REPLY, emptyMap(), null)
 
-    fun pair(code: String, deviceName: String): ApiResult {
-        val body = JSONObject().put("code", code).put("device_name", deviceName).toString().toByteArray()
-        return call("POST", "/v1/pair", SMALL_REPLY, JSON) { c ->
+    /** Pairing calls (no token): docs/phone.md, "Pairing, confirmed on both". */
+    fun pairRequest(deviceName: String, phoneNonce: ByteArray): ApiResult {
+        val body = PairParse.requestBody(deviceName, phoneNonce)
+        return call("POST", "/v1/pair/request", SMALL_REPLY, JSON) { c ->
             c.setFixedLengthStreamingMode(body.size)
             c.outputStream.use { it.write(body) }
         }
+    }
+
+    fun pairConfirm(requestId: String): ApiResult {
+        require(PairParse.isValidRequestId(requestId))
+        return call("POST", "/v1/pair/$requestId/confirm", SMALL_REPLY, emptyMap()) { c ->
+            c.setFixedLengthStreamingMode(0)
+            c.outputStream.close()
+        }
+    }
+
+    fun pairState(requestId: String): ApiResult {
+        require(PairParse.isValidRequestId(requestId))
+        return call("GET", "/v1/pair/$requestId", SMALL_REPLY, emptyMap(), null)
     }
 
     private fun call(

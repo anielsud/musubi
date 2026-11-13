@@ -86,3 +86,29 @@ func TestScoreText(t *testing.T) {
 		t.Errorf("a session against itself: %+v", sc)
 	}
 }
+
+func TestScoreTextComparesNamesNotNumbers(t *testing.T) {
+	tomoe := &session.Session{Segments: lines(
+		"Person 37 (Christian Stanton)", "we are a quorum now",
+		"Person 4", "thank you all for coming",
+		"You", "sorry I am late",
+	)}
+	ours := &session.Session{Segments: lines(
+		"Christian Stanton", "we are a quorum now",
+		"Person 9", "thank you all for coming",
+		"Person 2", "sorry I am late",
+	)}
+	sc := scoreText(ours, tomoe)
+	// The named speaker matches across label forms, the unnamed ones
+	// by correspondence; "Person 2" for "You" is still a disagreement.
+	if sc.matched != 14 || sc.same != 10 {
+		t.Errorf("matched %d, same %d; want 14, 10", sc.matched, sc.same)
+	}
+	for label, want := range map[string]string{
+		"Person 3 (Ann Lee)": "Ann Lee", "Person 3": "Person 3", "You": "You", "Ann Lee": "Ann Lee",
+	} {
+		if got := speakerName(label); got != want {
+			t.Errorf("speakerName(%q) = %q, want %q", label, got, want)
+		}
+	}
+}

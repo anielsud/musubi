@@ -546,9 +546,11 @@ stopped twice on 2026-11-12. Three guards:
 
 - launchd restarts it whenever it exits (`KeepAlive` true), not only after
   a crash; only `launchctl bootout` stops it.
-- `scripts/install-recorder.sh` waits for the old recorder to finish
-  saving and leave, retries loading the new one, and exits non-zero unless
-  it is running at the end.
+- `scripts/install-recorder.sh` refuses while a meeting is being recorded
+  (it asks `musubi-recorder status`; `MUSUBI_RECORDER_FORCE_INSTALL=1`
+  installs anyway), waits for the old recorder to finish saving and leave,
+  retries loading the new one, and exits non-zero unless it is running at
+  the end.
 - While Musubi is open (`[recorder] watchdog`, default true) it checks the
   recorder every 10 s; after 30 s down it loads or starts the LaunchAgent
   (at most every 2 minutes), shows a red "Recorder off" button by the tabs

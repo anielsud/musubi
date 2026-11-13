@@ -3,7 +3,7 @@
 # ~/Applications and (re)loads its LaunchAgent, so the recorder runs at
 # login beside Tomoe. Reloading stops a running recorder first; it saves
 # a recording in progress, but the rest of that meeting isn't recorded,
-# so don't run this during a meeting.
+# so it refuses while a meeting is being recorded (see below).
 #
 # Usage: scripts/install-recorder.sh [data folder]
 # (default ~/.local/share/musubi/recorder; never Tomoe's folder)
@@ -26,6 +26,28 @@ case "$data" in
 esac
 
 domain="gui/$(id -u)"
+
+# Refuse during a meeting: stopping the recorder saves what it has, but
+# the rest of that meeting is lost (2026-11-12, 11:31 call cut short).
+# The new build asks the running recorder; one too old to answer counts
+# as idle. MUSUBI_RECORDER_FORCE_INSTALL=1 installs anyway.
+if [ "${MUSUBI_RECORDER_FORCE_INSTALL:-}" != 1 ]; then
+	set +e
+	state=$("$app_src/Contents/MacOS/musubi-recorder" status --data "$data" 2>&1)
+	rc=$?
+	set -e
+	case $rc in
+	0) ;;
+	3)
+		echo "The recorder is $state; not installing. Run this after the meeting (or set MUSUBI_RECORDER_FORCE_INSTALL=1)." >&2
+		exit 1
+		;;
+	*)
+		echo "Couldn't tell whether the recorder is recording ($state); not installing. Try again, or set MUSUBI_RECORDER_FORCE_INSTALL=1." >&2
+		exit 1
+		;;
+	esac
+fi
 
 # Stop the running one before its files are replaced, and wait until it
 # has gone: it saves a recording in progress first, and loading the new

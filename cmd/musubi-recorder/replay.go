@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -53,6 +54,7 @@ was heard live, but both runs hear the same audio.`,
 		o.onlyCurrent, _ = cmd.Flags().GetBool("only-current")
 		o.progress, _ = cmd.Flags().GetBool("progress")
 		o.asrKind, _ = cmd.Flags().GetString("asr-kind")
+		o.asrLang, _ = cmd.Flags().GetString("asr-lang")
 		o.singlePass, _ = cmd.Flags().GetBool("single-pass")
 		o.threads, _ = cmd.Flags().GetInt("threads")
 		o.minSilence, _ = cmd.Flags().GetFloat64("min-silence")
@@ -91,7 +93,11 @@ type replayOptions struct {
 	// the model under test writes text; threads is its CPU threads.
 	asrKind    string
 	singlePass bool
-	threads    int
+	// asrLang is the candidate model's language (see
+	// transcribe.NewCandidateEngine): "" English, "auto" Whisper detects
+	// it per utterance, else a code such as "sv".
+	asrLang string
+	threads int
 	// minSilence and maxSpeech are the utterance bounds (0: the config's).
 	minSilence, maxSpeech float64
 	// decodePad is seconds of silence around every decode (< 0: the
@@ -119,6 +125,7 @@ func init() {
 	sessionReplayCmd.Flags().Bool("only-current", false, "Replay only with your current config (skip the main run)")
 	sessionReplayCmd.Flags().Bool("progress", false, "Print progress lines (\"progress replay <run> <done>/<total>\") while replaying")
 	sessionReplayCmd.Flags().String("asr-kind", "", "With --asr-model: the model family ("+strings.Join(transcribe.CandidateKinds, ", ")+"); default a Parakeet-style transducer")
+	sessionReplayCmd.Flags().String("asr-lang", "", "With --asr-kind: the spoken language, e.g. sv; auto lets Whisper detect it per utterance (for meetings that switch language); default en")
 	sessionReplayCmd.Flags().Bool("single-pass", false, "Turn two-pass off for this replay, so only the transcription model writes text")
 	sessionReplayCmd.Flags().Float64("min-silence", 0, "Pause (s) that ends an utterance (default: your min_silence_duration)")
 	sessionReplayCmd.Flags().Float64("max-speech", 0, "Longest utterance (s) before it's cut (default: your max_speech_duration)")
@@ -209,13 +216,13 @@ func runSessionReplay(sessID, outDir string, mainThreshold float64, o replayOpti
 	}
 	timed := &timedEngine{}
 	if o.asrKind != "" {
-		eng, err := transcribe.NewCandidateEngine(o.asrKind, o.asrModel, o.threads)
+		eng, err := transcribe.NewCandidateEngine(o.asrKind, o.asrModel, o.threads, o.asrLang)
 		if err != nil {
 			return err
 		}
 		defer eng.Close()
 		pipe.engine = eng
-		fmt.Printf("Transcribing with %s model %s\n", o.asrKind, o.asrModel)
+		fmt.Printf("Transcribing with %s model %s (language %s)\n", o.asrKind, o.asrModel, cmp.Or(o.asrLang, "en"))
 	}
 	timed.Engine = pipe.engine
 	pipe.engine = timed

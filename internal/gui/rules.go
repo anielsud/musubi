@@ -17,7 +17,7 @@ import (
 // and a proposal is kept as replaced. It returns the rule's alias id.
 func (a *App) SetAliasRule(id int64, mode, keep string, statements, reviewed []int64) (int64, error) {
 	if a.eng == nil {
-		return 0, fmt.Errorf("not ready: %s", a.err)
+		return 0, a.notReady()
 	}
 	as, err := a.eng.Store.LearnedAliases("")
 	if err != nil {
@@ -72,7 +72,7 @@ func (a *App) SetAliasRule(id int64, mode, keep string, statements, reviewed []i
 // StatementEdits lists the owner's corrections to statements.
 func (a *App) StatementEdits() ([]store.StatementEdit, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready: %s", a.err)
+		return nil, a.notReady()
 	}
 	return a.eng.Store.StatementEdits()
 }
@@ -81,7 +81,7 @@ func (a *App) StatementEdits() ([]store.StatementEdit, error) {
 // mending the graph around it.
 func (a *App) UndoStatementEdit(id int64) error {
 	if a.eng == nil {
-		return fmt.Errorf("not ready: %s", a.err)
+		return a.notReady()
 	}
 	r, err := a.eng.Runner(nil, io.Discard)
 	if err != nil {

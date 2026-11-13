@@ -24,7 +24,7 @@ type ThreadEditView struct {
 // written again in the background.
 func (a *App) MergeThreads(into, from int64) (int64, error) {
 	if a.eng == nil {
-		return 0, fmt.Errorf("not ready: %s", a.err)
+		return 0, a.notReady()
 	}
 	id, err := knowledge.MergeThreads(a.eng.Store, into, from, "owner")
 	if err == nil {
@@ -37,7 +37,7 @@ func (a *App) MergeThreads(into, from int64) (int64, error) {
 // returns the edit's id.
 func (a *App) SplitThread(from int64, ids []int64, name string) (int64, error) {
 	if a.eng == nil {
-		return 0, fmt.Errorf("not ready: %s", a.err)
+		return 0, a.notReady()
 	}
 	_, id, err := knowledge.SplitThread(a.eng.Store, from, ids, name, "owner")
 	if err == nil {
@@ -49,7 +49,7 @@ func (a *App) SplitThread(from int64, ids []int64, name string) (int64, error) {
 // UndoThreadEdit reverses a merge or split.
 func (a *App) UndoThreadEdit(id int64) error {
 	if a.eng == nil {
-		return fmt.Errorf("not ready: %s", a.err)
+		return a.notReady()
 	}
 	err := knowledge.UndoThreadEdit(a.eng.Store, id)
 	if err == nil {
@@ -61,7 +61,7 @@ func (a *App) UndoThreadEdit(id int64) error {
 // ThreadEdits lists the owner's merges and splits, newest first.
 func (a *App) ThreadEdits() ([]ThreadEditView, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready: %s", a.err)
+		return nil, a.notReady()
 	}
 	es, err := a.eng.Store.ThreadEdits(true)
 	if err != nil {

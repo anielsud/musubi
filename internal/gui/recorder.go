@@ -58,7 +58,7 @@ const (
 
 func (a *App) recClient() (*control.Client, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready: %s", a.err)
+		return nil, a.notReady()
 	}
 	return control.NewClient(a.eng.Cfg.RecorderControlSocket()), nil
 }
@@ -74,7 +74,7 @@ func (a *App) recCall(op string, args, out any) error {
 // requireEditable refuses an edit while Tomoe is of record.
 func (a *App) requireEditable() error {
 	if a.eng == nil {
-		return fmt.Errorf("not ready: %s", a.err)
+		return a.notReady()
 	}
 	if !a.eng.Cfg.MusubiRecords() {
 		return fmt.Errorf("voice and speaker edits work once Musubi records your meetings (Settings → Recording)")
@@ -353,7 +353,7 @@ type SpeakerCount struct {
 
 func (a *App) MeetingSpeakers(itemID string) (*MeetingSpeakers, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready")
+		return nil, a.notReady()
 	}
 	sid, ok := sessionOfItem(itemID)
 	if !ok {
@@ -508,7 +508,7 @@ func (a *App) updateSoon() {
 	}
 	a.mu.Unlock()
 	if !busy {
-		a.Update()
+		a.update("a meeting was edited")
 	}
 }
 

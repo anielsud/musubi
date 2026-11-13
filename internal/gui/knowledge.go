@@ -1,7 +1,6 @@
 package gui
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -11,7 +10,7 @@ import (
 
 func (a *App) views(scope string) (knowledge.Views, error) {
 	if a.eng == nil {
-		return knowledge.Views{}, fmt.Errorf("not ready")
+		return knowledge.Views{}, a.notReady()
 	}
 	sc, err := a.eng.Scope(scope)
 	if err != nil {
@@ -23,7 +22,7 @@ func (a *App) views(scope string) (knowledge.Views, error) {
 // KnowledgeCounts says how far the knowledge layer has been built.
 func (a *App) KnowledgeCounts() (store.KnowledgeCounts, error) {
 	if a.eng == nil {
-		return store.KnowledgeCounts{}, fmt.Errorf("not ready")
+		return store.KnowledgeCounts{}, a.notReady()
 	}
 	return a.eng.Store.KnowledgeCounts()
 }
@@ -68,7 +67,7 @@ func (a *App) SearchClaims(q, scope string) ([]knowledge.ClaimView, error) {
 // to clear) on the claim a statement belongs to.
 func (a *App) Judge(statementID int64, verdict, note string) error {
 	if a.eng == nil {
-		return fmt.Errorf("not ready")
+		return a.notReady()
 	}
 	return a.eng.Store.Judge(statementID, verdict, note)
 }
@@ -124,7 +123,7 @@ func (a *App) MeetingPage(itemID, scope string) (*knowledge.MeetingPage, error) 
 // The owner's view only.
 func (a *App) LinkToDo(id int64, rel string, other int64, note string) (int64, error) {
 	if a.eng == nil {
-		return 0, fmt.Errorf("not ready")
+		return 0, a.notReady()
 	}
 	return a.eng.Store.LinkStatements(id, rel, other, strings.TrimSpace(note), "owner")
 }
@@ -132,7 +131,7 @@ func (a *App) LinkToDo(id int64, rel string, other int64, note string) (int64, e
 // UndoToDoLink undoes one of the owner's links or marks.
 func (a *App) UndoToDoLink(id int64) error {
 	if a.eng == nil {
-		return fmt.Errorf("not ready")
+		return a.notReady()
 	}
 	return a.eng.Store.UndoOwnerLink(id)
 }

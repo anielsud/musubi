@@ -24,7 +24,7 @@ type PrepTarget = engine.PrepTarget
 // the events of the last week that have happened (Past).
 func (a *App) PrepTargets() ([]PrepTarget, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready: %s", a.err)
+		return nil, a.notReady()
 	}
 	return a.eng.PrepTargets()
 }
@@ -32,7 +32,7 @@ func (a *App) PrepTargets() ([]PrepTarget, error) {
 // Prep gathers what to bring to a meeting.
 func (a *App) Prep(req knowledge.PrepRequest, scope string) (*knowledge.PrepView, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready: %s", a.err)
+		return nil, a.notReady()
 	}
 	sc, err := a.eng.Scope(scope)
 	if err != nil {

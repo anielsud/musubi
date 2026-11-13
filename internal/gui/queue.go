@@ -45,7 +45,7 @@ func (a *App) ledgerPath() string {
 // Queue is the work waiting in the knowledge layer.
 func (a *App) Queue() (*QueueView, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready: %s", a.err)
+		return nil, a.notReady()
 	}
 	q, err := a.cachedQueue()
 	if err != nil {
@@ -64,7 +64,7 @@ func (a *App) Queue() (*QueueView, error) {
 // waiting (pipeline.Upgrades). Hosted calls stop at the estimate and a half.
 func (a *App) RunKnowledge(kind string) error {
 	if a.eng == nil {
-		return fmt.Errorf("not ready: %s", a.err)
+		return a.notReady()
 	}
 	q, err := a.eng.Queue()
 	if err != nil {

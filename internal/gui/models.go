@@ -198,7 +198,7 @@ type GroupView struct {
 // Groups are Processing's rows: what each group uses now.
 func (a *App) Groups() ([]GroupView, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("no dataset open")
+		return nil, a.notReady()
 	}
 	cfg := a.eng.Cfg
 	g := a.gatewayConfig()
@@ -263,7 +263,7 @@ type ModelCatalog struct {
 func (a *App) Models() (ModelCatalog, error) {
 	cat := ModelCatalog{Errors: map[string]string{}}
 	if a.eng == nil {
-		return cat, fmt.Errorf("no dataset open")
+		return cat, a.notReady()
 	}
 	cfg := a.eng.Cfg
 	g := a.gatewayConfig()
@@ -334,7 +334,7 @@ func (a *App) Models() (ModelCatalog, error) {
 // for hosted chat models.
 func (a *App) SetModels(group string, choices, fallbacks, efforts, fallbackEfforts []string) error {
 	if a.eng == nil {
-		return fmt.Errorf("no dataset open")
+		return a.notReady()
 	}
 	var mg *modelGroup
 	for i := range modelGroups {
@@ -395,7 +395,7 @@ func (a *App) SetModels(group string, choices, fallbacks, efforts, fallbackEffor
 	if len(edits) == 0 {
 		return nil
 	}
-	if err := config.EditFile(a.cfgPath, edits); err != nil {
+	if err := editConfig(a.cfgPath, edits); err != nil {
 		return err
 	}
 	return a.reopen("models:changed")
@@ -477,13 +477,13 @@ func slotEdits(cfg *config.Config, sec, kind, ch, effort string, models []Gatewa
 // the config stays as it is.
 func (a *App) ApplyRecommended() error {
 	if a.eng == nil {
-		return fmt.Errorf("no dataset open")
+		return a.notReady()
 	}
 	edits, err := config.RecommendedEdits()
 	if err != nil {
 		return err
 	}
-	if err := config.EditFile(a.cfgPath, edits); err != nil {
+	if err := editConfig(a.cfgPath, edits); err != nil {
 		return err
 	}
 	return a.reopen("models:changed")

@@ -37,7 +37,7 @@ type AliasView struct {
 // and their impact. The owner's view: corrections are the owner's call.
 func (a *App) Aliases(status string, limit int) ([]AliasView, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready: %s", a.err)
+		return nil, a.notReady()
 	}
 	var as []store.LearnedAlias
 	var err error
@@ -110,7 +110,7 @@ func (a *App) Aliases(status string, limit int) ([]AliasView, error) {
 // reading (nothing is rewritten), and the live panel picks them up.
 func (a *App) DecideAlias(id int64, confirm bool) error {
 	if a.eng == nil {
-		return fmt.Errorf("not ready: %s", a.err)
+		return a.notReady()
 	}
 	if err := a.eng.Store.DecideAlias(id, confirm, "owner"); err != nil {
 		return err
@@ -124,7 +124,7 @@ func (a *App) DecideAlias(id int64, confirm bool) error {
 // around it. The owner's view only.
 func (a *App) CorrectStatement(id int64, text, who string) error {
 	if a.eng == nil {
-		return fmt.Errorf("not ready: %s", a.err)
+		return a.notReady()
 	}
 	var names []string
 	for _, n := range strings.Split(who, ",") {
@@ -144,7 +144,7 @@ func (a *App) CorrectStatement(id int64, text, who string) error {
 // sidebar.
 func (a *App) AliasUsages(id int64, limit int) ([]store.AliasUsage, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready: %s", a.err)
+		return nil, a.notReady()
 	}
 	as, err := a.eng.Store.LearnedAliases("")
 	if err != nil {
@@ -185,7 +185,7 @@ func (a *App) AliasUsages(id int64, limit int) ([]store.AliasUsage, error) {
 // confirmed everywhere, future meetings included.
 func (a *App) ConfirmAliasIn(id int64, statements, reviewed []int64, all bool) error {
 	if a.eng == nil {
-		return fmt.Errorf("not ready: %s", a.err)
+		return a.notReady()
 	}
 	partial := false
 	if as, err := a.eng.Store.LearnedAliases("confirmed"); err == nil {
@@ -211,7 +211,7 @@ func (a *App) ConfirmAliasIn(id int64, statements, reviewed []int64, all bool) e
 // listed for review, to be confirmed as keep where it means that.
 func (a *App) AddAlias(variant, keep string) (int64, error) {
 	if a.eng == nil {
-		return 0, fmt.Errorf("not ready: %s", a.err)
+		return 0, a.notReady()
 	}
 	variant, keep = strings.TrimSpace(variant), strings.TrimSpace(keep)
 	if variant == "" || keep == "" || strings.EqualFold(variant, keep) {
@@ -225,7 +225,7 @@ func (a *App) AddAlias(variant, keep string) (int64, error) {
 // (all checked: everywhere), and the original proposal is retired.
 func (a *App) ConfirmAliasAs(id int64, keep string, statements, reviewed []int64, all bool) error {
 	if a.eng == nil {
-		return fmt.Errorf("not ready: %s", a.err)
+		return a.notReady()
 	}
 	as, err := a.eng.Store.LearnedAliases("")
 	if err != nil {

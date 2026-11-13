@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"github.com/anielsud/musubi/internal/pipeline"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -62,6 +64,9 @@ type App struct {
 	res         resourceState
 	// emitFn replaces the Wails event bus in tests.
 	emitFn func(string, any)
+	// notReadyLogged: the first "not ready" since the last open is logged,
+	// to date when the screens started failing.
+	notReadyLogged atomic.Bool
 }
 
 func NewApp() *App { return &App{} }
@@ -78,21 +83,44 @@ func (a *App) emit(ev string, data any) {
 
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+	log.Printf("Musubi %s starting", Version)
 	path := startConfig()
 	if path == config.Path() {
 		if _, err := firstRun(path, filepath.Dir(config.DefaultConfig().TomoeSessions), time.Now()); err != nil {
 			a.err = err.Error()
+			log.Printf("first run: %v", err)
 		}
 	}
-	if err := a.openConfig(path); err != nil {
-		a.err = err.Error()
+	a.openConfig(path, "startup") // a failure is kept in a.err and logged
+}
+
+// notReady is the error for a call that needs an open dataset: it carries
+// why none is open, so the app shows the cause instead of a bare "not
+// ready".
+func (a *App) notReady() error {
+	err := fmt.Errorf("not ready: no dataset open (see ~/Library/Logs/Musubi/musubi-gui.log)")
+	if a.err != "" {
+		err = fmt.Errorf("not ready: %s", a.err)
 	}
+	if !a.notReadyLogged.Swap(true) {
+		log.Printf("a screen asked for data with no dataset open: %v", err)
+	}
+	return err
 }
 
 // openConfig opens a dataset's config in this window, closing the one open
-// before (its live lane stops and its store closes).
-func (a *App) openConfig(path string) error {
-	a.closeDataset()
+// before (its live lane stops and its store closes). why says what asked
+// for it, for the log. A failure leaves no dataset open: it is logged and
+// kept in a.err, which every "not ready" error then shows.
+func (a *App) openConfig(path, why string) (err error) {
+	a.closeDataset(why)
+	log.Printf("opening %s (%s)", path, why)
+	defer func() {
+		if err != nil {
+			a.err = err.Error()
+			log.Printf("opening %s failed (%s): %v", path, why, err)
+		}
+	}()
 	cfg, err := config.Load(path)
 	if err != nil {
 		return err
@@ -102,13 +130,16 @@ func (a *App) openConfig(path string) error {
 	if err != nil {
 		return err
 	}
+	t := time.Now()
 	e, err := engine.Open(path)
 	if err != nil {
 		release()
 		return err
 	}
+	log.Printf("opened %s in %s", path, time.Since(t).Round(time.Millisecond))
+	a.notReadyLogged.Store(false)
 	a.eng, a.cfgPath, a.err, a.releaseData = e, path, "", release
-	a.live = live.New(e, a.emit, func() { a.Update() })
+	a.live = live.New(e, a.emit, func() { a.update("a meeting was saved") })
 	lctx, cancel := context.WithCancel(a.ctx)
 	a.liveCancel = cancel
 	wruntime.WindowSetTitle(a.ctx, "Musubi — "+datasetName(path))
@@ -138,7 +169,7 @@ func (a *App) openConfig(path string) error {
 				case <-lctx.Done():
 					return
 				case <-t.C:
-					a.Update() // skips itself while another is going
+					a.update(fmt.Sprintf("every %d minutes", n)) // skips itself while another is going
 				}
 			}
 		}()
@@ -149,15 +180,21 @@ func (a *App) openConfig(path string) error {
 	go func() {
 		for _, name := range []string{"owner", "shared-screen"} {
 			if sc, err := e.Scope(name); err == nil {
-				knowledge.Views{Store: e.Store, Scope: sc, Now: time.Now()}.Map()
+				t := time.Now()
+				_, err := knowledge.Views{Store: e.Store, Scope: sc, Now: time.Now()}.Map()
+				log.Printf("topic map (%s) built in %s, err=%v", name, time.Since(t).Round(time.Millisecond), err)
 			}
 		}
 	}()
 	return nil
 }
 
-// closeDataset stops the open dataset's live lane and closes its store.
-func (a *App) closeDataset() {
+// closeDataset stops the open dataset's live lane and closes its store;
+// why says what asked for it, for the log.
+func (a *App) closeDataset(why string) {
+	if a.eng != nil {
+		log.Printf("closing %s (%s)", a.cfgPath, why)
+	}
 	if a.liveCancel != nil {
 		a.liveCancel()
 		a.liveCancel = nil
@@ -173,8 +210,9 @@ func (a *App) closeDataset() {
 }
 
 func (a *App) Shutdown(ctx context.Context) {
+	log.Printf("Musubi shutting down")
 	a.UnwatchResources()
-	a.closeDataset()
+	a.closeDataset("shutdown")
 }
 
 // AppStatus is shown in the header and the status view.
@@ -228,7 +266,11 @@ func (a *App) Status() AppStatus {
 }
 
 // Update ingests new data in the background; "update:done" follows.
-func (a *App) Update() {
+func (a *App) Update() { a.update("asked from the app") }
+
+// update runs Update; why says what asked for it, for the log, which
+// records each run's phases and times (to match CPU use to a cause).
+func (a *App) update(why string) {
 	if a.eng == nil {
 		return
 	}
@@ -241,7 +283,10 @@ func (a *App) Update() {
 	a.mu.Unlock()
 	a.emit("app:status", a.Status())
 	go func() {
+		start := time.Now()
+		log.Printf("update started (%s)", why)
 		st, err := a.eng.Update(a.ctx, nil)
+		log.Printf("update: ingest took %s: %d new or changed, err=%v", time.Since(start).Round(time.Millisecond), st.Changed, err)
 		a.mu.Lock()
 		a.updating = false
 		a.lastUpdate = time.Now()
@@ -256,19 +301,25 @@ func (a *App) Update() {
 			// New items join their threads, and the threads' statuses are
 			// rewritten, before the views reload.
 			a.emit("update:done", msg+"; updating topics…")
-			if ks, kerr := a.eng.Knowledge(a.ctx, io.Discard, pipeline.KnowledgeOptions{Auto: true}); kerr != nil {
+			kstart := time.Now()
+			ks, kerr := a.eng.Knowledge(a.ctx, io.Discard, pipeline.KnowledgeOptions{Auto: true})
+			log.Printf("update: topics took %s: %d threaded, %d statuses, err=%v", time.Since(kstart).Round(time.Millisecond), ks.Threads.Items, ks.Statuses, kerr)
+			if kerr != nil {
 				msg += "; topics: " + kerr.Error()
 			} else if ks.Threads.Items > 0 || ks.Statuses > 0 {
 				msg += fmt.Sprintf("; %d threaded, %d statuses rewritten", ks.Threads.Items, ks.Statuses)
 			}
 		}
 		if err == nil {
-			a.live.Reload()
+			rstart := time.Now()
+			rerr := a.live.Reload()
+			log.Printf("update: live index reload took %s, err=%v", time.Since(rstart).Round(time.Millisecond), rerr)
 		}
 		a.maybeReconnectM365()
 		// After the update: a Teams transcript it fetched may name a
 		// recorded meeting's speakers (relabelled without model calls).
 		a.nameFromTeams()
+		log.Printf("update finished in %s: %s", time.Since(start).Round(time.Millisecond), msg)
 		a.emit("update:done", msg)
 		a.emit("app:status", a.Status())
 		a.emit("queue:changed", nil)
@@ -277,14 +328,14 @@ func (a *App) Update() {
 		a.updateAgain = false
 		a.mu.Unlock()
 		if again {
-			a.Update()
+			a.update("again: a meeting was edited during the last one")
 		}
 	}()
 }
 
 func (a *App) Search(query, scope string, k int) ([]store.Hit, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready: %s", a.err)
+		return nil, a.notReady()
 	}
 	sc, err := a.eng.Scope(scope)
 	if err != nil {
@@ -296,7 +347,7 @@ func (a *App) Search(query, scope string, k int) ([]store.Hit, error) {
 // Ask answers in the background, streaming "ask:token" then "ask:done".
 func (a *App) Ask(id, question, scope string) error {
 	if a.eng == nil {
-		return fmt.Errorf("not ready: %s", a.err)
+		return a.notReady()
 	}
 	sc, err := a.eng.Scope(scope)
 	if err != nil {
@@ -347,7 +398,7 @@ func (a *App) StopAsk() {
 // Entities finds visible entities by name.
 func (a *App) Entities(q, scope string) ([]store.EntityRef, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready")
+		return nil, a.notReady()
 	}
 	sc, err := a.eng.Scope(scope)
 	if err != nil {
@@ -358,7 +409,7 @@ func (a *App) Entities(q, scope string) ([]store.EntityRef, error) {
 
 func (a *App) Graph(entityID, scope string) (*store.Graph, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready")
+		return nil, a.notReady()
 	}
 	sc, err := a.eng.Scope(scope)
 	if err != nil {
@@ -370,7 +421,7 @@ func (a *App) Graph(entityID, scope string) (*store.Graph, error) {
 // Item returns a source item's visible passages.
 func (a *App) Item(itemID, scope string) (*store.ItemView, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready")
+		return nil, a.notReady()
 	}
 	sc, err := a.eng.Scope(scope)
 	if err != nil {
@@ -438,7 +489,7 @@ func (a *App) LookUp(query, why, kind string) {
 // Meetings lists recordings for the replay picker.
 func (a *App) Meetings() ([]store.MeetingRef, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready")
+		return nil, a.notReady()
 	}
 	return a.eng.Store.Meetings(60)
 }

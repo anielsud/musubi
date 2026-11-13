@@ -218,7 +218,8 @@ func importHere(musubiConfig, file, id string, startedAt time.Time, eventID stri
 	// Speakers as a recording labels them (recording.beginLocked): the
 	// meeting's speaker model and a tracker with the configured tuning;
 	// with mic_voices and the owner's voice known, the owner's lines are
-	// told from the room's, and lines surely theirs teach their voice.
+	// told from the room's; lines surely theirs teach their voice only with
+	// phone_teaches_voices.
 	saveOwner := func() {}
 	if m, path, _ := status.SpeakerModelFor(cfg.Meeting.SpeakerModel, lang); status.SpeakerModelReady(m) {
 		emb, err := speaker.NewEmbedder(path)
@@ -237,8 +238,10 @@ func importHere(musubiConfig, file, id string, startedAt time.Time, eventID stri
 					return fmt.Errorf("loading the speaker model: %w", err)
 				}
 				defer micEmb.Close()
-				lc.MicEmbedder, lc.OwnerVoice, lc.MicOtherBelow, lc.HeardOwner = micEmb, centroid, cfg.Meeting.MicOtherBelow, heard
-				saveOwner = save
+				lc.MicEmbedder, lc.OwnerVoice, lc.MicOtherBelow = micEmb, centroid, cfg.Meeting.MicOtherBelow
+				if cfg.Meeting.PhoneTeachesVoices {
+					lc.HeardOwner, saveOwner = heard, save
+				}
 				fmt.Printf("import %s: mic voices on (%s)\n", id, m.ID)
 			}
 		}

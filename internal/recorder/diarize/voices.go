@@ -327,6 +327,9 @@ func modelBySettings(threshold float64) string {
 // taught automatically before (voices.Store.LearnMeeting). hints are the
 // session's name reads.
 func LearnSaved(m config.MeetingConfig, dir string, sess *session.Session, hints []Hint) ([]string, error) {
+	if sess.Platform == session.PlatformPhone && !m.PhoneTeachesVoices {
+		return nil, nil
+	}
 	p, info, err := LoadSaved(dir)
 	if err != nil {
 		return nil, err

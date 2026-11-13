@@ -140,7 +140,9 @@ while the recorder is recording a live meeting (state `waiting`).
 the caller, the audio as the session's single mic track (`audio.m4a`),
 transcribed and diarized by the same offline pipeline as `session
 replay`'s current config, then the same post-meeting steps as a recorded
-meeting (speaker labels, voice profiles). The session is marked
+meeting (speaker labels; voice profiles name speakers but are not
+taught from phone audio unless `phone_teaches_voices` is on, the owner's
+decision of 2026-11-13). The session is marked
 `platform: "phone"`. Musubi then picks it up like any finished session
 and links it to the calendar event by time; when the phone named an
 event, that event is the link.

@@ -26,7 +26,7 @@ import (
 // the meeting is saved. A crash in the models costs only the attempt.
 
 // PlatformPhone marks a session imported from the phone.
-const PlatformPhone = "phone"
+const PlatformPhone = session.PlatformPhone
 
 // importPoll is how often a running import checks for a meeting, and a
 // waiting one for its end.

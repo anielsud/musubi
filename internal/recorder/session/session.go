@@ -11,7 +11,7 @@ import (
 type Session struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
-	Platform string `json:"platform,omitempty"` // meeting app, e.g. "Teams", "Zoom"
+	Platform string `json:"platform,omitempty"` // meeting app, e.g. "Teams", "Zoom"; PlatformPhone for a phone's recording
 	// Language is an ISO 639-1 code. Only Tomoe's multilingual mode set
 	// it; kept so its sessions round-trip unchanged.
 	Language  string    `json:"language,omitempty"`
@@ -208,3 +208,6 @@ func (s *Session) UpsertSegment(seg Segment) {
 	}
 	s.Segments = slices.Insert(s.Segments, pos, seg)
 }
+
+// PlatformPhone marks a session imported from a phone (docs/phone.md).
+const PlatformPhone = "phone"

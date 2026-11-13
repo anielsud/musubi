@@ -1,7 +1,7 @@
 # Data safety: upgrading other people's datasets
 
 Status: approved 2026-11-12 and being built. Built so far: §3 items 1
-to 6.
+to 6, and 8.
 
 ## 1. What changed
 
@@ -129,7 +129,11 @@ In order of what a loss would cost the owner.
    rewrites every thread's status. *Proposal:* any change that triggers
    model calls on existing data waits for the owner, with its cost shown
    in the work queue, like a rethread.
-8. **No release discipline yet.** *Proposal:*
+8. **No release discipline yet.** *Built (2026-11-12):* the steps are in
+   [releasing.md](releasing.md); `-rc` tags publish as pre-releases;
+   `scripts/check-on-copy.sh` runs a build on a clone of a dataset and
+   compares counts and the knowledge plan; the PR template asks for §4.
+   *Proposal, as it was:*
    - Tags `vX.Y.Z`; release notes with a **Data changes** section: what
      is migrated, whether it is one-way, what it costs, what to back up.
    - Our dataset first: a release candidate (`vX.Y.Z-rc1`, a pre-release)
@@ -161,4 +165,4 @@ config meaning):
 
 ## 5. Suggested order
 
-1 to 6, done. Then 8 (release discipline, cheap and immediate), 7, 9.
+1 to 6 and 8, done. Then 7, 9.

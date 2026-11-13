@@ -22,7 +22,7 @@ Docs:
   highlights
 - [upgrades.md](docs/upgrades.md): upgrading a dataset, and moving over
   from Tomoe; [data-safety.md](docs/data-safety.md): keeping others' data
-  through upgrades (proposed)
+  through upgrades; [releasing.md](docs/releasing.md): how a release goes out
 - [setup.md](docs/setup.md): install, keys, hosted models, building a
   dataset, and costs per meeting
 - [architecture.md](docs/architecture.md): the design, as built

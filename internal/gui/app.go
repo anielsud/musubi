@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/anielsud/musubi/internal/ask"
+	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/engine"
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/live"
@@ -73,7 +75,13 @@ func (a *App) emit(ev string, data any) {
 
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-	if err := a.openConfig(startConfig()); err != nil {
+	path := startConfig()
+	if path == config.Path() {
+		if _, err := firstRun(path, filepath.Dir(config.DefaultConfig().TomoeSessions), time.Now()); err != nil {
+			a.err = err.Error()
+		}
+	}
+	if err := a.openConfig(path); err != nil {
 		a.err = err.Error()
 	}
 }

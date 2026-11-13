@@ -56,7 +56,7 @@ type RecGroup struct {
 var recGroups = []RecGroup{
 	{"Sources", []RecField{
 		{Table: "audio", Key: "device", Label: "Microphone", Type: "string", Help: "The microphone a recording starts with; \"default\" is the system's."},
-		{Table: "meeting", Key: "monitor_device", Label: "Meeting audio", Type: "string", Help: "The second source a recording starts with: \"everything\" (all system audio) or \"none\" (microphone only)."},
+		{Table: "meeting", Key: "monitor_device", Label: "Meeting audio", Type: "string", Help: "The second source a recording starts with: by default the meeting app (all system audio while no meeting app makes sound), \"everything\" (all system audio) or \"none\" (microphone only)."},
 		{Restart: true, Table: "meeting", Key: "auto_detect", Label: "Notice meetings by themselves", Type: "bool", Help: "Start recording when an app starts using the microphone and speaker together."},
 	}},
 	{"Meeting window", []RecField{

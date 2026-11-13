@@ -52,12 +52,18 @@ func recorderPlist() string {
 
 // startRecorderAgent gets the recorder running: loads its LaunchAgent if
 // it isn't loaded, else asks launchd to start it (kill first with
-// restart, which RestartRecorder uses to apply settings).
-func startRecorderAgent(ctx context.Context, restart bool) error {
+// restart, which RestartRecorder uses to apply settings). With no
+// LaunchAgent, install (when not nil) writes it first.
+func startRecorderAgent(ctx context.Context, restart bool, install func() error) error {
 	service := recorderDomain() + "/" + recorderAgent
 	if _, err := launchctl(ctx, "print", service); err != nil {
 		if _, err := os.Stat(recorderPlist()); err != nil {
-			return fmt.Errorf("the recorder isn't installed (no %s)", recorderPlist())
+			if install == nil {
+				return fmt.Errorf("the recorder isn't installed (no %s)", recorderPlist())
+			}
+			if err := install(); err != nil {
+				return err
+			}
 		}
 		if out, err := launchctl(ctx, "bootstrap", recorderDomain(), recorderPlist()); err != nil {
 			return fmt.Errorf("starting the recorder: %v: %s", err, trimOut(out))
@@ -91,6 +97,13 @@ func (a *App) watchRecorder(ctx context.Context) {
 	if a.eng == nil || !a.eng.Cfg.Recorder.Watchdog {
 		return
 	}
+	// A new install from the DMG: start the bundled recorder now, not
+	// after the grace a restart gets. Errors show at the first check.
+	if _, err := os.Stat(recorderPlist()); err != nil {
+		if exe, _ := bundledRecorder(); exe != "" && a.recorderInstall() != nil {
+			_ = startRecorderAgent(ctx, false, a.recorderInstall())
+		}
+	}
 	t := time.NewTicker(watchEvery)
 	defer t.Stop()
 	var w RecorderWatch
@@ -122,7 +135,7 @@ func (a *App) watchStep(ctx context.Context, w RecorderWatch, warned bool, now t
 	}
 	if w.Tried.IsZero() || now.Sub(w.Tried) >= watchRetry {
 		w.Tried, w.Problem = now, ""
-		if err := startRecorderAgent(ctx, false); err != nil {
+		if err := startRecorderAgent(ctx, false, a.recorderInstall()); err != nil {
 			w.Problem = err.Error()
 		}
 	}
@@ -132,4 +145,14 @@ func (a *App) watchStep(ctx context.Context, w RecorderWatch, warned bool, now t
 		warned = true
 	}
 	return w, warned
+}
+
+// recorderInstall installs the bundled recorder's LaunchAgent, or is nil
+// when [recorder] install_agent is off.
+func (a *App) recorderInstall() func() error {
+	if a.eng == nil || !a.eng.Cfg.Recorder.InstallAgent {
+		return nil
+	}
+	data := a.eng.Cfg.Recorder.Data
+	return func() error { return installRecorderAgent(data) }
 }

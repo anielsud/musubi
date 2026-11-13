@@ -141,7 +141,7 @@ func (a *App) RestartRecorder() error {
 	case st.Recording:
 		return fmt.Errorf("the recorder is recording a meeting; restart it once the meeting is over")
 	}
-	return startRecorderAgent(a.ctx, true)
+	return startRecorderAgent(a.ctx, true, a.recorderInstall())
 }
 
 func (a *App) RecorderSources() (*control.Sources, error) {

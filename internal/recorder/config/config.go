@@ -80,6 +80,11 @@ type TranscriptionConfig struct {
 	// model; "nemotron-560" is closer still (18-31%) but needs ~1.9 GB and
 	// three times the CPU (models.LiveModels).
 	LiveModel string `toml:"live_model"`
+	// DownloadMissing: a start with no transcription model (a new
+	// install) downloads the required models into the recorder's own
+	// folder before loading them, showing the progress in Musubi. false:
+	// the start fails and launchd retries, as before.
+	DownloadMissing bool `toml:"download_missing"`
 }
 
 // MeetingConfig is everything about recording a meeting: sources, line
@@ -364,9 +369,10 @@ func DefaultConfig() *Config {
 		MaxActivePaths: 4,
 		// Off, as on main: two-pass is opt-in until it has been
 		// tuned on real recordings (see `tomoe session replay`).
-		TwoPass:   false,
-		Model:     "auto",
-		LiveModel: "auto",
+		TwoPass:         false,
+		Model:           "auto",
+		LiveModel:       "auto",
+		DownloadMissing: true,
 	}
 	cfg.Meeting = MeetingConfig{
 		DefaultSources:          "both",

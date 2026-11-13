@@ -35,6 +35,12 @@ type Recorder struct {
 	// and, after 30 s down, starts it (launchd) and warns (a red button,
 	// a notification after 90 s). false: no checks, as before.
 	Watchdog bool `toml:"watchdog"`
+	// InstallAgent: when the recorder's LaunchAgent is missing and this
+	// app carries the recorder (Contents/Helpers, as the DMG ships it),
+	// Musubi installs the agent itself, as scripts/install-recorder.sh does
+	// for a recorder built from source. false: Musubi only reports it
+	// missing, as before.
+	InstallAgent bool `toml:"install_agent"`
 	// Relabel: renaming a voice profile can put the new name on the
 	// speaker labels of the meetings it identified, and renaming a
 	// speaker on a saved meeting relabels Musubi's copy, with no model

@@ -1,6 +1,7 @@
 package recording
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -20,7 +21,11 @@ import (
 
 // returnedSamples are the pending returned samples of the indexed
 // sessions, as "Who's this?" items.
-func returnedSamples(sessions []*sessionReview, stores map[string]*voices.Store) []UnknownVoice {
+//
+// One with no fingerprints (NoVoice) can't be named or matched; it is
+// left out unless askNoVoice ([recorder.meeting]
+// ask_unfingerprinted_samples), and then shown as too short to tell.
+func returnedSamples(sessions []*sessionReview, stores map[string]*voices.Store, askNoVoice bool) []UnknownVoice {
 	byID := make(map[string]*sessionReview, len(sessions))
 	for _, r := range sessions {
 		byID[r.id] = r
@@ -35,16 +40,18 @@ func returnedSamples(sessions []*sessionReview, stores map[string]*voices.Store)
 		s := stores[model]
 		for _, rs := range s.Returned() {
 			r := byID[rs.Session]
-			if r == nil || !rs.Pending() {
+			if r == nil || !rs.Pending() || rs.NoVoice && !askNoVoice {
 				continue
 			}
 			u := UnknownVoice{Session: rs.Session, Title: r.title, At: r.at, Label: rs.Label, Seconds: rs.Span.End - rs.Span.Start,
 				Clip:     VoiceClip{Session: rs.Session, Start: rs.Span.Start, End: min(rs.Span.End, rs.Span.Start+clipSeconds)},
-				Returned: true, ReturnedFrom: rs.FromName,
+				Returned: true, ReturnedFrom: rs.FromName, NoVoice: rs.NoVoice,
 				Sample: &control.SampleRef{Model: model, Profile: rs.From, Start: rs.Span.Start, End: rs.Span.End}}
 			if rs.Voice != nil && rs.Voice.N > 0 {
 				if prof, sim := s.ClosestExcept(*rs.Voice, rs.From); prof != nil && sim >= suggestAbove {
 					u.SoundsLike, u.Similarity = prof.Name, sim
+				} else if prof != nil {
+					u.Closest = sim
 				}
 			}
 			out = append(out, u)
@@ -132,18 +139,40 @@ func (a *Recorder) returnedSampleVoice(s *voices.Store, rs voices.ReturnedSample
 	}
 	label := labelOver(sess.Segments, rs.Span.Start, rs.Span.End)
 	learned := diarize.SavedLearning(p, info.Offset, sess, savedHints(dir, sess, a.config().Meeting.SnapReadsToInvitees, a.config().OwnerName))
-	if l := pickLearned(learned, names, source); l != nil {
+	addIn := func(l *voices.Learned) {
 		for _, pt := range l.Parts {
 			if pt.In(rs.Span) {
 				v.Add(pt.Emb)
 			}
 		}
 	}
+	if l := pickLearned(learned, names, source); l != nil {
+		addIn(l)
+	}
+	// Learning finds voices by the names they have now, and only named
+	// ones; a voice renamed since, or a line now labelled "Person 2",
+	// isn't found. The fingerprints are still in the saved meeting: take
+	// those in the sample's span, whoever they were credited to.
 	if v.N == 0 {
-		return v, label, fmt.Errorf("no fingerprints for that sample in the saved meeting")
+		in := func(t float64) string {
+			if t >= rs.Span.Start && t <= rs.Span.End {
+				return "sample"
+			}
+			return ""
+		}
+		for _, l := range diarize.VoicesFromSpeakers(p, info.Offset, in) {
+			addIn(&l)
+		}
+	}
+	if v.N == 0 {
+		return v, label, errNoFingerprints
 	}
 	return v, label, nil
 }
+
+// errNoFingerprints: the saved meeting has no fingerprints in a sample's
+// span (it is shorter than one).
+var errNoFingerprints = errors.New("no fingerprints for that sample in the saved meeting: it is too short to tell whose voice it is")
 
 // fillReturnedSamples works out the label and fingerprints of returned
 // samples kept without them (taken out before 2026-11-12), once, so
@@ -155,12 +184,15 @@ func (a *Recorder) fillReturnedSamples() {
 	}
 	for _, s := range stores {
 		for _, rs := range s.Returned() {
-			if !rs.Pending() || (rs.Label != "" && rs.Voice != nil && rs.Voice.N > 0) {
+			if !rs.Pending() || rs.NoVoice || (rs.Label != "" && rs.Voice != nil && rs.Voice.N > 0) {
 				continue
 			}
-			v, label, _ := a.returnedSampleVoice(s, rs)
+			v, label, err := a.returnedSampleVoice(s, rs)
 			if label != "" || v.N > 0 {
 				_ = s.FillReturned(rs.Session, rs.Span, rs.From, label, v)
+			}
+			if errors.Is(err, errNoFingerprints) {
+				_ = s.MarkReturnedNoVoice(rs.Session, rs.Span, rs.From)
 			}
 		}
 	}

@@ -499,6 +499,20 @@ merged them), which only a split of its lines can fix.
    fingerprints from the saved meeting once, after the review index is
    built. On a copy of the recorder's voices file: 7 samples in 3
    meetings.
+   **Fixed 2026-11-13:** filling found a sample's fingerprints only
+   through learning, which only names voices with a name, and under
+   the name they have now. A voice renamed since, or a line now
+   labelled "Person 2", gave none, so "Who's this?" asked with no
+   "sounds like". The fingerprints in the sample's span are now read
+   from the saved meeting whoever they were credited to. On a copy of
+   the owner's voices file, a 175-second sample went from none to 91
+   fingerprints, and its nearest other profile was 96% alike. A sample
+   with no fingerprints at all (`noVoice`) can't be matched or named,
+   so it isn't asked about (`[recorder.meeting]
+   ask_unfingerprinted_samples = true` asks, and says it is too short
+   to tell). One whose nearest profile is under the 50% bar says that
+   none sounds like it, with how alike the nearest is (a 0.86-second
+   sample with one fingerprint: 41%).
 3. **Meeting rows** keep "Right, it's them" and "Not them"; "Someone
    else…" and its form left the app (on taken-out meetings too);
    `move_voice_meeting` stays in the protocol.

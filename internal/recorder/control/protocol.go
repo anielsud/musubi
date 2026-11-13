@@ -393,6 +393,14 @@ type UnknownVoice struct {
 	// (Returned is set too), named with name_returned_sample, not by
 	// renaming the speaker.
 	Sample *SampleRef `json:"sample,omitempty"`
+	// NoVoice: a returned sample with no fingerprints (too short for
+	// one); shown only with [recorder.meeting]
+	// ask_unfingerprinted_samples, and can't be named, only skipped.
+	NoVoice bool `json:"noVoice,omitempty"`
+	// Closest: how alike the nearest voice profile is when it is too
+	// little alike to suggest (under SoundsLike's bar), so the page can
+	// say none sounds like it.
+	Closest float64 `json:"closest,omitempty"`
 }
 
 type VoicesView struct {

@@ -102,11 +102,13 @@ minutes.
 
 ### Live
 
-![Live](images/user-guide/live.png)
+![Live during a meeting](images/user-guide/live.png)
 
 During a meeting, Live shows the conversation as it happens and briefs
 you on the subjects it recognises: where each one stands and what is
-still open. While it records, click a speaker's name to rename them.
+still open, each brief with its sources. Below them, cards for the
+people and subjects in the conversation. (The picture is a demo meeting
+replayed.) While it records, click a speaker's name to rename them.
 
 At any time you can **ask a question** in the box. Answers start from
 where each subject stands now, then the record itself, and every answer

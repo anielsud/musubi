@@ -441,6 +441,9 @@ func (a *App) DeleteMeeting(itemID string) error {
 	if busy {
 		return fmt.Errorf("Musubi is updating; delete the meeting once it is done")
 	}
+	if err := a.backupBefore("deleting a meeting"); err != nil {
+		return err
+	}
 	if err := a.recCall(control.OpDelete, control.SessionArgs{Session: sid}, nil); err != nil {
 		return err
 	}

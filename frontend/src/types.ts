@@ -745,6 +745,17 @@ export interface StorageView {
   lastBackup: string;
 }
 
+export interface BackupView {
+  name: string;
+  dir: string;
+  created: string;
+  kind: 'manual' | 'daily' | 'before' | 'undo';
+  reason: string;
+  bytes: number;
+  recorder: boolean;
+  legacy: boolean;
+}
+
 export interface DirectoryPerson {
   email: string;
   name: string;

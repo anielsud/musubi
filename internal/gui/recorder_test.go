@@ -130,6 +130,8 @@ func (e *events) has(ev string) bool {
 // dir; ofRecord picks the recorder of record. No store unless asked.
 func testApp(t *testing.T, ofRecord string) (*App, *fakeRecorder, *events, string) {
 	dir := shortDir(t)
+	// Backups made before a change go under HOME: never the real one.
+	t.Setenv("HOME", filepath.Join(dir, "home"))
 	cfg := config.DefaultConfig()
 	cfg.DataDir = filepath.Join(dir, "data")
 	cfg.TomoeSessions = filepath.Join(dir, "tomoe")
@@ -615,12 +617,12 @@ func TestWatchRecorder(t *testing.T) {
 	warnings := 0
 	notify = func(string, string) { warnings++ }
 	t.Cleanup(func() { launchctl, notify = oldL, oldN })
+	a, _, ev, _ := testApp(t, "musubi") // sets HOME too: set it after
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	os.MkdirAll(filepath.Join(home, "Library", "LaunchAgents"), 0o700)
 	os.WriteFile(filepath.Join(home, "Library", "LaunchAgents", recorderAgent+".plist"), []byte("<plist/>"), 0o600)
 
-	a, _, ev, _ := testApp(t, "musubi")
 	t0 := time.Date(2026, 11, 12, 13, 0, 0, 0, time.UTC)
 	var w RecorderWatch
 	warned := false

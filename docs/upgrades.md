@@ -17,11 +17,14 @@ recorder="/Applications/Musubi.app/Contents/Helpers/Musubi Recorder.app/Contents
 ## 1. Before upgrading
 
 - Not during a meeting.
-- **Settings → Dataset → Back up now.** It copies the database, the raw
-  store, the inbox and the config to `~/.local/share/musubi/backups/`. It
-  doesn't copy the recorder's folder (`~/.local/share/musubi/recorder`),
-  nor `profiles/` and `headshots/` in the data folder: copy those by hand
-  if you have them.
+- **Settings → Dataset → Back up now** (or `$musubi backup now`). It
+  copies the database, everything else in the data folder, the
+  recorder's folder (`~/.local/share/musubi/recorder`, but its speech
+  models, which download again) and the config to
+  `~/.local/share/musubi/backups/`. A Musubi from before §7's backups
+  copies only the database, raw store, inbox and config: copy the
+  recorder's folder, `profiles/` and `headshots/` by hand if you have
+  them.
 
 ## 2. Install the new version
 
@@ -156,6 +159,30 @@ Since 2026-11-12 (`internal/store/upgrade.go`):
 - **To go back:** quit Musubi (and stop `musubi mcp` servers), replace
   `musubi.db` in the data folder with the copy (remove `musubi.db-wal`
   and `musubi.db-shm` beside it), and install the version you came from.
+
+Also since 2026-11-12 (`internal/backup`), backups of the whole dataset are
+also made on their own, in `~/.local/share/musubi/backups/`, each with a
+`manifest.json` saying what it is:
+
+- **Daily** while the app is open (not during an update or a
+  recording); the newest 7 kept.
+- **Before a bulk change:** `musubi forget`, `musubi knowledge --redo`,
+  `musubi vectors encode`; in the app, Catch up and Rethread (Status →
+  Work queue), deleting a meeting, renaming a voice's speakers. The
+  newest 5 kept. If the backup fails (no space), the change doesn't run.
+- **Settings:** `[backup] daily`, `keep_daily`, `before_changes`,
+  `keep_before`; false or 0 turns each off. Backups made by hand, and
+  those made before a restore, are never removed.
+- **To restore:** Settings → Dataset → Backups → **Restore…**, or
+  `$musubi backup list` and `$musubi backup restore <name>` (refused while
+  the app has the dataset open; stop `musubi mcp` servers first). The
+  dataset as it is is backed up first ("before a restore"): restoring that
+  undoes it. The data folder is put back; the config isn't (the backup's
+  copy is in its `config/` folder). The recorder's sessions and voices are
+  put back only when asked (`--recorder`), never while it records;
+  otherwise meetings recorded since stay and are read in again by the
+  next update. A backup made before manifests (an older "Back up now")
+  is listed but restored by hand.
 
 For developers, the rules a change to what is stored must follow are in
 [data-safety.md](data-safety.md).

@@ -36,6 +36,7 @@ type Config struct {
 	Gateway     Gateway     `toml:"gateway"`
 	Recorder    Recorder    `toml:"recorder"`
 	Store       Store       `toml:"store"`
+	Backup      Backup      `toml:"backup"`
 	Diagnostics Diagnostics `toml:"diagnostics"`
 	// Providers are hosted endpoints set up once and named, for models to
 	// use with `via` (Settings → AI providers).
@@ -625,6 +626,22 @@ type Store struct {
 	BackupBeforeUpgrade bool `toml:"backup_before_upgrade"`
 }
 
+// Backup is when snapshots of the whole dataset (internal/backup) are
+// made on their own; "Back up now" works either way. false or 0 turns
+// each off, as before they existed.
+type Backup struct {
+	// Daily: one snapshot a day while the app is open, the newest
+	// KeepDaily kept.
+	Daily     bool `toml:"daily"`
+	KeepDaily int  `toml:"keep_daily"`
+	// BeforeChanges: one snapshot before each step that deletes or
+	// rewrites stored data in bulk (forget, a redo, a vector re-encode,
+	// the work queue's runs, deleting a meeting, a speaker relabel), the
+	// newest KeepBefore kept. A step whose snapshot fails doesn't run.
+	BeforeChanges bool `toml:"before_changes"`
+	KeepBefore    int  `toml:"keep_before"`
+}
+
 // Diagnostics: tools in the diagnostics panel.
 type Diagnostics struct {
 	// Profiling offers "Record a 30 s profile" (a CPU profile and a
@@ -706,6 +723,7 @@ func DefaultConfig() Config {
 			Cache: true, SkipIdle: true, PrepCard: true,
 		},
 		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16", BackupBeforeUpgrade: true},
+		Backup:      Backup{Daily: true, KeepDaily: 7, BeforeChanges: true, KeepBefore: 5},
 		Diagnostics: Diagnostics{Profiling: true, Resources: true},
 		Recorder:    Recorder{OfRecord: "tomoe", Watchdog: true, InstallAgent: true, Relabel: true, Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}

@@ -246,8 +246,8 @@ Known gaps:
 - **The corpus relabel** with Jev is deferred; new statements are labelled
   with it.
 - **Data safety** for others' datasets: backups that cover the recorder's
-  folder, automatic snapshots and restore are proposed
-  ([data-safety.md](data-safety.md)).
+  folder, automatic snapshots and restore are built; the rest is
+  proposed ([data-safety.md](data-safety.md)).
 
 ## Roadmap
 

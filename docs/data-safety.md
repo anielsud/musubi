@@ -1,7 +1,6 @@
 # Data safety: upgrading other people's datasets
 
-Status: approved 2026-11-12 and being built. Built so far: §3 items 1
-to 6, and 8.
+Status: approved and built, 2026-11-12: §3 items 1 to 9.
 
 ## 1. What changed
 
@@ -128,7 +127,19 @@ In order of what a loss would cost the owner.
    the whole history, five meetings per update; a status version bump
    rewrites every thread's status. *Proposal:* any change that triggers
    model calls on existing data waits for the owner, with its cost shown
-   in the work queue, like a rethread.
+   in the work queue, like a rethread. *Built:* with
+   `knowledge.hold_upgrades` (default on; `updates = "explicit"`),
+   passages of extracted or summarised meetings that a new chunker or
+   translator would re-cut, statuses under a new status version and
+   names under a new naming version or model are kept, and counted.
+   The rule: a stale stamp whose version-free input is unchanged (the
+   raw record or the content, for passages; the statements, for
+   statuses; the text, for names) changed only by an upgrade and waits;
+   a changed input runs as before. Status → Work queue → **Apply
+   upgrades** shows them with an estimate and runs them under the spend
+   cap; `musubi knowledge --plan` lists them and `--redo
+   extract,statuses,names` applies them. `hold_upgrades = false` redoes
+   them on the next run, as before.
 8. **No release discipline yet.** *Built (2026-11-12):* the steps are in
    [releasing.md](releasing.md); `-rc` tags publish as pre-releases;
    `scripts/check-on-copy.sh` runs a build on a clone of a dataset and
@@ -143,7 +154,17 @@ In order of what a loss would cost the owner.
 9. **Support without data.** When something goes wrong on someone
    else's Mac we can't look at their meetings. *Proposal:* Status →
    **Copy diagnostics**: versions, schema and format, counts, recent log
-   lines, health. No meeting content, names or email.
+   lines, health. No meeting content, names or email. *Built:* Status →
+   **Copy diagnostics** and `musubi diagnostics` (internal/diagnostics):
+   versions, schema and format, counts, connections and recorder
+   health, which provider and model each job uses, on/off settings, and
+   recent error lines. Everything but the error and health lines is
+   numbers, booleans and fixed strings; those lines lose email and web
+   addresses, paths, quoted and bracketed text, whatever follows a word
+   like "title" or "name", every capitalised word but product terms, and
+   every word of the dataset's titles and names. A test plants names,
+   addresses, titles and keys in a synthetic dataset, config and log and
+   checks none reach the report.
 
 ## 4. Rules for a change that touches stored data
 
@@ -165,4 +186,4 @@ config meaning):
 
 ## 5. Suggested order
 
-1 to 6 and 8, done. Then 7, 9.
+All nine are built (2026-11-12).

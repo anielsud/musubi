@@ -23,6 +23,7 @@ var assets embed.FS
 var version = "dev"
 
 func main() {
+	gui.Version = version
 	// A Dock-launched app has no terminal; keep a log for diagnosis.
 	if home, err := os.UserHomeDir(); err == nil {
 		dir := filepath.Join(home, "Library", "Logs", "Musubi")
@@ -31,7 +32,6 @@ func main() {
 			log.SetOutput(f)
 		}
 	}
-	gui.Version = version
 	app := gui.NewApp()
 	err := wails.Run(&options.App{
 		Title:            "Musubi",

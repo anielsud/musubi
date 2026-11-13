@@ -53,7 +53,7 @@ func root() *cobra.Command {
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
 	r.AddCommand(importItemsCmd(), extractLeanCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), aliasesCmd(), liveCmd(),
-		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd(), vectorsCmd(), relabelCmd(), backupCmd())
+		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd(), vectorsCmd(), relabelCmd(), backupCmd(), diagnosticsCmd())
 	return r
 }
 
@@ -1086,8 +1086,8 @@ func knowledgeCmd() *cobra.Command {
 			}
 			defer e.Close()
 			for _, s := range redo {
-				if s != "extract" && s != "links" && s != "threads" && s != "label" && s != "digest" {
-					return fmt.Errorf("--redo takes extract, links, threads, label or digest (got %q)", s)
+				if s != "extract" && s != "links" && s != "threads" && s != "label" && s != "digest" && s != "statuses" && s != "names" {
+					return fmt.Errorf("--redo takes extract, links, threads, label, digest, statuses or names (got %q)", s)
 				}
 			}
 			if len(redo) > 0 && !plan {
@@ -1142,7 +1142,7 @@ func knowledgeCmd() *cobra.Command {
 	c.Flags().IntVar(&limit, "limit", 0, "extract at most this many items this run")
 	c.Flags().IntVar(&workers, "workers", 2, "parallel model requests")
 	c.Flags().BoolVarP(&verbose, "verbose", "v", false, "print each linking decision")
-	c.Flags().StringSliceVar(&redo, "redo", nil, "bring these stages up to their current version: extract, links (rethreads too, in thread mode), threads, label (relabel every statement with the configured labeller), digest (meeting summaries and to-dos)")
+	c.Flags().StringSliceVar(&redo, "redo", nil, "bring these stages up to their current version: extract, links (rethreads too, in thread mode), threads, label (relabel every statement with the configured labeller), digest (meeting summaries and to-dos), statuses (thread statuses), names (meeting names); extract also cuts again the passages an upgrade left waiting (knowledge.hold_upgrades)")
 	c.Flags().IntVar(&newest, "newest", 0, "with --redo extract: only this many items, newest first")
 	c.Flags().BoolVar(&noThreads, "no-threads", false, "stop after linking (threads applied from elsewhere)")
 	c.Flags().BoolVar(&digestOnly, "digest-only", false, "only write meeting summaries and to-dos (knowledge.digest): no extraction, linking or threading")
@@ -1170,6 +1170,18 @@ func printOutdated(o pipeline.Outdated, mode string) {
 	}
 	if o.Backfilled > 0 {
 		fmt.Fprintf(os.Stderr, "out of order: %d items older than ones already threaded were threaded after them (musubi knowledge --redo threads)\n", o.Backfilled)
+	}
+	if o.Passages > 0 {
+		fmt.Fprintf(os.Stderr, "upgrade waiting: %d meetings keep passages a new chunker would cut again, and so extract again (musubi knowledge --redo extract [--newest N])\n", o.Passages)
+	}
+	if o.Statuses > 0 {
+		fmt.Fprintf(os.Stderr, "upgrade waiting: %d thread statuses were written under an earlier status version (musubi knowledge --redo statuses)\n", o.Statuses)
+	}
+	if o.Names > 0 {
+		fmt.Fprintf(os.Stderr, "upgrade waiting: %d meeting names were made under an earlier naming version or model (musubi knowledge --redo names)\n", o.Names)
+	}
+	if u := pipeline.UpgradesOf(o); len(u.Redo()) > 0 {
+		fmt.Fprintf(os.Stderr, "applying them all costs about $%.2f on hosted models (musubi knowledge --redo %s; or Status → Work queue → Apply upgrades)\n", u.USD, strings.Join(u.Redo(), ","))
 	}
 }
 

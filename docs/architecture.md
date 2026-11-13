@@ -147,8 +147,18 @@ output: its prompt version, model, rules in code and settings.
 - **Re-extraction requeues threading:** a re-extracted item is threaded
   again, after the items already threaded. Before this, its statements
   silently left their threads.
+- **Upgrades that would cost model calls wait too**
+  (`knowledge.hold_upgrades`, default on; `pipeline/upgrades.go`): a
+  chunk stamp, status stamp or name input that is stale while what it
+  was made from is not (the item's raw record or content, recorded as
+  `chunk-source`; a status hash recomputed under the version that wrote
+  it; a name's text hash kept beside its input) is kept and counted, and
+  the passages keep their statements, since re-cutting them would delete
+  them. `--redo extract` re-cuts and re-extracts them, `--redo
+  statuses`, `--redo names` the rest; the work queue shows them with an
+  estimate (**Apply upgrades**).
 - **Old behaviour:** `knowledge.updates = "auto"` redoes everything when
-  a version changes.
+  a version changes; `hold_upgrades = false` only the upgrades above.
 - **Speaker relabels** (`[recorder] relabel`; docs/recorder-screens.md,
   "Renaming a voice profile renames its speakers"): a corrected speaker
   label is written into a meeting's stored copies (item, passages,

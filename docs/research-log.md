@@ -4040,3 +4040,25 @@ Models stay local by default (hosted ones need a token: Use
 recommended). The synthetic eval corpus pins the old knowledge settings
 (testdata/synthetic/config.toml) so its recorded replies still match;
 its output is unchanged.
+
+## 2026-11-12: Teams transcripts against the recorder's speaker names (19 meetings)
+
+Before turning on `[m365] teams_names`, its alignment (session.AlignTeams,
+default rules) was run, without renaming anything, over the owner's 19
+recorded meetings that have a Teams transcript. All 19 lined up by their
+text (20+ anchors each).
+
+- **Unnamed speakers ("Person N"): 19, none named.** No Teams name
+  covered any of them clearly enough (60% of the overlapped speech, twice
+  the runner-up), so the feature changes nothing on this dataset today;
+  it is for meetings the window and voice profiles couldn't name.
+- **Speakers the recorder had named, that Teams names too: 82.**
+  - 67 the same name;
+  - 1 the same person, spelled differently;
+  - 14 where Teams gives the meeting room's device and the recorder named
+    the person in the room (room split and voice profiles; shares of the
+    device's name 65–100%).
+
+No case of Teams and the recorder naming two different people. Where
+they differ, the recorder is the more precise: Teams only knows the
+accounts on the call.

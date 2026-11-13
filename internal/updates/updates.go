@@ -2,8 +2,8 @@
 //
 // It reads the public releases-only repository ([updates] repo) with an
 // anonymous request: no account, token, dataset name or anything else
-// about the user goes with it. It only reports a newer version; it never
-// downloads or installs anything.
+// about the user goes with it. Check only reports a newer version;
+// Install (install_darwin.go) replaces the app with it when the user asks.
 package updates
 
 import (
@@ -23,6 +23,10 @@ type Release struct {
 	URL        string    `json:"url"`
 	Prerelease bool      `json:"prerelease"`
 	Published  time.Time `json:"published"`
+	// DMG and its SHA-256 file, when the release has both; Install needs
+	// them.
+	DMG    string `json:"-"`
+	SHA256 string `json:"-"`
 }
 
 type ghRelease struct {
@@ -31,6 +35,10 @@ type ghRelease struct {
 	Draft       bool      `json:"draft"`
 	Prerelease  bool      `json:"prerelease"`
 	PublishedAt time.Time `json:"published_at"`
+	Assets      []struct {
+		Name string `json:"name"`
+		URL  string `json:"browser_download_url"`
+	} `json:"assets"`
 }
 
 // API is GitHub's API root (a variable for tests).
@@ -84,6 +92,16 @@ func Check(ctx context.Context, client *http.Client, repo, current string, prere
 			continue
 		}
 		best, bestV = &Release{Version: r.TagName, URL: r.HTMLURL, Prerelease: r.Prerelease, Published: r.PublishedAt}, v
+		dl := prefix + "download/" + r.TagName + "/"
+		dmg := "Musubi-" + r.TagName + ".dmg"
+		for _, a := range r.Assets {
+			switch {
+			case a.Name == dmg && a.URL == dl+dmg:
+				best.DMG = a.URL
+			case a.Name == dmg+".sha256" && a.URL == dl+dmg+".sha256":
+				best.SHA256 = a.URL
+			}
+		}
 	}
 	return best, nil
 }

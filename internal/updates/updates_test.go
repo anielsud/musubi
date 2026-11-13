@@ -9,7 +9,9 @@ import (
 
 const list = `[
  {"tag_name":"v0.3.0-rc1","html_url":"https://github.com/o/r/releases/tag/v0.3.0-rc1","prerelease":true},
- {"tag_name":"v0.2.1","html_url":"https://github.com/o/r/releases/tag/v0.2.1"},
+ {"tag_name":"v0.2.1","html_url":"https://github.com/o/r/releases/tag/v0.2.1","assets":[
+   {"name":"Musubi-v0.2.1.dmg","browser_download_url":"https://github.com/o/r/releases/download/v0.2.1/Musubi-v0.2.1.dmg"},
+   {"name":"Musubi-v0.2.1.dmg.sha256","browser_download_url":"https://evil.example/Musubi-v0.2.1.dmg.sha256"}]},
  {"tag_name":"v0.2.0","html_url":"https://github.com/o/r/releases/tag/v0.2.0"},
  {"tag_name":"v9.0.0","html_url":"https://github.com/o/r/releases/tag/v9.0.0","draft":true},
  {"tag_name":"v8.0.0","html_url":"https://evil.example/releases/v8.0.0"}
@@ -77,5 +79,19 @@ func TestOrder(t *testing.T) {
 		if !ok || !b.newer(a) || a.newer(b) {
 			t.Errorf("%s should be newer than %s", order[i], order[i-1])
 		}
+	}
+}
+
+func TestCheckAssets(t *testing.T) {
+	serve(t)
+	r, err := Check(context.Background(), http.DefaultClient, "o/r", "v0.2.0", false)
+	if err != nil || r == nil {
+		t.Fatal(r, err)
+	}
+	if r.DMG != "https://github.com/o/r/releases/download/v0.2.1/Musubi-v0.2.1.dmg" {
+		t.Errorf("DMG = %q", r.DMG)
+	}
+	if r.SHA256 != "" {
+		t.Errorf("a checksum off the repository was taken: %q", r.SHA256)
 	}
 }

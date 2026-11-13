@@ -47,12 +47,21 @@ customers are made up.
    You only do this once per version.
 
 **Updates:** once a day Musubi asks GitHub whether a newer version has
-been released. When there is one, a button such as **↑ v0.2.1** appears
-at the top of the window; it opens the release page, where you download
-the DMG and install it the same way. The check is anonymous: it sends
-nothing about you or your data, and nothing is installed by itself. Set
-`[updates] check = false` to switch it off, or `prereleases = true` to
-be offered release candidates too.
+been released, release candidates included (Musubi is pre-1.0). When
+there is one, a button such as **↑ v0.2.1** appears at the top of the
+window. Click it, then **Update**: Musubi downloads the new version,
+checks it, replaces itself and restarts. It never
+updates without that click, and not while a meeting is being recorded.
+The check is anonymous: it sends nothing about you or your data.
+
+Because Musubi isn't signed by Apple yet, macOS may ask again after an
+update for the recorder's microphone and screen recording permissions.
+Allow them as on the first launch.
+
+To switch updates off, set `[updates] check = false`. To keep the check
+but download by hand from the release page, set `install = false`. To be
+offered final releases only, set `prereleases = false`. A Musubi built
+from source never checks, so it is never replaced by a release.
 
 ### 3. First launch
 

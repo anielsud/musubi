@@ -158,7 +158,7 @@ func (a *App) openConfig(path, why string) (err error) {
 	go a.followRecorder(lctx, e.Cfg.RecorderLiveSocket())
 	go a.watchRecorder(lctx)
 	go a.dailyBackups(lctx, e, path)
-	if e.Cfg.Updates.Check {
+	if updatesOn(e.Cfg.Updates.Check) {
 		go a.checkUpdates(lctx, e.Cfg.Updates.Repo, e.Cfg.Updates.Prereleases)
 	}
 	if e.Cfg.Prep.AutoBrief && e.AskLLM != nil {

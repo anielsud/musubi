@@ -31,9 +31,12 @@ The PR template asks for it; in short ([data-safety.md](data-safety.md) §4):
 
 1. **Release candidate.** Tag main `vX.Y.Z-rc1` and push the tag. The
    `release` workflow builds the DMG and publishes a **pre-release**,
-   here and (DMG only, no notes) on the public
+   here and (the DMG and its `.sha256`, no notes) on the public
    [musubi-releases](https://github.com/anielsud/musubi-releases), which
-   the app's update check reads; that needs the `RELEASES_TOKEN` secret.
+   the app's update check reads and installs from; that needs the
+   `RELEASED_TOKEN` secret. Release builds offer candidates by default,
+   so a candidate reaches every user who clicks Update as soon as it is
+   published.
 2. **Our dataset first.** Install the candidate on the owner's Mac (when
    no meeting is being recorded) and use it for a day of meetings. Check
    Status (recorder health, the work queue, "waiting from upgrades") and

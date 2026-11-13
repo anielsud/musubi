@@ -450,12 +450,28 @@ enters the cold lane like any other source.
   view is the WebKit web content process macOS holds responsible for the
   app (left out where that can't be asked); a process counts in one
   component only.
-  The update check (`internal/updates`, `[updates]`, default on) asks
-  GitHub's API once a day, anonymously, for the releases of the public
-  releases-only repository (`anielsud/musubi-releases`; the source
-  repository is private), and the header offers a newer release's page.
-  Development builds (a `git describe` past a tag) are never offered
-  anything; nothing is downloaded or installed by the app.
+  The update check (`internal/updates`, `[updates]`, default on,
+  release candidates included) asks GitHub's API once a day,
+  anonymously, for the releases of the public releases-only repository
+  (`anielsud/musubi-releases`; the source repository is private). Only
+  the release workflow's DMG checks (`make CHANNEL=release`); a build
+  from source is `local` and never checks or installs, so it is never
+  replaced by a release behind it. The header offers a newer release.
+  **Update**, only when clicked, and never while recording or while an
+  update or run is going:
+  1. downloads the DMG over HTTPS from that repository's own download
+     URLs;
+  2. checks it against the `.sha256` file the workflow publishes beside
+     it;
+  3. mounts it read-only and checks that it holds the same bundle
+     identifier at that version and that its signature verifies;
+  4. copies it beside the app and swaps the two by rename, putting the
+     old one back if the swap fails; the old one is kept as
+     `.Musubi-previous.app` until the next launch;
+  5. restarts the recorder (its agent runs the copy inside the app) and
+     relaunches Musubi.
+
+  `install = false` opens the release page instead.
 - **Stepped replay** (`musubi live --replay ID --stepped`): the meeting
   line by line on its own clock, each line's work (lookups, cards,
   suggestions, summaries) done before the next, so the result doesn't

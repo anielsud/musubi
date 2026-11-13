@@ -3,6 +3,9 @@
 # FTS5 is compiled into the SQLite driver only with this tag.
 TAGS := -tags sqlite_fts5
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# release: the DMG the release workflow builds, which checks for and
+# installs updates; local: every other build, which never does.
+CHANNEL ?= local
 
 # The desktop app needs a webview (WKWebView on macOS, webkit2gtk on Linux),
 # so CI checks everything else; build-gui covers the app on a Mac. -e: the
@@ -55,7 +58,7 @@ frontend:
 	cp -r frontend/dist cmd/musubi-gui/frontend/dist
 
 build-gui: frontend
-	CGO_ENABLED=1 CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build $(TAGS),production -ldflags "-X main.version=$(VERSION)" -o bin/musubi-gui ./cmd/musubi-gui
+	CGO_ENABLED=1 CGO_LDFLAGS="-framework UniformTypeIdentifiers" go build $(TAGS),production -ldflags "-X main.version=$(VERSION) -X main.channel=$(CHANNEL)" -o bin/musubi-gui ./cmd/musubi-gui
 
 # Builds /Applications/Musubi.app and adds it to the Dock. Musubi needs no
 # camera, microphone or screen permissions, so an ad-hoc signature is enough.
@@ -147,6 +150,7 @@ dmg: app-mac
 	ditto $(DIST_APP) build/dmg/Musubi.app
 	ln -s /Applications build/dmg/Applications
 	hdiutil create -volname "Musubi $(VERSION)" -srcfolder build/dmg -fs HFS+ -format UDZO -ov $(DMG)
+	cd build && shasum -a 256 $(notdir $(DMG)) > $(notdir $(DMG)).sha256
 	@echo "Built $(DMG)"
 
 clean:

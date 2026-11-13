@@ -1,7 +1,6 @@
 # Data safety: upgrading other people's datasets
 
-Status: approved 2026-11-12 and being built. Built so far: §3 items 1
-to 7, and 9.
+Status: approved and built, 2026-11-12: §3 items 1 to 9.
 
 ## 1. What changed
 
@@ -141,7 +140,11 @@ In order of what a loss would cost the owner.
    cap; `musubi knowledge --plan` lists them and `--redo
    extract,statuses,names` applies them. `hold_upgrades = false` redoes
    them on the next run, as before.
-8. **No release discipline yet.** *Proposal:*
+8. **No release discipline yet.** *Built (2026-11-12):* the steps are in
+   [releasing.md](releasing.md); `-rc` tags publish as pre-releases;
+   `scripts/check-on-copy.sh` runs a build on a clone of a dataset and
+   compares counts and the knowledge plan; the PR template asks for §4.
+   *Proposal, as it was:*
    - Tags `vX.Y.Z`; release notes with a **Data changes** section: what
      is migrated, whether it is one-way, what it costs, what to back up.
    - Our dataset first: a release candidate (`vX.Y.Z-rc1`, a pre-release)
@@ -183,4 +186,4 @@ config meaning):
 
 ## 5. Suggested order
 
-1 to 7 and 9, done. Then 8 (release discipline).
+All nine are built (2026-11-12).

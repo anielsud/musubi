@@ -77,8 +77,9 @@ export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
   const listEl = useRef<HTMLUListElement>(null);
   const wide = useWide();
 
-  // Loaded when the tab shows and every 5 minutes while it does: meetings
-  // move from coming up to happened, and recaps get written.
+  // Loaded when the tab shows, after each update (a saved recording shows
+  // as soon as it is imported, not at the next 5-minute reload) and every
+  // 5 minutes while it shows: meetings move from coming up to happened.
   useEffect(() => {
     if (!active) return;
     setErr('');
@@ -88,8 +89,11 @@ export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
     };
     const t = setTimeout(load, 150);
     const every = setInterval(load, 5 * 60 * 1000);
-    const off = on<string>('meetings:changed', (id) => { setSel((s) => (s?.kind === 'recap' && s.id === id ? null : s)); load(); });
-    return () => { clearTimeout(t); clearInterval(every); off(); };
+    const offs = [
+      on<string>('meetings:changed', (id) => { setSel((s) => (s?.kind === 'recap' && s.id === id ? null : s)); load(); }),
+      on('update:done', load),
+    ];
+    return () => { clearTimeout(t); clearInterval(every); offs.forEach((f) => f()); };
   }, [scope, active]);
   useEffect(() => { if (req) setSel({ kind: 'recap', id: req.id }); }, [req]);
 

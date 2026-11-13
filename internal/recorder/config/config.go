@@ -66,6 +66,12 @@ type TranscriptionConfig struct {
 	// text when each utterance ends. Off, every line appears once, decoded
 	// by the final model only.
 	TwoPass bool `toml:"two_pass"`
+	// Threads is how many CPU threads the final transcription model
+	// decodes each line with during a meeting. Its extra threads spin
+	// while they wait, so 4 used 59.5 s of CPU on 5 minutes of a meeting
+	// and 2 used 35.0 s, with the same text and 2 s more in all (research
+	// log 2026-11-13). 4 restores the previous behaviour; 0 means 4.
+	Threads int `toml:"threads"`
 	// Model is the transcription model: "auto" (the default) uses Cohere
 	// Transcribe for English, the most accurate there of the models
 	// compared, and the multilingual Parakeet v3 for other languages;
@@ -377,6 +383,7 @@ func DefaultConfig() *Config {
 		// Off, as on main: two-pass is opt-in until it has been
 		// tuned on real recordings (see `tomoe session replay`).
 		TwoPass:         false,
+		Threads:         2,
 		Model:           "auto",
 		LiveModel:       "auto",
 		DownloadMissing: true,

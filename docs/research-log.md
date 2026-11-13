@@ -4104,3 +4104,41 @@ stretch.
 
 Not measured: the web view's own process (drawing the panel), which
 the probe didn't separate from Safari's.
+
+## 2026-11-13: the recorder's CPU in a meeting — the transcription model spins
+
+**Seen:** in a 30-minute meeting on the owner's Mac (Musubi's recorder
+alone; Tomoe didn't record), the recorder averaged 47% of a core. Eight
+15-second `sample`s, 4 minutes apart, split its busy time (waits left
+out) like this:
+
+| What | Share |
+|---|---|
+| ONNX Runtime computing (transcription, voice fingerprints, segmentation) | 45% |
+| **ONNX Runtime's worker threads spinning while waiting** | **37%** |
+| Reading the meeting window (screen capture, text recognition, JPEG) | 5% |
+| Go runtime and the rest | 13% |
+
+The spinning threads were the intra-op pool of the final transcription
+model (Cohere Transcribe, `sherpa_onnx::OfflineRecognizer`), loaded with
+4 threads (`NewCohereEngine`'s default). sherpa-onnx doesn't expose ONNX
+Runtime's `allow_spinning`, so the thread count is the lever. Two-pass is
+off (`two_pass = false`), so this model alone writes each line when the
+speaker pauses.
+
+**Measured** offline, Cohere on 5 minutes of a recorded meeting (16 kHz
+mono, cut by the speech detector as live), on the owner's Mac:
+
+| Threads | Wall time | CPU time | Text |
+|---|---|---|---|
+| 4 (before) | 15.6 s | 59.5 s | 577 words |
+| 2 | 17.6 s | 35.0 s | identical |
+| 1 | 23.5 s | 23.5 s | identical |
+
+**Decision (owner, 2026-11-13):** 2 threads by default
+(`[transcription] threads`, 4 restores the previous behaviour). CPU for
+transcription is 41% lower; a 10-second stretch of speech takes about
+0.6 s instead of 0.5 s to appear. 1 thread would save 60% for about
+0.8 s per line.
+
+**Next to check:** the recorder's average in a meeting with 2 threads.

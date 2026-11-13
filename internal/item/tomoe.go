@@ -13,7 +13,10 @@ type tomoeSession struct {
 	CreatedAt time.Time `json:"created_at"`
 	EndedAt   time.Time `json:"ended_at"`
 	Duration  float64   `json:"duration"`
-	Segments  []struct {
+	// EventID: the calendar event a phone recording was of (the
+	// recorder's import); linking takes it over matching by time.
+	EventID  string `json:"event_id"`
+	Segments []struct {
 		Speaker string  `json:"speaker"`
 		Text    string  `json:"text"`
 		Start   float64 `json:"start_time"`
@@ -70,6 +73,9 @@ func fromTomoe(b []byte) ([]Item, error) {
 	}
 	if s.Platform != "" {
 		it.Native["platform"] = s.Platform
+	}
+	if s.EventID != "" {
+		it.Native["event_id"] = s.EventID
 	}
 	seen := map[string]bool{}
 	for _, g := range s.Segments {

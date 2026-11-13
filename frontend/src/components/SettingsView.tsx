@@ -6,12 +6,13 @@ import { ModelsTab } from './settings/ModelsTab';
 import { Prefs, StorageCard } from './settings/Prefs';
 import { ProcessingTab } from './settings/ProcessingTab';
 import { ProvidersTab } from './settings/ProvidersTab';
+import { PhoneTab } from './settings/PhoneTab';
 import { RecordingTab } from './settings/RecordingTab';
 
 // Settings is what to set up once and leave alone; what to watch and act
 // on is on Status.
-type Tab = 'accounts' | 'providers' | 'models' | 'processing' | 'recording' | 'dataset';
-const tabs: [Tab, string][] = [['accounts', 'Accounts'], ['providers', 'AI providers'], ['models', 'Models'], ['processing', 'Processing'], ['recording', 'Recording'], ['dataset', 'Dataset']];
+type Tab = 'accounts' | 'providers' | 'models' | 'processing' | 'recording' | 'phone' | 'dataset';
+const tabs: [Tab, string][] = [['accounts', 'Accounts'], ['providers', 'AI providers'], ['models', 'Models'], ['processing', 'Processing'], ['recording', 'Recording'], ['phone', 'Phone'], ['dataset', 'Dataset']];
 
 export function SettingsView({ status }: { status: AppStatus | null }) {
   const [tab, setTab] = useState<Tab>(() => {
@@ -29,6 +30,7 @@ export function SettingsView({ status }: { status: AppStatus | null }) {
       {tab === 'models' && <ModelsTab />}
       {tab === 'processing' && <ProcessingTab />}
       {tab === 'recording' && <RecordingTab />}
+      {tab === 'phone' && <PhoneTab />}
       {tab === 'dataset' && <><StorageCard /><Prefs tab="dataset" /></>}
       </div>
     </div>

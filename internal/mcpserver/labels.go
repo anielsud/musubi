@@ -81,7 +81,7 @@ func (l *labeller) mixed(lab sensitivity.Label) Sens {
 
 func (l *labeller) block(lab sensitivity.Label, aud []string) Sens {
 	sh := sensitivity.ShareOf(lab)
-	s := Sens{Level: lab.Level.String(), Categories: lab.Categories.Names(), Share: sh, Why: why(lab, sh, len(aud))}
+	s := Sens{Level: lab.Level.String(), Categories: lab.Categories.Names(), Share: sh, Why: sensitivity.Why(lab, len(aud))}
 	l.n++
 	l.by[sh]++
 	if sh.Narrower(l.top) {
@@ -95,26 +95,6 @@ func (l *labeller) block(lab sensitivity.Label, aud []string) Sens {
 		}
 	}
 	return s
-}
-
-func why(lab sensitivity.Label, sh sensitivity.Share, party int) string {
-	var parts []string
-	if lab.Categories != 0 {
-		parts = append(parts, "about "+strings.Join(lab.Categories.Names(), ", "))
-	}
-	switch {
-	case lab.Level == sensitivity.Restricted:
-		parts = append(parts, "restricted: take care even with people who were party to it")
-	case lab.Level == sensitivity.Confidential && party == 2:
-		parts = append(parts, "a one-to-one")
-	case lab.Level == sensitivity.Confidential && party > 0:
-		parts = append(parts, fmt.Sprintf("confidential source with %d people party to it", party))
-	case lab.Level == sensitivity.Confidential:
-		parts = append(parts, "drawn from confidential sources")
-	case len(parts) == 0:
-		parts = append(parts, lab.Level.String()+" source")
-	}
-	return strings.Join(parts, "; ")
 }
 
 // summary is the line a result opens with.

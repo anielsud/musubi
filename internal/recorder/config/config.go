@@ -193,7 +193,13 @@ type MeetingConfig struct {
 	// the next profile by VoiceProfileMargin. On saved meetings: 112 of
 	// 119 voices named, all right; 1 of 57 voices with no profile
 	// misnamed. false: no profiles kept or used, as before.
-	VoiceProfiles         bool    `toml:"voice_profiles"`
+	VoiceProfiles bool `toml:"voice_profiles"`
+	// PhoneTeachesVoices lets a phone's recording (docs/phone.md) teach
+	// the voice profiles and the user's own voice. false (the default):
+	// phone recordings use them to name speakers but never change them,
+	// so a different microphone in a different room can't pull them
+	// away from how people sound in the user's meetings on the Mac.
+	PhoneTeachesVoices    bool    `toml:"phone_teaches_voices"`
 	VoiceProfileThreshold float64 `toml:"voice_profile_threshold"`
 	VoiceProfileMargin    float64 `toml:"voice_profile_margin"`
 	// SnapReadsToInvitees corrects a name read from the meeting window on

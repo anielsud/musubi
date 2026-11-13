@@ -11,7 +11,7 @@ import (
 type Session struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
-	Platform string `json:"platform,omitempty"` // meeting app, e.g. "Teams", "Zoom"
+	Platform string `json:"platform,omitempty"` // meeting app, e.g. "Teams", "Zoom"; PlatformPhone for a phone's recording
 	// Language is an ISO 639-1 code. Only Tomoe's multilingual mode set
 	// it; kept so its sessions round-trip unchanged.
 	Language  string    `json:"language,omitempty"`
@@ -36,6 +36,11 @@ type Session struct {
 	// and the Voices page asks who they are whatever their age or length.
 	// Musubi's recorder only; Tomoe ignores the key.
 	Returned []ReturnedVoice `json:"returned_voices,omitempty"`
+	// EventID is the calendar event (Musubi's item id) an imported
+	// recording was of, when the phone that made it named one: Musubi
+	// links the session to that event rather than by time. Musubi's
+	// recorder only.
+	EventID string `json:"event_id,omitempty"`
 }
 
 // ReturnedVoice is a speaker a voice profile named until the user said
@@ -203,3 +208,6 @@ func (s *Session) UpsertSegment(seg Segment) {
 	}
 	s.Segments = slices.Insert(s.Segments, pos, seg)
 }
+
+// PlatformPhone marks a session imported from a phone (docs/phone.md).
+const PlatformPhone = "phone"

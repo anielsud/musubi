@@ -433,7 +433,16 @@ enters the cold lane like any other source.
   (default on) a due pick, or a model suggestion run, whose input is what
   the last one read (the conversation it reads, the scope and, for a
   pick, its votes) is skipped and the cadence kept. Menu ranking already
-  runs only when the cards it ranks change. The diagnostics panel's
+  runs only when the cards it ranks change. While the window can't be seen
+  (`live.background`, default on; the page's `visibilitychange`:
+  minimized, hidden, on a Space not shown, covered; another monitor
+  showing it counts as seen), Live does only what the topic cards depend
+  on, as a stepped replay's `CardsOnly` does: picks and the picked cards'
+  briefs, lookups that only put topics forward, and model suggestions on
+  complete lines. Entity graphs, card drawing, the menu's ranking and
+  lookup summaries wait, and the panel is redrawn once the window shows
+  (`Live.Redraw`). On a live meeting it took the app from 3% to 1% of a
+  core and Ollama from 11% to 8% (research log 2026-11-13). The diagnostics panel's
   "Record a 30 s profile" (`[diagnostics] profiling`) writes a CPU profile
   and a goroutine dump under the data folder's `profiles/`; Live's steps
   carry pprof labels (`step` = pick, suggest, fastlane, cards; queue for

@@ -21,8 +21,8 @@ func TestFirstRunStandsAloneWithoutTomoe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.MusubiRecords() || !c.TomoeOff() || c.Recorder.Since.IsZero() {
-		t.Errorf("recorder = %+v, want Musubi's of record, Tomoe off, since set", c.Recorder)
+	if !c.MusubiRecords() || !c.TomoeOff() || c.Recorder.Since.IsZero() || c.Recorder.Meeting["live_feed"] != true {
+		t.Errorf("recorder = %+v, want Musubi's of record, Tomoe off, since set, live feed on", c.Recorder)
 	}
 	// An existing config is never touched.
 	if wrote, _ := firstRun(path, filepath.Join(dir, "no-tomoe"), time.Now()); wrote {

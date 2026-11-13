@@ -13,7 +13,7 @@ import (
 
 // firstRun gives a new owner a config that stands alone. With no config
 // file at path and no Tomoe on this Mac, Musubi's own recorder is of
-// record and Tomoe's files are never looked for; the defaults would
+// record with its live feed on, and Tomoe's files are never looked for; the defaults would
 // instead follow a Tomoe that isn't there, and no meeting would arrive.
 // An owner with Tomoe keeps the defaults and switches in Settings →
 // Recording. It returns whether it wrote the file.
@@ -27,7 +27,11 @@ func firstRun(path, tomoeData string, now time.Time) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return false, err
 	}
-	edits := append(ofRecordEdits("musubi", now), config.Edit{Section: "recorder", Key: "tomoe", Value: "off"})
+	// The recorder's live feed is off in its own defaults (Tomoe's config
+	// turned it on); Live follows it.
+	edits := append(ofRecordEdits("musubi", now),
+		config.Edit{Section: "recorder", Key: "tomoe", Value: "off"},
+		config.Edit{Section: "recorder.meeting", Key: "live_feed", Value: true})
 	return true, config.EditFile(path, edits)
 }
 

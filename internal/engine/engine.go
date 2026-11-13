@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -49,9 +50,12 @@ func Open(cfgPath string) (*Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	st, err := store.OpenWith(cfg.DBPath(), store.Options{CacheMB: cfg.Store.CacheMB, MmapMB: cfg.Store.MmapMB, ReadConns: cfg.Store.ReadConns})
+	st, err := store.OpenWith(cfg.DBPath(), store.Options{CacheMB: cfg.Store.CacheMB, MmapMB: cfg.Store.MmapMB, ReadConns: cfg.Store.ReadConns, NoUpgradeBackup: !cfg.Store.BackupBeforeUpgrade})
 	if err != nil {
 		return nil, err
+	}
+	if st.UpgradeBackup != "" {
+		log.Printf("upgraded %s; the copy from before is %s", cfg.DBPath(), st.UpgradeBackup)
 	}
 	st.ReadWithRules = cfg.Knowledge.ApplySpellings
 	if err := st.SetVectorEncoding(cfg.Store.VectorEncoding); err != nil {

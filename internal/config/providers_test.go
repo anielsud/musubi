@@ -101,6 +101,10 @@ hedge_after = 30
 	if c.Owner.Name != "Pat Example" || c.DataDir != "/tmp/d" || c.Gateway.TokenID != "tok9" || !c.Knowledge.AllowHosted {
 		t.Errorf("kept: owner %q data %q token %q hosted %v", c.Owner.Name, c.DataDir, c.Gateway.TokenID, c.Knowledge.AllowHosted)
 	}
+	// The features the models are for are turned on with them.
+	if c.Knowledge.Extract != "lean" || c.Knowledge.Grouping != "threads" || !c.Knowledge.Digest.Enabled || !c.Knowledge.Digest.ToDos || !c.Live.Pick.Enabled {
+		t.Errorf("features: extract %q grouping %q digest %+v pick %v", c.Knowledge.Extract, c.Knowledge.Grouping, c.Knowledge.Digest, c.Live.Pick.Enabled)
+	}
 	if c.Ask.Fallback.Model != "qwen3.8:27b" || c.Ask.Model.Fallback != nil || c.Knowledge.Label.Classifier.Provider != "jev" {
 		t.Errorf("ask %+v / labels %+v", c.Ask, c.Knowledge.Label.Classifier)
 	}

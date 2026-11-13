@@ -619,6 +619,10 @@ type Store struct {
 	// or "f32" (full precision, the earlier behaviour). Both always read;
 	// `musubi vectors encode` rewrites what is already stored.
 	VectorEncoding string `toml:"vector_encoding"`
+	// BackupBeforeUpgrade copies the database to backups/ in its data
+	// folder before a newer build changes it (keeping the newest three;
+	// docs/upgrades.md). false: upgrade in place without a copy, as before.
+	BackupBeforeUpgrade bool `toml:"backup_before_upgrade"`
 }
 
 // Diagnostics: tools in the diagnostics panel.
@@ -701,7 +705,7 @@ func DefaultConfig() Config {
 			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
 			Cache: true, SkipIdle: true, PrepCard: true,
 		},
-		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16"},
+		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16", BackupBeforeUpgrade: true},
 		Diagnostics: Diagnostics{Profiling: true, Resources: true},
 		Recorder:    Recorder{OfRecord: "tomoe", Watchdog: true, InstallAgent: true, Relabel: true, Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}

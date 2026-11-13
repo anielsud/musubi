@@ -59,22 +59,34 @@ func m365Cmd() *cobra.Command {
 			return nil
 		},
 	})
-	c.AddCommand(&cobra.Command{
+	var days int
+	sync := &cobra.Command{
 		Use:   "sync",
 		Short: "Read Microsoft 365 into the inbox now (then run update)",
+		Long: `Read Microsoft 365 into the inbox now (then run update).
+
+--days reads the calendar, and the Teams transcripts of its meetings, that
+many days back for this run only: to bring in history from before the
+first sync. The meetings it adds are older than what is threaded, so they
+wait for a rethread (Status → Work queue, or musubi knowledge --redo threads).`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			e, err := open()
 			if err != nil {
 				return err
 			}
 			defer e.Close()
+			if days > 0 {
+				e.Cfg.M365.PastDays = days
+			}
 			rep, err := e.SyncM365(cmd.Context())
 			if rep != "" {
 				fmt.Println(rep)
 			}
 			return err
 		},
-	})
+	}
+	sync.Flags().IntVar(&days, "days", 0, "read this many days back, this run only (0: [m365] past_days)")
+	c.AddCommand(sync)
 	c.AddCommand(&cobra.Command{
 		Use:   "signout",
 		Short: "Forget the Microsoft 365 sign-in (Keychain)",

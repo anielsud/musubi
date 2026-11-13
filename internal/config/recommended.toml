@@ -12,6 +12,11 @@ api_key = "keychain:baseten-api-key"
 
 [knowledge]
 allow_hosted = true
+# What the models below are for: lean extraction into threads (the
+# defaults, "statements" and "topics", don't use them), meeting summaries
+# with their to-dos, and Live's briefs.
+extract = "lean"
+grouping = "threads"
 
 [knowledge.lean.model]
 via = "gateway"
@@ -55,6 +60,10 @@ model = "zai-org/GLM-5.3-Flash"
 price_in = 0.15
 price_out = 0.502
 
+[knowledge.digest]
+enabled = true
+todos = true
+
 [knowledge.digest.model]
 via = "gateway"
 provider = "anthropic"
@@ -68,6 +77,9 @@ provider = "openai"
 model = "zai-org/GLM-5.3-Flash"
 price_in = 0.15
 price_out = 0.502
+
+[live.pick]
+enabled = true
 
 [live.pick.brief]
 via = "gateway"

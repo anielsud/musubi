@@ -64,6 +64,9 @@ func (a *App) RelabelProfileMeetings(model, id string) (*engine.RelabelResult, e
 		return nil, err
 	}
 	defer done()
+	if err := a.backupBefore("renaming a voice's speakers"); err != nil {
+		return nil, err
+	}
 	res, err := a.eng.RelabelProfile(a.ctx, io.Discard, model, id)
 	a.afterRelabel()
 	return res, err

@@ -174,7 +174,10 @@ something needs you, it says so here first.
 - **Models** and **Processing**: which model does each job.
 - **Recording**: microphone, meeting audio, reading the meeting window,
   voices and transcription.
-- **Dataset**: where your data is, its size, and **Back up now**.
+- **Dataset**: where your data is, its size, **Back up now**, and your
+  backups, each with **Restore…**. Musubi also backs up on its own: once
+  a day, and before anything that deletes or rewrites a lot (deleting a
+  meeting, Catch up, Rethread).
 
 ![Settings → Recording](images/user-guide/settings-recording.png)
 
@@ -307,7 +310,11 @@ dataset; to use another, add `--config <path to its config.toml>` before
 - **◐ private** (top right) switches to screen-safe: while you share your
   screen, Musubi shows only what's fine to share.
 - Delete a meeting from its page (**Delete meeting…**): it and everything
-  learnt from it are removed and never read again.
+  learnt from it are removed and never read again. Backups made before
+  it (`~/.local/share/musubi/backups`, also on your Mac) still hold it
+  until they are removed: daily ones after a week, those made before a
+  change after five more changes; those made by hand or before a restore
+  stay until you delete them.
 
 ## Updating
 
@@ -324,9 +331,10 @@ Because the app isn't signed by Apple yet, after an update:
   recordings come out silent, turn *Musubi Recorder* off and on again in
   **System Settings → Privacy & Security** under both.
 
-A new version that changes how your data is stored first copies your
-database to `backups/` in the data folder. If you have been using an
-earlier Musubi, or Tomoe, see [upgrades.md](upgrades.md).
+Before updating, **Settings → Dataset → Back up now**. A new version
+that changes how your data is stored also first copies your database to
+`backups/` in the data folder. If you have been using an earlier Musubi,
+or Tomoe, see [upgrades.md](upgrades.md).
 
 ## When something isn't working
 
@@ -337,6 +345,7 @@ earlier Musubi, or Tomoe, see [upgrades.md](upgrades.md).
 | Speakers are named wrong | Rename them on the meeting's page; the recorder learns their voices. |
 | **M** is grey | Ollama isn't running or isn't installed. Open Ollama once. |
 | Microsoft 365 says the sign-in has lapsed | **Settings → Accounts → Sign in again**. |
+| Meetings, subjects or voices are gone or wrong after a change | **Settings → Dataset → Backups**: **Restore…** the one from before it. What you have now is backed up first, so you can go back. |
 
 Logs, if someone asks for them: `~/Library/Logs/Musubi/musubi-gui.log`
 (the app) and `~/.local/share/musubi/recorder/logs/recorder.log` (the

@@ -87,6 +87,12 @@ func (a *App) RunKnowledge(kind string) error {
 	}
 	a.running = kind
 	a.mu.Unlock()
+	if err := a.backupBefore(map[string]string{"catchup": "Catch up", "rethread": "Rethread"}[kind]); err != nil {
+		a.mu.Lock()
+		a.running = ""
+		a.mu.Unlock()
+		return err
+	}
 	ledger := a.ledgerPath()
 	limit := provider.LedgerTotal(ledger) + 1.5*estimate + 0.05
 	go func() {

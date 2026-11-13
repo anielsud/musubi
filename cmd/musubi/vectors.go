@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
@@ -24,7 +25,8 @@ written as store.vector_encoding says; this converts what is already there.
 f32 → f16 rounds every component. f16 → f32 does not bring the original
 precision back, only widens the rounded values: for the exact vectors,
 re-embed (musubi update --embed ...). Works on --db (default: the
-configured database, or the one of --config); back it up first. --vacuum
+configured database, or the one of --config), which is backed up first
+([backup] before_changes; a --db elsewhere is not). --vacuum
 (default) then rebuilds the file so it shrinks; that needs no other
 process writing to it.`,
 		Args: cobra.ExactArgs(1),
@@ -32,12 +34,12 @@ process writing to it.`,
 			if args[0] != store.VecF16 && args[0] != store.VecF32 {
 				return fmt.Errorf("encoding must be f16 or f32, not %q", args[0])
 			}
+			cfg, err := config.Load(cfgPath)
+			if err != nil {
+				return err
+			}
 			path := db
 			if path == "" {
-				cfg, err := config.Load(cfgPath)
-				if err != nil {
-					return err
-				}
 				path = cfg.DBPath()
 			}
 			if _, err := os.Stat(path); err != nil {
@@ -48,6 +50,13 @@ process writing to it.`,
 				return err
 			}
 			defer st.Close()
+			if filepath.Clean(path) == filepath.Clean(cfg.DBPath()) {
+				if err := backupBefore(cfg, st, "musubi vectors encode "+args[0]); err != nil {
+					return err
+				}
+			} else {
+				fmt.Fprintln(os.Stderr, "not backed up: --db isn't the dataset's database")
+			}
 			stats, err := st.ReencodeVectors(args[0], func(s store.EncodeStats) {
 				fmt.Fprintf(os.Stderr, "\r%s: %d read, %d rewritten", s.Table, s.Rows, s.Rewritten)
 			})

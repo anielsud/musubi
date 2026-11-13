@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDate, on } from '../../api';
-import type { PrefField, PrefGroup, StorageView } from '../../types';
+import type { BackupView, PrefField, PrefGroup, StorageView } from '../../types';
 import { Spinner } from '../common';
 import { bytes, Row } from './shared';
 
@@ -87,9 +87,68 @@ export function StorageCard() {
         {msg && <span className="dim small">{msg}</span>}
       </div>
       <p className="dim small">
-        A backup copies the database, the raw store, the inbox and the config into {s.backups}. On this Mac&apos;s disk the raw store and inbox
-        are cloned, so they take no extra room until one copy changes.
+        A backup copies the database, everything else in the data folder, the recorder&apos;s recordings and voices, and the config into {s.backups}.
+        On this Mac&apos;s disk the files are cloned, so they take no extra room until one copy changes. The recorder&apos;s speech models
+        are left out: they download again.
       </p>
+      <Backups />
     </section>
+  );
+}
+
+const kindName: Record<BackupView['kind'], string> = { manual: 'by hand', daily: 'daily', before: 'before a change', undo: 'before a restore' };
+
+// Backups lists the dataset's backups, each with Restore.
+function Backups() {
+  const [list, setList] = useState<BackupView[] | null>(null);
+  const [asking, setAsking] = useState<BackupView | null>(null);
+  const [withRec, setWithRec] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const load = () => api.backups().then((l) => setList(l ?? []), (e) => setMsg(String(e)));
+  useEffect(() => {
+    load();
+    return on('storage:changed', load);
+  }, []);
+  if (!list) return <Spinner />;
+  const restore = (b: BackupView) => {
+    setAsking(null); setBusy(true); setMsg('');
+    api.restoreBackup(b.name, withRec).then(
+      (undo) => { setBusy(false); setMsg(`Restored. The dataset as it was is backed up as ${undo}: restore that to undo this.`); },
+      (e) => { setBusy(false); setMsg(String(e)); },
+    );
+  };
+  return (
+    <>
+      <div className="section-head"><span>Backups</span>{busy && <span className="dim small"><Spinner /> Restoring…</span>}</div>
+      {list.length === 0 && <div className="dim small">none yet</div>}
+      {list.map((b) => (
+        <div key={b.name}>
+          <Row k={fmtDate(b.created)} v={<>
+            {kindName[b.kind] ?? b.kind}{b.kind === 'before' && b.reason ? `: ${b.reason}` : ''} · {bytes(b.bytes)}{' '}
+            {b.legacy
+              ? <span className="dim small">older layout: restore by hand</span>
+              : <button className="link" disabled={busy} onClick={() => { setAsking(b); setWithRec(false); }}>Restore…</button>}
+          </>} />
+          {asking?.name === b.name && (
+            <div className="confirm-row">
+              <span className="small">
+                Put this backup back? Musubi closes the dataset, backs it up as it is now (so this can be undone), copies the backup in and opens it
+                again. Meetings recorded since stay with the recorder and are read in again at the next update. The config isn&apos;t changed.
+              </span>
+              {b.recorder && (
+                <label className="small">
+                  <input type="checkbox" checked={withRec} onChange={(e) => setWithRec(e.target.checked)} /> Also put back the recorder&apos;s recordings and
+                  voices (not while a meeting is being recorded)
+                </label>
+              )}
+              <button className="primary danger" onClick={() => restore(b)}>Restore</button>
+              <button onClick={() => setAsking(null)}>Cancel</button>
+            </div>
+          )}
+        </div>
+      ))}
+      {msg && <div className="dim small">{msg}</div>}
+    </>
   );
 }

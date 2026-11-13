@@ -1,7 +1,7 @@
 # Data safety: upgrading other people's datasets
 
-Status: approved 2026-11-12 and being built. Built so far: §3 items 1,
-4, 5 and 6.
+Status: approved 2026-11-12 and being built. Built so far: §3 items 1
+to 6.
 
 ## 1. What changed
 
@@ -27,6 +27,8 @@ now someone else's, and may not be recoverable at any price.
 - `migrate-from-tomoe` saves the config and voices before overwriting
   them, and never writes Tomoe's files.
 - Config edits from the app keep the previous file as `config.toml.bak`.
+- **New with items 2 and 3:** backups cover the whole dataset, are made
+  daily and before bulk changes, and can be restored (§3).
 - **New with this change:** a database of a newer schema or format is
   refused untouched, and an older one is copied before it is upgraded
   ([upgrades.md](upgrades.md), §7).
@@ -45,7 +47,13 @@ In order of what a loss would cost the owner.
    profiles hold months of naming. "Back up now" copies the database, raw
    and inbox, not this. *Proposal:* "Back up now" includes the recorder's
    folder (APFS clones: no extra space until files change) and the data
-   folder's `profiles/` and `headshots/`.
+   folder's `profiles/` and `headshots/`. *Built* (`internal/backup`):
+   a backup holds the database (a consistent copy), everything else in
+   the data folder (but the pre-upgrade copies and `backups/`), the
+   recorder's folder (but its speech models, which download again) and
+   the config, with a `manifest.json` (time, reason, dataset, app
+   version, schema and format, row counts). The app and `musubi backup`
+   share it.
 3. **No automatic backups, no restore.** Backups exist only when someone
    clicks. *Proposal:* a daily snapshot while the app is open (keep 7),
    and one before each destructive step: `forget`, `knowledge --redo`,
@@ -53,7 +61,17 @@ In order of what a loss would cost the owner.
    `migrate-from-tomoe`. Settings → Dataset lists the backups with
    **Restore** (quit, swap, reopen). Cost: disk, about one database's size
    per snapshot (430 MB on the largest dataset) since raw and sessions
-   clone; a few seconds per snapshot.
+   clone; a few seconds per snapshot. *Built:* a daily backup while the
+   app is open (newest 7 kept); one before `musubi forget`,
+   `knowledge --redo`, `vectors encode`, and in the app Catch up,
+   Rethread, deleting a meeting and renaming a voice's speakers (newest
+   5 kept; the step doesn't run if its backup fails); `[backup]` turns
+   each off. Restore, from Settings → Dataset or `musubi backup restore`,
+   first backs the dataset up as it is ("before restore", never removed),
+   so it can be undone. It puts back the data folder; the recorder's
+   sessions and voices only when asked, and never while it records. Not
+   yet: the voice relearn and `migrate-from-tomoe` run in the recorder,
+   which has its own copies (voices, config) and isn't hooked.
 4. **Migrations aren't recorded or tested on real old databases.**
    Today's upgrades are columns added on every open and one-off flags in
    `store_meta`. *Proposal:* a migration ledger (`migrations` table:
@@ -143,6 +161,4 @@ config meaning):
 
 ## 5. Suggested order
 
-1 and 6, done. Then 2 and 3 together (backups that cover everything, made on
-their own, with restore), 8 (release discipline, cheap and immediate),
-5, 4, 7, 9.
+1 to 6, done. Then 8 (release discipline, cheap and immediate), 7, 9.

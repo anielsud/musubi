@@ -53,7 +53,7 @@ func root() *cobra.Command {
 	r.PersistentFlags().StringVar(&cfgPath, "config", config.Path(), "config file")
 	r.AddCommand(&cobra.Command{Use: "version", Run: func(*cobra.Command, []string) { fmt.Println("musubi", version) }})
 	r.AddCommand(importItemsCmd(), extractLeanCmd(), updateCmd(), searchCmd(), graphCmd(), showCmd(), statsCmd(), forgetCmd(), evalCmd(), askCmd(), prepCmd(), threadsCheckCmd(), insertCheckCmd(), aliasesCmd(), liveCmd(),
-		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd(), vectorsCmd(), relabelCmd())
+		knowledgeCmd(), gateCmd(), claimsCmd(), topicsCmd(), topicCmd(), cardCmd(), judgeCmd(), threadLinksCmd(), m365Cmd(), nameMeetingsCmd(), peopleCmd(), mcpCmd(), vectorsCmd(), relabelCmd(), backupCmd())
 	return r
 }
 
@@ -376,6 +376,9 @@ func forgetCmd() *cobra.Command {
 				return err
 			}
 			defer st.Close()
+			if err := backupBefore(cfg, st, "musubi forget"); err != nil {
+				return err
+			}
 			h, used, err := knowledge.ForgetItem(st, args[0])
 			if err != nil {
 				return err
@@ -1085,6 +1088,11 @@ func knowledgeCmd() *cobra.Command {
 			for _, s := range redo {
 				if s != "extract" && s != "links" && s != "threads" && s != "label" && s != "digest" {
 					return fmt.Errorf("--redo takes extract, links, threads, label or digest (got %q)", s)
+				}
+			}
+			if len(redo) > 0 && !plan {
+				if err := backupBefore(e.Cfg, e.Store, "musubi knowledge --redo "+strings.Join(redo, ",")); err != nil {
+					return err
 				}
 			}
 			o := pipeline.KnowledgeOptions{Items: items, Limit: limit, Workers: workers,

@@ -1276,6 +1276,16 @@ rows they lost (`[store] check_counts`). [upgrades.md](upgrades.md) has
 the steps for an existing dataset; [data-safety.md](data-safety.md) the
 rules for a change to what is stored.
 
+Backups (`internal/backup`, the app and `musubi backup`): a folder per
+backup under `~/.local/share/musubi/backups/` with the database (VACUUM
+INTO), the rest of the data folder and the recorder's folder (APFS
+clones; not its models) and the config, and a `manifest.json`. Made by
+hand, daily while the app is open, and before bulk deletes and rewrites
+(`[backup]`). A restore backs the dataset up first, then swaps the
+backup's data folder in; the app holds a shared lock on `musubi.lock`
+in the data folder, so a restore from the command line refuses while
+it is open.
+
 | Need | Mechanism |
 |---|---|
 | Keyword search | FTS5 |

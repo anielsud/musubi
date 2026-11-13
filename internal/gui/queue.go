@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/anielsud/musubi/internal/pipeline"
 	"github.com/anielsud/musubi/internal/provider"
+	"github.com/anielsud/musubi/internal/store"
 )
 
 // The Status page shows the knowledge layer's waiting work (pipeline.Queue)
@@ -91,7 +93,25 @@ func (a *App) RunKnowledge(kind string) error {
 		runMu.Lock()
 		prev := os.Getenv("MUSUBI_SPEND_CAP")
 		os.Setenv("MUSUBI_SPEND_CAP", fmt.Sprintf("%.4f", limit))
-		ks, err := a.eng.Knowledge(a.ctx, io.Discard, o)
+		// A rethread rewrites every thread: the owner's word must come
+		// through it whole (store.KeptGuard).
+		var guard *store.KeptGuard
+		var gerr error
+		if len(o.Redo) > 0 && a.eng.Cfg.Store.CheckCounts {
+			guard, gerr = a.eng.Store.GuardKept()
+		}
+		var ks pipeline.KnowledgeStats
+		var err error
+		if gerr == nil {
+			ks, err = a.eng.Knowledge(a.ctx, io.Discard, o)
+		}
+		counts := ""
+		if guard != nil {
+			var after store.Counts
+			after, gerr = guard.Finish()
+			counts = fmt.Sprintf("; before: %s; after: %s", guard.Before, after)
+		}
+		err = errors.Join(gerr, err)
 		if prev == "" {
 			os.Unsetenv("MUSUBI_SPEND_CAP")
 		} else {
@@ -101,9 +121,9 @@ func (a *App) RunKnowledge(kind string) error {
 		a.mu.Lock()
 		a.running = ""
 		a.mu.Unlock()
-		msg := fmt.Sprintf("%d extracted, %d threaded", ks.Items, ks.Threads.Items)
+		msg := fmt.Sprintf("%d extracted, %d threaded%s", ks.Items, ks.Threads.Items, counts)
 		if err != nil {
-			msg = err.Error()
+			msg = err.Error() + counts
 		}
 		a.live.Reload()
 		a.emit("update:done", msg)

@@ -3,6 +3,7 @@
 /eval-*/
 /replay-*/
 *.db
+!/testdata/fixtures/*.db
 *.db-wal
 *.db-shm
 .env

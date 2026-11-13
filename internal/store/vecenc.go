@@ -189,26 +189,19 @@ func (s *Store) metaGet(key string) (string, error) {
 
 // upgradeClaimCentroids drops the centroids that only repeat their single
 // statement's vector, byte for byte, so every read gets the same vector as
-// before. Once per database (store_meta).
-func upgradeClaimCentroids(db *sql.DB) error {
+// before. Once per database (store_meta, and the migration ledger), in
+// the migration's transaction.
+func upgradeClaimCentroids(db dbtx) error {
 	var done int
 	if err := db.QueryRow(`SELECT count(*) FROM store_meta WHERE key = 'claim_centroids_dedup'`).Scan(&done); err != nil || done > 0 {
 		return err
 	}
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`UPDATE claims SET centroid = NULL WHERE centroid IS NOT NULL
+	if _, err := db.Exec(`UPDATE claims SET centroid = NULL WHERE centroid IS NOT NULL
 		AND (SELECT count(*) FROM statement_claims sc WHERE sc.claim_id = claims.id) = 1
 		AND centroid = (SELECT v.vec FROM statement_claims sc JOIN statement_vecs v ON v.statement_id = sc.statement_id WHERE sc.claim_id = claims.id)`); err != nil {
 		return err
 	}
-	if err := metaSet(tx, "claim_centroids_dedup", "1"); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return metaSet(db, "claim_centroids_dedup", "1")
 }
 
 // EncodeStats counts what ReencodeVectors rewrote.

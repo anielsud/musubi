@@ -214,7 +214,7 @@ func TestClaimCentroidUpgrade(t *testing.T) {
 
 	before, _ := s.ClaimCentroids()
 	// The database as before the upgrade.
-	if _, err := s.db.Exec(`DELETE FROM store_meta WHERE key = 'claim_centroids_dedup'`); err != nil {
+	if _, err := s.db.Exec(`DELETE FROM store_meta WHERE key = 'claim_centroids_dedup'; DELETE FROM migrations WHERE id = 'claim-centroids-dedup'`); err != nil {
 		t.Fatal(err)
 	}
 	s.Close()

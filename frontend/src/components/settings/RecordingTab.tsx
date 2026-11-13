@@ -131,7 +131,7 @@ function choices(f: RecField, src: RecSources | null): { value: string; label: s
   } else if (f.type === 'select') {
     opts = f.options ?? [];
   }
-  if (opts && !opts.some((o) => o.value === cur)) opts.push({ value: cur, label: f.key === 'monitor_device' && cur === '' ? 'Microphone only' : `${cur} (not available now)` });
+  if (opts && !opts.some((o) => o.value === cur)) opts.push({ value: cur, label: f.key === 'monitor_device' && cur === '' ? 'The meeting app (automatic)' : `${cur} (not available now)` });
   return opts;
 }
 

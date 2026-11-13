@@ -39,6 +39,7 @@ export function LiveView({ status, onOpen, onEntity, onTopic, scope: askScope, p
   const box = useRef<HTMLTextAreaElement>(null);
   const ask = useAsk(askScope);
   const rec = useRecorder();
+  const musubiRecords = rec?.ofRecord === 'musubi';
   // Renaming a speaker reaches the recording in progress only when it is
   // the Musubi recorder's (the one Live then follows).
   const canRename = !!rec?.editable && status?.mode === 'live';
@@ -126,15 +127,17 @@ export function LiveView({ status, onOpen, onEntity, onTopic, scope: askScope, p
     // centred, with the box and what was asked.
     <div className={'view live' + (active ? '' : ' idle-mode')}>
       <div className="live-left">
-      <MeetingHeader status={status} />
+      <MeetingHeader status={status} musubi={musubiRecords} />
       <SourceBanner rec={rec} />
       {active && <WithLine invited={status?.session?.invited ?? []} segs={segs} />}
 
       {!active && (
         <div className="idle">
           <div className="idle-art" aria-hidden>結</div>
-          <p>When Tomoe records a meeting, the conversation streams in here and Musubi briefs you on what it recognises. Ask anything below, during a meeting or not: answers start from where each subject stands now, then the record itself, with sources.</p>
-          <p className="dim">Tomoe → Settings → Sharing → <b>Live feed</b> must be on.</p>
+          <p>When {musubiRecords ? 'Musubi' : 'Tomoe'} records a meeting, the conversation streams in here and Musubi briefs you on what it recognises. Ask anything below, during a meeting or not: answers start from where each subject stands now, then the record itself, with sources.</p>
+          {musubiRecords
+            ? <p className="dim">Recording starts when a meeting app uses the microphone and speakers, or press <b>● Record</b>.</p>
+            : <p className="dim">Tomoe → Settings → Sharing → <b>Live feed</b> must be on.</p>}
           {ask.turns.length === 0 && (
             <div className="examples">
               {askExamples.map((e) => <button key={e} className="chip" onClick={() => ask.send(e)}>{e}</button>)}
@@ -291,7 +294,7 @@ function RenameSpeaker({ label }: { label: string }) {
   );
 }
 
-function MeetingHeader({ status }: { status: LiveStatus | null }) {
+function MeetingHeader({ status, musubi }: { status: LiveStatus | null; musubi: boolean }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -306,7 +309,9 @@ function MeetingHeader({ status }: { status: LiveStatus | null }) {
     <div className={'meeting mode-' + mode}>
       <span className="mode-badge">{mode === 'live' && <span className="pulse" />}{badge}</span>
       <div className="meeting-title">
-        {s ? s.title || 'Untitled meeting' : status.connected ? 'Tomoe connected · no meeting' : 'Not connected to Tomoe'}
+        {s ? s.title || 'Untitled meeting'
+          : musubi ? (status.connected ? 'Recorder connected · no meeting' : 'Not connected to the recorder')
+          : status.connected ? 'Tomoe connected · no meeting' : 'Not connected to Tomoe'}
       </div>
       {s && mode === 'live' && <span className="meeting-time">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>}
       {mode === 'replay' && <button className="link" onClick={() => api.stopReplay()}>stop</button>}

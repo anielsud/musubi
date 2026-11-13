@@ -142,9 +142,12 @@ itself ([recorder-screens.md](recorder-screens.md)):
 
 Against Tomoe on a live 19-minute Teams call, the recorder's text
 differed by 3.6% of words and gave the same speaker for 100% of 2,862
-words ([recorder-parity.md](recorder-parity.md), 2026-11-12). Not yet
-done: Teams transcripts carry names but aren't used to label the
-recording's speakers (the aligning code is written, not wired).
+words ([recorder-parity.md](recorder-parity.md), 2026-11-12). When a
+meeting's Teams transcript arrives, it names the recording's speakers
+nobody named yet, if its text lines up with the recording and one name
+clearly covers each speaker (`[m365] teams_names`); and in meetings
+known only from a Teams transcript, its speakers count as the meeting's
+people.
 
 ## The system at a glance
 
@@ -236,7 +239,8 @@ threads; the store's reads got 3–10 times faster on 2026-11-12, and
 vectors take half the space.
 
 Known gaps:
-- **Speaker names from Teams transcripts** aren't used yet.
+- **Teams names on recordings** are new (2026-11-12): how many speakers
+  they name, and how often wrongly, isn't measured yet.
 - **Reconcile misses** inside threads are the larger share of stale
   "current" items.
 - **Backfill**: the year before September is searchable but not threaded.
@@ -265,9 +269,8 @@ In order of value now:
      from words said to lookup shown).
    - Cut Live relevance's cost: judge only what changed, and re-check what
      is shown less often.
-3. **Who said it.** Use Teams transcripts' names on the recording; measure
-   voice profiles and room splitting on more meetings (on by default since
-   2026-11-12).
+3. **Who said it.** Measure Teams names on recordings, voice profiles and
+   room splitting on more meetings (all on by default since 2026-11-12).
 4. **Correct current state.** Reduce reconcile misses inside threads; keep
    the owner's corrections cheap (rules, merges, splits, statement edits).
 5. **Coverage.** Thread the rest of the year once, oldest first; relabel

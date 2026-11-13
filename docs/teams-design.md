@@ -220,6 +220,7 @@ So a Teams transcript fills a gap and otherwise stays the second copy.
 | `mail`, `chats` | false | the owner's email and Teams chats (`mail_days`, `chat_days` 14; `mail_focused_only` true) |
 | `tomoe_context` | true | `calendar.json` next to linked Tomoe recordings |
 | `transcripts` | true | Teams transcripts of the owner's past meetings in the window |
+| `teams_names` | true | name a recorded meeting's unnamed speakers from its Teams transcript (session.AlignTeams' strict rules), through the recorder's rename and relabel, no model calls |
 | `unattended` | false | also meetings the owner did not join (else read once and passed over) |
 | `meeting_chat` | true | what was written in a meeting's chat during it, as a chat drop |
 

@@ -21,6 +21,7 @@ import com.musubi.phone.MainActivity
 import com.musubi.phone.R
 import com.musubi.phone.core.ChunkWriter
 import com.musubi.phone.core.EventRef
+import com.musubi.phone.core.LiveModel
 import com.musubi.phone.core.RecordingMeta
 import com.musubi.phone.sync.SyncScheduler
 import java.time.OffsetDateTime
@@ -32,6 +33,7 @@ import java.time.OffsetDateTime
  */
 class RecorderService : Service() {
     private var engine: AudioEngine? = null
+    private var live: LiveTextController? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private val main = Handler(Looper.getMainLooper())
 
@@ -42,6 +44,11 @@ class RecorderService : Service() {
             ACTION_START -> start(intent)
             ACTION_STOP -> stop()
             ACTION_SET_EVENT -> setEvent(intent)
+            ACTION_LIVE -> when {
+                engine == null -> stopSelf()
+                intent.getBooleanExtra(EXTRA_LIVE_ON, false) -> startLive()
+                else -> stopLive(flush = true)
+            }
             else -> if (engine == null) stopSelf()
         }
         return START_NOT_STICKY
@@ -87,6 +94,38 @@ class RecorderService : Service() {
         RecorderStatus.startedAtMillis = startedAt
         RecorderStatus.eventSubject = event?.subject
         engine = AudioEngine(writer, store.root) { err -> main.post { onEngineFinished(meta.id, err) } }.also { it.start() }
+        LiveStatus.clear()
+        if (LivePrefs(this).on) startLive()
+    }
+
+    /** Live text on for the current recording, if the model is there. */
+    private fun startLive() {
+        val id = RecorderStatus.recordingId ?: return
+        val e = engine ?: return
+        if (live != null) return
+        if (!LiveModel.isPresent(LiveModel.dir(filesDir))) {
+            LiveStatus.state = LiveStatus.State.OFF
+            LiveStatus.message = "Live text needs its model: download it in Settings"
+            return
+        }
+        val c = LiveTextController(this, App.store(this).dirFor(id)) { stopped ->
+            main.post {
+                if (live === stopped) {
+                    live = null
+                    engine?.live = null
+                }
+            }
+        }
+        live = c
+        e.live = c
+        c.start()
+    }
+
+    private fun stopLive(flush: Boolean) {
+        val c = live ?: return
+        live = null
+        engine?.live = null
+        c.stop(flush)
     }
 
     private fun stop() {
@@ -108,6 +147,7 @@ class RecorderService : Service() {
     }
 
     private fun onEngineFinished(id: String, error: String?) {
+        stopLive(flush = true)
         closeRecording(id)
         RecorderStatus.lastError = error
         engine = null
@@ -137,6 +177,7 @@ class RecorderService : Service() {
 
     override fun onDestroy() {
         // If the system tears the service down, stop the engine so the last chunk is closed.
+        stopLive(flush = false)
         engine?.let {
             it.requestStop()
             it.join(3_000)
@@ -176,6 +217,8 @@ class RecorderService : Service() {
         const val ACTION_START = "com.musubi.phone.START"
         const val ACTION_STOP = "com.musubi.phone.STOP"
         const val ACTION_SET_EVENT = "com.musubi.phone.SET_EVENT"
+        const val ACTION_LIVE = "com.musubi.phone.LIVE"
+        private const val EXTRA_LIVE_ON = "on"
         private const val EXTRA_EVENT_ID = "event_id"
         private const val EXTRA_EVENT_SUBJECT = "event_subject"
         private const val EXTRA_EVENT_START = "event_start"
@@ -210,6 +253,10 @@ class RecorderService : Service() {
 
         fun stop(ctx: Context) {
             ctx.startService(Intent(ctx, RecorderService::class.java).setAction(ACTION_STOP))
+        }
+
+        fun setLive(ctx: Context, on: Boolean) {
+            ctx.startService(Intent(ctx, RecorderService::class.java).setAction(ACTION_LIVE).putExtra(EXTRA_LIVE_ON, on))
         }
 
         fun setEvent(ctx: Context, event: EventRef?) {

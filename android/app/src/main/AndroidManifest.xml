@@ -45,5 +45,11 @@
         <receiver
             android:name=".update.InstallReceiver"
             android:exported="false" />
+
+        <!-- Live text recognizer in its own process: a native crash there cannot end a recording. -->
+        <service
+            android:name=".rec.LiveTextService"
+            android:exported="false"
+            android:process=":live" />
     </application>
 </manifest>

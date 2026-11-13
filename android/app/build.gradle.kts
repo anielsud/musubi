@@ -14,6 +14,7 @@ android {
         targetSdk = 35
         versionCode = 2
         versionName = "0.2.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Smoke tests only (-PupdatesMockBase=https://10.0.2.2:8443 -PupdatesMockPin=<cert SHA-256>): a local mock of
         // the GitHub releases API. Empty in every real build; release.sh sets both empty.
         fun mockProp(name: String) = (project.findProperty(name) as String? ?: "").also {
@@ -67,6 +68,19 @@ android {
     }
 }
 
+// Live text engine: sherpa-onnx built from pinned, hash-checked source (sherpa-onnx/build.sh),
+// arm64-v8a only. Output goes to the gitignored sherpa-onnx/out/.
+val sherpaOnnxDir = rootProject.file("sherpa-onnx")
+val sherpaOnnx by tasks.registering(Exec::class) {
+    inputs.file(File(sherpaOnnxDir, "build.sh"))
+    outputs.dir(File(sherpaOnnxDir, "out"))
+    environment("ANDROID_SDK_ROOT", android.sdkDirectory.path)
+    commandLine("bash", File(sherpaOnnxDir, "build.sh").path)
+}
+android.sourceSets["main"].jniLibs.srcDir(File(sherpaOnnxDir, "out/jniLibs"))
+android.sourceSets["main"].java.srcDir(File(sherpaOnnxDir, "out/kotlin"))
+tasks.named("preBuild") { dependsOn(sherpaOnnx) }
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
@@ -77,4 +91,5 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // android.jar only has stubs of org.json; unit tests need the real classes (public domain).
     testImplementation("org.json:json:20240303")
+    androidTestImplementation("androidx.test:runner:1.6.2")
 }

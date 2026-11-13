@@ -673,3 +673,52 @@ type ForgottenName struct {
 	Model string `json:"model"`
 	Name  string `json:"name"`
 }
+
+// Importing an outside recording (a phone's, docs/phone.md): the audio
+// becomes a session as if the recorder had heard it on the mic. The
+// import waits while a meeting records and runs in a child process, which
+// is stopped (and the import queued again) if a meeting starts.
+const (
+	// OpImport queues an import, or reports one already asked for (the
+	// same ID): ImportArgs → ImportStatus. Asking again never queues a
+	// failed import twice unless Retry is set.
+	OpImport = "import"
+)
+
+// InboxName is the folder in the recorder's data folder that audio to
+// import is put in; the import op reads nothing outside it.
+const InboxName = "inbox"
+
+// InboxDir is the recorder's inbox in dataDir.
+func InboxDir(dataDir string) string { return filepath.Join(dataDir, InboxName) }
+
+// Import states, ImportStatus.State.
+const (
+	ImportWaiting      = "waiting"      // queued, or held while a meeting records
+	ImportTranscribing = "transcribing" // being transcribed and labelled
+	ImportImported     = "imported"     // saved as a session
+	ImportFailed       = "failed"       // see ImportStatus.Error
+)
+
+// ImportArgs asks for an import.
+type ImportArgs struct {
+	// ID is the session to create, a UUID; "" makes one. The phone's
+	// recording id, so asking again finds the same import.
+	ID string `json:"id,omitempty"`
+	// Path is the audio file, inside the recorder's inbox (InboxDir).
+	Path string `json:"path"`
+	// StartedAt is when the recording began, with its zone offset.
+	StartedAt time.Time `json:"started_at"`
+	// EventID is the calendar event (Musubi's item id) the recording was
+	// of, when the phone named one; Musubi links the session to it.
+	EventID string `json:"event_id,omitempty"`
+	// Retry queues a failed import again.
+	Retry bool `json:"retry,omitempty"`
+}
+
+// ImportStatus is where an import stands.
+type ImportStatus struct {
+	Session string `json:"session"`
+	State   string `json:"state"`
+	Error   string `json:"error,omitempty"`
+}

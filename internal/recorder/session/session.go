@@ -36,6 +36,11 @@ type Session struct {
 	// and the Voices page asks who they are whatever their age or length.
 	// Musubi's recorder only; Tomoe ignores the key.
 	Returned []ReturnedVoice `json:"returned_voices,omitempty"`
+	// EventID is the calendar event (Musubi's item id) an imported
+	// recording was of, when the phone that made it named one: Musubi
+	// links the session to that event rather than by time. Musubi's
+	// recorder only.
+	EventID string `json:"event_id,omitempty"`
 }
 
 // ReturnedVoice is a speaker a voice profile named until the user said

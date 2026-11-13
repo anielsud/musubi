@@ -74,6 +74,13 @@ Files with no upstream-authored lines, copied with import paths changed:
     `permissions_darwin.go` gains the permission table,
     `openPrivacySettings` and the accessibility prompt from Tomoe's
     `permissions_darwin.go` (all owner lines).
+- New code, nothing lifted (2026-11-13, [phone.md](phone.md)): the
+  `import` command (`cmd/musubi-recorder/import.go`, which reuses the
+  lifted `pipeline.go` and follows `replay.go`'s current run and
+  `StartSession`'s speaker setup without copying Tomoe's `transcribe`
+  command), the import queue (`recording/importer.go`), the `import` op
+  (`control/protocol.go`, `control/importargs.go`), `Session.EventID`,
+  and `OwnerVoice` in the lifted `ownervoice.go`.
 - `control/server.go`: the private listen and stale-socket removal are
   the live feed's (`livefeed`, owner), adapted.
 

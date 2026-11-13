@@ -216,3 +216,39 @@ func TestLinkCallWithTheInvitees(t *testing.T) {
 		t.Errorf("call with one of a meeting's invitees linked to %q", l.id)
 	}
 }
+
+// A phone recording that names its event links there, over a better
+// match by time, even to an event too long to match by time; a named
+// event Musubi doesn't have (or that was cancelled) leaves time to decide.
+func TestLinkNamedEvent(t *testing.T) {
+	at := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
+	ev := func(id string, from, to time.Duration, native map[string]string) item.Item {
+		return item.Item{ID: id, Kind: item.KindEvent, Title: id, OccurredAt: at.Add(from), EndedAt: at.Add(to), Native: native}
+	}
+	phone := func(id, event string) item.Item {
+		return item.Item{ID: id, Kind: item.KindMeeting, Title: "Phone Meeting 2026-11-17 10:00", OccurredAt: at.Add(time.Hour), EndedAt: at.Add(90 * time.Minute),
+			Native: map[string]string{"platform": "phone", "event_id": event}}
+	}
+	items := []item.Item{
+		ev("calendar:slot", time.Hour, 2*time.Hour, map[string]string{}),
+		ev("calendar:conference-day", 0, 9*time.Hour, map[string]string{}),
+		ev("calendar:gone", time.Hour, 2*time.Hour, map[string]string{"cancelled": "true"}),
+		phone("tomoe:named", "calendar:conference-day"),
+		phone("tomoe:unknown", "calendar:not-synced"),
+		phone("tomoe:cancelled", "calendar:gone"),
+	}
+	h1, links := linkMeetings(items, "")
+	if l := links["tomoe:named"]; l.id != "calendar:conference-day" || l.score != 1 {
+		t.Errorf("named event: linked to %+v", l)
+	}
+	for _, id := range []string{"tomoe:unknown", "tomoe:cancelled"} {
+		if links[id].id != "calendar:slot" {
+			t.Errorf("%s: linked to %q, want the slot by time", id, links[id].id)
+		}
+	}
+	// The named event arriving later changes the hash, so links are redone.
+	h2, links := linkMeetings(append(items, ev("calendar:not-synced", 3*time.Hour, 4*time.Hour, map[string]string{})), "")
+	if h1 == h2 || links["tomoe:unknown"].id != "calendar:not-synced" {
+		t.Errorf("named event arriving: hash changed %v, linked to %q", h1 != h2, links["tomoe:unknown"].id)
+	}
+}

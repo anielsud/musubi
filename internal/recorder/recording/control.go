@@ -206,6 +206,13 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 		}
 		return nil, a.FixTool(p.ID)
 
+	case control.OpImport:
+		var p control.ImportArgs
+		if err := decode(args, &p); err != nil {
+			return nil, err
+		}
+		return a.Import(p)
+
 	case control.OpModels:
 		return a.Models(), nil
 	case control.OpDownloadModel:

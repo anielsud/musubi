@@ -89,6 +89,26 @@ func (o *ownerVoice) heard(emb []float32) {
 	}
 }
 
+// OwnerVoice is the user's voice for a speaker model, for an offline run
+// that labels a mic track the way a recording does (an import): the
+// voice to compare with (nil until known), a func that learns from
+// fingerprints surely theirs, as a recording learns, and save, which
+// writes what was learnt since the last periodic save.
+func OwnerVoice(modelID string) (centroid []float32, heard func([]float32), save func()) {
+	o := ownerFor(modelID)
+	return o.centroid(), o.heard, func() {
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		if o.unsaved == 0 {
+			return
+		}
+		o.unsaved = 0
+		if err := voices.SaveOwner(o.path, o.v); err != nil {
+			fmt.Printf("owner voice: %v\n", err)
+		}
+	}
+}
+
 // ownerSeed builds the user's voice from their mic track in recent
 // meetings when there's none yet: up to 12 utterances of 2.5 s or more
 // from each of the last 20 meetings with one, then only those close to

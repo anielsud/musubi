@@ -1,10 +1,14 @@
 package engine
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/item"
+	"github.com/anielsud/musubi/internal/m365"
 )
 
 func TestOverlappingTeamsCopy(t *testing.T) {
@@ -39,5 +43,31 @@ func TestWordAgreement(t *testing.T) {
 	other := &item.Item{OccurredAt: at, EndedAt: at.Add(40 * time.Minute), Segments: []item.Segment{seg(650, "security review findings remediation"), seg(700, "budget timeline")}}
 	if a := item.WordAgreement(rec, other); a > 0.4 {
 		t.Errorf("another meeting: %.2f", a)
+	}
+}
+
+func TestFirstSyncReadsFurtherBack(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.DataDir = t.TempDir()
+	e := &Engine{Cfg: cfg}
+	if got := e.pastDays(); got != 42 {
+		t.Errorf("first sync reads %d days back, want 42", got)
+	}
+	dir := filepath.Join(cfg.InboxDir(), m365.CalendarSource)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ev.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.pastDays(); got != 30 {
+		t.Errorf("later syncs read %d days back, want 30", got)
+	}
+	e.Cfg.M365.FirstDays = 0
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.pastDays(); got != 30 {
+		t.Errorf("first_days = 0 reads %d days back, want 30", got)
 	}
 }

@@ -41,6 +41,7 @@ var prefTabs = map[string][]PrefGroup{
 			{Section: "m365", Key: "calendar", Label: "Calendar", Type: "bool"},
 			{Section: "m365", Key: "past_days", Label: "Calendar, days back", Type: "int", Unit: "days"},
 			{Section: "m365", Key: "future_days", Label: "Calendar, days ahead", Type: "int", Unit: "days"},
+			{Section: "m365", Key: "first_days", Label: "First sync, days back", Type: "int", Unit: "days", Help: "How much history a new connection brings in: meetings, invites and Teams transcripts."},
 			{Section: "m365", Key: "transcripts", Label: "Teams meeting transcripts", Type: "bool"},
 			{Section: "m365", Key: "meeting_chat", Label: "Teams meeting chats", Type: "bool"},
 			{Section: "m365", Key: "people", Label: "People from the directory", Type: "bool"},

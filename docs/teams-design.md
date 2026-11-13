@@ -214,6 +214,7 @@ So a Teams transcript fills a gap and otherwise stays the second copy.
 | `enabled` | true | sync once connected; false never syncs, even when connected |
 | `calendar` | true | calendar events as `event` drops |
 | `past_days`, `future_days` | 30, 14 | the calendar window |
+| `first_days` | 42 | how far back the first sync reads (no calendar drops yet), so a new owner starts with six weeks of meetings and Teams transcripts; 0 reads `past_days` |
 | `reconnect` | true | open the sign-in again when it lapses |
 | `people` | true | directory lookups of colleagues seen in meetings (`data/directory.json`) |
 | `mail`, `chats` | false | the owner's email and Teams chats (`mail_days`, `chat_days` 14; `mail_focused_only` true) |
@@ -287,6 +288,7 @@ enabled       = true
 calendar      = true
 past_days     = 30
 future_days   = 14
+first_days    = 42
 reconnect     = true
 tomoe_context = true
 ```

@@ -90,7 +90,7 @@ func (e *Engine) SyncM365(ctx context.Context) (string, error) {
 	if e.Cfg.M365.Calendar {
 		now := time.Now()
 		var rep m365.CalendarReport
-		rep, err = m365.SyncCalendar(ctx, c, e.Cfg.InboxDir(), now.AddDate(0, 0, -e.Cfg.M365.PastDays), now.AddDate(0, 0, e.Cfg.M365.FutureDays))
+		rep, err = m365.SyncCalendar(ctx, c, e.Cfg.InboxDir(), now.AddDate(0, 0, -e.pastDays()), now.AddDate(0, 0, e.Cfg.M365.FutureDays))
 		parts = append(parts, fmt.Sprintf("calendar: %d events, %d new or changed, %d cancelled", rep.Seen, rep.Written, rep.Cancelled))
 		if err == nil && e.Cfg.M365.Transcripts {
 			var tr m365.TeamsReport
@@ -391,4 +391,17 @@ func (e *Engine) NameMeetings(ctx context.Context, log io.Writer) (int, error) {
 func removeOurs(path string) bool {
 	b, err := os.ReadFile(path)
 	return err == nil && strings.Contains(string(b), `"writer": "musubi"`) && os.Remove(path) == nil
+}
+
+// pastDays is how far back this calendar sync reads: FirstDays when no
+// calendar drop has been written yet (a new owner), else PastDays.
+func (e *Engine) pastDays() int {
+	days := e.Cfg.M365.PastDays
+	if e.Cfg.M365.FirstDays > days {
+		drops, _ := filepath.Glob(filepath.Join(e.Cfg.InboxDir(), m365.CalendarSource, "*.json"))
+		if len(drops) == 0 {
+			days = e.Cfg.M365.FirstDays
+		}
+	}
+	return days
 }

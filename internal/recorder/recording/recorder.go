@@ -403,6 +403,7 @@ func engineConfig(cfg *config.Config, status *models.Status) transcribe.Config {
 		DecodingMethod: cfg.Transcription.DecodingMethod,
 		MaxActivePaths: cfg.Transcription.MaxActivePaths,
 		Model:          cfg.Transcription.Model,
+		NumThreads:     cfg.Transcription.Threads,
 	}
 }
 

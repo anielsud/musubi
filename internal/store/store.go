@@ -60,6 +60,11 @@ type Store struct {
 	// UpgradeBackup is the copy made before this open upgraded the
 	// database ("" when nothing was upgraded).
 	UpgradeBackup string
+	// Migrated is the ledger steps this open applied (migrate.go), and
+	// MigratedCounts the row counts before and after them.
+	Migrated       []string
+	MigratedCounts [2]Counts
+	path           string
 }
 
 func init() { sqlite_vec.Auto() }
@@ -147,52 +152,12 @@ func OpenWith(path string, o Options) (*Store, error) {
 			return nil, err
 		}
 	}
-	if err := migrate(db); err != nil {
+	applied, before, after, err := migrateDB(db, backup)
+	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	// Provenance on thread edges (docs/incremental-design.md).
-	if err := addColumns(db, "thread_items", "version TEXT NOT NULL DEFAULT ''", "added_in TEXT NOT NULL DEFAULT ''", "added_at INTEGER NOT NULL DEFAULT 0",
-		"retired_in TEXT NOT NULL DEFAULT ''", "retired_at INTEGER NOT NULL DEFAULT 0", "retired_why TEXT NOT NULL DEFAULT ''"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	if err := addColumns(db, "topics", "since_review INTEGER NOT NULL DEFAULT 0"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	// Corrections made before this column had their threads mended then.
-	if err := addColumns(db, "corrections", "related INTEGER NOT NULL DEFAULT 1"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	if err := addColumns(db, "claim_relations", "version TEXT NOT NULL DEFAULT ''", "made_in TEXT NOT NULL DEFAULT ''", "made_at INTEGER NOT NULL DEFAULT 0"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	if err := addColumns(db, "statements", "worth REAL", "worth_version TEXT NOT NULL DEFAULT ''", "search_text TEXT NOT NULL DEFAULT ''",
-		"status TEXT NOT NULL DEFAULT ''", "who TEXT NOT NULL DEFAULT ''", "evidence TEXT NOT NULL DEFAULT ''",
-		"level INTEGER NOT NULL DEFAULT 0", "categories INTEGER NOT NULL DEFAULT 0", "label_version TEXT NOT NULL DEFAULT ''"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	if _, err := db.Exec(schema); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("schema: %w", err)
-	}
-	if err := markReplacedAliases(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	if err := upgradeClaimCentroids(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	if err := recordFormat(db); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	s := &Store{db: db, rdb: db, ReadWithRules: true, UpgradeBackup: backup}
+	s := &Store{db: db, rdb: db, path: path, ReadWithRules: true, UpgradeBackup: backup, Migrated: applied, MigratedCounts: [2]Counts{before, after}}
 	if o.ReadConns > 1 {
 		// Read-only twice over: the file is opened read-only (mode=ro) and
 		// query_only refuses any write, so a read path routed here by
@@ -229,75 +194,6 @@ func (s *Store) Close() error {
 func (s *Store) BackupTo(path string) error {
 	_, err := s.db.Exec(`VACUUM INTO ?`, path)
 	return err
-}
-
-func migrate(db *sql.DB) error {
-	var v int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
-		return err
-	}
-	if v == schemaVersion {
-		return nil
-	}
-	rows, err := db.Query(`SELECT type, name FROM sqlite_master WHERE type IN ('table', 'trigger') AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'chunks_fts_%'`)
-	if err != nil {
-		return err
-	}
-	var drop [][2]string
-	for rows.Next() {
-		var typ, name string
-		rows.Scan(&typ, &name)
-		if !kept[name] {
-			drop = append(drop, [2]string{typ, name})
-		}
-	}
-	rows.Close()
-	if _, err := db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
-		return err
-	}
-	for _, d := range drop {
-		if _, err := db.Exec(fmt.Sprintf(`DROP %s IF EXISTS "%s"`, strings.ToUpper(d[0]), d[1])); err != nil {
-			return err
-		}
-	}
-	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
-		return err
-	}
-	_, err = db.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion))
-	if err != nil {
-		return err
-	}
-	return upgradeKept(db)
-}
-
-// upgradeKept adds columns to kept tables (which a version change doesn't
-// drop) in place.
-func upgradeKept(db *sql.DB) error {
-	cols := map[string]bool{}
-	rows, err := db.Query(`PRAGMA table_info(judgments)`)
-	if err != nil {
-		return err
-	}
-	for rows.Next() {
-		var cid, notnull, pk int
-		var name, typ string
-		var dflt sql.NullString
-		rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk)
-		cols[name] = true
-	}
-	rows.Close()
-	if len(cols) == 0 {
-		return nil // created fresh by the schema
-	}
-	for _, c := range []string{"chunk_hash TEXT NOT NULL DEFAULT ''", "line INTEGER NOT NULL DEFAULT 0"} {
-		name := strings.Fields(c)[0]
-		if !cols[name] {
-			if _, err := db.Exec(`ALTER TABLE judgments ADD COLUMN ` + c); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 // visArgs builds the SQL that limits rows to scope. il and cl are the
@@ -351,7 +247,7 @@ const chunkVisJoin = ` JOIN labels il ON il.item_id = c.item_id AND il.chunk_seq
 // version change. A version change drops every derived table, and with them
 // the extracted statements, which at full scale cost hours to rebuild; a
 // new column on them must not.
-func addColumns(db *sql.DB, table string, defs ...string) error {
+func addColumns(db dbtx, table string, defs ...string) error {
 	cols := map[string]bool{}
 	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
 	if err != nil {

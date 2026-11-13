@@ -115,6 +115,9 @@ func TestReplacedMigration(t *testing.T) {
 	s.DecideAlias(byVariant["Ilka"], false, "owner")
 	s.db.Exec(`UPDATE learned_aliases SET at = at - 3600 WHERE id = ?`, byVariant["Ondro"])
 	s.DecideAlias(byVariant["Ondro"], false, "owner")
+	// As a build before the migration ledger left it: the fix ran on
+	// every open then, and runs once on the first open with the ledger.
+	s.db.Exec(`DELETE FROM migrations WHERE id = 'aliases-replaced'`)
 	s.Close()
 	if s, err = Open(path); err != nil {
 		t.Fatal(err)

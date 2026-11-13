@@ -623,6 +623,12 @@ type Store struct {
 	// folder before a newer build changes it (keeping the newest three;
 	// docs/upgrades.md). false: upgrade in place without a copy, as before.
 	BackupBeforeUpgrade bool `toml:"backup_before_upgrade"`
+	// CheckCounts guards a redo (`musubi knowledge --redo`) and the app's
+	// rethread: the kept tables (the owner's corrections, judgments,
+	// aliases, thread edits, to-do marks, forget list) are copied first,
+	// counts are reported before and after, and rows a kept table lost
+	// are put back and the run fails. false: no copy or check, as before.
+	CheckCounts bool `toml:"check_counts"`
 }
 
 // Diagnostics: tools in the diagnostics panel.
@@ -705,7 +711,7 @@ func DefaultConfig() Config {
 			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
 			Cache: true, SkipIdle: true, PrepCard: true,
 		},
-		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16", BackupBeforeUpgrade: true},
+		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16", BackupBeforeUpgrade: true, CheckCounts: true},
 		Diagnostics: Diagnostics{Profiling: true, Resources: true},
 		Recorder:    Recorder{OfRecord: "tomoe", Watchdog: true, InstallAgent: true, Relabel: true, Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}

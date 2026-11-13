@@ -423,7 +423,7 @@ func (s *Store) StatementsUsing(word string) ([]int64, error) {
 // markReplacedAliases: before the replaced status, a proposal answered
 // with another right form was marked rejected, in the same moment the new
 // alias was made. Those are replaced, not the owner's rejection.
-func markReplacedAliases(db *sql.DB) error {
+func markReplacedAliases(db dbtx) error {
 	_, err := db.Exec(`UPDATE learned_aliases SET status = 'replaced',
 		scope = (SELECT json_object('replacedBy', n.id) FROM learned_aliases n WHERE n.variant = learned_aliases.variant AND n.kind = learned_aliases.kind
 			AND n.keep != learned_aliases.keep AND n.by = 'owner' AND n.status != 'rejected' AND n.id > learned_aliases.id AND abs(n.at - learned_aliases.at) <= 2 ORDER BY n.id LIMIT 1)

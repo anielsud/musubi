@@ -1,6 +1,6 @@
 # Data safety: upgrading other people's datasets
 
-Status: **proposed** 2026-11-12. One part is built (§3, item 1); the
+Status: **proposed** 2026-11-12. Items 1, 4 and 5 of §3 are built; the
 rest is for the owner to approve, item by item.
 
 ## 1. What changed
@@ -61,12 +61,32 @@ In order of what a loss would cost the owner.
    transaction; a fixture database from each release, built from the
    synthetic corpus and kept in `testdata/fixtures/`, which CI opens with
    the new build and checks: schema, format, row counts of the kept
-   tables, search results.
+   tables, search results. *Built:* `internal/store/migrate.go`: the
+   one-off changes an open used to make (the schema check, columns added
+   in place, the replaced-alias fix, the claim-centroid dedup) are named
+   steps recorded in `migrations` (id, applied at, build), all pending
+   ones run in one transaction with `schema.sql`; a database that
+   already has a step's effect records it without changing anything. A
+   pending step counts as an upgrade, so the copy above is made first.
+   Fixtures `v0.1.0`, `pre-format` (db0bc02) and `pre-labels` (de7b3f6)
+   in `testdata/fixtures/` (`make fixtures`); `make test` upgrades each
+   and checks schema, format, ledger, the copy, row counts and the top
+   five results of three searches. `thread_items` in them is a few
+   invented rows (the synthetic eval doesn't thread); `pre-labels`
+   predates corrections, aliases, thread edits and to-do marks.
 5. **Nothing checks counts after an upgrade.** Our own dataset lost
    statements once to a cascade nobody noticed for a day. *Proposal:*
    after a migration or a redo, compare statements, thread items,
    corrections and voice profiles with before; a drop beyond what the
-   step expects stops, says so, and offers the backup.
+   step expects stops, says so, and offers the backup. *Built:* the
+   upgrade transaction compares items, statements, thread items and the
+   kept tables before it commits; a kept table losing rows, or items or
+   statements dropping (other than by a schema change), rolls it back
+   and the error names the copy. `musubi knowledge --redo` and the app's
+   rethread copy the kept tables beside the database first, report the
+   counts before and after, and put back rows a kept table lost, then
+   fail (`[store] check_counts = false`: as before). Voice profiles are
+   the recorder's, not counted here.
 6. **Recorder data has no format version.** Sessions and voice files are
    read as they come; the voices file's `version` is written but never
    checked. *Proposal:* the same rule as the database: a format number
@@ -96,6 +116,9 @@ Until the items above are built, every PR that changes what is stored
 config meaning):
 
 - prefers additive changes: new columns or tables, old ones left alone;
+- makes a one-off change to existing data a new step at the end of
+  `migrations` (internal/store/migrate.go), never an edit to a recorded
+  one; each release adds its fixture to `scripts/fixtures.sh`;
 - bumps `formatVersion` (internal/store/upgrade.go) when an older build
   would misread the result, and `schemaVersion` only when tables must be
   rebuilt; both get a line in the release notes;

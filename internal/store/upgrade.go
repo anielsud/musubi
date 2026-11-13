@@ -30,8 +30,9 @@ var ErrNewer = errors.New("this database was written by a newer Musubi; open it 
 const keepUpgradeBackups = 3
 
 // upgradeNeeded reports whether opening this database will change what
-// it holds: an existing database of an older schema or format. A newer
-// one is ErrNewer. from names the old version, for the backup's name.
+// it holds: an existing database of an older schema or format, or with a
+// migration step pending (migrate.go). A newer one is ErrNewer. from
+// names the old version, for the backup's name.
 func upgradeNeeded(db *sql.DB) (need bool, from string, err error) {
 	var v int
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
@@ -54,7 +55,11 @@ func upgradeNeeded(db *sql.DB) (need bool, from string, err error) {
 	if f > formatVersion {
 		return false, "", fmt.Errorf("%w (format %d; this build reads up to %d)", ErrNewer, f, formatVersion)
 	}
-	return v != schemaVersion || f < formatVersion, fmt.Sprintf("s%d-f%d", v, f), nil
+	pending, err := pendingMigrations(db)
+	if err != nil {
+		return false, "", err
+	}
+	return v != schemaVersion || f < formatVersion || len(pending) > 0, fmt.Sprintf("s%d-f%d", v, f), nil
 }
 
 // storedFormat is the format a database was last opened at; 0 before
@@ -75,7 +80,7 @@ func storedFormat(db *sql.DB) (int, error) {
 	return strconv.Atoi(s)
 }
 
-func recordFormat(db *sql.DB) error {
+func recordFormat(db dbtx) error {
 	_, err := db.Exec(`INSERT INTO store_meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, metaFormat, strconv.Itoa(formatVersion))
 	return err
 }

@@ -4,3 +4,25 @@
 email = "jordan.pike@northwind.example"
 name = "Jordan Pike"
 internal_domains = ["northwind.example"]
+
+# The settings the recorded model replies (llm-cache/) were made with; the
+# app's defaults changed on 2026-11-12. Re-record (make eval-record) to
+# move the corpus to new defaults.
+[knowledge]
+extract = "statements"
+grouping = "topics"
+min_worth = 0.2
+allow_hosted = false
+warm_cache = true
+
+[knowledge.status]
+parallel = 4
+
+[knowledge.threads]
+parallel = 4
+consolidate_window = 0
+insert_older = false
+
+[knowledge.digest]
+enabled = false
+todos = false

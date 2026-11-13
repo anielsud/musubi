@@ -4011,3 +4011,32 @@ this meeting, is compared whole. 0.1 s; undo restored every line. Not
 done: lines without fingerprints could follow their neighbours (a
 proposal, not built).
 
+
+## 2026-11-12: the defaults follow the owner's setup (decision, not a measurement)
+
+The owner's decision: the app's and the recorder's defaults are the
+settings the owner runs every day, not the conservative ones each
+feature shipped with. Measured where it applies (voice profiles: 112 of
+119 voices named on saved meetings, all right; room split: speakers
+right 94.7 → 98.1% on a labelled room meeting); the rest is the owner's
+daily use since September (knowledge) and since the Tomoe days
+(speaker tuning).
+
+What changed, for a config that doesn't set the key (old value → new):
+- knowledge: `extract` statements → lean, `grouping` topics → threads,
+  `min_worth` 0.2 → 0, `allow_hosted` false → true, `warm_cache`
+  true → false, `status.parallel` 4 → 16, `threads.parallel` 4 → 8,
+  `threads.consolidate_window` 0 → 24, `threads.insert_older` false →
+  true, `digest.enabled`/`todos` false → true;
+- live: `pick.enabled` false → true (`min_p` 0.4), `update_every` 0 →
+  30 minutes, `keep_topics` 0 → 24;
+- recorder (`[recorder.meeting]`): `voice_profiles`,
+  `diarize_room_split`, `split_on_speaker_change`, `live_feed` false →
+  true; `speaker_threshold` 0.65 → 0.55, `turn_max_seconds` 30 → 15,
+  `sticky_grace_window` 3 → 1, `sticky_threshold_margin` 0 → 0.15,
+  `min_assign_duration` 0 → 0.7.
+
+Models stay local by default (hosted ones need a token: Use
+recommended). The synthetic eval corpus pins the old knowledge settings
+(testdata/synthetic/config.toml) so its recorded replies still match;
+its output is unchanged.

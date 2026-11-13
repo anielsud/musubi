@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Musubi</string>
+    <string name="recording_now">Recording</string>
+    <string name="ad_hoc">Ad hoc meeting</string>
+    <string name="stop">Stop</string>
+    <string name="channel_recording">Recording</string>
+</resources>

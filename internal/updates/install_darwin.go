@@ -89,6 +89,18 @@ func Install(ctx context.Context, client *http.Client, r *Release, app string, s
 	if err := run(ctx, "codesign", "--verify", "--deep", "--strict", next); err != nil {
 		return fmt.Errorf("the new version's signature doesn't verify: %w", err)
 	}
+	// The checksum comes from the same place as the DMG; the signer is
+	// what ties the new version to this one. A certificate-signed app
+	// only takes an update its own certificate signed. (An ad hoc one has
+	// no signer to hold to; it takes the first certificate-signed
+	// release, and from then on the rule applies.)
+	if req, err := designated(ctx, app); err != nil {
+		return err
+	} else if strings.Contains(req, "certificate") {
+		if err := run(ctx, "codesign", "--verify", "--deep", "--strict", "-R="+req, next); err != nil {
+			return fmt.Errorf("the new version isn't signed by the certificate this one is: %w", err)
+		}
+	}
 
 	step("Installing " + r.Version)
 	dir := filepath.Dir(app)
@@ -149,6 +161,22 @@ func sameApp(ctx context.Context, app, next, version string) error {
 		return fmt.Errorf("the disk image holds version %q, not %s", v, version)
 	}
 	return nil
+}
+
+// designated is app's designated requirement, as codesign prints it.
+func designated(ctx context.Context, app string) (string, error) {
+	out, err := exec.CommandContext(ctx, "codesign", "-d", "-r-", app).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("reading this app's signature: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	for _, l := range strings.Split(string(out), "\n") {
+		// An ad hoc signature's is implied ("# designated => cdhash …").
+		l = strings.TrimPrefix(strings.TrimSpace(l), "# ")
+		if r, ok := strings.CutPrefix(l, "designated => "); ok {
+			return r, nil
+		}
+	}
+	return "", nil
 }
 
 func plistValue(ctx context.Context, plist, key string) (string, error) {

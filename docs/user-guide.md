@@ -54,9 +54,11 @@ checks it, replaces itself and restarts. It never
 updates without that click, and not while a meeting is being recorded.
 The check is anonymous: it sends nothing about you or your data.
 
-Because Musubi isn't signed by Apple yet, macOS may ask again after an
-update for the recorder's microphone and screen recording permissions.
-Allow them as on the first launch.
+Every release is signed with the same Musubi certificate, so macOS keeps
+the recorder's microphone and screen recording permissions across
+updates. An update only installs if that same certificate signed it.
+(Coming from v0.2.0-rc2 or earlier, which weren't signed this way, macOS
+asks once more.)
 
 To switch updates off, set `[updates] check = false`. To keep the check
 but download by hand from the release page, set `install = false`. To be
@@ -346,18 +348,18 @@ dataset; to use another, add `--config <path to its config.toml>` before
 
 ## Updating
 
-Download the new DMG from
-[Releases](https://github.com/anielsud/musubi/releases), quit Musubi, and
-drag the new Musubi to Applications, replacing the old one. Don't do it
-during a meeting: the recorder restarts with the new version.
+Click **↑ vX** at the top of the window, then **Update** (see
+[Install](#2-install)). To update by hand instead, download the new DMG
+from [Releases](https://github.com/anielsud/musubi-releases/releases),
+quit Musubi, and drag the new Musubi to Applications, replacing the old
+one. Don't do it during a meeting: the recorder restarts with the new
+version.
 
-Because the app isn't signed by Apple yet, after an update:
-
-- confirm the first open again (**Open Anyway**, as in
-  [Install](#2-install));
-- macOS may ask again for the microphone and screen recording. If
-  recordings come out silent, turn *Musubi Recorder* off and on again in
-  **System Settings → Privacy & Security** under both.
+By hand, the app comes from a browser, so confirm the first open again
+(**Open Anyway**, as in [Install](#2-install)). If recordings come out
+silent after an update, turn *Musubi Recorder* off and on again in
+**System Settings → Privacy & Security**, under both Microphone and
+Screen Recording.
 
 Before updating, **Settings → Dataset → Back up now**. A new version
 that changes how your data is stored also first copies your database to

@@ -464,7 +464,13 @@ enters the cold lane like any other source.
   2. checks it against the `.sha256` file the workflow publishes beside
      it;
   3. mounts it read-only and checks that it holds the same bundle
-     identifier at that version and that its signature verifies;
+     identifier at that version and that its signature verifies. A
+     certificate-signed app also requires the new version to satisfy its
+     own designated requirement, meaning the same certificate (the checksum
+     comes from the same place as the DMG, so the signer is the real
+     tie). Releases are signed with the self-signed "Musubi Release
+     Signing" certificate (workflow secrets), so macOS's privacy
+     permissions, which it keys on that requirement, survive updates;
   4. copies it beside the app and swaps the two by rename, putting the
      old one back if the swap fails; the old one is kept as
      `.Musubi-previous.app` until the next launch;

@@ -157,6 +157,25 @@ func (s *Store) ItemStatements(itemID string) ([]Statement, error) {
 	return s.statements(`WHERE st.item_id = ? ORDER BY st.line, st.id`, itemID)
 }
 
+// DigestTodoTexts maps each digested item to its to-dos' texts, for
+// checks on what was stored (pipeline use; no scope).
+func (s *Store) DigestTodoTexts() (map[string][]string, error) {
+	rows, err := s.rdb.Query(`SELECT item_id, text FROM meeting_todos`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var id, text string
+		if err := rows.Scan(&id, &text); err != nil {
+			return nil, err
+		}
+		out[id] = append(out[id], text)
+	}
+	return out, rows.Err()
+}
+
 // DigestTodos returns an item's to-dos, unscoped (pipeline side).
 func (s *Store) DigestTodos(itemID string) ([]DigestTodo, error) {
 	return s.scanDigestTodos(`WHERE x.item_id = ? ORDER BY x.n`, []any{itemID})

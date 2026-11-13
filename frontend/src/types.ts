@@ -859,7 +859,9 @@ export interface SameNamePair { model: string; a: string; b: string; name: strin
 export interface UnknownVoice { session: string; title: string; at: string; label: string; seconds: number; clip: VoiceClip; soundsLike?: string; similarity?: number; returned?: boolean; returnedFrom?: string; sample?: SampleRef }
 // SampleRef: a single sample taken out of a profile with "Not them" (profile: the one it came from).
 export interface SampleRef { model: string; profile: string; start: number; end: number }
+export interface ForgottenName { model: string; name: string }
 export interface VoicesView {
+  forgotten?: ForgottenName[] | null;
   enabled: boolean; profiles: VoiceProfile[] | null; pairs: VoicePair[] | null; unknown: UnknownVoice[] | null;
   namedByVoice: NamedByVoice[] | null; doubts: VoiceDoubt[] | null; sameName?: SameNamePair[] | null;
   building?: boolean;

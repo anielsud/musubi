@@ -705,3 +705,35 @@ func TestForgetExactAndSamePerson(t *testing.T) {
 		t.Error("SamePerson: a renamed profile's old and new names should match, others not")
 	}
 }
+
+// Delete removes a profile without forgetting the name: its old meetings
+// don't rebuild it, a new meeting teaches a new one. Allow unblocks a
+// forgotten name exactly.
+func TestDeleteAndAllow(t *testing.T) {
+	s, _ := open(t)
+	_, _ = s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))}})
+	id := s.Profiles()[0].ID
+	if err := s.Delete(id); err != nil {
+		t.Fatal(err)
+	}
+	if names, _ := s.Learn("m1", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))}}); len(names) != 0 {
+		t.Errorf("a deleted profile was rebuilt from its own meeting: %v", names)
+	}
+	if names, _ := s.Learn("m2", time.Now(), []Learned{{Name: "Ilse Novak", Voice: voiceOf(20, unit(0, 1, 0))}}); len(names) != 1 {
+		t.Errorf("a later meeting didn't teach a new profile: %v", names)
+	}
+	_, _ = s.Learn("m3", time.Now(), []Learned{{Name: "Saved More filters", Voice: voiceOf(20, unit(1, 0, 0))}})
+	for _, p := range s.Profiles() {
+		if p.Name == "Saved More filters" {
+			if err := s.Forget(p.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if f := s.Forgotten(); len(f) != 1 || f[0] != "Saved More filters" {
+		t.Fatalf("forgotten = %v", f)
+	}
+	if err := s.Allow("saved more  filters"); err != nil || len(s.Forgotten()) != 0 {
+		t.Errorf("Allow: %v, still forgotten %v", err, s.Forgotten())
+	}
+}

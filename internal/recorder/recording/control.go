@@ -113,7 +113,7 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 
 	case control.OpVoices:
 		return a.Voices()
-	case control.OpRenameVoice, control.OpMergeVoices, control.OpKeepApart, control.OpForgetVoice,
+	case control.OpRenameVoice, control.OpMergeVoices, control.OpKeepApart, control.OpForgetVoice, control.OpDeleteVoice, control.OpAllowName,
 		control.OpStartOver, control.OpConfirmVoice, control.OpRemoveVoiceMeeting, control.OpConfirmVoiceMeeting, control.OpMoveVoiceMeeting:
 		var p control.VoiceArgs
 		if err := decode(args, &p); err != nil {

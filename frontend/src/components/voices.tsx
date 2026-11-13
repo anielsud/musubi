@@ -447,7 +447,7 @@ const forgetNames = (p: VoiceProfile) => {
 
 export function VoiceProfileCard({ p, editable, a }: { p: VoiceProfile; editable: boolean; a: Act }) {
   const [editing, setEditing] = useState(false);
-  const [confirming, setConfirming] = useState<'forget' | null>(null);
+  const [confirming, setConfirming] = useState<'forget' | 'delete' | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const relabel = useRelabel();
@@ -504,7 +504,10 @@ export function VoiceProfileCard({ p, editable, a }: { p: VoiceProfile; editable
             {!p.inUse && !p.startedOver && p.meetings > 0 && <button className="primary" disabled={busy} title={`The clip is ${p.name}: this voice starts naming speakers now, without waiting to be heard in another meeting. What it learnt is kept.`} onClick={() => v('confirm_voice', {}, `${p.name}'s voice now names speakers.`)}>Confirm</button>}
             <button disabled={busy} title={`Change the name on this voice. What it learnt is kept, and the old name stays known for it${relabel ? '; you can also rename them in the meetings where their voice was recognised' : ''}`} onClick={() => setEditing(true)}>Rename</button>
             {relabel && oldNames(p).length > 0 && p.meetings > 0 && <button disabled={busy} title={`Put “${p.name}” on the speaker labels that still say ${oldNames(p).map((n) => `“${n}”`).join(' or ')}, in the meetings where this voice was recognised`} onClick={() => a.act(key, relabelMeetings)}>Rename in meetings</button>}
-            <MoreMenu disabled={busy} items={[{ label: 'Delete voice print', title: `Delete ${p.name}'s voice print and never learn the name again (you'll be asked first). Recordings and transcripts are unchanged.`, onClick: () => setConfirming('forget') }]} />
+            <MoreMenu disabled={busy} items={[
+              { label: 'Delete profile', title: `Delete ${p.name}'s voice profile (you'll be asked first). If they speak in a later meeting, a new profile is learnt; the meetings this one learnt from don't rebuild it. Recordings and transcripts are unchanged.`, onClick: () => setConfirming('delete') },
+              { label: 'Never learn this name', title: `Delete this profile and never learn ${forgetNames(p)} again (you'll be asked first): for window text that isn't a person, a room, or someone who asked not to have their voice kept.`, onClick: () => setConfirming('forget') },
+            ]} />
           </div>
         )}
       </div>
@@ -514,7 +517,8 @@ export function VoiceProfileCard({ p, editable, a }: { p: VoiceProfile; editable
           <button disabled={busy} title="Put the old name back on those meetings' speakers" onClick={() => undo(done)}>Undo</button><button title="Keep the new name in those meetings" onClick={() => setDone(null)}>OK</button>
         </div>
       )}
-      {confirming === 'forget' && confirmRow(`Delete ${p.name}'s voice print and never learn ${forgetNames(p)} again — for someone who asked not to have their voice kept. Recordings and transcripts are unchanged.`, 'Delete voice print', () => { setConfirming(null); v('forget_voice', {}, `Deleted ${p.name}'s voice print.`); }, () => setConfirming(null))}
+      {confirming === 'delete' && confirmRow(`Delete ${p.name}'s voice profile? If they speak in a later meeting, a new profile is learnt. Recordings and transcripts are unchanged.`, 'Delete profile', () => { setConfirming(null); v('delete_voice', {}, `Deleted ${p.name}'s profile.`); }, () => setConfirming(null))}
+      {confirming === 'forget' && confirmRow(`Delete this profile and never learn ${forgetNames(p)} again? For window text that isn't a person, a room, or someone who asked not to have their voice kept. Recordings and transcripts are unchanged; Allow again under "Names never learnt" undoes the block.`, 'Never learn', () => { setConfirming(null); v('forget_voice', {}, `${p.name}: profile deleted, name never learnt again.`); }, () => setConfirming(null))}
       {open && (
         <div className="voice-meetings">
           {heard.map((h) => {
@@ -613,7 +617,30 @@ export function AllVoices({ voices }: { voices: ReturnType<typeof useVoices> }) 
       {!editable && <div className="dim small">{readOnlyWhy}</div>}
       {shown.length === 0 && <div className="dim small">No voice matches.</div>}
       {shown.map((p) => <VoiceProfileCard key={p.model + '/' + p.id} p={p} editable={editable} a={a} />)}
+      <NeverLearnt view={voices.view} editable={editable} a={a} />
       <ActNotes a={a} />
     </section>
+  );
+}
+
+// NeverLearnt lists the names no profile learns (Never learn this name),
+// each with Allow again.
+function NeverLearnt({ view, editable, a }: { view: VoicesView; editable: boolean; a: Act }) {
+  const [open, setOpen] = useState(false);
+  const names = view.forgotten ?? [];
+  if (names.length === 0) return null;
+  return (
+    <div className="never-learnt">
+      <button className="link small" onClick={() => setOpen(!open)} title="Names the recorder never learns a voice for: window text, rooms, people who asked not to be kept">
+        {open ? 'hide' : `Names never learnt (${names.length})`}
+      </button>
+      {open && names.map((n) => (
+        <div key={n.model + '/' + n.name} className="voice-row small">
+          <span className="voice-body">{n.name}</span>
+          {editable && <button className="small" disabled={a.busy === 'allow/' + n.name} title={`Let the recorder learn a voice named '${n.name}' again from future meetings`}
+            onClick={() => a.act('allow/' + n.name, () => api.allowVoiceName(n.model, n.name), `'${n.name}' can be learnt again.`)}>Allow again</button>}
+        </div>
+      ))}
+    </div>
   );
 }

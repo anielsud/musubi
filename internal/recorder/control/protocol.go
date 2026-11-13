@@ -68,7 +68,9 @@ const (
 	OpRenameVoice         = "rename_voice"          // VoiceArgs (Name) → -
 	OpMergeVoices         = "merge_voices"          // VoiceArgs (ID = into, Other = from) → -
 	OpKeepApart           = "keep_apart"            // VoiceArgs (ID, Other) → -
-	OpForgetVoice         = "forget_voice"          // VoiceArgs → -
+	OpForgetVoice         = "forget_voice"          // VoiceArgs → -: delete the profile and never learn its names again
+	OpDeleteVoice         = "delete_voice"          // VoiceArgs → -: delete the profile; later meetings can teach a new one
+	OpAllowName           = "allow_name"            // VoiceArgs (Model, Name) → -: take a name off the never-learnt names
 	OpStartOver           = "start_over"            // VoiceArgs → -
 	OpConfirmVoice        = "confirm_voice"         // VoiceArgs → -
 	OpRemoveVoiceMeeting  = "remove_voice_meeting"  // VoiceArgs (Session) → -
@@ -402,6 +404,9 @@ type VoicesView struct {
 	Doubts       []VoiceDoubtView   `json:"doubts"`
 	// SameName: profiles sharing a name (pairs here aren't in Pairs).
 	SameName []SameNameView `json:"sameName"`
+	// Forgotten: names never learnt again (Never learn this name), by
+	// speaker model, for the owner to see and allow again.
+	Forgotten []ForgottenName `json:"forgotten,omitempty"`
 	// Building: the review lists (Unknown, NamedByVoice, Doubts) are
 	// still being gathered after the recorder started; they are empty
 	// until then.
@@ -653,4 +658,10 @@ type ProfileSamplesView struct {
 	Samples  int                  `json:"samples"`
 	Voices   int                  `json:"voices"`
 	Meetings []MeetingSamplesView `json:"meetings"`
+}
+
+// ForgottenName is a name a speaker model's profiles never learn.
+type ForgottenName struct {
+	Model string `json:"model"`
+	Name  string `json:"name"`
 }

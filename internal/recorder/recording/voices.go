@@ -38,6 +38,7 @@ type (
 	SameNameView     = control.SameNameView
 	UnknownVoice     = control.UnknownVoice
 	VoicesView       = control.VoicesView
+	ForgottenName    = control.ForgottenName
 )
 
 const (
@@ -103,6 +104,9 @@ func (a *Recorder) Voices() (*VoicesView, error) {
 	view.Building = !ready
 	titles := a.reviewTitles()
 	for model, s := range stores {
+		for _, n := range s.Forgotten() {
+			view.Forgotten = append(view.Forgotten, ForgottenName{Model: model, Name: n})
+		}
 		if _, r := s.Rules(); r != nil {
 			view.Relearned = addRelearned(view.Relearned, r)
 		}
@@ -272,6 +276,24 @@ func (a *Recorder) ForgetVoice(model, id string) error {
 		return err
 	}
 	return s.Forget(id)
+}
+
+// DeleteVoice removes a profile without forgetting its names.
+func (a *Recorder) DeleteVoice(model, id string) error {
+	s, err := a.voiceStore(model)
+	if err != nil {
+		return err
+	}
+	return s.Delete(id)
+}
+
+// AllowName takes a name off a model's never-learnt names.
+func (a *Recorder) AllowName(model, name string) error {
+	s, err := a.voiceStore(model)
+	if err != nil {
+		return err
+	}
+	return s.Allow(name)
 }
 
 // LearnVoicesFromSavedSessions teaches the profiles from every saved

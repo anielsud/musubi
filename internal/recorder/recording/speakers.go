@@ -80,6 +80,10 @@ func (a *Recorder) editVoice(op string, p control.VoiceArgs) error {
 		return a.KeepVoicesApart(p.Model, p.ID, p.Other)
 	case control.OpForgetVoice:
 		return a.ForgetVoice(p.Model, p.ID)
+	case control.OpDeleteVoice:
+		return a.DeleteVoice(p.Model, p.ID)
+	case control.OpAllowName:
+		return a.AllowName(p.Model, p.Name)
 	case control.OpStartOver:
 		return a.StartVoiceOver(p.Model, p.ID)
 	case control.OpConfirmVoice:

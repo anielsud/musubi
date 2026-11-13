@@ -255,6 +255,7 @@ type Store struct {
 	// them, and junk the stretches no profile learns from (returned.go).
 	returned []ReturnedSample
 	junk     []JunkSpan
+	deleted  []DeletedProfile
 }
 
 // LearnRules is the version of the rules for what a meeting teaches a
@@ -345,7 +346,7 @@ func (s *Store) load() error {
 	}
 	s.profiles, s.forgotten, s.modTime = f.Profiles, f.Forgotten, st.ModTime()
 	s.rules, s.relearned = max(f.Rules, 1), f.Relearned
-	s.returned, s.junk = f.Returned, f.Junk
+	s.returned, s.junk, s.deleted = f.Returned, f.Junk, f.Deleted
 	s.migrateExcludedLocked()
 	return nil
 }
@@ -400,11 +401,14 @@ type file struct {
 	// stretches no profile learns from (returned.go).
 	Returned []ReturnedSample `json:"returned,omitempty"`
 	Junk     []JunkSpan       `json:"junk,omitempty"`
+	// Deleted are profiles the owner deleted (not forgotten): their names
+	// aren't learnt again from the same meetings, only from later ones.
+	Deleted []DeletedProfile `json:"deleted,omitempty"`
 }
 
 // saveLocked writes the profiles atomically.
 func (s *Store) saveLocked() error {
-	b, err := json.Marshal(file{Version: 1, Profiles: s.profiles, Forgotten: s.forgotten, Rules: s.rules, Relearned: s.relearned, Returned: s.returned, Junk: s.junk})
+	b, err := json.Marshal(file{Version: 1, Profiles: s.profiles, Forgotten: s.forgotten, Rules: s.rules, Relearned: s.relearned, Returned: s.returned, Junk: s.junk, Deleted: s.deleted})
 	if err != nil {
 		return err
 	}
@@ -521,7 +525,7 @@ func (s *Store) learnLocked(sessionID string, at time.Time, learned []Learned) (
 	}
 	var done []string
 	for i, l := range learned {
-		if l.Name == "" || last[l.Name] != i || l.Voice.N < max(s.params.MinFingerprints, s.params.MinLearn) || s.forgottenLocked(l.Name) {
+		if l.Name == "" || last[l.Name] != i || l.Voice.N < max(s.params.MinFingerprints, s.params.MinLearn) || s.forgottenLocked(l.Name) || s.deletedLocked(l.Name, sessionID) {
 			continue
 		}
 		p, ok := s.pickLocked(sessionID, l)
@@ -1014,6 +1018,73 @@ func (s *Store) Forget(id string) error {
 		s.forgotten = appendOnce(s.forgotten, a)
 	}
 	s.removeLocked(id)
+	return s.saveLocked()
+}
+
+// DeletedProfile is a deleted profile's names and the meetings it had
+// learnt from.
+type DeletedProfile struct {
+	Names    []string `json:"names"`
+	Sessions []string `json:"sessions"`
+}
+
+// Delete removes a profile without forgetting its name: a later meeting
+// can teach a new one, but the meetings it had learnt from don't rebuild
+// it (a relearn for new rules would otherwise bring it straight back).
+// Forget is the one that never learns the name again.
+func (s *Store) Delete(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	p := s.byIDLocked(id)
+	if p == nil {
+		return fmt.Errorf("no voice profile %q", id)
+	}
+	d := DeletedProfile{Names: append([]string{p.Name}, p.Aliases...)}
+	for _, h := range p.Meetings {
+		d.Sessions = appendOnce(d.Sessions, h.Session)
+	}
+	s.deleted = append(s.deleted, d)
+	s.removeLocked(id)
+	return s.saveLocked()
+}
+
+// deletedLocked: a deleted profile named name had learnt from sessionID.
+func (s *Store) deletedLocked(name, sessionID string) bool {
+	for _, d := range s.deleted {
+		for _, n := range d.Names {
+			if sameExactName(n, name) && contains(d.Sessions, sessionID) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Forgotten is the names never learnt again (Forget), for the owner to
+// see and allow again.
+func (s *Store) Forgotten() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	return append([]string(nil), s.forgotten...)
+}
+
+// Allow takes exactly name off the forgotten names.
+func (s *Store) Allow(name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.syncLocked()
+	kept := s.forgotten[:0:0]
+	for _, f := range s.forgotten {
+		if !sameExactName(f, name) {
+			kept = append(kept, f)
+		}
+	}
+	if len(kept) == len(s.forgotten) {
+		return nil
+	}
+	s.forgotten = kept
 	return s.saveLocked()
 }
 

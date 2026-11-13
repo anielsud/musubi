@@ -255,8 +255,24 @@ func (a *App) RecorderSpeaker(op, session, label, name string) error {
 }
 
 var voiceOps = map[string]bool{
-	control.OpRenameVoice: true, control.OpMergeVoices: true, control.OpKeepApart: true, control.OpForgetVoice: true,
+	control.OpRenameVoice: true, control.OpMergeVoices: true, control.OpKeepApart: true, control.OpForgetVoice: true, control.OpDeleteVoice: true,
 	control.OpStartOver: true, control.OpConfirmVoice: true, control.OpRemoveVoiceMeeting: true, control.OpConfirmVoiceMeeting: true, control.OpMoveVoiceMeeting: true,
+}
+
+// AllowVoiceName takes a name off a speaker model's never-learnt names.
+func (a *App) AllowVoiceName(model, name string) error {
+	if err := a.requireEditable(); err != nil {
+		return err
+	}
+	name = strings.TrimSpace(name)
+	if model == "" || name == "" || len(name) > 200 || strings.ContainsAny(name, "\n\r") {
+		return fmt.Errorf("a model and a name are needed")
+	}
+	if err := a.recCall(control.OpAllowName, control.VoiceArgs{Model: model, Name: name}, nil); err != nil {
+		return err
+	}
+	a.emit("voices:changed", nil)
+	return nil
 }
 
 // RecorderVoice applies a voice profile op.

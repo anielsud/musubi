@@ -161,6 +161,10 @@ closed at accept.
      nonce ‖ Mac nonce) as a big-endian unsigned number, mod 1,000,000,
      zero-padded. A machine in the middle shows the phone a different
      certificate, so the codes would differ.
+     Test vector (`TestPairCodeVector`): certificate SHA-256 = bytes
+     `00 01 … 1f`, phone nonce = `20 21 … 2f` (base64
+     `ICEiIyQlJicoKSorLC0uLw==`), Mac nonce = `30 31 … 3f` (base64
+     `MDEyMzQ1Njc4OTo7PD0+Pw==`) → SHA-256 `e99e1991…`, code **452561**.
   3. Musubi brings its window forward with "Pair <device name>? Code
      123 456" and **Allow** / **Deny**; the phone shows the code with
      **Confirm** / **Cancel**. The phone's Confirm is

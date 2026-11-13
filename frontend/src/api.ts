@@ -2,7 +2,7 @@
 // window.runtime at load.
 import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, BackupView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LivePrep, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
 import type { ResSnapshot } from './types';
-import type { PhonePairing, PhoneView } from './types';
+import type { PhonePairPrompt, PhoneView } from './types';
 import type { NamedSample, ProfileSamples, SampleArgs, SplitResult, SplitTarget } from './types';
 import type { LookView, MeetingSpeakers, RecDiag, RecordingModels, RecordingSettings, RecorderView, RecSources, RecStatus, RelabelResult, ReturnVoiceResult, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
 
@@ -148,8 +148,8 @@ export const api = {
   undoSplit: (batch: string): Promise<void> => app().UndoSplit(batch),
   phoneState: (): Promise<PhoneView> => app().PhoneState(),
   setPhoneEnabled: (on: boolean): Promise<void> => app().SetPhoneEnabled(on),
-  phonePair: (): Promise<PhonePairing> => app().PhonePair(),
-  phoneCancelPairing: (): Promise<void> => app().PhoneCancelPairing(),
+  phonePairRequest: (): Promise<PhonePairPrompt | null> => app().PhonePairRequest(),
+  phoneAnswerPair: (id: string, allow: boolean): Promise<void> => app().PhoneAnswerPair(id, allow),
   phoneRevoke: (id: string): Promise<void> => app().PhoneRevoke(id),
 };
 

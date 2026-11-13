@@ -226,6 +226,7 @@ func (a *App) Shutdown(ctx context.Context) {
 	log.Printf("Musubi shutting down")
 	a.UnwatchResources()
 	a.closeDataset("shutdown")
+	a.waitPhone() // its Bonjour advertisement ends before the app does
 }
 
 // AppStatus is shown in the header and the status view.

@@ -16,13 +16,12 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
 // The server's certificate is self-signed: the phone pins its SHA-256
-// fingerprint at pairing, after the owner has compared the first 16 hex
-// digits shown on both screens, so no CA (and no hostname) is involved.
+// fingerprint at pairing, whose code is derived from it (pairing.go), so
+// no CA (and no hostname) is involved.
 // It is made once and kept, so a pinned phone keeps working.
 
 const (
@@ -91,16 +90,6 @@ func Fingerprint(cert tls.Certificate) string {
 	}
 	sum := sha256.Sum256(cert.Certificate[0])
 	return hex.EncodeToString(sum[:])
-}
-
-// ShortFingerprint is the first 16 hex digits of a fingerprint, upper
-// case in groups of four, as the owner compares it with the phone's.
-func ShortFingerprint(fp string) string {
-	if len(fp) < 16 {
-		return ""
-	}
-	s := strings.ToUpper(fp[:16])
-	return s[:4] + " " + s[4:8] + " " + s[8:12] + " " + s[12:16]
 }
 
 // writePrivate writes b to path (mode 0600) through a temporary file, so

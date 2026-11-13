@@ -13,6 +13,7 @@ import { SourceDrawer, type SourceRef } from './components/SourceDrawer';
 import { DiagPanel } from './components/DiagPanel';
 import { RecordButton } from './components/recorder';
 import { SelectionMenu, type Picked } from './components/SelectionMenu';
+import { PairPrompt } from './components/PairPrompt';
 
 type View = 'live' | 'meetings' | 'to-do' | 'explore' | 'status' | 'settings';
 
@@ -168,6 +169,7 @@ export function App() {
       </NavContext.Provider>
       </div>
       {diag && <DiagPanel />}
+      <PairPrompt />
     </div>
   );
 }

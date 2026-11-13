@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -47,11 +48,14 @@ type Config struct {
 	// meeting is live) and says how many are left.
 	Agenda   func(ctx context.Context, days int) ([]Event, error)
 	Drafting func(until time.Time) int
-	// Logf logs (never a token or a code); OnChange tells Settings that
-	// the devices or the pairing window changed.
-	Logf     func(format string, args ...any)
-	OnChange func()
-	Now      func() time.Time
+	// Logf logs (never a token, a code, a nonce or a request id);
+	// OnChange tells Settings that the devices, a pair request or the
+	// advertising changed; OnPairRequest asks the owner to Allow or Deny
+	// a new pair request.
+	Logf          func(format string, args ...any)
+	OnChange      func()
+	OnPairRequest func(PairPrompt)
+	Now           func() time.Time
 }
 
 // Server is the phone access server. Its devices and pairing work
@@ -60,7 +64,13 @@ type Server struct {
 	cfg  Config
 	cert tls.Certificate
 	fp   string
-	devs *devices
+	// fpRaw is the certificate's SHA-256, the pairing code's input.
+	fpRaw []byte
+	devs  *devices
+	// advertise starts the Bonjour advertisement (advertise.go); ad is
+	// where it stands.
+	advertise advertiseFunc
+	ad        advertState
 
 	recMu sync.Mutex
 	recs  map[string]*sync.Mutex
@@ -82,6 +92,9 @@ func New(cfg Config) (*Server, error) {
 	if cfg.OnChange == nil {
 		cfg.OnChange = func() {}
 	}
+	if cfg.OnPairRequest == nil {
+		cfg.OnPairRequest = func(PairPrompt) {}
+	}
 	if err := os.MkdirAll(filepath.Join(cfg.Dir, "recordings"), 0o700); err != nil {
 		return nil, err
 	}
@@ -93,7 +106,12 @@ func New(cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{cfg: cfg, cert: cert, fp: Fingerprint(cert), devs: devs, recs: map[string]*sync.Mutex{}}, nil
+	fp := Fingerprint(cert)
+	fpRaw, err := hex.DecodeString(fp)
+	if err != nil || len(fpRaw) != sha256.Size {
+		return nil, errors.New("phone certificate: no fingerprint")
+	}
+	return &Server{cfg: cfg, cert: cert, fp: fp, fpRaw: fpRaw, devs: devs, advertise: platformAdvertise, recs: map[string]*sync.Mutex{}}, nil
 }
 
 // Fingerprint is the certificate's SHA-256 fingerprint (hex).
@@ -102,21 +120,26 @@ func (s *Server) Fingerprint() string { return s.fp }
 // Devices lists the paired phones.
 func (s *Server) Devices() []Device { return s.devs.List() }
 
-// Pair opens a pairing window and returns what Settings shows.
-func (s *Server) Pair() (Pairing, error) {
-	code, exp, err := s.devs.open(s.cfg.Now())
+// PairPrompt is the pair request waiting for the owner's answer, or nil.
+func (s *Server) PairPrompt() *PairPrompt { return s.devs.prompt(s.cfg.Now()) }
+
+// AnswerPair is the owner's Allow (allow true) or Deny of a pair request.
+func (s *Server) AnswerPair(id string, allow bool) error {
+	name, locked, err := s.devs.answer(id, allow, s.cfg.Now())
 	if err != nil {
-		return Pairing{}, err
+		return errors.New("that pair request is no longer waiting")
 	}
-	s.cfg.Logf("phone: pairing window opened (5 minutes)")
-	return Pairing{Code: code, Expires: exp, Fingerprint: ShortFingerprint(s.fp), Addresses: LocalAddresses(), Port: s.cfg.Port}, nil
+	if allow {
+		s.cfg.Logf("phone: pair request from %q allowed on the Mac", name)
+	} else {
+		s.cfg.Logf("phone: pair request from %q denied", name)
+	}
+	if locked {
+		s.cfg.Logf("phone: %d pair requests denied in %s; refusing requests for %s", pairMaxDenials, pairPer, pairLockFor)
+	}
+	s.cfg.OnChange()
+	return nil
 }
-
-// CancelPairing closes the pairing window.
-func (s *Server) CancelPairing() { s.devs.close() }
-
-// PairingOpen reports whether a pairing window is open, and until when.
-func (s *Server) PairingOpen() (bool, time.Time) { return s.devs.windowOpen(s.cfg.Now()) }
 
 // Revoke unpairs a device.
 func (s *Server) Revoke(id string) error {
@@ -166,6 +189,12 @@ func (s *Server) serveOn(ctx context.Context, ln net.Listener) error {
 		srv.Shutdown(sctx)
 	}()
 	s.cfg.Logf("phone: listening on port %d", s.cfg.Port)
+	port := s.cfg.Port
+	if a, ok := ln.Addr().(*net.TCPAddr); ok {
+		port = a.Port
+	}
+	s.startAdvertising(port)
+	defer s.stopAdvertising()
 	err := srv.Serve(tl)
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
@@ -178,7 +207,9 @@ type ctxKey struct{}
 // Handler is the API, for Serve and for tests.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/pair", s.handlePair)
+	mux.HandleFunc("POST /v1/pair/request", s.handlePairRequest)
+	mux.HandleFunc("POST /v1/pair/{id}/confirm", s.handlePairConfirm)
+	mux.HandleFunc("GET /v1/pair/{id}", s.handlePairState)
 	mux.Handle("GET /v1/agenda", s.authed(s.handleAgenda))
 	mux.Handle("PUT /v1/recordings/{rid}/chunks/{n}", s.authed(s.handleChunk))
 	mux.Handle("POST /v1/recordings/{rid}/complete", s.authed(s.handleComplete))
@@ -238,37 +269,107 @@ func readBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, bool
 	return b, true
 }
 
-func (s *Server) handlePair(w http.ResponseWriter, r *http.Request) {
+// decodeNonce reads a base64 nonce (standard or URL alphabet, padded or
+// not) of exactly nonceBytes bytes.
+func decodeNonce(v string) ([]byte, bool) {
+	if len(v) > 32 {
+		return nil, false
+	}
+	for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
+		if b, err := enc.DecodeString(v); err == nil {
+			return b, len(b) == nonceBytes
+		}
+	}
+	return nil, false
+}
+
+// pairID is a request id from the path: requestIDHex lowercase hex digits.
+func pairID(v string) (string, bool) {
+	if len(v) != requestIDHex {
+		return "", false
+	}
+	for _, c := range v {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return "", false
+		}
+	}
+	return v, true
+}
+
+func (s *Server) handlePairRequest(w http.ResponseWriter, r *http.Request) {
 	b, ok := readBody(w, r, 4<<10)
 	if !ok {
 		return
 	}
 	var req struct {
-		Code       string `json:"code"`
 		DeviceName string `json:"device_name"`
+		Nonce      string `json:"nonce"`
 	}
 	if json.Unmarshal(b, &req) != nil {
 		writeJSON(w, http.StatusBadRequest, errBody("bad request"))
 		return
 	}
-	dev, token, err := s.devs.pair(strings.TrimSpace(req.Code), req.DeviceName, s.cfg.Now())
+	nonce, ok := decodeNonce(req.Nonce)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, errBody("bad request"))
+		return
+	}
+	macNonce, p, err := s.devs.request(req.DeviceName, nonce, s.fpRaw, s.cfg.Now())
 	switch {
-	case errors.Is(err, errPairLocked):
-		s.cfg.Logf("phone: pairing window closed after %d wrong codes", pairMaxWrong)
-		s.cfg.OnChange()
-		writeJSON(w, http.StatusForbidden, errBody("pairing failed"))
-	case errors.Is(err, errPairWrong):
-		s.cfg.Logf("phone: wrong pairing code")
-		writeJSON(w, http.StatusForbidden, errBody("pairing failed"))
-	case errors.Is(err, errPairClosed):
-		writeJSON(w, http.StatusForbidden, errBody("pairing failed"))
+	case errors.Is(err, errPairBusy):
+		writeJSON(w, http.StatusConflict, errBody("another pairing is in progress"))
+	case errors.Is(err, errPairLimited), errors.Is(err, errPairLocked):
+		if s.authLog.ok(s.cfg.Now()) {
+			s.cfg.Logf("phone: pair request refused: %v", err)
+		}
+		writeJSON(w, http.StatusTooManyRequests, errBody("try again later"))
 	case err != nil:
-		s.cfg.Logf("phone: pairing: %v", err)
-		writeJSON(w, http.StatusInternalServerError, errBody("server error"))
+		s.fail(w, "pair request", err)
 	default:
-		s.cfg.Logf("phone: paired device %s (%s)", dev.ID, dev.Name)
+		s.cfg.Logf("phone: pair request from %q; asking the owner", p.DeviceName)
+		writeJSON(w, http.StatusOK, map[string]string{"request_id": p.ID, "nonce": base64.StdEncoding.EncodeToString(macNonce)})
+		s.cfg.OnPairRequest(p)
 		s.cfg.OnChange()
-		writeJSON(w, http.StatusOK, map[string]string{"device_id": dev.ID, "token": token})
+	}
+}
+
+func (s *Server) handlePairConfirm(w http.ResponseWriter, r *http.Request) {
+	id, ok := pairID(r.PathValue("id"))
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errBody("not found"))
+		return
+	}
+	switch err := s.devs.phoneConfirm(id, s.cfg.Now()); {
+	case errors.Is(err, errPairNotFound):
+		writeJSON(w, http.StatusNotFound, errBody("not found"))
+	case errors.Is(err, errPairNotOpen):
+		writeJSON(w, http.StatusConflict, errBody("not pending"))
+	case err != nil:
+		s.fail(w, "pair confirm", err)
+	default:
+		s.cfg.OnChange()
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (s *Server) handlePairState(w http.ResponseWriter, r *http.Request) {
+	id, ok := pairID(r.PathValue("id"))
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errBody("not found"))
+		return
+	}
+	state, dev, token, err := s.devs.status(id, s.cfg.Now())
+	switch {
+	case errors.Is(err, errPairNotFound):
+		writeJSON(w, http.StatusNotFound, errBody("not found"))
+	case err != nil:
+		s.fail(w, "pairing", err)
+	case state == PairPaired:
+		s.cfg.Logf("phone: paired device %s (%q)", dev.ID, dev.Name)
+		s.cfg.OnChange()
+		writeJSON(w, http.StatusOK, map[string]string{"state": PairPaired, "device_id": dev.ID, "token": token})
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"state": state})
 	}
 }
 

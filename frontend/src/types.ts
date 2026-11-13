@@ -932,12 +932,12 @@ export interface PhoneDevice {
   last_seen?: string;
 }
 
-export interface PhonePairing {
+// A phone's pair request waiting for the owner's Allow or Deny.
+export interface PhonePairPrompt {
+  id: string;
+  deviceName: string;
   code: string;
   expires: string;
-  fingerprint: string;
-  addresses: string[] | null;
-  port: number;
 }
 
 export interface PhoneView {
@@ -946,6 +946,8 @@ export interface PhoneView {
   listening: boolean;
   error?: string;
   devices: PhoneDevice[] | null;
-  pairing?: PhonePairing;
+  advertised: boolean;
+  advertisedAs?: string;
+  advertiseError?: string;
   ofRecord: boolean;
 }

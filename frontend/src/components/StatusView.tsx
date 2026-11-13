@@ -55,7 +55,30 @@ export function StatusView({ status, active }: { status: AppStatus | null; activ
       </button>
       <p className="dim small">{checkDoes(status)}</p>
 
+      <CopyDiagnostics />
     </div>
+  );
+}
+
+// CopyDiagnostics puts a report for support on the clipboard: versions,
+// counts, connections, settings, recent errors; no meeting content, titles,
+// names or email addresses (internal/diagnostics). It shows what it copied.
+function CopyDiagnostics() {
+  const [text, setText] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const copy = () => api.diagnostics().then((t) => api.copyText(t).then(() => { setText(t); setErr(null); }), (e) => setErr(String(e)));
+  return (
+    <section>
+      <button className="wide" onClick={copy}>Copy diagnostics</button>
+      <p className="dim small">For support: versions, counts, connections and settings, with no meeting content, titles, names or email addresses.</p>
+      {err && <div className="error">{err}</div>}
+      {text && (
+        <details>
+          <summary className="small">Copied. What was copied</summary>
+          <pre className="small">{text}</pre>
+        </details>
+      )}
+    </section>
   );
 }
 
@@ -119,11 +142,20 @@ function WorkQueue({ active }: { active: boolean }) {
   if (!q) return null;
   const newN = q.newExtract + q.newThread;
   const older = q.olderExtract + q.olderThread;
-  const run = (kind: 'catchup' | 'rethread') => { setConfirm(false); api.runKnowledge(kind).then(load, (e) => setErr(String(e))); };
+  const run = (kind: 'catchup' | 'rethread' | 'upgrades') => { setConfirm(false); api.runKnowledge(kind).then(load, (e) => setErr(String(e))); };
+  const u = q.upgrades;
+  const reread = u ? u.passages + u.extract : 0;
+  const upgradeParts = u ? [
+    reread && `${reread} ${reread === 1 ? 'item' : 'items'} to extract again`,
+    u.digest && `${u.digest} ${u.digest === 1 ? 'summary' : 'summaries'}`,
+    u.statuses && `${u.statuses} thread ${u.statuses === 1 ? 'status' : 'statuses'}`,
+    u.names && `${u.names} meeting ${u.names === 1 ? 'name' : 'names'}`,
+  ].filter(Boolean) : [];
+  const running = ({ rethread: 'rethreading in time order…', upgrades: 'applying upgrades…' } as Record<string, string>)[q.running] ?? 'catching up…';
   const frontier = q.frontier && !q.frontier.startsWith('0001') ? fmtDate(q.frontier) : null;
   return (
     <section className="kv">
-      <div className="section-head"><span>Work queue <button className="icon-btn small" title="Refresh" onClick={load}>↻</button></span>{q.running && <span className="dim small"><Spinner /> {q.running === 'rethread' ? 'rethreading in time order…' : 'catching up…'}</span>}</div>
+      <div className="section-head"><span>Work queue <button className="icon-btn small" title="Refresh" onClick={load}>↻</button></span>{q.running && <span className="dim small"><Spinner /> {running}</span>}</div>
       {q.extract === 'none' && (
         <div className="warn small">Extraction is off for this dataset (knowledge.extract = "none"): new meetings are stored and searchable but don't become knowledge.</div>
       )}
@@ -146,6 +178,17 @@ function WorkQueue({ active }: { active: boolean }) {
         <button className="wide" disabled={!!q.running} onClick={() => setConfirm(true)}>
           Rethread everything in time order: about {usd(q.rethreadUsd)}, {q.rethreadHours.toFixed(q.rethreadHours < 10 ? 1 : 0)} h
         </button>
+      )}
+      {upgradeParts.length > 0 && (
+        <>
+          <Row k="waiting from upgrades" v={upgradeParts.join(', ')} />
+          <p className="dim small">
+            A new version of Musubi or of a model would redo these on meetings that haven't changed. They wait for you; new and changed meetings are processed as usual.
+          </p>
+          <button className="wide" disabled={!!q.running} onClick={() => run('upgrades')}>
+            Apply upgrades: about {usd(u.usd)} (hosted calls stop at about {usd(u.usd * 1.5)})
+          </button>
+        </>
       )}
       {confirm && (
         <div className="confirm-row">

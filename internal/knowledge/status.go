@@ -102,15 +102,24 @@ func StatusInputFor(name, scope string, sts []store.ThreadStatement, keep func(s
 	items := append(append([]store.ThreadStatement{}, cur...), recent...)
 	sortByTime(items)
 	in := StatusInput{Items: items, AsOf: asOf}
-	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%s\x00%s\x00", StatusVersion, name, scope)
 	for _, s := range items {
 		in.Label.Level = max(in.Label.Level, s.Level)
 		in.Label.Categories |= s.Categories
+	}
+	in.Hash = StatusHash(StatusVersion, name, scope, items)
+	return in
+}
+
+// StatusHash is a status input's hash as status version wrote it: equal to
+// a stored one under an earlier version means only the version changed
+// (the pipeline holds such statuses for the owner: knowledge.hold_upgrades).
+func StatusHash(version, name, scope string, items []store.ThreadStatement) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%s\x00%s\x00", version, name, scope)
+	for _, s := range items {
 		fmt.Fprintf(h, "%d/%t/%s\x00", s.ID, s.Current, s.Text)
 	}
-	in.Hash = hex.EncodeToString(h.Sum(nil)[:12])
-	return in
+	return hex.EncodeToString(h.Sum(nil)[:12])
 }
 
 func sortByTime(items []store.ThreadStatement) {

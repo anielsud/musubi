@@ -101,6 +101,12 @@ type Outdated struct {
 	// Backfilled: items threaded after newer ones (older meetings added
 	// later); --redo threads puts everything in time order.
 	Backfilled int
+	// Waiting for an upgrade to be applied (knowledge.hold_upgrades):
+	// meetings whose passages a new chunker or translator would re-cut,
+	// and so re-extract (--redo extract); statuses under an earlier status
+	// version (--redo statuses); names under an earlier naming version or
+	// model (--redo names).
+	Passages, Statuses, Names int
 }
 
 // Held is work a run left for later on purpose.
@@ -152,6 +158,9 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	var ks KnowledgeStats
 	if o.LLM == nil || o.Embedder == nil {
 		return ks, fmt.Errorf("the knowledge layer needs a chat model and an embedder")
+	}
+	if err := r.applyPassageUpgrades(ctx, o, &ks); err != nil {
+		return ks, err
 	}
 	items, err := r.Store.AllItems()
 	if err != nil {
@@ -412,6 +421,9 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 		older = older[n:]
 	}
 	ks.Outdated.Extract = len(older)
+	if !o.Plan && len(o.Items) == 0 {
+		r.setWaiting("extract", len(older))
+	}
 	if o.Auto || o.NewOnly {
 		// After new data, take only what appends in time order, a few at a
 		// time; older items (a backlog) and big batches wait for a run
@@ -454,6 +466,18 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 	}
 	if o.Plan {
 		ks.Planned.Extract = len(jobs)
+		if o.redo("extract") {
+			// Held passages are cut again and extracted (the newest
+			// RedoNewest of them when set).
+			n := ks.Outdated.Passages
+			if o.RedoNewest > 0 {
+				n = min(n, o.RedoNewest)
+			}
+			ks.Planned.Extract += n
+		}
+		if err := r.planUpgrades(o, items, links, &ks); err != nil {
+			return ks, err
+		}
 		requeued := map[string]bool{}
 		for _, j := range jobs {
 			requeued[j.it.ID] = true
@@ -1491,6 +1515,87 @@ func (r *Runner) statusLLM(o KnowledgeOptions) (provider.LLM, error) {
 	return llm, nil
 }
 
+type statusJob struct {
+	th      store.ThreadRow
+	variant string
+	in      knowledge.StatusInput
+}
+
+// statusJobs are the statuses to write: those whose input changed, or
+// whose version did unless it waits for the owner (knowledge.hold_upgrades,
+// counted in held; o.Redo "statuses" takes them). Statuses kept take their
+// items' current label. A plan only counts.
+func (r *Runner) statusJobs(o KnowledgeOptions, threads []store.ThreadRow, plan bool) (jobs []statusJob, held int, err error) {
+	stamps, err := r.Store.ThreadStatusStamps()
+	if err != nil {
+		return nil, 0, err
+	}
+	// Written from the text as the owner's spelling rules read it: the
+	// rules are in the input, so a rule made or undone rewrites the
+	// statuses it touches.
+	fix, err := r.Store.Corrector()
+	if err != nil {
+		return nil, 0, err
+	}
+	hold := r.holdUpgrades() && !o.redo("statuses")
+	relabel := func(id int64, variant string, l sensitivity.Label) error {
+		if plan {
+			return nil
+		}
+		return r.Store.RelabelThreadStatus(id, variant, l)
+	}
+	for _, th := range threads {
+		sts, err := r.Store.ThreadStatements(th.ID)
+		if err != nil {
+			return nil, 0, err
+		}
+		for i := range sts {
+			sts[i].Text = fix.Text(sts[i].ID, sts[i].Text)
+		}
+		have := stamps[th.ID]
+		full, op := statusInputs(th.Name, th.Scope, sts)
+		if len(full.Items) == 0 {
+			continue
+		}
+		// upgradeOnly: written from these same items by an earlier version.
+		upgradeOnly := func(stamp string, in knowledge.StatusInput) bool {
+			ver, h, ok := strings.Cut(stamp, "/")
+			return hold && ok && ver != knowledge.StatusVersion && knowledge.StatusHash(ver, th.Name, th.Scope, in.Items) == h
+		}
+		switch {
+		case have["full"] == knowledge.StatusVersion+"/"+full.Hash:
+			if err := relabel(th.ID, "full", full.Label); err != nil {
+				return nil, 0, err
+			}
+		case upgradeOnly(have["full"], full):
+			held++
+			if err := relabel(th.ID, "full", full.Label); err != nil {
+				return nil, 0, err
+			}
+		default:
+			jobs = append(jobs, statusJob{th, "full", full})
+		}
+		switch {
+		case len(op.Items) == 0 || op.Hash == full.Hash:
+			if have["open"] != "" && !plan {
+				r.Store.SetThreadStatus(store.ThreadStatusRow{Topic: th.ID, Variant: "open"})
+			}
+		case have["open"] == knowledge.StatusVersion+"/"+op.Hash:
+			if err := relabel(th.ID, "open", op.Label); err != nil {
+				return nil, 0, err
+			}
+		case upgradeOnly(have["open"], op):
+			held++
+			if err := relabel(th.ID, "open", op.Label); err != nil {
+				return nil, 0, err
+			}
+		default:
+			jobs = append(jobs, statusJob{th, "open", op})
+		}
+	}
+	return jobs, held, nil
+}
+
 // writeStatuses writes the status of every thread whose items changed
 // since its status was written (or whose status is from an earlier
 // version): a "full" status from every item, and an "open" one from the
@@ -1508,53 +1613,14 @@ func (r *Runner) writeStatuses(ctx context.Context, o KnowledgeOptions, ks *Know
 	if err != nil {
 		return err
 	}
-	stamps, err := r.Store.ThreadStatusStamps()
+	jobs, held, err := r.statusJobs(o, threads, false)
 	if err != nil {
 		return err
 	}
-	// Written from the text as the owner's spelling rules read it: the
-	// rules are in the input, so a rule made or undone rewrites the
-	// statuses it touches.
-	fix, err := r.Store.Corrector()
-	if err != nil {
-		return err
-	}
-	type job struct {
-		th      store.ThreadRow
-		variant string
-		in      knowledge.StatusInput
-	}
-	var jobs []job
-	for _, th := range threads {
-		sts, err := r.Store.ThreadStatements(th.ID)
-		if err != nil {
-			return err
-		}
-		for i := range sts {
-			sts[i].Text = fix.Text(sts[i].ID, sts[i].Text)
-		}
-		have := stamps[th.ID]
-		full, op := statusInputs(th.Name, th.Scope, sts)
-		if len(full.Items) == 0 {
-			continue
-		}
-		if have["full"] != knowledge.StatusVersion+"/"+full.Hash {
-			jobs = append(jobs, job{th, "full", full})
-		} else if err := r.Store.RelabelThreadStatus(th.ID, "full", full.Label); err != nil {
-			return err
-		}
-		switch {
-		case len(op.Items) == 0 || op.Hash == full.Hash:
-			if have["open"] != "" {
-				r.Store.SetThreadStatus(store.ThreadStatusRow{Topic: th.ID, Variant: "open"})
-			}
-		case have["open"] != knowledge.StatusVersion+"/"+op.Hash:
-			jobs = append(jobs, job{th, "open", op})
-		default:
-			if err := r.Store.RelabelThreadStatus(th.ID, "open", op.Label); err != nil {
-				return err
-			}
-		}
+	ks.Outdated.Statuses = held
+	r.setWaiting("statuses", held)
+	if held > 0 {
+		r.logf("status: %d statuses under an earlier status version kept until an upgrade is applied (knowledge.hold_upgrades)", held)
 	}
 	if len(jobs) == 0 {
 		return nil
@@ -1562,7 +1628,7 @@ func (r *Runner) writeStatuses(ctx context.Context, o KnowledgeOptions, ks *Know
 	t0 := time.Now()
 	r.logf("status: writing %d thread statuses", len(jobs))
 	type result struct {
-		j   job
+		j   statusJob
 		st  knowledge.Status
 		err error
 	}

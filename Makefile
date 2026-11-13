@@ -1,4 +1,4 @@
-.PHONY: build test vet fmt licenses eval eval-record clean frontend build-gui install-gui-mac recorder-app
+.PHONY: build test vet fmt licenses eval eval-record clean frontend build-gui bundle-mac install-gui-mac recorder-app app-mac dmg
 
 # FTS5 is compiled into the SQLite driver only with this tag.
 TAGS := -tags sqlite_fts5
@@ -60,7 +60,8 @@ build-gui: frontend
 # creates this identity; without it the app is signed ad hoc as before.
 CODESIGN_IDENTITY ?= $(shell security find-identity -p codesigning 2>/dev/null | grep -q '"Tomoe Dev Signing"' && echo 'Tomoe Dev Signing' || echo '-')
 
-install-gui-mac: build build-gui
+# Musubi.app's contents, unsigned: install-gui-mac and app-mac sign it.
+bundle-mac: build build-gui
 	rm -rf $(APP_BUNDLE)
 	mkdir -p $(APP_BUNDLE)/Contents/MacOS $(APP_BUNDLE)/Contents/Resources build/icon.iconset
 	cp bin/musubi-gui bin/musubi $(APP_BUNDLE)/Contents/MacOS/
@@ -71,6 +72,8 @@ install-gui-mac: build build-gui
 	done
 	iconutil -c icns build/icon.iconset -o $(APP_BUNDLE)/Contents/Resources/Musubi.icns
 	sed 's/__VERSION__/$(VERSION)/g' packaging/macos/Info.plist.template > $(APP_BUNDLE)/Contents/Info.plist
+
+install-gui-mac: bundle-mac
 	codesign --sign "$(CODESIGN_IDENTITY)" --force --deep $(APP_BUNDLE)
 	# Replace the contents, not the folder: an account without admin rights
 	# can't delete entries in /Applications, but owns the app folder it made.
@@ -111,6 +114,35 @@ recorder-app:
 	sed 's/__VERSION__/$(VERSION)/g' packaging/macos/recorder/Info.plist.template > "$(RECORDER_APP)/Contents/Info.plist"
 	codesign --sign "$(RECORDER_IDENTITY)" --force --deep "$(RECORDER_APP)"
 	@echo "Built $(RECORDER_APP) ($(VERSION)); install with scripts/install-recorder.sh"
+
+# Musubi.app for others to install: the app with the recorder inside it
+# (Contents/Helpers) and the recorder's LaunchAgent template. On first
+# launch Musubi installs the agent itself ([recorder] install_agent), so
+# no script or checkout is needed. The recorder keeps its own signature:
+# the outer app is signed without --deep. CI signs ad hoc (no Developer
+# ID yet): CODESIGN_IDENTITY=- RECORDER_IDENTITY=-.
+DIST_APP := build/dist/Musubi.app
+DMG := build/Musubi-$(VERSION).dmg
+
+app-mac: bundle-mac recorder-app
+	rm -rf build/dist
+	mkdir -p $(DIST_APP)/Contents/Helpers
+	ditto $(APP_BUNDLE) $(DIST_APP)
+	ditto "$(RECORDER_APP)" "$(DIST_APP)/Contents/Helpers/Musubi Recorder.app"
+	cp packaging/macos/recorder/launchagent.plist.template $(DIST_APP)/Contents/Resources/recorder-launchagent.plist.template
+	codesign --sign "$(CODESIGN_IDENTITY)" --force $(DIST_APP)/Contents/MacOS/musubi
+	codesign --sign "$(CODESIGN_IDENTITY)" --force $(DIST_APP)
+	codesign --verify --deep --strict $(DIST_APP)
+	@echo "Built $(DIST_APP) ($(VERSION))"
+
+# A disk image with Musubi.app and a link to /Applications to drag it to.
+dmg: app-mac
+	rm -rf build/dmg $(DMG)
+	mkdir -p build/dmg
+	ditto $(DIST_APP) build/dmg/Musubi.app
+	ln -s /Applications build/dmg/Applications
+	hdiutil create -volname "Musubi $(VERSION)" -srcfolder build/dmg -fs HFS+ -format UDZO -ov $(DMG)
+	@echo "Built $(DMG)"
 
 clean:
 	rm -rf bin build

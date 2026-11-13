@@ -1,0 +1,42 @@
+name: release
+# Builds Musubi.dmg (the app with its recorder inside) on a macOS runner.
+# A version tag (v1.2.3) publishes it as a GitHub release; running the
+# workflow by hand, or a pull request that changes the packaging, only
+# keeps the DMG as a build artifact.
+# Signed ad hoc: there is no Developer ID yet, so macOS asks to confirm
+# the first open (docs/user-guide.md, "Install").
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [Makefile, "packaging/**", ".github/workflows/release.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git describe names the version
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the DMG
+        run: make dmg CODESIGN_IDENTITY=- RECORDER_IDENTITY=-
+      - uses: actions/upload-artifact@v4
+        with:
+          name: musubi-dmg
+          path: build/Musubi-*.dmg
+          if-no-files-found: error
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" build/Musubi-*.dmg --title "Musubi $GITHUB_REF_NAME" --generate-notes

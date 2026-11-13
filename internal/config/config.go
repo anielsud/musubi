@@ -240,6 +240,16 @@ type Knowledge struct {
 	// claims rebuilt, every item rethreaded in order. A changed input (a
 	// meeting's passages or labels) is re-extracted either way.
 	Updates string `toml:"updates"`
+	// HoldUpgrades (with updates = "explicit") also keeps what an upgrade
+	// would redo at a model's cost when nothing but the code or a model
+	// changed: passages of extracted or summarised meetings re-cut by a new
+	// chunker or translator (which would re-extract them), thread statuses
+	// under a new status version, and meeting names under a new naming
+	// version or model. They wait for Status → Work queue → Apply upgrades,
+	// or `musubi knowledge --redo extract,statuses,names`. Content that
+	// really changed is processed as before. false redoes them on the next
+	// run, as before.
+	HoldUpgrades bool `toml:"hold_upgrades"`
 	// Label checks each statement for sensitive content about people (a
 	// person's performance or exit, a candidate, pay, health, legal
 	// matters, private life) with a local model, and raises its label so
@@ -698,7 +708,7 @@ func DefaultConfig() Config {
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true, AutoBrief: true},
 		MCP:           MCP{Enabled: true, MaxShare: "owner-only", Write: true},
 		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, FirstDays: 42, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
-		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
+		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: true, Updates: "explicit", HoldUpgrades: true, Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true, PullMissing: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

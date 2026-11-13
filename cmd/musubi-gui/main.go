@@ -19,7 +19,11 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// version is the build version, set with -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
+	gui.Version = version
 	// A Dock-launched app has no terminal; keep a log for diagnosis.
 	if home, err := os.UserHomeDir(); err == nil {
 		dir := filepath.Join(home, "Library", "Logs", "Musubi")

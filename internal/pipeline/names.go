@@ -40,11 +40,13 @@ func (r *Runner) nameMeetings(ctx context.Context, o KnowledgeOptions, items []i
 	if o.Auto {
 		max = nameAutoMax
 	}
+	hold := r.holdUpgrades() && !o.redo("names")
+	held := 0
 	for i := range items {
-		it := &items[i]
-		if ks.Named >= max || ctx.Err() != nil {
+		if ctx.Err() != nil {
 			break
 		}
+		it := &items[i]
 		if it.Kind != item.KindMeeting || links[it.ID] != "" || !unnamedTitle.MatchString(it.Title) {
 			continue
 		}
@@ -58,7 +60,27 @@ func (r *Runner) nameMeetings(ctx context.Context, o KnowledgeOptions, items []i
 			}
 		}
 		hash := hashOf("name", NameVersion, llm.ModelName(), text)
-		if have[it.ID].Input == hash {
+		key := nameInputKey(hash, text)
+		was := have[it.ID]
+		if was.Input == key {
+			continue
+		}
+		if was.Input == hash {
+			// Named before the text's hash was kept beside it: keep it now,
+			// so a later naming version or model can tell it apart.
+			if !o.Plan {
+				if err := r.Store.SetItemTitle(it.ID, was.Title, was.Source, key); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		if hold && was.Input != "" && strings.HasSuffix(was.Input, "/"+nameTextHash(text)) {
+			// Named from this same text by an earlier version or model.
+			held++
+			continue
+		}
+		if ks.Named >= max || o.Plan {
 			continue
 		}
 		reply, err := llm.Complete(ctx, []provider.Message{{Role: "system", Content: namePrompt}, {Role: "user", Content: text}}, provider.ChatOptions{Temperature: 0, MaxTokens: 40}, nil)
@@ -70,16 +92,30 @@ func (r *Runner) nameMeetings(ctx context.Context, o KnowledgeOptions, items []i
 		if name == "" {
 			continue
 		}
-		if err := r.Store.SetItemTitle(it.ID, name, "generated", hash); err != nil {
+		if err := r.Store.SetItemTitle(it.ID, name, "generated", key); err != nil {
 			return err
 		}
 		ks.Named++
+	}
+	ks.Outdated.Names = held
+	if !o.Plan && ctx.Err() == nil {
+		r.setWaiting("names", held)
+	}
+	if held > 0 && !o.Plan {
+		r.logf("names: %d names from an earlier naming version or model kept until an upgrade is applied (knowledge.hold_upgrades)", held)
 	}
 	if ks.Named > 0 {
 		r.logf("names: %d meetings named", ks.Named)
 	}
 	return nil
 }
+
+// nameInputKey is what a name's input is stored as: its hash, then the
+// hash of the text alone, which tells a new version or model (same text)
+// from a changed meeting.
+func nameInputKey(hash, text string) string { return hash + "/" + nameTextHash(text) }
+
+func nameTextHash(text string) string { return hashOf("name-text", text) }
 
 // nameInput is what a meeting is named from: its digest's overview and
 // section subjects, or the first few thousand characters of its passages.

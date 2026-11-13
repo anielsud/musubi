@@ -555,9 +555,21 @@ export interface QueueView {
   catchUpUsd: number;
   rethreadUsd: number;
   rethreadHours: number;
+  upgrades: Upgrades;
   running: string;
   spent: number;
   ledger: string;
+}
+
+// What a new version would redo on existing data at a model's cost,
+// waiting for the owner (knowledge.hold_upgrades; pipeline.Upgrades).
+export interface Upgrades {
+  passages: number;
+  extract: number;
+  digest: number;
+  statuses: number;
+  names: number;
+  usd: number;
 }
 
 // A meeting summary (knowledge.digest): the meeting in sections, its to-dos

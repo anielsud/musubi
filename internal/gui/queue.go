@@ -22,7 +22,7 @@ import (
 // QueueView is the Status page's work queue.
 type QueueView struct {
 	pipeline.Queue
-	Running string  `json:"running"` // "", "catchup" or "rethread"
+	Running string  `json:"running"` // "", "catchup", "rethread" or "upgrades"
 	Spent   float64 `json:"spent"`   // dollars in the spend ledger
 	Ledger  string  `json:"ledger"`
 }
@@ -58,7 +58,8 @@ func (a *App) Queue() (*QueueView, error) {
 
 // RunKnowledge starts a run an automatic update doesn't: "catchup" takes
 // every new item, "rethread" also takes the backlog by rethreading
-// everything in time order. Hosted calls stop at the estimate and a half.
+// everything in time order, "upgrades" redoes what a new version left
+// waiting (pipeline.Upgrades). Hosted calls stop at the estimate and a half.
 func (a *App) RunKnowledge(kind string) error {
 	if a.eng == nil {
 		return fmt.Errorf("not ready: %s", a.err)
@@ -75,6 +76,13 @@ func (a *App) RunKnowledge(kind string) error {
 	case "rethread":
 		o.Redo = []string{"threads"}
 		estimate = q.RethreadUSD
+	case "upgrades":
+		// What a new version would redo on existing data, held for the
+		// owner (knowledge.hold_upgrades).
+		if o.Redo = q.Upgrades.Redo(); len(o.Redo) == 0 {
+			return fmt.Errorf("no upgrade is waiting")
+		}
+		estimate = q.Upgrades.USD
 	default:
 		return fmt.Errorf("no such run %q", kind)
 	}

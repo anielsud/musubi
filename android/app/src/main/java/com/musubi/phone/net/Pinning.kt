@@ -88,6 +88,21 @@ object Pinning {
         return fingerprint(cert)
     }
 
+    /** True when [host]:[port] completes a TLS handshake with exactly the pinned certificate. */
+    fun probe(host: String, port: Int, pin: String, timeoutMs: Int = 3000): Boolean {
+        val plain = Socket()
+        return try {
+            plain.connect(InetSocketAddress(host, port), timeoutMs)
+            plain.soTimeout = timeoutMs
+            (socketFactory(pin).createSocket(plain, host, port, true) as SSLSocket).use { it.startHandshake() }
+            true
+        } catch (e: Exception) {
+            false
+        } finally {
+            runCatching { plain.close() }
+        }
+    }
+
     /** Restricts sockets to TLS 1.2 and 1.3. */
     private class ModernTls(private val d: SSLSocketFactory) : SSLSocketFactory() {
         private fun fix(s: Socket): Socket {

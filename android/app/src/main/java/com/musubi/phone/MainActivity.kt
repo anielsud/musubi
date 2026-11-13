@@ -31,6 +31,7 @@ import com.musubi.phone.ui.RecordingsScreen
 import com.musubi.phone.ui.Screen
 import com.musubi.phone.ui.TodayScreen
 import com.musubi.phone.core.AgendaEvent
+import com.musubi.phone.update.Updater
 
 /** The single activity: three tabs (Today, Recordings, Mac) plus pushed Recording and Brief screens. */
 class MainActivity : AppCompatActivity() {
@@ -84,6 +85,7 @@ class MainActivity : AppCompatActivity() {
             }
         })
         nav.selectedItemId = TAB_TODAY
+        Updater.checkOnStart(this)
     }
 
     override fun onResume() {
@@ -91,10 +93,12 @@ class MainActivity : AppCompatActivity() {
         if (RecorderStatus.isRecording && stack.none { it is RecordingScreen }) push(RecordingScreen(this))
         current()?.refresh()
         tick.post(ticker)
+        Updater.onResume(this)
     }
 
     override fun onPause() {
         tick.removeCallbacks(ticker)
+        Updater.onPause(this)
         super.onPause()
     }
 

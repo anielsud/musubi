@@ -65,6 +65,15 @@ meeting summaries with to-dos, and Live's briefs. On a dataset that used
 other settings, the change applies to new meetings; the rest follow when
 you rethread (§5).
 
+**Defaults changed on 2026-11-12.** Settings your config doesn't set now
+follow the setup Musubi is developed on: meetings read into threads
+(lean extraction), summaries with to-dos, Live's briefs, voice profiles,
+meeting rooms split into their people, and the recorder's speaker
+tuning. The full list, old and new values, is in
+[research-log.md](research-log.md) ("the defaults follow the owner's
+setup"). New meetings use them at once; existing ones follow when you
+rethread (§5). To keep an old behaviour, set its key in your config.
+
 ## 4. Switch to Musubi's recorder
 
 Tomoe can keep running beside it as a fallback; Musubi takes meetings
@@ -131,7 +140,8 @@ summaries $0.02; [research-log.md](research-log.md), 2026-11-11), about
 
 ## 6. Voices
 
-Turn on **Voice profiles** in Settings → Recording (off by default). The
+**Voice profiles** (Settings → Recording) are on by default; if your config
+turned them off, turn them on. The
 copy brought Tomoe's profiles over. At the next recorder start the
 profiles are relearnt once from every saved meeting under the current
 learning rules: in the background, on this Mac, no model calls, paused
@@ -156,6 +166,17 @@ Since 2026-11-12 (`internal/store/upgrade.go`):
 - **To go back:** quit Musubi (and stop `musubi mcp` servers), replace
   `musubi.db` in the data folder with the copy (remove `musubi.db-wal`
   and `musubi.db-shm` beside it), and install the version you came from.
+- **The recorder's folder has a format too** (a `format` file in it). A
+  recorder that finds a newer one records nothing and changes nothing
+  there, and Status says "written by a newer Musubi"; Musubi doesn't
+  read its meetings. An older folder has its `voices/` copied to
+  `voices.bak-<time>` before the format is recorded, and again before
+  voice profiles are relearnt or converted (the newest five kept;
+  `[recorder.meeting] voice_profile_backups = false` turns the copies
+  off). A voices file from a newer Musubi is left alone: meetings still
+  record, but nobody is named by voice. To go back, put a
+  `voices.bak-<time>` folder in place of `voices/` while the recorder is
+  stopped.
 
 For developers, the rules a change to what is stored must follow are in
 [data-safety.md](data-safety.md).

@@ -15,6 +15,7 @@ import (
 	"github.com/anielsud/musubi/internal/item"
 	"github.com/anielsud/musubi/internal/m365"
 	"github.com/anielsud/musubi/internal/pipeline"
+	"github.com/anielsud/musubi/internal/recorder/dataformat"
 	"github.com/anielsud/musubi/internal/sensitivity"
 )
 
@@ -158,6 +159,9 @@ func (e *Engine) WriteTomoeContext() (int, error) {
 	sessions := e.Cfg.ContextSessionsDir()
 	if !e.Cfg.M365.TomoeContext || sessions == "" {
 		return 0, nil
+	}
+	if err := dataformat.Check(filepath.Dir(sessions)); err != nil {
+		return 0, err
 	}
 	links, err := e.Store.LinksFrom("occurred_as")
 	if err != nil {

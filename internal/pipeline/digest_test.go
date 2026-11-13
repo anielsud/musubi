@@ -119,6 +119,7 @@ func TestDigestStage(t *testing.T) {
 
 	// A hosted model is refused without allow_hosted, and used with it.
 	hosted := &digestScript{hosted: true}
+	r.Cfg.Knowledge.AllowHosted = false
 	r.Cfg.Knowledge.Digest.Model.Provider = ""
 	_, err = r.Knowledge(context.Background(), KnowledgeOptions{LLM: emptyLLM{"m2"}, Embedder: provider.Hash{Dim: 64}, DigestLLM: hosted, Redo: []string{"digest"}})
 	if err == nil || !strings.Contains(err.Error(), "allow_hosted") || hosted.calls.Load() != 0 {
@@ -129,9 +130,10 @@ func TestDigestStage(t *testing.T) {
 		t.Fatalf("hosted with allow_hosted and --redo digest: %v, %d digested of %d", err, ks.Digested, n)
 	}
 
-	// Off by default: no digest, and the to-do view reads statements.
+	// Off: no digest, and the to-do view reads statements.
 	r2, st2 := build(t)
 	r2.Cfg.Knowledge.Extract, r2.Cfg.Knowledge.Gate = "statements", 0
+	r2.Cfg.Knowledge.Digest.Enabled = false
 	knowledgeRun(t, r2, KnowledgeOptions{LLM: emptyLLM{"m1"}, DigestLLM: fake})
 	if n := meetingsWithDigest(t, r2); n != 0 {
 		t.Errorf("%d digests with knowledge.digest off", n)

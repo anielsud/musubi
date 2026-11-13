@@ -1,7 +1,7 @@
 # Data safety: upgrading other people's datasets
 
-Status: **proposed** 2026-11-12. Items 1, 4 and 5 of §3 are built; the
-rest is for the owner to approve, item by item.
+Status: approved 2026-11-12 and being built. Built so far: §3 items 1,
+4, 5 and 6.
 
 ## 1. What changed
 
@@ -91,7 +91,21 @@ In order of what a loss would cost the owner.
    read as they come; the voices file's `version` is written but never
    checked. *Proposal:* the same rule as the database: a format number
    in the recorder's folder, newer refused, older copied before
-   conversion.
+   conversion. *Built* (`internal/recorder/dataformat`): a `format` file
+   in the recorder's folder (1). The recorder, finding a newer one,
+   records nothing and changes nothing there, and says why in its
+   health lines; the app's readers (ingest, the meeting's speakers, the
+   calendar files) leave such a folder alone. An older or missing one has
+   `voices/` copied to `voices.bak-<time>`, then the format recorded.
+   Voices files: `version` checked on load; newer is neither read nor
+   written (recording goes on, nobody learnt or named by voice, a health
+   line). `voices/` is also copied before the first save of a file
+   converted on load, before a relearn for new rules and before
+   `learn_saved`; the newest five copies kept (with `migrate-from-tomoe`'s,
+   same name), none made when the last matches.
+   `[recorder.meeting] voice_profile_backups = false` turns the copies
+   off. Session files have no version yet; their readers ignore fields
+   they don't know, so a later one needs only the format bump.
 7. **Upgrades cost money without warning.** A chunker change re-extracts
    the whole history, five meetings per update; a status version bump
    rewrites every thread's status. *Proposal:* any change that triggers
@@ -129,6 +143,6 @@ config meaning):
 
 ## 5. Suggested order
 
-1, done. Then 2 and 3 together (backups that cover everything, made on
+1 and 6, done. Then 2 and 3 together (backups that cover everything, made on
 their own, with restore), 8 (release discipline, cheap and immediate),
-5, 4, 6, 7, 9.
+5, 4, 7, 9.

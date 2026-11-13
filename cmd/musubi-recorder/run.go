@@ -9,11 +9,13 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/anielsud/musubi/internal/recorder/config"
 	"github.com/anielsud/musubi/internal/recorder/control"
+	"github.com/anielsud/musubi/internal/recorder/dataformat"
 	"github.com/anielsud/musubi/internal/recorder/livefeed"
 	"github.com/anielsud/musubi/internal/recorder/recording"
 )
@@ -79,6 +81,16 @@ func runRecorder(dataFlag, musubiConfig string) error {
 
 	r := recording.New(cfg)
 	r.SetMusubiConfig(musubiConfig)
+	// A folder a newer Musubi wrote is left as it is; the recorder stays
+	// up only to say so (Status.Health), rather than exiting and being
+	// restarted every minute with the app showing "not running".
+	if from, err := dataformat.Prepare(dir, cfg.Meeting.VoiceProfileBackups, time.Now()); errors.Is(err, dataformat.ErrNewer) {
+		r.Refuse(err)
+	} else if err != nil {
+		return err
+	} else if from < dataformat.Version {
+		fmt.Printf("data folder: format %d -> %d\n", from, dataformat.Version)
+	}
 	// Before the models load, so the Musubi app can see the recorder
 	// starting (status) rather than "not running".
 	ctl, err := control.Listen(control.SocketPath(dir), r.Handle)

@@ -221,6 +221,15 @@ enters the cold lane like any other source.
 `cmd/musubi-gui` is a Wails app (`internal/gui` backend, React frontend in
 `frontend/`), installed with `make install-gui-mac`.
 
+- **Distribution** (2026-11-12): `make dmg` (and the `release` workflow)
+  packs the recorder inside the app (`Contents/Helpers/Musubi
+  Recorder.app`) with its LaunchAgent template. A missing LaunchAgent is
+  written by the app (`[recorder] install_agent`), and the recorder
+  downloads its required models when it starts without them
+  (`[recorder.transcription] download_missing`). A first launch with no
+  config file and no Tomoe folder writes a config with Musubi's recorder
+  of record, Tomoe off and its live feed on (`internal/gui/firstrun.go`).
+
 - **Recorder** ([recorder-screens.md](recorder-screens.md)): `[recorder]`
   `of_record` is `"tomoe"` (default: meetings from `tomoe_sessions`, Live
   from `[live] tomoe_socket`, as before) or `"musubi"` (both from the

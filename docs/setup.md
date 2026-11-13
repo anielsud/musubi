@@ -22,7 +22,19 @@ same `provider.Classifier` interface over GLM or the local model
 
 ## 2. Install
 
-Needs macOS (Apple silicon), Go, a C compiler (Xcode command-line tools),
+**From a release (no checkout):** download the DMG from
+[Releases](https://github.com/anielsud/musubi/releases); the
+[user guide](user-guide.md) walks through it. The app carries the
+recorder and installs its LaunchAgent on first launch (`[recorder]
+install_agent`); the recorder downloads its required models on its
+first start (`[recorder.transcription] download_missing`). With no
+config file and no Tomoe on the Mac, the first launch writes a config
+with Musubi's recorder of record, Tomoe off and the live feed on.
+`make dmg` builds the same image (`build/Musubi-<version>.dmg`); the
+`release` workflow builds it on GitHub, and publishes it on a `v*` tag.
+It is signed ad hoc until there is a Developer ID.
+
+**From source:** needs macOS (Apple silicon), Go, a C compiler (Xcode command-line tools),
 Node and [Ollama](https://ollama.com).
 
 ```sh
@@ -55,7 +67,7 @@ Models).
 Which recorder Musubi takes meetings and the Live feed from is `[recorder]
 of_record` (Settings → Recording):
 
-- `"tomoe"` (the default): meetings from `~/.local/share/tomoe/sessions`,
+- `"tomoe"` (the default, unless the first launch found no Tomoe): meetings from `~/.local/share/tomoe/sessions`,
   and Live from Tomoe's live feed, which must be on: in Tomoe, Settings →
   Sharing → Live feed (`[meeting] live_feed = true` in Tomoe's config).
   Musubi reads `~/.local/share/tomoe/live.sock`.
@@ -300,7 +312,8 @@ earlier behaviour, is in `internal/config/config.go`.
   timer.
 - **Microsoft 365** (`[m365]`, docs/teams-design.md): once connected from
   Settings → Accounts or `musubi m365 connect`, each update syncs the
-  calendar (`past_days` 30 back, `future_days` 14 ahead), the Teams
+  calendar (`past_days` 30 back, `future_days` 14 ahead; the first sync
+  reads `first_days`, 42, back), the Teams
   transcripts and meeting chats of past meetings, and internal
   participants' directory profiles. Mail and Teams chats (`mail`,
   `chats`) are off by default.

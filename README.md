@@ -50,13 +50,18 @@ macOS keychain.
 
 ### Desktop app
 
+To install without building, use the DMG from
+[Releases](https://github.com/anielsud/musubi/releases): see the
+[user guide](docs/user-guide.md). From source:
+
 ```sh
 make install-gui-mac    # builds /Applications/Musubi.app and adds it to the Dock
 make recorder-app && scripts/install-recorder.sh   # the meeting recorder, started at login
 ```
 
 Meetings and Live briefings come from the recorder of record, `[recorder]
-of_record`: `"tomoe"` (the default; Live needs Tomoe's live feed, in Tomoe
+of_record`: `"tomoe"` (the default, unless the first launch found no
+Tomoe; Live needs Tomoe's live feed, in Tomoe
 Settings → Sharing → Live feed, or `[meeting] live_feed = true`) or
 `"musubi"` (Musubi's own recorder; Settings → Recording). Without a
 meeting, the Live tab can replay a past one. The app starts Ollama if it

@@ -240,6 +240,35 @@ enters the cold lane like any other source.
   config file and no Tomoe folder writes a config with Musubi's recorder
   of record, Tomoe off and its live feed on (`internal/gui/firstrun.go`).
 
+- **Phone** ([phone.md](phone.md), part 2; 2026-11-13): with `[phone]
+  enabled` (default false; `port`, default 47615) the app runs
+  `internal/phone`, an HTTPS server (Go's crypto/tls, a self-signed ECDSA
+  P-256 certificate kept in `<data_dir>/phone/`, key 0600, pinned by the
+  phone) that closes connections from non-private addresses at accept.
+  Settings → Phone turns it on, opens a pairing window (8-digit code, 5
+  minutes, single use, closed by 5 wrong codes) and lists and revokes
+  devices; only each token's SHA-256 is stored (`devices.json`). Paired
+  phones fetch the agenda (`phone.BuildAgenda`: calendar events in the
+  owner's scope with their saved briefs and labels; a request starts the
+  weekly drafting's path, `draftBriefsUntil`, for briefs missing in its
+  window, one pass at a time and not during a live meeting) and upload
+  recordings as ADTS chunks checked against their SHA-256. `complete`
+  checks every chunk against the phone's `meta.json`, joins the whole
+  ADTS frames into the recorder's inbox (`<recorder data>/inbox/<rid>.aac`)
+  and asks the recorder over `control.sock` to import it (op `import`);
+  chunks are deleted once the recorder reports the session saved.
+  The recorder (`recording/importer.go`) runs one import at a time as
+  `musubi-recorder import --here` in a child process, never while a
+  meeting records (a meeting that starts stops the child; the import
+  waits and starts over), and feeds `saved` so the app takes it in. The
+  import makes a mic-only session (`platform: "phone"`, `event_id` when
+  the phone named the event) with replay's offline pipeline and the
+  current config, then the post-meeting diarization pass; the owner's
+  voice tells them from others on the mic and learns, as in a recording.
+  The tomoe translator carries `event_id` into `Native`, and
+  `linkMeetings` links such a meeting to that event when Musubi has it
+  (any event not cancelled), before matching by time.
+
 - **Recorder** ([recorder-screens.md](recorder-screens.md)): `[recorder]`
   `of_record` is `"tomoe"` (default: meetings from `tomoe_sessions`, Live
   from `[live] tomoe_socket`, as before) or `"musubi"` (both from the
@@ -1562,7 +1591,7 @@ cmd/musubi/            CLI: update, search, ask, graph, show, stats, forget, kno
                        claims, topics, topic, card, judge, gate, import-items, live, eval, version,
                        m365, people, mcp, vectors
 cmd/musubi-gui/        Wails app (frontend embedded from frontend/dist)
-cmd/musubi-recorder/   the meeting recorder: run, session, replay, shadow, migrate-from-tomoe
+cmd/musubi-recorder/   the meeting recorder: run, session, replay, shadow, migrate-from-tomoe, import
 internal/
   config/              TOML config over defaults
   source/              connectors: tomoe/ (either recorder's sessions), bluedot/, mcpdrop/ (inbox drops)
@@ -1591,6 +1620,7 @@ internal/
   eval/                case harness (search, leak, classify, resolve, graph,
                        knowledge, card)
   gui/                 Wails backend
+  phone/               phone access server: TLS, pairing, devices, agenda, chunk uploads
 frontend/              React + TypeScript
 tools/insights-eval/   extraction benchmark scripts (hosted and local models)
 tools/link-bench/      linking benchmark: export, scorer, retrieval, thread prototypes

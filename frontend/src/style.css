@@ -985,3 +985,4 @@ input.search { width: 100%; margin: 6px 0; }
 .update-wrap { position: relative; }
 .update-pop { position: absolute; right: 0; top: calc(100% + 6px); width: 280px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; z-index: 40; font-size: 12.5px; }
 .update-pop p { margin: 0 0 8px; }
+.pair-code { font-size: 18px; letter-spacing: 2px; }

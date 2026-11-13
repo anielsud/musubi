@@ -107,3 +107,27 @@ func ForAudience(internal []string, recipients []string) (Scope, error) {
 	}
 	return Scope{Name: "for:" + open.String(), MaxLevel: Restricted, Allowed: AllCategories &^ Personal, Audience: []string{noOne}, Open: open}, nil
 }
+
+// Why says in a few words why a label is as narrow as it is, for a reader
+// deciding what to pass on (the MCP's results, the phone's briefs). party
+// is how many people were party to the source; 0 for something drawn
+// from many.
+func Why(lab Label, party int) string {
+	var parts []string
+	if lab.Categories != 0 {
+		parts = append(parts, "about "+strings.Join(lab.Categories.Names(), ", "))
+	}
+	switch {
+	case lab.Level == Restricted:
+		parts = append(parts, "restricted: take care even with people who were party to it")
+	case lab.Level == Confidential && party == 2:
+		parts = append(parts, "a one-to-one")
+	case lab.Level == Confidential && party > 0:
+		parts = append(parts, fmt.Sprintf("confidential source with %d people party to it", party))
+	case lab.Level == Confidential:
+		parts = append(parts, "drawn from confidential sources")
+	case len(parts) == 0:
+		parts = append(parts, lab.Level.String()+" source")
+	}
+	return strings.Join(parts, "; ")
+}

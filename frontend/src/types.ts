@@ -923,3 +923,29 @@ export interface SplitTarget { model: string; id: string; label?: string }
 export interface SplitCount { profile: string; name: string; label: string; lines: number }
 export interface SplitLine { start: number; end: number; fingerprints: number; label?: string; best: number; second: number }
 export interface SplitResult { batch?: string; counts: SplitCount[] | null; undecided: number; lines: SplitLine[] | null }
+
+// Settings → Phone (internal/gui/phone.go).
+export interface PhoneDevice {
+  id: string;
+  name: string;
+  paired: string;
+  last_seen?: string;
+}
+
+export interface PhonePairing {
+  code: string;
+  expires: string;
+  fingerprint: string;
+  addresses: string[] | null;
+  port: number;
+}
+
+export interface PhoneView {
+  enabled: boolean;
+  port: number;
+  listening: boolean;
+  error?: string;
+  devices: PhoneDevice[] | null;
+  pairing?: PhonePairing;
+  ofRecord: boolean;
+}

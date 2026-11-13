@@ -112,7 +112,8 @@ blind. Until it runs, treat the claim as a hypothesis.
 Details: [architecture.md](architecture.md).
 
 ```
- Tomoe sessions, calendar, inbox drops (email, chat, CRM)
+ recorded meetings (Musubi's recorder or Tomoe), Microsoft 365 (calendar,
+ Teams transcripts, meeting chats, directory), inbox drops (email, chat, CRM)
       │
       ▼
  raw store (immutable) → items → derive stages (stamped, re-runnable)
@@ -123,7 +124,7 @@ Details: [architecture.md](architecture.md).
       ▼
  SQLite (FTS5, sqlite-vec, graph tables), every read scoped by sensitivity
       │
-      ├─ Live (during a meeting): Tomoe's live feed → names, terms, model
+      ├─ Live (during a meeting): the recorder's live feed → names, terms, model
       │  suggestions → lookups, topic cards, thread statuses → the panel
       ├─ Ask: threads the question is about (status + current items) + passages
       ├─ Prep: for an upcoming meeting's attendees: subjects, what's open, what to share
@@ -159,6 +160,10 @@ Where each step runs (dataset "All", 2026-10-21):
 Jev is cleared for testing, not for the product; the product path is the
 same classifier interface over GLM or the local model.
 
+Since 2026-11-11 the hosted chat steps (and Live briefs) run on Claude
+Haiku 5.5 through the AI Gateway, with GLM-5.3-Flash on Baseten as
+fallback ([setup.md](setup.md), "Use recommended").
+
 What it costs (measured; [setup.md](setup.md) has the breakdown): about
 4–6¢ a meeting to build the memory (extraction ~1¢, threading ~2.7¢,
 labels and statuses under 1¢), about $0.001 a question, and, as built,
@@ -180,6 +185,17 @@ Known gaps:
 - **Email and chat** arrive only as inbox drops; no connectors.
 - **The corpus relabel** with Jev is deferred; new statements are labelled
   with it.
+
+Since then (2026-11-12): Musubi has its own meeting recorder and its
+screens (recording, voices, speakers, settings), which can stand in for
+Tomoe (`[recorder] of_record`, default still Tomoe;
+[recorder-screens.md](recorder-screens.md)); Microsoft 365 through Graph
+gives calendar, Teams transcripts, meeting chats and the directory, with
+mail and chats built but off by default ([teams-design.md](teams-design.md));
+`musubi mcp` gives Claude Code the knowledge base
+([mcp-design.md](mcp-design.md)); and the store reads faster (page cache,
+memory-mapped reads, a read pool) and keeps vectors as float16
+(architecture.md, "Storage").
 
 ## Roadmap
 
@@ -271,7 +287,12 @@ Each with its research-log entry. Methods and caveats are there.
 | [topic-cards.md](topic-cards.md) | Cards in the live panel |
 | [evaluation.md](evaluation.md), [insights-eval.md](insights-eval.md), [linking-benchmark.md](linking-benchmark.md) | How quality is measured |
 | [local-models-2026-10.md](local-models-2026-10.md) | Local model measurements |
-| [tomoe-live-feed.md](tomoe-live-feed.md) | The live feed protocol from Tomoe |
+| [tomoe-live-feed.md](tomoe-live-feed.md) | The live feed protocol from Tomoe (and Musubi's recorder) |
+| [recorder-screens.md](recorder-screens.md) | Musubi's own recorder in the app: recording, voices, speakers, settings, standalone |
+| [recorder-parity.md](recorder-parity.md) | The recorder checked against Tomoe; installing it |
+| [recorder-provenance.md](recorder-provenance.md) | Which recorder code came from Tomoe, and the rules |
+| [teams-design.md](teams-design.md) | Microsoft 365 through Graph: calendar, Teams transcripts, chats, directory |
+| [mcp-design.md](mcp-design.md) | `musubi mcp`: the knowledge base for Claude Code |
 | [research-log.md](research-log.md) | Every finding, dated, with numbers |
 
 Related: Tomoe (the transcriber, a fork of an open-source project) carries

@@ -1,11 +1,12 @@
 # Musubi
 
-A local-first personal knowledge base. It mines meetings (from Tomoe), calendar,
-email, chat and CRM records into people, accounts, threads, decisions and
-commitments, and surfaces them live in a side panel during meetings as
-topic cards.
+A local-first personal knowledge base. It mines meetings (recorded by its own
+recorder or by Tomoe, plus Teams transcripts), calendar, email, chat and
+CRM records into people, accounts, threads, decisions and commitments, and
+surfaces them live in a side panel during meetings as topic cards.
 
 Docs:
+- **New here? [user-guide.md](docs/user-guide.md):** quickstart and a tour of the app, with screenshots
 - **Start with [overview.md](docs/overview.md):** the thesis, approach,
   the system at a glance, where it stands, the roadmap and the research
   highlights
@@ -22,33 +23,55 @@ Docs:
 - Measuring quality: [evaluation.md](docs/evaluation.md) (retrieval, leaks,
   knowledge cases), [insights-eval.md](docs/insights-eval.md) (extraction),
   [linking-benchmark.md](docs/linking-benchmark.md) (grouping and links)
-- [local-models-2026-10.md](docs/local-models-2026-10.md),
-  [tomoe-live-feed.md](docs/tomoe-live-feed.md)
+- [local-models-2026-10.md](docs/local-models-2026-10.md): local model
+  measurements
+- [tomoe-live-feed.md](docs/tomoe-live-feed.md): the live feed protocol
+  (Tomoe's, and Musubi's recorder's)
+- [recorder-screens.md](docs/recorder-screens.md): Musubi's own recorder in
+  the app: recording, voices, speakers, settings, standalone from Tomoe
+- [recorder-parity.md](docs/recorder-parity.md): checks that the recorder
+  gives the same results as Tomoe, and how to install it
+- [recorder-provenance.md](docs/recorder-provenance.md): which recorder code
+  came from Tomoe, and under what rules
+- [teams-design.md](docs/teams-design.md): Microsoft 365 through Graph
+  (calendar, Teams transcripts, meeting chats, directory, mail and chats)
+- [mcp-design.md](docs/mcp-design.md): `musubi mcp`, Musubi's knowledge for
+  Claude Code
 - Findings, dated, with numbers: [research-log.md](docs/research-log.md)
 
 ## Use
 
-**Setup, hosted models (GLM on Baseten, Jev), keys, building a dataset and
-what processing costs: [docs/setup.md](docs/setup.md).** In short: Go, a
-C compiler (cgo), Node, and [Ollama](https://ollama.com) with `ollama pull
-nomic-embed-text qwen3:8b`; hosted models are configured per dataset, with
-keys in the macOS keychain.
+**Setup, hosted models (Claude Haiku through the AI Gateway, GLM on
+Baseten, Jev), keys, building a dataset and what processing costs:
+[docs/setup.md](docs/setup.md).** In short: Go, a C compiler (cgo), Node,
+and [Ollama](https://ollama.com) with `ollama pull nomic-embed-text
+qwen3:8b`; hosted models are configured per dataset, with keys in the
+macOS keychain.
 
 ### Desktop app
 
+To install without building, use the DMG from
+[Releases](https://github.com/anielsud/musubi/releases): see the
+[user guide](docs/user-guide.md). From source:
+
 ```sh
 make install-gui-mac    # builds /Applications/Musubi.app and adds it to the Dock
+make recorder-app && scripts/install-recorder.sh   # the meeting recorder, started at login
 ```
 
-Live briefings need Tomoe's live feed: in Tomoe, Settings → Sharing → Live
-feed (or `[meeting] live_feed = true`). Without a meeting, the Live tab can
-replay a past one. The app starts Ollama if it isn't running.
+Meetings and Live briefings come from the recorder of record, `[recorder]
+of_record`: `"tomoe"` (the default, unless the first launch found no
+Tomoe; Live needs Tomoe's live feed, in Tomoe
+Settings → Sharing → Live feed, or `[meeting] live_feed = true`) or
+`"musubi"` (Musubi's own recorder; Settings → Recording). Without a
+meeting, the Live tab can replay a past one. The app starts Ollama if it
+isn't running. Details: [docs/setup.md](docs/setup.md).
 
 ### CLI
 
 ```sh
 make build
-bin/musubi update                       # ingest Tomoe sessions + inbox, process
+bin/musubi update                       # ingest meetings (recorder of record) + inbox, process
 bin/musubi search "renewal pricing"     # owner scope
 bin/musubi search --scope reply:someone@company.com "renewal pricing"
 bin/musubi graph "Acme"                 # an entity's items and connections
@@ -60,6 +83,8 @@ bin/musubi live --replay <tomoe session id> --stepped --events out.jsonl   # rep
 bin/musubi knowledge                    # extract, link, and build topics or threads
 bin/musubi card "renewal pricing"       # the card the live panel would show
 bin/musubi topics; bin/musubi topic <id>; bin/musubi claims "pricing"
+bin/musubi m365 connect                 # sign in to Microsoft 365 (then: status, sync, signout)
+bin/musubi mcp                          # MCP server for Claude Code (docs/mcp-design.md)
 make test eval                          # synthetic corpus; fails on any leak
 ```
 

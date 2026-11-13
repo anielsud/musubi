@@ -1,8 +1,9 @@
 # Setup, and what processing costs
 
 For someone setting Musubi up on a Mac, from nothing to a working
-dataset with hosted models. Written 2026-10-21. Costs are measured from
-the spend ledger; the research log has the runs behind them.
+dataset with hosted models. Written 2026-10-21; install, models and data
+sources updated 2026-11-12 (the recorder, Microsoft 365). Costs are
+measured from the spend ledger; the research log has the runs behind them.
 
 ## 1. What runs where
 
@@ -12,7 +13,7 @@ dataset's config; the code's defaults are all local.
 | Kind | Used for | Default (local) | Used on the "All" dataset |
 |---|---|---|---|
 | Embeddings | search, threads, card lines | Ollama `nomic-embed-text` | the same |
-| Chat models | extraction, threading, statuses, Ask, prep, Live suggestions and summaries | Ollama `qwen3:8b` | GLM-5.3-Flash on Baseten for all but Live; Live stays on `qwen3:8b` for latency |
+| Chat models | extraction, threading, statuses, Ask, prep, Live suggestions and summaries | Ollama `qwen3:8b` | Claude Haiku 5.5 through the AI Gateway, with GLM-5.3-Flash on Baseten as fallback, for all but Live suggestions (**Use recommended**, §4; until 2026-11-11 GLM-5.3-Flash alone); Live suggestions stay on `qwen3:8b` for latency |
 | Typed classifier | sensitive-statement labels, Live relevance | the chat model's yes/no | Jev (TypeSafe), or Clef (Cloudflare) |
 
 Jev is cleared for testing, not for the product. The product path is the
@@ -21,7 +22,19 @@ same `provider.Classifier` interface over GLM or the local model
 
 ## 2. Install
 
-Needs macOS (Apple silicon), Go, a C compiler (Xcode command-line tools),
+**From a release (no checkout):** download the DMG from
+[Releases](https://github.com/anielsud/musubi/releases); the
+[user guide](user-guide.md) walks through it. The app carries the
+recorder and installs its LaunchAgent on first launch (`[recorder]
+install_agent`); the recorder downloads its required models on its
+first start (`[recorder.transcription] download_missing`). With no
+config file and no Tomoe on the Mac, the first launch writes a config
+with Musubi's recorder of record, Tomoe off and the live feed on.
+`make dmg` builds the same image (`build/Musubi-<version>.dmg`); the
+`release` workflow builds it on GitHub, and publishes it on a `v*` tag.
+It is signed ad hoc until there is a Developer ID.
+
+**From source:** needs macOS (Apple silicon), Go, a C compiler (Xcode command-line tools),
 Node and [Ollama](https://ollama.com).
 
 ```sh
@@ -34,9 +47,39 @@ make install-gui-mac             # /Applications/Musubi.app, added to the Dock
 The app starts `ollama serve` if it isn't running (`llm.start_ollama`)
 and never stops it.
 
-For Live during meetings, Tomoe's live feed must be on: in Tomoe,
-Settings → Sharing → Live feed (`[meeting] live_feed = true` in Tomoe's
-config). Musubi reads `~/.local/share/tomoe/live.sock`.
+Meetings come from a recorder: Musubi's own (`cmd/musubi-recorder`) or
+Tomoe. Musubi's runs as `~/Applications/Musubi Recorder.app`, started at
+login by a LaunchAgent; install it while no meeting is being recorded:
+
+```sh
+make recorder-app                # bin/Musubi Recorder.app
+scripts/install-recorder.sh      # ~/Applications, LaunchAgent com.anielsud.musubi.recorder
+```
+
+`make recorder-app` signs with the identity `RECORDER_IDENTITY` (default
+"Tomoe Dev Signing", made by Tomoe's `make dev-cert-mac`); macOS keeps the
+microphone and screen-recording permissions only while that identity
+stays the same, so it is never signed ad hoc. The recorder keeps its
+sessions, voices, models and sockets in `~/.local/share/musubi/recorder`
+(`[recorder] data`) and downloads missing models there (Settings →
+Models).
+
+Which recorder Musubi takes meetings and the Live feed from is `[recorder]
+of_record` (Settings → Recording):
+
+- `"tomoe"` (the default, unless the first launch found no Tomoe): meetings from `~/.local/share/tomoe/sessions`,
+  and Live from Tomoe's live feed, which must be on: in Tomoe, Settings →
+  Sharing → Live feed (`[meeting] live_feed = true` in Tomoe's config).
+  Musubi reads `~/.local/share/tomoe/live.sock`.
+- `"musubi"`: both from the recorder's folder. Switching sets `[recorder]
+  since`; only recordings made after it are imported. The recorder's live
+  feed is `[recorder.meeting] live_feed` (or Tomoe's `[meeting] live_feed`
+  while the recorder reads Tomoe's config); its built-in default is off.
+- With `[recorder] tomoe = "off"` Musubi and the recorder read nothing of
+  Tomoe's. `musubi-recorder migrate-from-tomoe` (once Musubi's recorder is
+  of record) copies Tomoe's sessions, voices, models and settings in and
+  sets it. Details: [recorder-screens.md](recorder-screens.md),
+  "Standalone".
 
 ## 3. Keys
 
@@ -196,6 +239,9 @@ is on Status. Its tabs:
   searchable: format, prices, context, thinking levels, retirement, what
   uses it; local models are downloaded and removed here.
 - **Processing**: which model does what (below).
+- **Recording**: which recorder is of record, and the recorder's settings
+  (`[recorder.audio]`, `[recorder.transcription]`, `[recorder.meeting]`,
+  over Tomoe's config unless `[recorder] tomoe = "off"`).
 - **Dataset**: where it is, its size on disk, **Back up now**, and the
   settings that shape the app: when it checks for new meetings, the Live
   panel's timings and cards, Ask, meeting prep.
@@ -258,14 +304,25 @@ earlier behaviour, is in `internal/config/config.go`.
 
 ## 5. Data
 
-- **Tomoe sessions** are read from `~/.local/share/tomoe/sessions`
-  (`tomoe_sessions`); `musubi update` ingests new ones, and the app does
-  when Tomoe saves a meeting (`live.update_on_save`) and, with
-  `live.update_every` (minutes), on a timer.
+- **Recorded meetings** are read from the recorder of record's sessions
+  folder (§2): Tomoe's `~/.local/share/tomoe/sessions` (`tomoe_sessions`)
+  or the recorder's `[recorder] data`/sessions; `musubi update` ingests new
+  ones, and the app does when the recorder saves a meeting
+  (`live.update_on_save`) and, with `live.update_every` (minutes), on a
+  timer.
+- **Microsoft 365** (`[m365]`, docs/teams-design.md): once connected from
+  Settings → Accounts or `musubi m365 connect`, each update syncs the
+  calendar (`past_days` 30 back, `future_days` 14 ahead; the first sync
+  reads `first_days`, 42, back), the Teams
+  transcripts and meeting chats of past meetings, and internal
+  participants' directory profiles. Mail and Teams chats (`mail`,
+  `chats`) are off by default.
 - **Bluedot transcripts** (markdown) are read from a folder (`bluedot_dir`,
-  from `bluedot_since`): for meetings Tomoe missed. A meeting both recorded
-  is knowledge once: Tomoe's copy, unless it holds under 80% of Bluedot's
-  words (a broken capture). One knowledge run at a time per dataset, across
+  from `bluedot_since`): for meetings Tomoe missed. Being retired as a
+  source going forward (Teams transcripts take its place); `bluedot_dir`
+  still works while set. A meeting both recorded is knowledge once:
+  Tomoe's copy, unless it holds under 80% of Bluedot's words (a broken
+  capture). One knowledge run at a time per dataset, across
   the app and the CLI (`knowledge.lock` in the data folder).
 - **Calendar, email, chat and CRM** arrive as JSON envelopes in
   `~/.local/share/musubi/inbox/<source>/` (format: `internal/source/mcpdrop`).
@@ -300,8 +357,8 @@ meeting without storing anything, to check it. (The Python tools in
 `tools/insights-eval` that did this before still work, with
 `extract = "none"` and `import-items`.)
 
-**What runs on its own, and what waits.** After each meeting Tomoe saves,
-the app ingests it and, with `knowledge.on_update`, extracts and threads
+**What runs on its own, and what waits.** After each meeting the recorder
+saves, the app ingests it and, with `knowledge.on_update`, extracts and threads
 it, but only meetings newer than everything threaded, at most
 `knowledge.auto_max` (5) at a time. Threading is only right in time order,
 so an older meeting (a backlog) waits until everything is rethreaded in

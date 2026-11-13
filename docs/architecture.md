@@ -1,12 +1,14 @@
 # Musubi architecture
 
 Musubi (結び, "tying together") is a local-first personal knowledge base. It
-ingests meetings (from Tomoe), calendar, email, chat and CRM records, distills
-them into people, accounts, topics, decisions and commitments linked to their
-sources, and serves that knowledge two ways:
+ingests meetings (from Musubi's recorder or Tomoe, and Teams transcripts),
+calendar, email, chat and CRM records, distills them into people,
+accounts, topics, decisions and commitments linked to their sources, and
+serves that knowledge two ways:
 
 - **Live:** a side panel that surfaces relevant cards while a meeting is in
-  progress, driven by Tomoe's live transcript.
+  progress, driven by the live transcript of the recorder of record
+  (Musubi's recorder or Tomoe).
 - **Explore:** a graph, timeline, topic map and trend view across time, people,
   business area, customer and topic.
 
@@ -39,6 +41,13 @@ Status (2026-10-21; the summary is in [overview.md](overview.md)):
 - **Design only:** trends, signals, email and chat connectors (beyond inbox
   drops), and everything in [scaling.md](scaling.md) past today's
   measurements.
+- **Built since 2026-10-21** (to 2026-11-12): Musubi's own meeting
+  recorder (`cmd/musubi-recorder`, `internal/recorder/`) and its screens in
+  the app ("Desktop app" below); Microsoft 365 through Graph
+  (`internal/m365`: calendar, Teams transcripts, meeting chats, directory;
+  mail and Teams chats, off by default; docs/teams-design.md); `musubi
+  mcp` (docs/mcp-design.md); the store's read pool, memory-mapped reads and
+  float16 vectors ("Storage").
 
 Findings: [research-log.md](research-log.md).
 
@@ -57,15 +66,17 @@ Findings: [research-log.md](research-log.md).
    panel would have shown; record findings in `docs/`.
 6. **New behavior gets a config switch** that restores the previous behavior.
 7. **Private and proprietary.** No GPL/AGPL/LGPL dependencies; no code copied
-   from Tomoe (GPLv3). Integration with Tomoe is through its files and its live
-   stream only.
+   from Tomoe (GPLv3), except code the owner wrote, brought into
+   `internal/recorder/` and recorded in
+   [recorder-provenance.md](recorder-provenance.md). Integration with Tomoe
+   is otherwise through its files and its live stream only.
 
 ## Flow
 
 ```
  sources                   cold lane (batch, re-runnable)                 hot lane (live)
  ───────                   ──────────────────────────────                 ───────────────
- Tomoe sessions ─┐                                                        Tomoe live stream
+ meetings ───────┐                                                            live feed
  calendar        │  ┌───────────┐  ┌───────────┐  ┌────────────────────┐        │
  email           ├─▶│ raw store │─▶│ normalize │─▶│ derive stages       │        ▼
  Teams chat      │  │ immutable │  │ → items   │  │ classify → chunk →  │   spotter (names,
@@ -92,7 +103,7 @@ Planned connectors, in order:
 | `tomoe` | reads `*/session.json` in the sessions folder of the recorder of record: Tomoe's (`tomoe_sessions`, default) or, with `[recorder] of_record = "musubi"`, Musubi's recorder's (`[recorder] data`/sessions), then only sessions created after `[recorder] since` |
 | `calendar` | ICS or Graph; gives meetings their titles and attendees |
 | `mcpdrop` | an inbox directory that scheduled Claude Code jobs fill from the approved M365 / Salesforce / Zoom connectors, as JSON |
-| `graph` | direct Microsoft Graph (mail, chat), once an Entra app registration is approved; until then `internal/m365` signs in as Microsoft's already-consented Graph Command Line Tools client and writes calendar events (and, next, Teams transcripts) into the inbox: docs/teams-design.md |
+| `graph` | direct Microsoft Graph (mail, chat), once an Entra app registration is approved; until then `internal/m365` signs in as Microsoft's already-consented Graph Command Line Tools client and writes calendar events, Teams transcripts, meeting chats and (off by default) mail and Teams chats into the inbox, and looks up internal participants in the directory: docs/teams-design.md |
 
 ### 2. Items
 
@@ -198,16 +209,26 @@ out of the count). Otherwise the mention stays ambiguous with its candidates.
 ### 5. Hot lane
 
 The live path never writes. Tomoe streams lines over an opt-in local socket (a
-small Tomoe PR, off by default). A spotter matches names and terms against the
+small Tomoe PR, off by default; Musubi's recorder serves the same feed:
+tomoe-live-feed.md). A spotter matches names and terms against the
 registry and entity tables, runs scoped retrieval, and ranks cards (who this is,
 recent decisions, open commitments, related threads). Slow enrichment, if any,
-arrives after the cards. After the meeting, Tomoe's saved session enters the
-cold lane like any other source.
+arrives after the cards. After the meeting, the recorder's saved session
+enters the cold lane like any other source.
 
 ### Desktop app (as built)
 
 `cmd/musubi-gui` is a Wails app (`internal/gui` backend, React frontend in
 `frontend/`), installed with `make install-gui-mac`.
+
+- **Distribution** (2026-11-12): `make dmg` (and the `release` workflow)
+  packs the recorder inside the app (`Contents/Helpers/Musubi
+  Recorder.app`) with its LaunchAgent template. A missing LaunchAgent is
+  written by the app (`[recorder] install_agent`), and the recorder
+  downloads its required models when it starts without them
+  (`[recorder.transcription] download_missing`). A first launch with no
+  config file and no Tomoe folder writes a config with Musubi's recorder
+  of record, Tomoe off and its live feed on (`internal/gui/firstrun.go`).
 
 - **Recorder** ([recorder-screens.md](recorder-screens.md)): `[recorder]`
   `of_record` is `"tomoe"` (default: meetings from `tomoe_sessions`, Live
@@ -315,7 +336,8 @@ cold lane like any other source.
   `auto_brief` suggestions are looked up (the meeting itself excluded) and
   summarised in two cited sentences; the model answers NONE when the results
   aren't about the topic and the brief is dropped. The title comes from the
-  calendar event under way. When Tomoe saves the meeting, Musubi ingests it.
+  calendar event under way. When the recorder saves the meeting, Musubi
+  ingests it.
   A replay mode plays a saved meeting through the same path for testing.
   With relevance on, lookups search statements (`live.lookups`, default;
   `"passages"` restores the passage path above): every query finds its
@@ -1422,6 +1444,18 @@ purposes (replies, cloud calls) are logged to an audit table.
 implementation. A stage asks for a provider by capability; the scope decides
 which providers it may receive data for.
 
+As built (2026-11-12): embeddings through Ollama (`embed.provider`;
+`"hash"` for tests); chat models `"ollama"`, `"openai"` (any
+OpenAI-compatible endpoint: Baseten, llama.cpp, the AI Gateway's Workers
+AI shim) and `"anthropic"` (the Messages API, e.g. Claude through the AI
+Gateway's `/anthropic-shim`), each with an optional `fallback`; typed
+classifiers `"jev"`, `"clef"` and `"decider"` (a chat model's yes/no).
+Models name a set-up endpoint with `via` (`[providers.*]`, or `"gateway"`
+for `[gateway]`). The code's defaults are all local; Settings →
+Processing → Use recommended writes `internal/config/recommended.toml`
+(docs/setup.md). The recorder's speech models run in its own process on
+ONNX Runtime through sherpa-onnx ("Desktop app").
+
 Hosted calls stream. A reply streaming slower than `llm.stall_rate` (20
 tokens a second) 30 seconds in (`llm.stall_after`) is sent again and the
 first reply used: most slow calls are stalled streams, not long replies
@@ -1450,11 +1484,18 @@ Findings go in `docs/` research notes, dated, with the numbers.
 
 ```
 cmd/musubi/            CLI: update, search, ask, graph, show, stats, forget, knowledge,
-                       claims, topics, topic, card, judge, gate, import-items, live, eval, version
+                       claims, topics, topic, card, judge, gate, import-items, live, eval, version,
+                       m365, people, mcp, vectors
 cmd/musubi-gui/        Wails app (frontend embedded from frontend/dist)
+cmd/musubi-recorder/   the meeting recorder: run, session, replay, shadow, migrate-from-tomoe
 internal/
   config/              TOML config over defaults
-  source/              connectors: tomoe/, mcpdrop/ (inbox drops)
+  source/              connectors: tomoe/ (either recorder's sessions), bluedot/, mcpdrop/ (inbox drops)
+  m365/                Microsoft Graph sign-in and sync: calendar, Teams transcripts and chats,
+                       mail, directory (writes inbox drops)
+  recorder/            the meeting recorder (recording, transcription, voices, live feed,
+                       control socket); provenance in docs/recorder-provenance.md
+  mcpserver/           `musubi mcp` tools
   raw/                 immutable blob store and manifest
   item/                item shape and per-source translators
   pipeline/            stage runner, version stamps, the knowledge run (extract, link,
@@ -1468,8 +1509,9 @@ internal/
                        threads, card index and cards
   engine/              opens the store and providers; search; card lookup
   ask/                 Q&A over scoped retrieval
-  live/                Tomoe feed, replay, suggestions, briefs, topic cards
-  provider/            embedders and chat models (Ollama, OpenAI-compatible), decider,
+  live/                live feed (recorder of record), replay, suggestions, briefs, topic cards
+  provider/            embedders and chat models (Ollama, OpenAI-compatible, Anthropic), decider,
+                       typed classifiers (Jev, Clef), fallbacks,
                        recorded-reply cache
   eval/                case harness (search, leak, classify, resolve, graph,
                        knowledge, card)

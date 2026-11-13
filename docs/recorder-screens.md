@@ -1,6 +1,6 @@
 # Recorder screens in Musubi
 
-Status: agreed 2026-11-11, being built.
+Status: agreed 2026-11-11; built (PRs #34–#36, merged 2026-11-12).
 
 Step 5 of bringing Tomoe's engine into Musubi: the screens that let the
 owner stop opening Tomoe's window. Steps 1–4 are in
@@ -97,7 +97,8 @@ always on. A menu-bar item showing its state may come later.
 Hotkey, dictation and other languages (dropped in step 2, and with them
 retranscribing in another language), export (Musubi's own views and MCP
 replace it; can be added later), title editing (titles come from the
-calendar).
+calendar). (2026-11-12: a meeting's transcript can be saved as text from
+its page, in the scope shown.)
 
 ### Settings
 

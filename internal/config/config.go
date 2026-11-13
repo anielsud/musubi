@@ -55,6 +55,10 @@ type M365 struct {
 	// PastDays and FutureDays bound the calendar window each sync reads.
 	PastDays   int `toml:"past_days"`
 	FutureDays int `toml:"future_days"`
+	// FirstDays is how far back the first sync reads (no calendar drops
+	// yet), so a new owner starts with their recent meetings and their
+	// Teams transcripts. 0: the first sync reads PastDays like the rest.
+	FirstDays int `toml:"first_days"`
 	// Reconnect opens the sign-in page again when a sync finds the sign-in
 	// no longer works (not while Tomoe is recording). false: the app only
 	// says so.
@@ -689,7 +693,7 @@ func DefaultConfig() Config {
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true, AutoBrief: true},
 		MCP:           MCP{Enabled: true, MaxShare: "owner-only", Write: true},
-		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
+		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, FirstDays: 42, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
 		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: true, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true, PullMissing: true},
 		Live: Live{

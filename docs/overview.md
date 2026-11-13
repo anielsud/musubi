@@ -126,12 +126,12 @@ itself ([recorder-screens.md](recorder-screens.md)):
   Teams or Zoom window: who is highlighted as speaking, and their name
   (read on the device; Zoom's from its accessibility information). A
   misread name snaps to the closest invitee's spelling.
-- **Voice profiles** (off by default). Fingerprints, never audio, learnt
+- **Voice profiles** (on by default). Fingerprints, never audio, learnt
   from moments when a person's own tile was lit or the owner named them;
   they name voices the window can't: people in a room, on the phone, or
   in a meeting with no window. On saved meetings: 112 of 119 voices
   named, all correctly; 1 of 57 voices without a profile misnamed.
-- **Meeting rooms** (off by default): a room's audio is split into its
+- **Meeting rooms** (on by default): a room's audio is split into its
   people; on a labelled room meeting, speakers right went from 94.7% to
   98.1%.
 - **The owner's own microphone** is "you", except stretches that sound
@@ -236,8 +236,7 @@ threads; the store's reads got 3–10 times faster on 2026-11-12, and
 vectors take half the space.
 
 Known gaps:
-- **Speaker names from Teams transcripts** aren't used yet; voice profiles
-  and meeting rooms are off by default until measured on more meetings.
+- **Speaker names from Teams transcripts** aren't used yet.
 - **Reconcile misses** inside threads are the larger share of stale
   "current" items.
 - **Backfill**: the year before September is searchable but not threaded.
@@ -246,8 +245,8 @@ Known gaps:
 - **The corpus relabel** with Jev is deferred; new statements are labelled
   with it.
 - **Data safety** for others' datasets: backups that cover the recorder's
-  folder, automatic snapshots and restore are proposed
-  ([data-safety.md](data-safety.md)).
+  folder, automatic snapshots and restore are built; the rest is
+  proposed ([data-safety.md](data-safety.md)).
 
 ## Roadmap
 
@@ -267,8 +266,8 @@ In order of value now:
    - Cut Live relevance's cost: judge only what changed, and re-check what
      is shown less often.
 3. **Who said it.** Use Teams transcripts' names on the recording; measure
-   voice profiles and room splitting on more meetings, then decide their
-   defaults.
+   voice profiles and room splitting on more meetings (on by default since
+   2026-11-12).
 4. **Correct current state.** Reduce reconcile misses inside threads; keep
    the owner's corrections cheap (rules, merges, splits, statement edits).
 5. **Coverage.** Thread the rest of the year once, oldest first; relabel

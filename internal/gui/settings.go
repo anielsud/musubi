@@ -6,10 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
+	"github.com/anielsud/musubi/internal/backup"
 	"github.com/anielsud/musubi/internal/config"
 )
 
@@ -71,6 +71,12 @@ var prefTabs = map[string][]PrefGroup{
 		{"Ask", []PrefField{
 			{Section: "ask", Key: "threads", Label: "Answer from subjects too", Type: "bool", Help: "Their status and latest statements, as well as passages. Off: passages alone."},
 			{Section: "ask", Key: "small_context", Label: "Shorter answers, sooner", Type: "bool", Help: "Reads less; answers start sooner and are slightly worse."},
+		}},
+		{"Backups", []PrefField{
+			{Section: "backup", Key: "daily", Label: "Back up every day", Type: "bool", Help: "While Musubi is open, once a day."},
+			{Section: "backup", Key: "keep_daily", Label: "Daily backups kept", Type: "int", Help: "0: none made."},
+			{Section: "backup", Key: "before_changes", Label: "Back up before bulk changes", Type: "bool", Help: "Before deleting a meeting, Catch up, Rethread, renaming a voice's speakers, and the command line's forget, redo and vector re-encode. A change whose backup fails doesn't run."},
+			{Section: "backup", Key: "keep_before", Label: "Backups before changes kept", Type: "int", Help: "0: none made."},
 		}},
 		{"Meeting prep", []PrefField{
 			{Section: "prep", Key: "auto_brief", Label: "Draft talking points ahead", Type: "bool", Help: "For your meetings this week, in the background; redrafted when what they rest on changes."},
@@ -167,6 +173,9 @@ func (a *App) Storage() (StorageView, error) {
 	v := StorageView{Dataset: datasetName(a.cfgPath), Config: a.cfgPath, Data: data, Backups: backupsDir()}
 	sizes := map[string]int64{}
 	filepath.WalkDir(data, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() && filepath.Clean(p) == filepath.Clean(v.Backups) {
+			return fs.SkipDir // clones: their sizes would count the dataset again
+		}
 		if err != nil || d.IsDir() {
 			return nil
 		}
@@ -193,68 +202,29 @@ func (a *App) Storage() (StorageView, error) {
 			v.Parts = append(v.Parts, DiskPart{l, sizes[l]})
 		}
 	}
-	if ents, err := os.ReadDir(v.Backups); err == nil {
-		var names []string
-		prefix := backupPrefix(v.Dataset)
-		for _, e := range ents {
-			if e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
-				names = append(names, e.Name())
-			}
-		}
-		sort.Strings(names)
-		if len(names) > 0 {
-			v.LastBackup = names[len(names)-1]
-		}
+	if all, err := backup.List(v.Backups, v.Dataset); err == nil && len(all) > 0 {
+		v.LastBackup = all[0].Name
 	}
 	return v, nil
 }
 
-func backupsDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share", "musubi", "backups")
-}
+func backupsDir() string { return backup.DefaultRoot() }
 
-func backupPrefix(dataset string) string {
-	return strings.Map(func(r rune) rune {
-		if r == '/' || r == ' ' || r == ':' {
-			return '-'
-		}
-		return r
-	}, dataset) + "-"
-}
-
-// Backup copies the dataset to the backups folder: the database (a
-// consistent copy while in use), the raw store and inbox (cloned: on APFS
-// they take no space until either copy changes), and the config files.
-// It returns the backup's folder.
+// Backup backs the whole dataset up to the backups folder
+// (internal/backup): the database (a consistent copy while in use), the
+// rest of the data folder and the recorder's folder (cloned: on APFS they
+// take no space until either copy changes), and the config. It returns the
+// backup's folder.
 func (a *App) Backup() (string, error) {
 	if a.eng == nil {
 		return "", fmt.Errorf("no dataset open")
 	}
-	cfg := a.eng.Cfg
-	dir := filepath.Join(backupsDir(), backupPrefix(datasetName(a.cfgPath))+time.Now().Format("20060102-150405"))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	b, err := backup.Make(backupsDir(), a.backupSource(), backup.Manual, "backed up by hand", time.Now())
+	if err != nil {
 		return "", err
 	}
-	if err := a.eng.Store.BackupTo(filepath.Join(dir, "musubi.db")); err != nil {
-		return "", fmt.Errorf("copying the database: %w", err)
-	}
-	for _, sub := range []string{"raw", "inbox"} {
-		src := filepath.Join(cfg.DataDir, sub)
-		if _, err := os.Stat(src); err != nil {
-			continue
-		}
-		if out, err := exec.Command("cp", "-cR", src, filepath.Join(dir, sub)).CombinedOutput(); err != nil {
-			return "", fmt.Errorf("copying %s: %v %s", sub, err, strings.TrimSpace(string(out)))
-		}
-	}
-	for _, f := range []string{a.cfgPath, cfg.Registry(), cfg.DirectoryPath()} {
-		if b, err := os.ReadFile(f); err == nil {
-			os.WriteFile(filepath.Join(dir, filepath.Base(f)), b, 0o600)
-		}
-	}
 	a.emit("storage:changed", nil)
-	return dir, nil
+	return b.Dir, nil
 }
 
 // RevealPath shows the dataset's config, data folder or a backup in the

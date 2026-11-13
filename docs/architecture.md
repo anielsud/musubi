@@ -1273,9 +1273,28 @@ schema (`PRAGMA user_version`) and its format (`store_meta` "format": one-way
 changes to what is stored, such as float16 vectors). A build refuses a
 newer schema or format untouched, and copies an older file to
 `backups/pre-upgrade-*.db` beside it before upgrading it (newest three
-kept; `[store] backup_before_upgrade`). [upgrades.md](upgrades.md) has
+kept; `[store] backup_before_upgrade`). One-off changes to an existing
+file are named steps in a ledger (`migrations`: id, when, which build;
+`internal/store/migrate.go`), each run once, in order, all pending ones
+in one transaction with `schema.sql`; it commits only if no kept table
+lost rows and items and statements didn't drop (except a schema change,
+which empties derived tables on purpose), so a refused upgrade leaves the
+file as it was. `testdata/fixtures/` holds the synthetic corpus as
+earlier releases left it (`make fixtures`), and a test upgrades each.
+A redo or the app's rethread copies the kept tables first and puts back
+rows they lost (`[store] check_counts`). [upgrades.md](upgrades.md) has
 the steps for an existing dataset; [data-safety.md](data-safety.md) the
 rules for a change to what is stored.
+
+Backups (`internal/backup`, the app and `musubi backup`): a folder per
+backup under `~/.local/share/musubi/backups/` with the database (VACUUM
+INTO), the rest of the data folder and the recorder's folder (APFS
+clones; not its models) and the config, and a `manifest.json`. Made by
+hand, daily while the app is open, and before bulk deletes and rewrites
+(`[backup]`). A restore backs the dataset up first, then swaps the
+backup's data folder in; the app holds a shared lock on `musubi.lock`
+in the data folder, so a restore from the command line refuses while
+it is open.
 
 | Need | Mechanism |
 |---|---|
@@ -1333,7 +1352,7 @@ Go the same way. The 1-bit codes above stay in front past 2,000.
 | Knowledge | `statements`, `statement_vecs`, `claims`, `claim_codes`, `statement_claims`, `claim_relations`, `statement_relations` |
 | Topics and threads | `topics`, `topic_relations`, `topic_entities`, `topic_events`, `thread_items`, `thread_runs`, `thread_status` |
 | Owner's decisions (kept across rebuilds) | `corrections`, `learned_aliases`, `thread_edits`, `owner_links`, `forgotten`, `audit`, `judgments` |
-| Stage bookkeeping | `stage_runs`, `global_runs`, `store_meta` (one-off data upgrades done, vector encodings present), `speaker_relabels` (what a speaker relabel replaced, for undo) |
+| Stage bookkeeping | `stage_runs`, `global_runs`, `store_meta` (one-off data upgrades done, vector encodings present), `speaker_relabels` (what a speaker relabel replaced, for undo), `migrations` (the upgrade steps applied) |
 
 **Size, measured (the "All" dataset, 2026-10-21):** 268 MB for 165
 meetings and 55 other items (9,494 passages, 20,879 statements, 690

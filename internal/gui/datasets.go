@@ -37,15 +37,4 @@ func startConfig() string {
 }
 
 // datasetName names the dataset a config belongs to, for titles.
-func datasetName(path string) string {
-	ds, _ := config.LoadDatasets()
-	for _, d := range ds {
-		if d.Config == path {
-			return d.Name
-		}
-	}
-	if path == config.Path() {
-		return "default"
-	}
-	return filepath.Base(filepath.Dir(path))
-}
+func datasetName(path string) string { return config.DatasetName(path) }

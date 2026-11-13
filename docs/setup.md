@@ -242,7 +242,8 @@ is on Status. Its tabs:
 - **Recording**: which recorder is of record, and the recorder's settings
   (`[recorder.audio]`, `[recorder.transcription]`, `[recorder.meeting]`,
   over Tomoe's config unless `[recorder] tomoe = "off"`).
-- **Dataset**: where it is, its size on disk, **Back up now**, and the
+- **Dataset**: where it is, its size on disk, **Back up now**, the
+  backups with **Restore…** ([upgrades.md](upgrades.md) §7), and the
   settings that shape the app: when it checks for new meetings, the Live
   panel's timings and cards, Ask, meeting prep.
 

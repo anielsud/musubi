@@ -1,6 +1,6 @@
 // Bridge to the Go backend (internal/gui). Wails injects window.go and
 // window.runtime at load.
-import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LivePrep, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
+import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, BackupView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LivePrep, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
 import type { ResSnapshot } from './types';
 import type { NamedSample, ProfileSamples, SampleArgs, SplitResult, SplitTarget } from './types';
 import type { LookView, MeetingSpeakers, RecDiag, RecordingModels, RecordingSettings, RecorderView, RecSources, RecStatus, RelabelResult, ReturnVoiceResult, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
@@ -100,6 +100,8 @@ export const api = {
   setPreference: (section: string, key: string, value: boolean | number | string): Promise<void> => app().SetPreference(section, key, value),
   storage: (): Promise<StorageView> => app().Storage(),
   backup: (): Promise<string> => app().Backup(),
+  backups: (): Promise<BackupView[] | null> => app().Backups(),
+  restoreBackup: (name: string, withRecorder: boolean): Promise<string> => app().RestoreBackup(name, withRecorder),
   revealPath: (p: string): Promise<void> => app().RevealPath(p),
   personProfile: (id: string, scope: string): Promise<PersonProfile | null> => app().PersonProfile(id, scope),
   people: (scope: string): Promise<PersonRow[] | null> => app().People(scope),

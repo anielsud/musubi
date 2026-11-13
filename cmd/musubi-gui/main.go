@@ -19,7 +19,7 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// version is the build version, set with -ldflags "-X main.version=...".
+// version is set at build time (make build-gui).
 var version = "dev"
 
 func main() {

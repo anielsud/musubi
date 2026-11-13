@@ -89,6 +89,8 @@ func TestRelabelSpeaker(t *testing.T) {
 	cfg.DataDir = t.TempDir()
 	cfg.Owner = config.Owner{Name: "Jordan Pike", Email: "jordan.pike@northwind.example", InternalDomains: []string{"northwind.example"}}
 	cfg.Knowledge.Gate, cfg.Knowledge.MinWorth = 0, 0
+	// The fake model answers the statements prompt.
+	cfg.Knowledge.Extract, cfg.Knowledge.Grouping = "statements", "topics"
 	cfg.Knowledge.Label.Enabled, cfg.Knowledge.ProposeAliases, cfg.Knowledge.NameMeetings = false, false, false
 	cfg.Knowledge.Digest.Enabled = true
 	st, err := store.Open(cfg.DBPath())
@@ -302,6 +304,8 @@ func TestRelabelKeepsOlderExtraction(t *testing.T) {
 	cfg.DataDir = t.TempDir()
 	cfg.Owner = config.Owner{Name: "Jordan Pike", Email: "jordan.pike@northwind.example"}
 	cfg.Knowledge.Gate, cfg.Knowledge.MinWorth = 0, 0
+	// The fake model answers the statements prompt.
+	cfg.Knowledge.Extract, cfg.Knowledge.Grouping = "statements", "topics"
 	cfg.Knowledge.Label.Enabled, cfg.Knowledge.ProposeAliases, cfg.Knowledge.NameMeetings = false, false, false
 	st, err := store.Open(cfg.DBPath())
 	if err != nil {

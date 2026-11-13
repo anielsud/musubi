@@ -36,6 +36,7 @@ type Config struct {
 	Gateway     Gateway     `toml:"gateway"`
 	Recorder    Recorder    `toml:"recorder"`
 	Store       Store       `toml:"store"`
+	Backup      Backup      `toml:"backup"`
 	Diagnostics Diagnostics `toml:"diagnostics"`
 	// Providers are hosted endpoints set up once and named, for models to
 	// use with `via` (Settings → AI providers).
@@ -633,6 +634,28 @@ type Store struct {
 	// folder before a newer build changes it (keeping the newest three;
 	// docs/upgrades.md). false: upgrade in place without a copy, as before.
 	BackupBeforeUpgrade bool `toml:"backup_before_upgrade"`
+	// CheckCounts guards a redo (`musubi knowledge --redo`) and the app's
+	// rethread: the kept tables (the owner's corrections, judgments,
+	// aliases, thread edits, to-do marks, forget list) are copied first,
+	// counts are reported before and after, and rows a kept table lost
+	// are put back and the run fails. false: no copy or check, as before.
+	CheckCounts bool `toml:"check_counts"`
+}
+
+// Backup is when snapshots of the whole dataset (internal/backup) are
+// made on their own; "Back up now" works either way. false or 0 turns
+// each off, as before they existed.
+type Backup struct {
+	// Daily: one snapshot a day while the app is open, the newest
+	// KeepDaily kept.
+	Daily     bool `toml:"daily"`
+	KeepDaily int  `toml:"keep_daily"`
+	// BeforeChanges: one snapshot before each step that deletes or
+	// rewrites stored data in bulk (forget, a redo, a vector re-encode,
+	// the work queue's runs, deleting a meeting, a speaker relabel), the
+	// newest KeepBefore kept. A step whose snapshot fails doesn't run.
+	BeforeChanges bool `toml:"before_changes"`
+	KeepBefore    int  `toml:"keep_before"`
 }
 
 // Diagnostics: tools in the diagnostics panel.
@@ -708,14 +731,15 @@ func DefaultConfig() Config {
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true, AutoBrief: true},
 		MCP:           MCP{Enabled: true, MaxShare: "owner-only", Write: true},
 		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, FirstDays: 42, Reconnect: true, TomoeContext: true, Transcripts: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
-		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0.2, Extract: "statements", StrictLinks: true, ImportKeepProposed: true, Grouping: "topics", Threads: Threads{Chunk: 70, Parallel: 4, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: true, Updates: "explicit", HoldUpgrades: true, Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 4}, Digest: Digest{Parallel: 4, MinTopicStatements: 3}, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true},
+		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0, Extract: "lean", StrictLinks: true, ImportKeepProposed: true, Grouping: "threads", Threads: Threads{Chunk: 70, Parallel: 8, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true, ConsolidateWindow: 24, InsertOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: false, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 16}, Digest: Digest{Enabled: true, ToDos: true, Parallel: 4, MinTopicStatements: 3}, AllowHosted: true, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true, HoldUpgrades: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true, PullMissing: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),
 			FastLane:    true, TopicCards: true, SuggestEvery: 0, Window: 90, AutoBrief: 2, LLMSuggestions: true, UpdateOnSave: true, Focus: true,
-			Cache: true, SkipIdle: true, PrepCard: true,
+			Cache: true, SkipIdle: true, PrepCard: true, UpdateEvery: 30, KeepTopics: 24, Pick: Pick{Enabled: true, MinP: 0.4},
 		},
-		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16", BackupBeforeUpgrade: true},
+		Store:       Store{MmapMB: 2048, ReadConns: 4, VectorEncoding: "f16", BackupBeforeUpgrade: true, CheckCounts: true},
+		Backup:      Backup{Daily: true, KeepDaily: 7, BeforeChanges: true, KeepBefore: 5},
 		Diagnostics: Diagnostics{Profiling: true, Resources: true},
 		Recorder:    Recorder{OfRecord: "tomoe", Watchdog: true, InstallAgent: true, Relabel: true, Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}

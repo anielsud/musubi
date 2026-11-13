@@ -4,9 +4,6 @@ import (
 	"github.com/anielsud/musubi/internal/diagnostics"
 )
 
-// Version is the app's build version (set by cmd/musubi-gui).
-var Version = "dev"
-
 // Diagnostics is the report Status → Copy diagnostics puts on the
 // clipboard (internal/diagnostics): versions, counts, connections,
 // settings and scrubbed recent errors; no meeting content, titles, names

@@ -3,15 +3,15 @@ package store
 // Counts and versions for a diagnostics report (internal/diagnostics):
 // numbers only, no content.
 
-// Versions are the database's schema and format, and the newest this
+// DBVersions are the database's schema and format, and the newest this
 // build reads.
-type Versions struct {
+type DBVersions struct {
 	Schema, Format           int
 	BuildSchema, BuildFormat int
 }
 
-func (s *Store) Versions() (Versions, error) {
-	v := Versions{BuildSchema: schemaVersion, BuildFormat: formatVersion}
+func (s *Store) DBVersions() (DBVersions, error) {
+	v := DBVersions{BuildSchema: schemaVersion, BuildFormat: formatVersion}
 	if err := s.rdb.QueryRow(`PRAGMA user_version`).Scan(&v.Schema); err != nil {
 		return v, err
 	}

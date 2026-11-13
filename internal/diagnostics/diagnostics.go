@@ -73,7 +73,7 @@ func Build(in Input) string {
 	p("  recorder: %s", word(in.Recorder, "not running"))
 	p("  system: %s", in.OS)
 	if in.Store != nil {
-		if v, err := in.Store.Versions(); err == nil {
+		if v, err := in.Store.DBVersions(); err == nil {
 			p("  database: schema %d, format %d (this build: schema %d, format %d)", v.Schema, v.Format, v.BuildSchema, v.BuildFormat)
 		} else {
 			p("  database: versions unreadable")

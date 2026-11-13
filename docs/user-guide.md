@@ -150,8 +150,8 @@ Musubi keeps your word over what it inferred.
   where it stands.
 - **People**: the people you meet, with what you've discussed.
 - **Voices**: the voice profiles the recorder has learnt, so it can name
-  speakers the meeting window doesn't (turn on **Voice profiles** in
-  Settings → Recording first). **Who's this?** lists voices it
+  speakers the meeting window doesn't (**Voice profiles** in Settings →
+  Recording, on by default). **Who's this?** lists voices it
   couldn't name for you to name; **Not them** removes a wrong sample.
 - **Search**: everything, by words or meaning.
 - **Corrections**: the changes you've made, each with undo.
@@ -174,7 +174,10 @@ something needs you, it says so here first.
 - **Models** and **Processing**: which model does each job.
 - **Recording**: microphone, meeting audio, reading the meeting window,
   voices and transcription.
-- **Dataset**: where your data is, its size, and **Back up now**.
+- **Dataset**: where your data is, its size, **Back up now**, and your
+  backups, each with **Restore…**. Musubi also backs up on its own: once
+  a day, and before anything that deletes or rewrites a lot (deleting a
+  meeting, Catch up, Rethread).
 
 ![Settings → Recording](images/user-guide/settings-recording.png)
 
@@ -193,14 +196,14 @@ than taking them from the meeting platform:
 - **Your microphone** is "you". With **Other voices on your
   microphone** on (the default), someone speaking beside you is told
   apart.
-- **Voice profiles** (Settings → Recording → **Voice profiles**, off by
+- **Voice profiles** (Settings → Recording → **Voice profiles**, on by
   default): Musubi learns each person's voice, as fingerprints (no
   audio kept), from moments their tile was lit or you named them, and
   then names them where the window can't: in a meeting room, on the
   phone, or with no window. On saved meetings it named 112 of 119
   voices, all correctly.
 - **Meeting rooms** (Settings → Recording → **Split meeting rooms into
-  their people**, off by default) separates the people sharing a room's
+  their people**, on by default) separates the people sharing a room's
   microphone.
 
 **Making labels better:**
@@ -312,7 +315,11 @@ dataset; to use another, add `--config <path to its config.toml>` before
 - **◐ private** (top right) switches to screen-safe: while you share your
   screen, Musubi shows only what's fine to share.
 - Delete a meeting from its page (**Delete meeting…**): it and everything
-  learnt from it are removed and never read again.
+  learnt from it are removed and never read again. Backups made before
+  it (`~/.local/share/musubi/backups`, also on your Mac) still hold it
+  until they are removed: daily ones after a week, those made before a
+  change after five more changes; those made by hand or before a restore
+  stay until you delete them.
 
 ## Updating
 
@@ -329,9 +336,10 @@ Because the app isn't signed by Apple yet, after an update:
   recordings come out silent, turn *Musubi Recorder* off and on again in
   **System Settings → Privacy & Security** under both.
 
-A new version that changes how your data is stored first copies your
-database to `backups/` in the data folder. If you have been using an
-earlier Musubi, or Tomoe, see [upgrades.md](upgrades.md).
+Before updating, **Settings → Dataset → Back up now**. A new version
+that changes how your data is stored also first copies your database to
+`backups/` in the data folder. If you have been using an earlier Musubi,
+or Tomoe, see [upgrades.md](upgrades.md).
 
 ## When something isn't working
 
@@ -342,6 +350,7 @@ earlier Musubi, or Tomoe, see [upgrades.md](upgrades.md).
 | Speakers are named wrong | Rename them on the meeting's page; the recorder learns their voices. |
 | **M** is grey | Ollama isn't running or isn't installed. Open Ollama once. |
 | Microsoft 365 says the sign-in has lapsed | **Settings → Accounts → Sign in again**. |
+| Meetings, subjects or voices are gone or wrong after a change | **Settings → Dataset → Backups**: **Restore…** the one from before it. What you have now is backed up first, so you can go back. |
 
 To ask for help, send **Status → Copy diagnostics** first: it holds no
 meeting content, titles, names or email addresses.

@@ -43,7 +43,7 @@ func TestDefaults(t *testing.T) {
 		{"transcription.live_model", tr.LiveModel, "auto"},
 		{"transcription.two_pass", tr.TwoPass, false},
 		{"meeting.default_sources", m.DefaultSources, "both"},
-		{"meeting.speaker_threshold", m.SpeakerThreshold, 0.65},
+		{"meeting.speaker_threshold", m.SpeakerThreshold, 0.55},
 		{"meeting.auto_save", m.AutoSave, true},
 		{"meeting.auto_detect", m.AutoDetect, true},
 	}
@@ -94,7 +94,7 @@ default_lang = "en"
 		t.Errorf("known keys not applied: %+v %+v", cfg.Audio, cfg.Transcription)
 	}
 	// Untouched keys keep their defaults rather than going to zero.
-	if cfg.Meeting.SpeakerThreshold != 0.65 || cfg.Transcription.DecodingMethod != "greedy_search" {
+	if cfg.Meeting.SpeakerThreshold != 0.55 || cfg.Transcription.DecodingMethod != "greedy_search" {
 		t.Errorf("defaults lost: speaker_threshold %v, decoding_method %q", cfg.Meeting.SpeakerThreshold, cfg.Transcription.DecodingMethod)
 	}
 }
@@ -181,18 +181,18 @@ func TestHintAnalysisDir(t *testing.T) {
 	}
 }
 
-func TestNewPipelineOptionsDefaultOffForExistingConfigs(t *testing.T) {
-	// A config written before two-pass and the clustering rules existed
-	// keeps main's behavior: every new option defaults to off.
+func TestNewPipelineOptionsDefaults(t *testing.T) {
+	// Two-pass stays off; the clustering rules are on with the owner's
+	// tuning since 2026-11-12, for configs that don't set them too.
 	cfg := mustLoad(t, writeConfig(t, "[transcription]\ngpu_enabled = true\n\n[meeting]\nspeaker_threshold = 0.65\n"))
 	if cfg.Transcription.TwoPass {
 		t.Error("Transcription.TwoPass = true, want false (default)")
 	}
-	if cfg.Meeting.StickyThresholdMargin != 0 {
-		t.Errorf("Meeting.StickyThresholdMargin = %v, want 0 (rule off by default)", cfg.Meeting.StickyThresholdMargin)
+	if cfg.Meeting.StickyThresholdMargin != 0.15 {
+		t.Errorf("Meeting.StickyThresholdMargin = %v, want 0.15 (the default)", cfg.Meeting.StickyThresholdMargin)
 	}
-	if cfg.Meeting.MinAssignDuration != 0 {
-		t.Errorf("Meeting.MinAssignDuration = %v, want 0 (rule off by default)", cfg.Meeting.MinAssignDuration)
+	if cfg.Meeting.MinAssignDuration != 0.7 {
+		t.Errorf("Meeting.MinAssignDuration = %v, want 0.7 (the default)", cfg.Meeting.MinAssignDuration)
 	}
 }
 
@@ -321,11 +321,11 @@ func TestMeetingConfig_VideoHintTiming_RecordForTuningLooksDensely(t *testing.T)
 	}
 }
 
-// The live feed is opt-in: configs without the key (every existing one)
-// keep it off, and it round-trips once turned on.
-func TestLiveFeedOffUnlessSet(t *testing.T) {
-	if DefaultConfig().Meeting.LiveFeed {
-		t.Error("DefaultConfig().Meeting.LiveFeed = true, want false")
+// The live feed is on by default since 2026-11-12 (Musubi's Live follows
+// it), also for configs without the key, and round-trips.
+func TestLiveFeedOnUnlessSet(t *testing.T) {
+	if !DefaultConfig().Meeting.LiveFeed {
+		t.Error("DefaultConfig().Meeting.LiveFeed = false, want true")
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -336,8 +336,8 @@ func TestLiveFeedOffUnlessSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	if cfg.Meeting.LiveFeed {
-		t.Error("LiveFeed = true for a config without live_feed, want false")
+	if !cfg.Meeting.LiveFeed {
+		t.Error("LiveFeed = false for a config without live_feed, want true")
 	}
 
 	cfg.Meeting.LiveFeed = true

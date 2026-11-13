@@ -65,6 +65,15 @@ meeting summaries with to-dos, and Live's briefs. On a dataset that used
 other settings, the change applies to new meetings; the rest follow when
 you rethread (§5).
 
+**Defaults changed on 2026-11-12.** Settings your config doesn't set now
+follow the setup Musubi is developed on: meetings read into threads
+(lean extraction), summaries with to-dos, Live's briefs, voice profiles,
+meeting rooms split into their people, and the recorder's speaker
+tuning. The full list, old and new values, is in
+[research-log.md](research-log.md) ("the defaults follow the owner's
+setup"). New meetings use them at once; existing ones follow when you
+rethread (§5). To keep an old behaviour, set its key in your config.
+
 ## 4. Switch to Musubi's recorder
 
 Tomoe can keep running beside it as a fallback; Musubi takes meetings
@@ -131,7 +140,8 @@ summaries $0.02; [research-log.md](research-log.md), 2026-11-11), about
 
 ## 6. Voices
 
-Turn on **Voice profiles** in Settings → Recording (off by default). The
+**Voice profiles** (Settings → Recording) are on by default; if your config
+turned them off, turn them on. The
 copy brought Tomoe's profiles over. At the next recorder start the
 profiles are relearnt once from every saved meeting under the current
 learning rules: in the background, on this Mac, no model calls, paused

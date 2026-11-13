@@ -116,7 +116,7 @@ func (a *App) SaveProvider(name, url string, headers map[string]string, key stri
 	} else {
 		edits = append(edits, config.Edit{Section: sec, Key: "headers", Delete: true})
 	}
-	if err := config.EditFile(a.cfgPath, edits); err != nil {
+	if err := editConfig(a.cfgPath, edits); err != nil {
 		return err
 	}
 	providerModelsMu.Lock()
@@ -133,7 +133,7 @@ func (a *App) DeleteProvider(name string) error {
 			return fmt.Errorf("%s is used by %s; choose other models there first", name, strings.Join(p.UsedBy, ", "))
 		}
 	}
-	if err := config.EditFile(a.cfgPath, []config.Edit{{Section: "providers." + name, Delete: true}}); err != nil {
+	if err := editConfig(a.cfgPath, []config.Edit{{Section: "providers." + name, Delete: true}}); err != nil {
 		return err
 	}
 	return a.reopen("providers:changed")
@@ -162,7 +162,7 @@ func (a *App) SetOllama(url string, start, pull bool) error {
 			}
 		}
 	}
-	if err := config.EditFile(a.cfgPath, edits); err != nil {
+	if err := editConfig(a.cfgPath, edits); err != nil {
 		return err
 	}
 	return a.reopen("providers:changed")

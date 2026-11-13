@@ -107,7 +107,7 @@ type RecordingSettings struct {
 
 func (a *App) RecordingSettings() (*RecordingSettings, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("no dataset open")
+		return nil, a.notReady()
 	}
 	tc, note := baseRecorderConfig(a.eng.Cfg)
 	return &RecordingSettings{
@@ -255,7 +255,7 @@ func recValue(f *RecField, value any) (any, error) {
 // running: it reads the config when it starts.
 func (a *App) SetRecordingSetting(table, key string, value any) error {
 	if a.eng == nil {
-		return fmt.Errorf("no dataset open")
+		return a.notReady()
 	}
 	f := findRecField(table, key)
 	if f == nil {
@@ -265,7 +265,7 @@ func (a *App) SetRecordingSetting(table, key string, value any) error {
 	if err != nil {
 		return err
 	}
-	if err := config.EditFile(a.cfgPath, []config.Edit{{Section: "recorder." + table, Key: key, Value: v}}); err != nil {
+	if err := editConfig(a.cfgPath, []config.Edit{{Section: "recorder." + table, Key: key, Value: v}}); err != nil {
 		return err
 	}
 	return a.afterRecorderEdit()
@@ -276,7 +276,7 @@ func (a *App) SetRecordingSetting(table, key string, value any) error {
 // beside Tomoe's. The dataset reopens: ingest and Live change folders.
 func (a *App) SetOfRecord(v string) error {
 	if a.eng == nil {
-		return fmt.Errorf("no dataset open")
+		return a.notReady()
 	}
 	if v != "tomoe" && v != "musubi" {
 		return fmt.Errorf("the recorder of record is tomoe or musubi")
@@ -284,7 +284,7 @@ func (a *App) SetOfRecord(v string) error {
 	if v == a.eng.Cfg.Recorder.OfRecord {
 		return nil
 	}
-	if err := config.EditFile(a.cfgPath, ofRecordEdits(v, time.Now())); err != nil {
+	if err := editConfig(a.cfgPath, ofRecordEdits(v, time.Now())); err != nil {
 		return err
 	}
 	a.reloadRecorder()

@@ -90,7 +90,7 @@ var prefTabs = map[string][]PrefGroup{
 // with their current values.
 func (a *App) Preferences(tab string) ([]PrefGroup, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("no dataset open")
+		return nil, a.notReady()
 	}
 	var out []PrefGroup
 	for _, g := range prefTabs[tab] {
@@ -141,7 +141,7 @@ func (a *App) SetPreference(section, key string, value any) error {
 		}
 		v = strings.TrimSpace(s)
 	}
-	if err := config.EditFile(a.cfgPath, []config.Edit{{Section: section, Key: key, Value: v}}); err != nil {
+	if err := editConfig(a.cfgPath, []config.Edit{{Section: section, Key: key, Value: v}}); err != nil {
 		return err
 	}
 	return a.reopen("prefs:changed")
@@ -167,7 +167,7 @@ type DiskPart struct {
 // read, kept as it came), the inbox, and the rest.
 func (a *App) Storage() (StorageView, error) {
 	if a.eng == nil {
-		return StorageView{}, fmt.Errorf("no dataset open")
+		return StorageView{}, a.notReady()
 	}
 	data := a.eng.Cfg.DataDir
 	v := StorageView{Dataset: datasetName(a.cfgPath), Config: a.cfgPath, Data: data, Backups: backupsDir()}
@@ -217,7 +217,7 @@ func backupsDir() string { return backup.DefaultRoot() }
 // backup's folder.
 func (a *App) Backup() (string, error) {
 	if a.eng == nil {
-		return "", fmt.Errorf("no dataset open")
+		return "", a.notReady()
 	}
 	b, err := backup.Make(backupsDir(), a.backupSource(), backup.Manual, "backed up by hand", time.Now())
 	if err != nil {

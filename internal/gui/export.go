@@ -21,7 +21,7 @@ const maxExistIDs = 500
 // recording's meeting is offered as a link only when Musubi has it.
 func (a *App) ItemsExist(ids []string, scope string) ([]string, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready")
+		return nil, a.notReady()
 	}
 	if len(ids) > maxExistIDs {
 		return nil, fmt.Errorf("too many ids (%d, at most %d)", len(ids), maxExistIDs)
@@ -80,7 +80,7 @@ func (a *App) SaveTranscript(itemID, scope string) (string, error) {
 
 func (a *App) transcript(itemID, scope string) (*store.Transcript, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("not ready")
+		return nil, a.notReady()
 	}
 	sc, err := a.eng.Scope(scope)
 	if err != nil {

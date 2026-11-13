@@ -32,7 +32,7 @@ func firstRun(path, tomoeData string, now time.Time) (bool, error) {
 	edits := append(ofRecordEdits("musubi", now),
 		config.Edit{Section: "recorder", Key: "tomoe", Value: "off"},
 		config.Edit{Section: "recorder.meeting", Key: "live_feed", Value: true})
-	return true, config.EditFile(path, edits)
+	return true, editConfig(path, edits)
 }
 
 // bundledRecorder is the recorder this app carries and the template of

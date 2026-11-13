@@ -43,7 +43,7 @@ func (a *App) LivePrep() (*LivePrep, error) {
 // in the panel's scope. Only ever started by the owner's click.
 func (a *App) LivePrepBrief(id string) error {
 	if a.eng == nil || a.live == nil {
-		return fmt.Errorf("not ready: %s", a.err)
+		return a.notReady()
 	}
 	if !a.eng.Cfg.Live.PrepCard {
 		return fmt.Errorf("the prep card is off (live.prep_card)")

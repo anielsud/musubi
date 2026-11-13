@@ -156,7 +156,7 @@ type RecordingModels struct {
 
 func (a *App) RecordingModels() (*RecordingModels, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("no dataset open")
+		return nil, a.notReady()
 	}
 	tc, _ := baseRecorderConfig(a.eng.Cfg)
 	out := &RecordingModels{Tomoe: tomoeKey(a.eng.Cfg)}

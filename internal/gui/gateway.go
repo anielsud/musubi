@@ -119,7 +119,7 @@ func (a *App) GatewayConnect(url, account, token string) error {
 	if err := writeKeychain(keychainService(g.APIKey), token); err != nil {
 		return err
 	}
-	if err := config.EditFile(a.cfgPath, []config.Edit{
+	if err := editConfig(a.cfgPath, []config.Edit{
 		{Section: "gateway", Key: "url", Value: url},
 		{Section: "gateway", Key: "account", Value: account},
 		{Section: "gateway", Key: "api_key", Value: g.APIKey},
@@ -139,7 +139,7 @@ func (a *App) GatewayDisconnect() error {
 		return fmt.Errorf("deleting the token from the keychain: %w", err)
 	}
 	if a.eng != nil && a.eng.Cfg.Gateway.URL != "" {
-		if err := config.EditFile(a.cfgPath, []config.Edit{{Section: "gateway", Key: "token_id", Delete: true}}); err != nil {
+		if err := editConfig(a.cfgPath, []config.Edit{{Section: "gateway", Key: "token_id", Delete: true}}); err != nil {
 			return err
 		}
 	}
@@ -156,7 +156,7 @@ func (a *App) reopen(event string) error {
 		a.emit(event, nil)
 		return fmt.Errorf("saved; it takes effect after the update that is running (or restart Musubi)")
 	}
-	err := a.openConfig(a.cfgPath)
+	err := a.openConfig(a.cfgPath, event)
 	a.emit(event, nil)
 	a.emit("app:status", a.Status())
 	return err

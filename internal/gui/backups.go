@@ -86,7 +86,7 @@ type BackupView struct {
 // Backups are the open dataset's backups, newest first.
 func (a *App) Backups() ([]BackupView, error) {
 	if a.eng == nil {
-		return nil, fmt.Errorf("no dataset open")
+		return nil, a.notReady()
 	}
 	all, err := backup.List(backupsDir(), datasetName(a.cfgPath))
 	if err != nil {
@@ -108,7 +108,7 @@ func (a *App) Backups() ([]BackupView, error) {
 // restored voices. It returns the undo backup's name.
 func (a *App) RestoreBackup(name string, withRecorder bool) (string, error) {
 	if a.eng == nil {
-		return "", fmt.Errorf("no dataset open")
+		return "", a.notReady()
 	}
 	// Only a listed backup of this dataset, by name: never a path from
 	// the page.
@@ -151,11 +151,11 @@ func (a *App) RestoreBackup(name string, withRecorder bool) (string, error) {
 		a.mu.Unlock()
 	}()
 	cfg, path := a.eng.Cfg, a.cfgPath
-	a.closeDataset()
+	a.closeDataset("restoring a backup")
 	undo, rerr := backup.Restore(backupsDir(), *b, backup.SourceFor(cfg, path, nil, Version), withRecorder, time.Now())
 	// Open it again either way: a failed restore leaves the dataset as it
 	// was.
-	if err := a.openConfig(path); err != nil {
+	if err := a.openConfig(path, "after restoring a backup"); err != nil {
 		a.err = err.Error()
 		if rerr == nil {
 			rerr = fmt.Errorf("restored, but opening the dataset failed: %w", err)

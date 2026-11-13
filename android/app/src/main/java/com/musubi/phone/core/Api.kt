@@ -10,7 +10,7 @@ sealed class ApiResult {
     data class Ok(val code: Int, val body: ByteArray) : ApiResult()
     data class Http(val code: Int, val body: ByteArray) : ApiResult()
     /** Mac not reachable, TLS pin mismatch, timeout. Retried on the next run. */
-    data class Network(val message: String) : ApiResult()
+    data class Network(val message: String, val certificateMismatch: Boolean = false) : ApiResult()
 }
 
 /** The Mac's API (docs/phone.md, part 2). Implemented over pinned TLS by HttpMacApi. */

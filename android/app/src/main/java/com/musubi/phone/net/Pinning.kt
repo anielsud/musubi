@@ -21,8 +21,8 @@ object Pinning {
 
     fun fingerprint(cert: X509Certificate): String = Hashing.sha256Hex(cert.encoded)
 
-    /** First 16 hex digits, grouped for reading aloud: "ab12 cd34 ef56 7890". */
-    fun shortForm(fingerprint: String): String = fingerprint.take(16).chunked(4).joinToString(" ")
+    /** First 16 hex digits, upper case in groups of four, as the Mac shows them: "AB12 CD34 EF56 7890". */
+    fun shortForm(fingerprint: String): String = fingerprint.take(16).uppercase().chunked(4).joinToString(" ")
 
     private fun matches(cert: X509Certificate?, pin: String): Boolean {
         if (cert == null) return false

@@ -40,11 +40,9 @@ class RecoveryAndChunksTest {
         val m = TestUtil.newMeta()
         val dir = store.create(m)
         File(dir, chunkName(0)).createNewFile()
-        store.recoverInterrupted()
-        val r = store.read(m.id)!!
-        assertEquals(TestUtil.T0, r.meta.end)
-        assertTrue(r.meta.chunks.isEmpty())
-        assertFalse(File(dir, chunkName(0)).exists())
+        assertTrue(store.recoverInterrupted().isEmpty())
+        assertNull(store.read(m.id))
+        assertFalse(dir.exists())
     }
 
     @Test

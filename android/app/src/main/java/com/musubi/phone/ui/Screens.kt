@@ -368,7 +368,7 @@ class MacScreen(a: MainActivity) : Screen(a) {
                             onFailure = { "Unexpected reply from the Mac" },
                         )
                         is ApiResult.Http -> if (res.code == 401 || res.code == 403) "Wrong or expired code" else "The Mac refused (HTTP ${res.code})"
-                        is ApiResult.Network -> "Could not reach the Mac (or its certificate changed)"
+                        is ApiResult.Network -> if (res.certificateMismatch) "The Mac's certificate changed since you checked it" else "Could not reach the Mac"
                     }
                     a.runOnUiThread {
                         if (msg != null) a.toast(msg) else {

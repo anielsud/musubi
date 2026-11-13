@@ -117,6 +117,8 @@ class HttpMacApi(
             } else {
                 ApiResult.Http(code, body)
             }
+        } catch (e: javax.net.ssl.SSLHandshakeException) {
+            ApiResult.Network(e.javaClass.simpleName, certificateMismatch = true)
         } catch (e: IOException) {
             // Only the exception class: messages can carry addresses, never anything secret, but keep it terse.
             ApiResult.Network(e.javaClass.simpleName)

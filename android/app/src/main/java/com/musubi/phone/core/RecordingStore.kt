@@ -88,7 +88,7 @@ class RecordingStore(val root: File, private val clock: Clock = Clock.systemDefa
      * Closes recordings left open by a killed process. Must run only when no recorder is active
      * in this process (the app calls it at process start, before the service can run).
      * Chunks are kept: a partial trailing ADTS frame is cut, every chunk is hashed, and the end
-     * time is the last chunk's modified time.
+     * time is the last chunk's modified time. A recording with no audio at all is removed.
      */
     fun recoverInterrupted(): List<String> = synchronized(lock) {
         val recovered = mutableListOf<String>()
@@ -109,6 +109,11 @@ class RecordingStore(val root: File, private val clock: Clock = Clock.systemDefa
                 }
                 chunks += ChunkInfo(n, size, Hashing.sha256File(f))
                 lastModified = maxOf(lastModified ?: 0L, modified)
+            }
+            if (chunks.isEmpty()) {
+                // Killed before any audio reached disk: nothing to keep or upload.
+                r.dir.deleteRecursively()
+                continue
             }
             val end = lastModified?.let { OffsetDateTime.ofInstant(Instant.ofEpochMilli(it), r.meta.start.offset) }
                 ?.takeIf { !it.isBefore(r.meta.start) } ?: r.meta.start

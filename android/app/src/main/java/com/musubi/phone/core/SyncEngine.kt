@@ -66,7 +66,7 @@ class SyncEngine(
                     409 -> return fail(r, "The Mac holds different audio for chunk ${c.n}")
                     else -> { handleHttp(r, res.code, "uploading chunk ${c.n}"); return null }
                 }
-                is ApiResult.Network -> throw Stop(SyncOutcome.RETRY, "Mac not reachable")
+                is ApiResult.Network -> throw unreachable(res)
             }
         }
         when (val res = api.complete(r.id, store.metaBytes(r.id))) {
@@ -80,7 +80,7 @@ class SyncEngine(
                 handleHttp(r, res.code, "completing")
                 return null
             }
-            is ApiResult.Network -> throw Stop(SyncOutcome.RETRY, "Mac not reachable")
+            is ApiResult.Network -> throw unreachable(res)
         }
     }
 
@@ -99,7 +99,7 @@ class SyncEngine(
                 }
                 handleHttp(r, res.code, "checking")
             }
-            is ApiResult.Network -> throw Stop(SyncOutcome.RETRY, "Mac not reachable")
+            is ApiResult.Network -> throw unreachable(res)
         }
     }
 
@@ -129,6 +129,11 @@ class SyncEngine(
         }
     }
 
+    private fun unreachable(res: ApiResult.Network) = Stop(
+        SyncOutcome.RETRY,
+        if (res.certificateMismatch) "The Mac's certificate is not the paired one; nothing was sent" else "Mac not reachable",
+    )
+
     private fun fail(r: Recording, reason: String): SyncStatus? {
         store.updateSync(r.id) { it.copy(state = SyncState.FAILED, error = reason) }
         return null
@@ -146,7 +151,7 @@ class SyncEngine(
                 if (res.code == 401 || res.code == 403) throw Stop(SyncOutcome.UNAUTHORIZED, "The Mac no longer accepts this phone; pair again")
                 throw Stop(SyncOutcome.RETRY, "Agenda not available (HTTP ${res.code})")
             }
-            is ApiResult.Network -> throw Stop(SyncOutcome.RETRY, "Mac not reachable")
+            is ApiResult.Network -> throw unreachable(res)
         }
     }
 

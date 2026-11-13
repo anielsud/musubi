@@ -18,6 +18,7 @@ class FakeMac : MacApi {
     var state = "received"
     var stateError: String? = null
     var down = false
+    var wrongCert = false
     var unauthorized = false
     var putCode: Int? = null
     var statusCode: Int? = null
@@ -27,6 +28,7 @@ class FakeMac : MacApi {
 
     private fun gate(): ApiResult? = when {
         down -> ApiResult.Network("ConnectException")
+        wrongCert -> ApiResult.Network("SSLHandshakeException", certificateMismatch = true)
         unauthorized -> ApiResult.Http(401, ByteArray(0))
         else -> null
     }
@@ -134,6 +136,16 @@ class SyncEngineTest {
         mac.down = false
         engine().run()
         assertEquals(SyncState.ON_MAC, store.read(r.id)!!.sync.state)
+    }
+
+    @Test
+    fun certificateMismatchIsReportedAndNothingChanges() {
+        val r = TestUtil.finishedRecording(store, 1)
+        mac.wrongCert = true
+        val rep = engine().run()
+        assertEquals(SyncOutcome.RETRY, rep.outcome)
+        assertTrue(rep.message.contains("certificate"))
+        assertEquals(1, audioFiles(store.read(r.id)!!).size)
     }
 
     @Test

@@ -63,6 +63,9 @@ type App struct {
 	updateAgain bool
 	rec         recorderState
 	res         resourceState
+	// windowHidden: the window can't be seen (SetWindowHidden); kept here
+	// so a dataset opened later starts its Live in the same state.
+	windowHidden bool
 	// emitFn replaces the Wails event bus in tests.
 	emitFn func(string, any)
 	// notReadyLogged: the first "not ready" since the last open is logged,
@@ -141,6 +144,7 @@ func (a *App) openConfig(path, why string) (err error) {
 	a.notReadyLogged.Store(false)
 	a.eng, a.cfgPath, a.err, a.releaseData = e, path, "", release
 	a.live = live.New(e, a.emit, func() { a.update("a meeting was saved") })
+	a.live.SetHidden(a.windowHidden)
 	lctx, cancel := context.WithCancel(a.ctx)
 	a.liveCancel = cancel
 	wruntime.WindowSetTitle(a.ctx, "Musubi — "+datasetName(path))
@@ -486,6 +490,21 @@ func (a *App) SetSharing(on bool) error {
 		return a.live.SetScope("shared-screen")
 	}
 	return a.live.SetScope("owner")
+}
+
+// SetWindowHidden is the window's visibility from the web view (the
+// page's visibilitychange): hidden when minimized, on a Space not shown,
+// or covered; Live then works lightly ([live] background).
+func (a *App) SetWindowHidden(hidden bool) {
+	a.mu.Lock()
+	a.windowHidden = hidden
+	a.mu.Unlock()
+	if l := a.live; l != nil && l.SetHidden(hidden) {
+		log.Printf("window %s: Live %s", map[bool]string{true: "hidden", false: "shown"}[hidden], map[bool]string{true: "works lightly", false: "redraws the panel"}[hidden])
+		if !hidden {
+			go l.Redraw()
+		}
+	}
 }
 
 // LookUp briefs on a query now (a clicked suggestion or a typed one).

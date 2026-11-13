@@ -143,6 +143,12 @@ type Live struct {
 	// meeting took about an hour stepped, most of it lookups and
 	// summaries that cards don't use.
 	CardsOnly bool
+	// hidden: the window can't be seen (minimized, on a Space not shown,
+	// covered), with [live] background on. Live then does only what the
+	// topic cards depend on, as CardsOnly does, and also builds only the
+	// picked cards (for their briefs) and sends nothing to the panel; the
+	// panel is rebuilt once when the window shows again (SetHidden).
+	hidden atomic.Bool
 
 	ctx             context.Context
 	lastModelFinals int
@@ -573,7 +579,7 @@ func (l *Live) fastLane(seg Segment) {
 	l.trace(id, "line", fmt.Sprintf("%s line names %s", status, strings.Join(names, ", ")), time.Since(t0).Milliseconds(),
 		map[string]any{"status": status, "speaker": speakerName(seg.Speaker), "text": seg.Text, "spotted": spotted, "phrases": phrases})
 	l.addChips(todo...)
-	if sc, err := l.eng.Scope(scopeName); err == nil {
+	if sc, err := l.eng.Scope(scopeName); err == nil && !l.hidden.Load() {
 		l.emit("live:entities", l.cards(sc, sug.Entities(recent), exclude))
 	}
 	for _, s := range todo {
@@ -617,6 +623,11 @@ func (l *Live) modelLoop(ctx context.Context) {
 		}
 		// Run on new final text; on draft changes alone only every few
 		// seconds, or the model reruns on every partial word.
+		if m.Finals() == l.lastModelFinals && l.hidden.Load() {
+			// Hidden: complete lines only, as CardsOnly.
+			l.mu.Unlock()
+			continue
+		}
 		if m.Finals() == l.lastModelFinals && time.Since(l.lastModelRun) < draftRerun {
 			wait := draftRerun - time.Since(l.lastModelRun)
 			l.mu.Unlock()
@@ -686,7 +697,9 @@ func (l *Live) modelCycle(ctx context.Context, sug *Suggester, recent string, li
 	var out []Suggestion
 	if !l.eng.Cfg.Live.FastLane {
 		spotted := sug.Entities(recent)
-		l.emit("live:entities", l.cards(sc, spotted, exclude))
+		if !l.hidden.Load() {
+			l.emit("live:entities", l.cards(sc, spotted, exclude))
+		}
 		for i, e := range spotted {
 			if i == 2 {
 				break
@@ -772,6 +785,56 @@ func (l *Live) modelCycle(ctx context.Context, sug *Suggester, recent string, li
 	}
 }
 
+// cardsOnly says whether only the work topic cards depend on runs: a
+// stepped replay's CardsOnly, or a hidden window.
+func (l *Live) cardsOnly() bool { return l.CardsOnly || l.hidden.Load() }
+
+// SetHidden says whether the app's window can be seen ([live]
+// background) and reports whether that changed. Hidden, Live does only
+// what the topic cards depend on; when it shows again, the caller runs
+// Redraw so the picked cards and their briefs, written meanwhile, are on
+// the panel without waiting for a cycle.
+func (l *Live) SetHidden(hidden bool) bool {
+	if !l.eng.Cfg.Live.Background {
+		hidden = false
+	}
+	if l.hidden.Swap(hidden) == hidden {
+		return false
+	}
+	if hidden {
+		l.trace(0, "cycle", "window hidden: light mode (cards only, nothing drawn)", 0, nil)
+		return true
+	}
+	l.trace(0, "cycle", "window shown: rebuilding the panel", 0, nil)
+	select {
+	case l.wake <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+// Redraw rebuilds the panel: the topic cards (with the briefs written
+// while hidden) and the entity cards.
+func (l *Live) Redraw() {
+	l.mu.Lock()
+	m, sug, scopeName := l.meeting, l.sug, l.scope
+	recent := ""
+	if m != nil {
+		recent = m.Recent(float64(max(30, l.eng.Cfg.Live.Window)))
+	}
+	l.mu.Unlock()
+	if m == nil {
+		return
+	}
+	l.emitTopics(0)
+	if sug == nil {
+		return
+	}
+	if sc, err := l.eng.Scope(scopeName); err == nil {
+		l.emit("live:entities", l.cards(sc, sug.Entities(recent), []string{"tomoe:" + m.Session.ID}))
+	}
+}
+
 // Brief looks a suggestion up now (a clicked chip or a typed query).
 func (l *Live) Brief(ctx context.Context, s Suggestion, exclude []string, scopeName string) {
 	l.mu.Lock()
@@ -797,7 +860,7 @@ type sumJob struct {
 // brief searches for a suggestion and shows the passages straight away;
 // the summary follows from the summariser.
 func (l *Live) brief(ctx context.Context, cycle int, s Suggestion, exclude []string, scopeName string, lines []Segment) {
-	if l.CardsOnly {
+	if l.cardsOnly() {
 		l.lookupTopic(ctx, cycle, s)
 		return
 	}

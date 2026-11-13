@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"path/filepath"
 	"time"
 
+	"github.com/anielsud/musubi/internal/recorder/config"
 	"github.com/anielsud/musubi/internal/recorder/diarize"
 	"github.com/anielsud/musubi/internal/recorder/voices"
 )
@@ -50,6 +52,10 @@ func (a *Recorder) relearnForRules(ctx context.Context) bool {
 		return false // learn_saved is running; the next start checks again
 	}
 	defer a.learnMu.Unlock()
+	if err := a.backupVoices(); err != nil {
+		fmt.Printf("voices: relearn for new rules not started: %v; it runs again at the next start\n", err)
+		return false
+	}
 	began := time.Now()
 	fmt.Printf("voices: profiles built under older learning rules; learning every saved meeting again (rules %d)\n", voices.LearnRules)
 	var meetings int
@@ -95,6 +101,23 @@ func (a *Recorder) relearnForRules(ctx context.Context) bool {
 			model, voices.LearnRules, meetings, time.Since(began).Seconds(), sum.Changed, sum.Added)
 	}
 	return true
+}
+
+// backupVoices copies the voices folder before every profile is learnt
+// again (voices.Backup), unless [recorder.meeting] voice_profile_backups
+// is off.
+func (a *Recorder) backupVoices() error {
+	if !a.config().Meeting.VoiceProfileBackups {
+		return nil
+	}
+	dir, err := voices.Backup(filepath.Join(config.DataDir(), "voices"), time.Now())
+	if err != nil {
+		return fmt.Errorf("copying the voice profiles first: %w (free some space, or set [recorder.meeting] voice_profile_backups = false)", err)
+	}
+	if dir != "" {
+		fmt.Printf("voices: profiles copied to %s first\n", dir)
+	}
+	return nil
 }
 
 // rulesStores are the profile stores the relearn checks (all that exist).

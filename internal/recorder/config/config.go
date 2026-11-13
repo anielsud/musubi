@@ -216,6 +216,12 @@ type MeetingConfig struct {
 	// background between recordings. false: profiles keep what they were
 	// built with, and only new meetings follow the new rules.
 	VoiceProfileRelearn bool `toml:"voice_profile_relearn"`
+	// VoiceProfileBackups copies the voices folder to voices.bak-<time>
+	// (the newest five kept) before anything rewrites the profiles in
+	// bulk: a file converted on load, a relearn for new rules or of every
+	// saved meeting, the recorder's folder moving to a new format
+	// (docs/data-safety.md, item 6). false: no copies, as before.
+	VoiceProfileBackups bool `toml:"voice_profile_backups"`
 	// RefineSpeakerCuts, after each meeting is saved, moves each cut
 	// between back-to-back speakers to where the voice changes, from short
 	// fingerprints across it (a low-priority job, about 2 minutes of one
@@ -241,8 +247,8 @@ type MeetingConfig struct {
 	// SplitOnSpeakerChange makes the post-meeting diarization pass split a
 	// transcript line wherever the speaker changes mid-line (a quick
 	// "Right." from someone else), instead of giving the whole line one
-	// speaker. Off by default like main until proven on real recordings
-	// (`tomoe eval` scores both).
+	// speaker. On by default since 2026-11-12, the owner's setting; false
+	// gives the whole line one speaker, as before.
 	SplitOnSpeakerChange bool `toml:"split_on_speaker_change"`
 
 	// MinSpeakerWords gives the lines of any diarized speaker who says
@@ -306,8 +312,9 @@ type MeetingConfig struct {
 	// programs on this computer over a Unix socket only the user can open
 	// (~/.local/share/tomoe/live.sock; protocol in internal/livefeed), for
 	// a local consumer that wants lines, revisions and speaker relabels
-	// as they happen rather than the saved session afterwards. Off by
-	// default, and nothing listens or is encoded while it is: transcription
+	// as they happen rather than the saved session afterwards. On by
+	// default since 2026-11-12 (Musubi's Live follows it); off, nothing
+	// listens or is encoded: transcription
 	// is unchanged either way, since a client that falls behind is
 	// disconnected rather than waited for. Applied from the settings page
 	// at once; an edit to config.toml itself takes effect on the next
@@ -376,7 +383,7 @@ func DefaultConfig() *Config {
 	}
 	cfg.Meeting = MeetingConfig{
 		DefaultSources:          "both",
-		SpeakerThreshold:        0.65,
+		SpeakerThreshold:        0.55,
 		MaxSpeechDuration:       30.0,
 		MinSilenceDuration:      0.5,
 		MinSpeechLevelDB:        -50,
@@ -384,7 +391,7 @@ func DefaultConfig() *Config {
 		MicVoices:               true,
 		MicOtherBelow:           0.35,
 		TurnMode:                true,
-		TurnMaxSeconds:          30,
+		TurnMaxSeconds:          15,
 		TurnMaxGap:              2,
 		DecodePad:               0.25,
 		TurnInterjection:        1,
@@ -399,6 +406,7 @@ func DefaultConfig() *Config {
 		VoiceProfileMinMeetings: 2,
 		VoiceProfileMinLearn:    10,
 		VoiceProfileRelearn:     true,
+		VoiceProfileBackups:     true,
 		SnapReadsToInvitees:     true,
 		AutoSave:                true,
 		AutoDetect:              true,
@@ -408,15 +416,17 @@ func DefaultConfig() *Config {
 		DiarizeRecluster:        10,
 		MinSpeakerWords:         20,
 		MinSpeakerSeconds:       2,
+		SplitOnSpeakerChange:    true,
+		VoiceProfiles:           true,
+		DiarizeRoomSplit:        true,
+		LiveFeed:                true,
 
-		// The sticky-speaker and short-segment rules are off (margin
-		// and duration 0), matching main's clustering, until they're
-		// proven on real recordings. The windows only matter once a
-		// rule is turned on; speaker.ExperimentalTuning has the values
-		// tuned from live meetings.
-		StickyGraceWindow:       3.0,
-		StickyThresholdMargin:   0,
-		MinAssignDuration:       0,
+		// The sticky-speaker and short-segment rules are on with the
+		// owner's tuning from live meetings (2026-11-12: the defaults
+		// follow the owner's config; margin and duration 0 turn them off).
+		StickyGraceWindow:       1.0,
+		StickyThresholdMargin:   0.15,
+		MinAssignDuration:       0.7,
 		ShortSegmentGraceWindow: 15.0,
 
 		VideoHintLearnInterval: 1.0,

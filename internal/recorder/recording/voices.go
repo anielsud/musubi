@@ -300,6 +300,9 @@ func (a *Recorder) AllowName(model, name string) error {
 // meeting with fingerprints (as `tomoe voices learn` does), returning how
 // many people it learnt.
 func (a *Recorder) LearnVoicesFromSavedSessions() (int, error) {
+	if err := a.backupVoices(); err != nil {
+		return 0, err
+	}
 	people, _, err := a.learnAllSaved(nil)
 	return people, err
 }

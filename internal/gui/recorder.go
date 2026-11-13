@@ -24,6 +24,7 @@ import (
 	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/raw"
 	"github.com/anielsud/musubi/internal/recorder/control"
+	"github.com/anielsud/musubi/internal/recorder/dataformat"
 	"github.com/anielsud/musubi/internal/source/tomoe"
 )
 
@@ -362,6 +363,10 @@ func (a *App) MeetingSpeakers(itemID string) (*MeetingSpeakers, error) {
 	dir := a.eng.Cfg.SessionDir(sid)
 	if dir == "" {
 		m.Why = "The recording's files aren't on this Mac."
+		return m, nil
+	}
+	if err := dataformat.Check(filepath.Dir(filepath.Dir(dir))); err != nil {
+		m.Why = "The recorder's folder was written by a newer Musubi; install that version again to see or correct this meeting's speakers."
 		return m, nil
 	}
 	b, err := os.ReadFile(filepath.Join(dir, "session.json"))

@@ -39,9 +39,9 @@ type FileInfo struct {
 	Counts map[string]int64 `json:"counts,omitempty"`
 }
 
-// countedTables: the items read, what was learnt from them, and the
+// manifestTables, counted into a backup's manifest: the items read, what was learnt from them, and the
 // owner's word.
-var countedTables = []string{"items", "statements", "thread_items", "corrections", "judgments", "learned_aliases", "thread_edits", "forgotten"}
+var manifestTables = []string{"items", "statements", "thread_items", "corrections", "judgments", "learned_aliases", "thread_edits", "forgotten"}
 
 // ReadFileInfo reads FileInfo from the database file at path, which no
 // one is writing (a backup's copy).
@@ -59,7 +59,7 @@ func ReadFileInfo(path string) (FileInfo, error) {
 		return fi, err
 	}
 	fi.Counts = map[string]int64{}
-	for _, t := range countedTables {
+	for _, t := range manifestTables {
 		var n int
 		if err := db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, t).Scan(&n); err != nil {
 			return fi, err
@@ -68,7 +68,7 @@ func ReadFileInfo(path string) (FileInfo, error) {
 			continue
 		}
 		var c int64
-		// t is one of countedTables, never input.
+		// t is one of manifestTables, never input.
 		if err := db.QueryRow(fmt.Sprintf(`SELECT count(*) FROM "%s"`, t)).Scan(&c); err != nil {
 			return fi, err
 		}

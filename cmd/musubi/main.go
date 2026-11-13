@@ -36,6 +36,9 @@ import (
 var version = "dev"
 
 func main() {
+	if version != "dev" {
+		store.Build = version
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if err := root().ExecuteContext(ctx); err != nil {
@@ -1098,7 +1101,18 @@ func knowledgeCmd() *cobra.Command {
 				o.LinkTrace = func(f string, a ...any) { fmt.Fprintf(os.Stderr, "  link: "+f+"\n", a...) }
 			}
 			start := time.Now()
+			var guard *store.KeptGuard
+			if len(redo) > 0 && !plan && e.Cfg.Store.CheckCounts {
+				if guard, err = e.Store.GuardKept(); err != nil {
+					return err
+				}
+			}
 			ks, err := e.Knowledge(cmd.Context(), os.Stderr, o)
+			if guard != nil {
+				after, gerr := guard.Finish()
+				fmt.Fprintf(os.Stderr, "counts before: %s\ncounts after:  %s\n", guard.Before, after)
+				err = errors.Join(err, gerr)
+			}
 			defer printOutdated(ks.Outdated, e.Cfg.Knowledge.Updates)
 			if plan {
 				p := ks.Planned

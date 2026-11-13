@@ -150,8 +150,8 @@ Musubi keeps your word over what it inferred.
   where it stands.
 - **People**: the people you meet, with what you've discussed.
 - **Voices**: the voice profiles the recorder has learnt, so it can name
-  speakers the meeting window doesn't (turn on **Voice profiles** in
-  Settings → Recording first). **Who's this?** lists voices it
+  speakers the meeting window doesn't (**Voice profiles** in Settings →
+  Recording, on by default). **Who's this?** lists voices it
   couldn't name for you to name; **Not them** removes a wrong sample.
 - **Search**: everything, by words or meaning.
 - **Corrections**: the changes you've made, each with undo.
@@ -196,14 +196,14 @@ than taking them from the meeting platform:
 - **Your microphone** is "you". With **Other voices on your
   microphone** on (the default), someone speaking beside you is told
   apart.
-- **Voice profiles** (Settings → Recording → **Voice profiles**, off by
+- **Voice profiles** (Settings → Recording → **Voice profiles**, on by
   default): Musubi learns each person's voice, as fingerprints (no
   audio kept), from moments their tile was lit or you named them, and
   then names them where the window can't: in a meeting room, on the
   phone, or with no window. On saved meetings it named 112 of 119
   voices, all correctly.
 - **Meeting rooms** (Settings → Recording → **Split meeting rooms into
-  their people**, off by default) separates the people sharing a room's
+  their people**, on by default) separates the people sharing a room's
   microphone.
 
 **Making labels better:**

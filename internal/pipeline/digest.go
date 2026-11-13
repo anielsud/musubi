@@ -53,6 +53,20 @@ func (r *Runner) digestMeetings(ctx context.Context, o KnowledgeOptions, items [
 	}
 	var jobs, older []digestJob
 	var have []string
+	// A digest stored with a stand-in to-do (knowledge.StubTodo) is made
+	// again, as if it were missing.
+	stored, err := r.Store.DigestTodoTexts()
+	if err != nil {
+		return err
+	}
+	stub := map[string]bool{}
+	for id, texts := range stored {
+		for _, t := range texts {
+			if knowledge.StubTodo(t) {
+				stub[id] = true
+			}
+		}
+	}
 	for i := range items {
 		it := &items[i]
 		if it.Kind != item.KindMeeting || !wanted(it.ID) || o.hold[it.ID] {
@@ -98,6 +112,10 @@ func (r *Runner) digestMeetings(ctx context.Context, o KnowledgeOptions, items [
 				}
 				break
 			}
+		}
+		if cur != "" && stub[it.ID] {
+			r.logf("digest %s: a to-do is a stand-in, reading the meeting again", it.ID)
+			cur = ""
 		}
 		if cur != "" {
 			have = append(have, it.ID)

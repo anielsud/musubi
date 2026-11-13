@@ -334,6 +334,7 @@ func TestToDosFromDigest(t *testing.T) {
 type emptyThenFull struct {
 	digestLLM
 	todoCalls int
+	first     string // the first answer; "" for none listed
 }
 
 func (f *emptyThenFull) Complete(ctx context.Context, msgs []provider.Message, opt provider.ChatOptions, tok func(string)) (string, error) {
@@ -342,6 +343,9 @@ func (f *emptyThenFull) Complete(ctx context.Context, msgs []provider.Message, o
 		f.todoCalls++
 		first := f.todoCalls == 1
 		f.mu.Unlock()
+		if first && f.first != "" {
+			return f.first, nil
+		}
 		if first {
 			return `{"todos":[]}`, nil
 		}
@@ -359,6 +363,17 @@ func TestDigestAsksAgainWhenEmpty(t *testing.T) {
 	d, err := (&Digester{LLM: f, Owner: "Sam Owner"}).Digest(context.Background(), long, nil, time.Now())
 	if err != nil || f.todoCalls != 2 || len(d.Todos) == 0 {
 		t.Errorf("long meeting: %d to-do calls, %d to-dos, %v", f.todoCalls, len(d.Todos), err)
+	}
+	// Only a stand-in ("placeholder", seen 2026-11-05) counts as none.
+	stub := &emptyThenFull{first: `{"todos":[{"text":"placeholder","owner":["PLACEHOLDER"],"requester":"unclear","agreed":"agreed","due_text":"","due_date":"","evidence":[]}]}`}
+	d, err = (&Digester{LLM: stub, Owner: "Sam Owner"}).Digest(context.Background(), long, nil, time.Now())
+	if err != nil || stub.todoCalls != 2 || len(d.Todos) == 0 {
+		t.Errorf("stand-in to-do: %d to-do calls, %d to-dos, %v", stub.todoCalls, len(d.Todos), err)
+	}
+	for _, x := range d.Todos {
+		if StubTodo(x.Text) {
+			t.Errorf("stand-in kept: %q", x.Text)
+		}
 	}
 	short := &emptyThenFull{}
 	d, err = (&Digester{LLM: short, Owner: "Sam Owner"}).Digest(context.Background(), testMeeting(), nil, time.Now())

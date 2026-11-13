@@ -88,6 +88,11 @@ func (s *Store) ReplaceDigest(itemID, version, hash, input string, d Digest) err
 				return err
 			}
 		}
+		// New to-dos are matched with the statements again, even when the
+		// statements are the same as when the old ones were.
+		if _, err := tx.Exec(`DELETE FROM stage_runs WHERE stage = 'digest-link' AND item_id = ?`, itemID); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(`INSERT INTO meeting_digests(item_id, version, overview, level, categories, made_at) VALUES (?,?,?,?,?,?)`,
 			itemID, version, d.Overview, int(d.OverviewOwn.Level), int64(d.OverviewOwn.Categories), time.Now().Unix()); err != nil {
 			return err
@@ -155,6 +160,25 @@ func (s *Store) SetDigestLinks(itemID, hash string, links []DigestLink) error {
 // (pipeline side, unscoped).
 func (s *Store) ItemStatements(itemID string) ([]Statement, error) {
 	return s.statements(`WHERE st.item_id = ? ORDER BY st.line, st.id`, itemID)
+}
+
+// DigestTodoTexts maps each digested item to its to-dos' texts, for
+// checks on what was stored (pipeline use; no scope).
+func (s *Store) DigestTodoTexts() (map[string][]string, error) {
+	rows, err := s.rdb.Query(`SELECT item_id, text FROM meeting_todos`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var id, text string
+		if err := rows.Scan(&id, &text); err != nil {
+			return nil, err
+		}
+		out[id] = append(out[id], text)
+	}
+	return out, rows.Err()
 }
 
 // DigestTodos returns an item's to-dos, unscoped (pipeline side).

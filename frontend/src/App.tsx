@@ -26,6 +26,9 @@ export function App() {
   const [diag, setDiag] = useState(false);
   const [toast, setToast] = useState('');
   const [wideWin, setWideWin] = useState(false);
+  const [askUpdate, setAskUpdate] = useState(false);
+  const [canInstall, setCanInstall] = useState(false);
+  const [updStep, setUpdStep] = useState('');
 
   const refresh = useCallback(() => {
     api.status().then((s) => {
@@ -45,9 +48,15 @@ export function App() {
         if (s.mode === 'live') setView((v) => (v === 'status' ? 'live' : v));
       }),
       on<string>('update:done', (m) => { setToast('Updated: ' + m); refresh(); }),
+      on<string>('selfupdate:step', (m) => setUpdStep(m + '…')),
+      on<string>('selfupdate:failed', (m) => { setUpdStep(''); setToast('Update failed: ' + m); }),
     ];
     return () => { clearTimeout(t0); clearInterval(t); offs.forEach((f) => f()); };
   }, [refresh]);
+
+  useEffect(() => {
+    if (askUpdate) api.canInstallUpdate().then(setCanInstall, () => setCanInstall(false));
+  }, [askUpdate]);
 
   useEffect(() => {
     if (!toast) return;
@@ -86,6 +95,27 @@ export function App() {
           <span className={'dot ' + (status?.ollamaUp ? 'ok' : 'off')} title={status?.ollamaUp ? 'Local models ready' : 'Ollama not reachable'}>M</span>
         </div>
         <div className="title-actions" style={{ ['--wails-draggable' as string]: 'no-drag' }}>
+          {status?.newVersion && (
+            <span className="update-wrap">
+              <button className="toggle on" title={`You have ${status.version}; ${status.newVersion.version} is out.`}
+                disabled={updStep !== ''} onClick={() => setAskUpdate(!askUpdate)}>
+                {updStep || `↑ ${status.newVersion.version}`}
+              </button>
+              {askUpdate && (
+                <div className="update-pop">
+                  <p>Musubi {status.newVersion.version} is out{status.newVersion.prerelease ? ' (a release candidate)' : ''}; you have {status.version}.</p>
+                  {canInstall
+                    ? <p className="dim small">Update downloads it, checks it, replaces this copy and restarts Musubi. Not while a meeting is being recorded.</p>
+                    : <p className="dim small">This copy can&apos;t update itself: download it from the release page.</p>}
+                  <div className="row-buttons">
+                    {canInstall && <button onClick={() => { setAskUpdate(false); api.installUpdate().then(() => setUpdStep('Starting…'), (e) => setToast(String(e))); }}>Update</button>}
+                    <button onClick={() => { setAskUpdate(false); api.openNewVersion().catch((e) => setToast(String(e))); }}>Release page</button>
+                    <button onClick={() => setAskUpdate(false)}>Not now</button>
+                  </div>
+                </div>
+              )}
+            </span>
+          )}
           <button className={'toggle' + (sharing ? ' on' : '')} title="Screen-safe: show only what's fine on a shared screen"
             onClick={() => api.setSharing(!sharing).then(refresh)}>
             {sharing ? '◑ screen-safe' : '◐ private'}

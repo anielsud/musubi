@@ -216,6 +216,9 @@ export interface AppStatus {
   onUpdate: boolean;
   autoMax: number;
   updateEvery: number;
+  version: string;
+  // A newer release, when the daily update check found one.
+  newVersion?: { version: string; url: string; prerelease: boolean };
 }
 
 export interface Statement {

@@ -36,6 +36,9 @@ func (a *Recorder) Handle(ctx context.Context, op string, args json.RawMessage) 
 	// crash handler back without SA_ONSTACK (Tomoe repaired it on every
 	// call from its window for the same reason).
 	sigfix.AfterSherpa()
+	if err := a.refusedOp(op); err != nil {
+		return nil, err
+	}
 	switch op {
 	case control.OpStatus:
 		return a.Status(), nil
@@ -457,6 +460,18 @@ func (a *Recorder) setBusy(what string) {
 	}
 	a.busy = what
 	a.publishStatusLocked()
+}
+
+// refusedOp is why op can't run: the data folder is refused (Refuse),
+// and op isn't one that only reports the recorder's state.
+func (a *Recorder) refusedOp(op string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	switch {
+	case a.refused == nil, op == control.OpStatus, op == control.OpSources, op == control.OpTools:
+		return nil
+	}
+	return a.refused
 }
 
 // setNote sets (or with "" clears) an extra health line.

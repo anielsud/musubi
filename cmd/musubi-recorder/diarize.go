@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/anielsud/musubi/internal/recorder/config"
+	"github.com/anielsud/musubi/internal/recorder/dataformat"
 	"github.com/anielsud/musubi/internal/recorder/models"
 	"github.com/anielsud/musubi/internal/recorder/session"
 )
@@ -22,7 +23,11 @@ var diarizeCmd = &cobra.Command{
 	Args:   cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		data, _ := cmd.Flags().GetString("data")
-		if _, err := useDataDir(data); err != nil {
+		dir, err := useDataDir(data)
+		if err != nil {
+			return err
+		}
+		if err := dataformat.Check(dir); err != nil {
 			return err
 		}
 		return diarizeSession(args[0])

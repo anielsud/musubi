@@ -256,6 +256,14 @@ type Store struct {
 	returned []ReturnedSample
 	junk     []JunkSpan
 	deleted  []DeletedProfile
+	// converted: what was read was converted on load (duplicate meetings
+	// merged, taken-out samples made returned ones), so the next save
+	// rewrites it, after copying the voices folder when backups is on.
+	converted bool
+	backups   bool
+	// newer is set once another process wrote the file at a newer
+	// version: from then on nothing is written or named from it.
+	newer error
 }
 
 // LearnRules is the version of the rules for what a meeting teaches a
@@ -289,11 +297,20 @@ func Path(dataDir, model string) string { return filepath.Join(dataDir, "voices"
 // whether two names are one person's (a tile's name cut short, a misread
 // letter).
 func Open(path string, same func(a, b string) bool, params Params) (*Store, error) {
-	s := &Store{path: path, same: same, params: params}
+	s := &Store{path: path, same: same, params: params, backups: true}
 	if err := s.load(); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+// SetBackups says whether the voices folder is copied before the first
+// save of a file converted on load ([recorder.meeting]
+// voice_profile_backups; on unless set).
+func (s *Store) SetBackups(on bool) {
+	s.mu.Lock()
+	s.backups = on
+	s.mu.Unlock()
 }
 
 // SetParams changes the naming rules.
@@ -334,20 +351,26 @@ func (s *Store) load() error {
 	if err != nil {
 		return err
 	}
+	if _, err := fileVersion(s.path, b); err != nil {
+		return err
+	}
 	var f file
 	if err := json.Unmarshal(b, &f); err != nil {
 		return fmt.Errorf("voice profiles %s: %w", s.path, err)
 	}
+	converted := false
 	for _, p := range f.Profiles {
 		// Merges before 2026-11-12 appended a meeting both profiles had
 		// twice; read as one.
+		n := len(p.Meetings)
 		p.Meetings = mergeMeetings(p.Meetings)
+		converted = converted || len(p.Meetings) != n
 		p.refresh(s.params.MinLearn)
 	}
 	s.profiles, s.forgotten, s.modTime = f.Profiles, f.Forgotten, st.ModTime()
 	s.rules, s.relearned = max(f.Rules, 1), f.Relearned
 	s.returned, s.junk, s.deleted = f.Returned, f.Junk, f.Deleted
-	s.migrateExcludedLocked()
+	s.converted = s.migrateExcludedLocked() > 0 || converted
 	return nil
 }
 
@@ -380,11 +403,14 @@ func mergeMeetings(ms []Heard) []Heard {
 }
 
 // syncLocked rereads the file if another process changed it. A file that
-// can't be read keeps what's in memory.
+// can't be read keeps what's in memory; one a newer Musubi wrote stops
+// the store writing or naming (newer).
 func (s *Store) syncLocked() {
 	st, err := os.Stat(s.path)
 	if err == nil && !st.ModTime().Equal(s.modTime) {
-		_ = s.load()
+		if err := s.load(); errors.Is(err, ErrNewer) {
+			s.newer = err
+		}
 	}
 }
 
@@ -408,7 +434,15 @@ type file struct {
 
 // saveLocked writes the profiles atomically.
 func (s *Store) saveLocked() error {
-	b, err := json.Marshal(file{Version: 1, Profiles: s.profiles, Forgotten: s.forgotten, Rules: s.rules, Relearned: s.relearned, Returned: s.returned, Junk: s.junk, Deleted: s.deleted})
+	if s.newer != nil {
+		return s.newer
+	}
+	if s.converted && s.backups {
+		if _, err := Backup(filepath.Dir(s.path), time.Now()); err != nil {
+			return fmt.Errorf("copying the voice profiles before converting them: %w (free some space, or set [recorder.meeting] voice_profile_backups = false)", err)
+		}
+	}
+	b, err := json.Marshal(file{Version: FileVersion, Profiles: s.profiles, Forgotten: s.forgotten, Rules: s.rules, Relearned: s.relearned, Returned: s.returned, Junk: s.junk, Deleted: s.deleted})
 	if err != nil {
 		return err
 	}
@@ -422,6 +456,7 @@ func (s *Store) saveLocked() error {
 	if err := os.Rename(tmp, s.path); err != nil {
 		return err
 	}
+	s.converted = false
 	if st, err := os.Stat(s.path); err == nil {
 		s.modTime = st.ModTime()
 	}
@@ -737,6 +772,9 @@ func (s *Store) Match(voices map[int]Voice, taken func(name string) bool) map[in
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncLocked()
+	if s.newer != nil {
+		return map[int]Matched{}
+	}
 	type cand struct {
 		key int
 		p   *Profile
@@ -788,6 +826,9 @@ func (s *Store) Likest(voices map[int]Voice) map[int]Matched {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.syncLocked()
+	if s.newer != nil {
+		return map[int]Matched{}
+	}
 	out := map[int]Matched{}
 	for key, v := range voices {
 		if v.N < s.params.MinFingerprints {

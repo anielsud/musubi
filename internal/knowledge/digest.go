@@ -162,6 +162,7 @@ func (d *Digester) Digest(ctx context.Context, m *Meeting, labels map[int]sensit
 		if errT != nil {
 			return
 		}
+		todos.Todos = dropStubs(todos.Todos)
 		// A model sometimes answers a long meeting with an empty list (seen:
 		// a 470-line meeting with a dozen commitments), or lists them
 		// without the lines they rest on (seen: a 650-line one). Either is
@@ -180,7 +181,9 @@ func (d *Digester) Digest(ctx context.Context, m *Meeting, labels map[int]sensit
 			d.Logf("digest-todos: %d listed, %d with evidence, for a %d-line meeting: asking again", len(todos.Todos), withEvidence(todos.Todos), len(m.lines))
 		}
 		var again rawTodos
-		if err := d.call(ctx, "digest-todos", prefix+todosTask+nudge, todosSchema, &again); err == nil && withEvidence(again.Todos) > withEvidence(todos.Todos) {
+		err := d.call(ctx, "digest-todos", prefix+todosTask+nudge, todosSchema, &again)
+		again.Todos = dropStubs(again.Todos)
+		if err == nil && withEvidence(again.Todos) > withEvidence(todos.Todos) {
 			todos = again
 		}
 	})
@@ -198,6 +201,25 @@ func (d *Digester) Digest(ctx context.Context, m *Meeting, labels map[int]sensit
 	}
 	out.Todos = m.todosFrom(todos.Todos, labels, itemStart, d.Owner)
 	return out, nil
+}
+
+// StubTodo is a to-do too short to say who is to do what: a model's
+// stand-in such as "placeholder" (seen 2026-11-05: six meetings whose only
+// to-do was that word, citing no line). A real one is a sentence.
+func StubTodo(text string) bool {
+	return len(strings.Fields(text)) < 3
+}
+
+// dropStubs leaves out the StubTodo ones, so a reading of only stubs
+// counts as empty and is asked again.
+func dropStubs(ts []rawTodo) []rawTodo {
+	out := ts[:0]
+	for _, t := range ts {
+		if !StubTodo(t.Text) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // withEvidence counts the to-dos that cite at least one line.

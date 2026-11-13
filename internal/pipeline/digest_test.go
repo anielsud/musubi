@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"github.com/anielsud/musubi/internal/store"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -128,6 +129,25 @@ func TestDigestStage(t *testing.T) {
 	r.Cfg.Knowledge.AllowHosted = true
 	if ks, err := r.Knowledge(context.Background(), KnowledgeOptions{LLM: emptyLLM{"m2"}, Embedder: provider.Hash{Dim: 64}, DigestLLM: hosted, Redo: []string{"digest"}}); err != nil || ks.Digested != n {
 		t.Fatalf("hosted with allow_hosted and --redo digest: %v, %d digested of %d", err, ks.Digested, n)
+	}
+
+	// A digest stored with a stand-in to-do (as GLM wrote on 2026-11-05)
+	// is read again on the next run; then it is left alone.
+	stamp, _ := st.StageStamp("digest", id)
+	in, _ := st.StageStamp("digest-input", id)
+	ver, hash, _ := strings.Cut(stamp, "/")
+	if err := st.ReplaceDigest(id, ver, hash, strings.TrimPrefix(in, "in/"), store.Digest{Overview: "o", Todos: []store.DigestTodo{{N: 1, Text: "placeholder", Agreed: "agreed"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := st.StageStamp("digest", id); s != stamp {
+		t.Fatalf("test setup moved the stamp: %s -> %s", stamp, s)
+	}
+	base := fake.calls.Load()
+	if ks := run("m1"); ks.Digested != 1 || fake.calls.Load() != base+2 {
+		t.Fatalf("stand-in digest: %d read (%d calls)", ks.Digested, fake.calls.Load())
+	}
+	if ks := run("m1"); ks.Digested != 0 {
+		t.Fatalf("repaired digest read again: %d", ks.Digested)
 	}
 
 	// Off: no digest, and the to-do view reads statements.

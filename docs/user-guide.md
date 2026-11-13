@@ -14,7 +14,10 @@ customers are made up.
 
 - [Quickstart](#quickstart)
 - [A tour of the app](#a-tour-of-the-app)
-- [Models](#models)
+- [Who said what: speaker labels](#who-said-what-speaker-labels)
+- [Models](#models), and [what to expect](#what-to-expect)
+- [Diagnostics](#diagnostics)
+- [Use it from Claude Code](#use-it-from-claude-code)
 - [Privacy](#privacy)
 - [Updating](#updating)
 - [When something isn't working](#when-something-isnt-working)
@@ -77,13 +80,13 @@ own commitments from other people's.
 Still in **Settings → Accounts**, click **Connect to Microsoft 365**
 and sign in with your work account in the browser window that opens.
 
-The first sync reads the last **six weeks** of your calendar and
-the Teams transcripts of those meetings, including ones you weren't
-recorded in. After that it keeps up on its own. Musubi only reads: it
-never sends, changes or deletes anything in Microsoft 365.
+The first sync reads the last **six weeks** of your calendar and the
+Teams transcripts of the meetings you were in, recorded by Musubi or not.
+After that it keeps up on its own. Musubi only reads: it never sends,
+changes or deletes anything in Microsoft 365.
 
 To bring in more history before the first sync, raise **First sync,
-days back** first.
+days back** first. After it, see [upgrades.md](upgrades.md#5-bring-in-older-history-and-rethread).
 
 ### 6. Your first meeting
 
@@ -175,6 +178,45 @@ something needs you, it says so here first.
 
 ![Settings → Recording](images/user-guide/settings-recording.png)
 
+## Who said what: speaker labels
+
+Musubi names speakers on your Mac, from the recording itself, rather
+than taking them from the meeting platform:
+
+- **Voices are told apart** as the meeting goes (regrouped every 10
+  seconds) and settled when it ends.
+- **The meeting window.** About once a second the recorder looks at the
+  Teams or Zoom window: who is highlighted as speaking, and their name.
+  It needs screen recording (and, for Zoom, Accessibility) permission,
+  and the meeting window open, not minimised. A misread name is matched
+  to the closest invitee.
+- **Your microphone** is "you". With **Other voices on your
+  microphone** on (the default), someone speaking beside you is told
+  apart.
+- **Voice profiles** (Settings → Recording → **Voice profiles**, off by
+  default): Musubi learns each person's voice, as fingerprints (no
+  audio kept), from moments their tile was lit or you named them, and
+  then names them where the window can't: in a meeting room, on the
+  phone, or with no window. On saved meetings it named 112 of 119
+  voices, all correctly.
+- **Meeting rooms** (Settings → Recording → **Split meeting rooms into
+  their people**, off by default) separates the people sharing a room's
+  microphone.
+
+**Making labels better:**
+- On a meeting's page, **rename** a wrong speaker; **split by voice…**
+  when one label covers two people. Profiles learn from both.
+- In **Explore → Voices**, work through **Who's this?** (voices nobody
+  named in the last 90 days), **Same person?** and **Window or voice?**.
+  On a profile, **Not them** removes a meeting that wasn't them, and
+  **Junk** stops it learning from a bad stretch.
+- Renaming a profile renames that person in past meetings too, without
+  any model call, and can be undone.
+
+Teams transcripts name speakers too, but Musubi doesn't use their names
+on its recordings yet: it uses Teams transcripts to fill in meetings,
+or parts of meetings, it didn't record.
+
 ## Models
 
 Out of the box every model runs on your Mac with Ollama: nothing you
@@ -183,13 +225,76 @@ answers are simpler.
 
 For better results, connect a hosted model:
 
-1. **Settings → AI providers**: add the AI Gateway with your token, or
-   another provider.
-2. **Settings → Processing → Use recommended**.
+1. **Settings → AI providers**: add the AI Gateway with your token (it
+   needs both "AI Gateway Run" and "Workers AI Read"), or another
+   provider with **Add a provider**: a name, an address and a key
+   (OpenAI- or Anthropic-compatible). Keys go in your Keychain, never in
+   a file.
+2. **Settings → Processing → Use recommended**. It sets the models below
+   and turns on what they're for: meetings read into subjects, meeting
+   summaries with to-dos, and Live's briefs. Your other settings stay.
 
-Hosted models are then used for reading meetings, summaries, statuses
-and answers; search and Live suggestions stay on your Mac.
-**Processing** shows what each job costs per meeting hour.
+**Settings → Processing** lists each job, its model, a fallback used
+when that model fails, and how hard it thinks. **Models** lists every
+model with its price and what uses it, and downloads local ones.
+
+| Job | Recommended | Without a hosted model |
+|---|---|---|
+| Reading meetings and linking them into subjects | Claude Haiku 5.5, through the AI Gateway (GLM-5.3-Flash as fallback) | local model, simpler output |
+| Statuses, meeting summaries, Live briefs | Claude Haiku 5.5 | statuses on the local model; no summaries or briefs |
+| Ask | Claude Haiku 5.5; Qwen3.8-27B on your Mac as fallback | qwen3:8b on your Mac |
+| Sensitivity labels, Live relevance | Jev (a classifier) through the gateway | the local model's yes or no |
+| Live suggestions, search | qwen3:8b and nomic-embed-text, on your Mac | the same |
+| Transcription, speakers | on your Mac, in the recorder | the same |
+
+The configuration behind this lives in `~/.config/musubi/config.toml`;
+[setup.md](setup.md) has every key.
+
+### What to expect
+
+Measured on real meetings (dates and methods in
+[research-log.md](research-log.md)):
+
+| | |
+|---|---|
+| Cost, with the recommended models | about $0.06 a meeting hour: $0.04 to read it into subjects, $0.02 for statuses and summaries; under 1¢ a question (2026-11-11, not counting thinking) |
+| Live | about 2–3.5 s from words said to a lookup on screen; suggestions start within 0.7 s (2026-10-29) |
+| Ask | a few seconds with a hosted model; a minute or more on the local fallback |
+| Transcription | against Tomoe on a live call: 3.6% of words different, the same speaker for 100% of words (2026-11-12) |
+| The recorder | about 30% of one core and 2.5 GB of memory while recording (2026-11-12) |
+| Local models | Ollama's qwen3:8b needs about 11 GB of memory while loaded; the optional 27B fallback about 16 GB |
+| Disk | a year of meetings, about 1,300 of them: a 420 MB database, plus the recordings' audio |
+
+## Diagnostics
+
+- **Status** says first what needs you: the recorder's state and its
+  health (each problem with its fix: a missing permission, a model to
+  download), what Musubi holds, its work queue, and its connections.
+- **⚙︎ (top right)** opens how Musubi is thinking: what it heard, what it
+  looked up, each model call and how long it took, what the recorder saw
+  of the meeting window, and **resources**: CPU and memory for Musubi,
+  the recorder and Ollama.
+- The letters by the name: **L**, the live feed from the recorder; **M**,
+  local models. Green is connected.
+- **Logs**: `~/Library/Logs/Musubi/musubi-gui.log` (the app) and
+  `~/.local/share/musubi/recorder/logs/recorder.log` (the recorder).
+
+## Use it from Claude Code
+
+Claude Code can read what Musubi knows, with every result labelled by
+who it may be shared with ([mcp-design.md](mcp-design.md)). Register it
+once:
+
+```sh
+claude mcp add --scope user musubi -- /Applications/Musubi.app/Contents/MacOS/musubi mcp
+```
+
+Then ask Claude things like "what's open with Acme Freight?" or "prep me
+for my 2pm". It can search, read threads, meetings and to-dos, and
+prepare for a meeting; it can also record your corrections and to-do
+marks, each with undo, when you ask it to. It reads the default
+dataset; to use another, add `--config <path to its config.toml>` before
+`mcp`.
 
 ## Privacy
 
@@ -218,6 +323,10 @@ Because the app isn't signed by Apple yet, after an update:
 - macOS may ask again for the microphone and screen recording. If
   recordings come out silent, turn *Musubi Recorder* off and on again in
   **System Settings → Privacy & Security** under both.
+
+A new version that changes how your data is stored first copies your
+database to `backups/` in the data folder. If you have been using an
+earlier Musubi, or Tomoe, see [upgrades.md](upgrades.md).
 
 ## When something isn't working
 

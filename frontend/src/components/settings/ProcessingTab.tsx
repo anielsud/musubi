@@ -41,7 +41,7 @@ export function ProcessingTab() {
   if (err) return <div className="error">{err}</div>;
   if (!groups) return <Spinner />;
   const recommended = () => {
-    if (!confirm('Use the recommended models for every group? Claude Haiku 5.5 through the AI Gateway, GLM on Baseten as the fallback, local models for Live. Your other settings stay.')) return;
+    if (!confirm('Use the recommended setup? Claude Haiku 5.5 through the AI Gateway, GLM on Baseten as the fallback, local models for Live; and what they are for turned on: meetings read into threads, summaries with to-dos, Live briefs. Your other settings stay.')) return;
     setApplying(true);
     api.applyRecommended().then(() => setApplying(false), (e) => { setApplying(false); setErr(String(e)); });
   };

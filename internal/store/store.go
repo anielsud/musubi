@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	sqlite_vec "github.com/asg017/sqlite-vec-go-bindings/cgo"
 	sqlite3 "github.com/mattn/go-sqlite3"
@@ -56,6 +57,9 @@ type Store struct {
 	// VectorEncoding is how vectors are written: "f32" (or "") or "f16"
 	// (vecenc.go); set from store.vector_encoding. Both always read.
 	VectorEncoding string
+	// UpgradeBackup is the copy made before this open upgraded the
+	// database ("" when nothing was upgraded).
+	UpgradeBackup string
 }
 
 func init() { sqlite_vec.Auto() }
@@ -74,6 +78,10 @@ type Options struct {
 	// (reads.go); WAL lets them read while the single writer writes. 1 or
 	// less: reads share the writer's connection, as before.
 	ReadConns int
+	// NoUpgradeBackup skips the copy made before an older database is
+	// upgraded ([store] backup_before_upgrade = false). A newer database is
+	// refused either way.
+	NoUpgradeBackup bool
 }
 
 // Open opens or creates the database at path with the zero Options.
@@ -125,6 +133,20 @@ func OpenWith(path string, o Options) (*Store, error) {
 	// One writer at a time is SQLite's model; a single connection also keeps
 	// transactions from interleaving between goroutines.
 	db.SetMaxOpenConns(1)
+	// Others' datasets are upgraded by builds they install: never drop or
+	// misread a newer database, and copy an older one before changing it.
+	upgrade, from, err := upgradeNeeded(db)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	var backup string
+	if upgrade && !o.NoUpgradeBackup {
+		if backup, err = backupBeforeUpgrade(db, path, from, time.Now()); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
 	if err := migrate(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
@@ -166,7 +188,11 @@ func OpenWith(path string, o Options) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	s := &Store{db: db, rdb: db, ReadWithRules: true}
+	if err := recordFormat(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	s := &Store{db: db, rdb: db, ReadWithRules: true, UpgradeBackup: backup}
 	if o.ReadConns > 1 {
 		// Read-only twice over: the file is opened read-only (mode=ro) and
 		// query_only refuses any write, so a read path routed here by

@@ -59,7 +59,10 @@ func load() (config.Config, *store.Store, error) {
 	if err != nil {
 		return cfg, nil, err
 	}
-	st, err := store.Open(cfg.DBPath())
+	st, err := store.OpenWith(cfg.DBPath(), store.Options{NoUpgradeBackup: !cfg.Store.BackupBeforeUpgrade})
+	if err == nil && st.UpgradeBackup != "" {
+		fmt.Fprintf(os.Stderr, "upgraded the database; the copy from before is %s\n", st.UpgradeBackup)
+	}
 	if err == nil {
 		if err = st.SetVectorEncoding(cfg.Store.VectorEncoding); err != nil {
 			st.Close()

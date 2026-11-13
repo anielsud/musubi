@@ -49,6 +49,14 @@ export function App() {
     return () => { clearTimeout(t0); clearInterval(t); offs.forEach((f) => f()); };
   }, [refresh]);
 
+  // Live works lightly while the window can't be seen ([live] background).
+  useEffect(() => {
+    const report = () => { api.setWindowHidden(document.visibilityState === 'hidden').catch(() => {}); };
+    const t = setTimeout(report, 200);
+    document.addEventListener('visibilitychange', report);
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', report); };
+  }, []);
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(''), 4000);

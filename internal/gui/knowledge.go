@@ -89,9 +89,7 @@ func (a *App) ToDos(proposals bool, scope string) ([]knowledge.ToDo, error) {
 		return nil, err
 	}
 	req := knowledge.ToDoRequest{Proposals: proposals, QuietAfter: a.eng.Cfg.Prep.QuietAfter()}
-	if a.eng.Cfg.Knowledge.Digest.ToDos {
-		req.Source = "digest"
-	}
+	req.Source = a.eng.Cfg.Knowledge.Digest.ToDoSource()
 	return v.ToDos(req, a.eng.Cfg.Owner.Name)
 }
 

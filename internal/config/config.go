@@ -330,13 +330,29 @@ type Digest struct {
 	Parallel int `toml:"parallel"`
 	// ToDos makes the to-do view read the digest's to-dos (with their
 	// owners, agreed-or-floated state and dates) instead of commitment
-	// statements. Meetings without a digest then have no to-dos listed.
+	// statements. Off when Enabled is.
 	ToDos bool `toml:"todos"`
+	// ToDosFallback lists the commitment statements of items with no
+	// digest yet (not summarised, summary failed, chats) beside the
+	// digests' to-dos; false lists the digests' to-dos only, as before.
+	ToDosFallback bool `toml:"todos_fallback"`
 	// MinTopicStatements is how many of a meeting's statements a thread
 	// must hold to be listed as one of its topics (a thread holding fewer
 	// is mostly not about the meeting: 1 statement, "not here" in the
 	// measure; 3 to 5 split the rest).
 	MinTopicStatements int `toml:"min_topic_statements"`
+}
+
+// ToDoSource is the to-do view's source (knowledge.ToDoRequest.Source):
+// "" for commitment statements, "digest", or "digest-only".
+func (d Digest) ToDoSource() string {
+	switch {
+	case !d.Enabled || !d.ToDos:
+		return ""
+	case d.ToDosFallback:
+		return "digest"
+	}
+	return "digest-only"
 }
 
 // Label configures statement sensitivity labelling.
@@ -758,7 +774,7 @@ func DefaultConfig() Config {
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true, AutoBrief: true},
 		MCP:           MCP{Enabled: true, MaxShare: "owner-only", Write: true},
 		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, FirstDays: 42, Reconnect: true, TomoeContext: true, Transcripts: true, TeamsNames: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
-		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0, Extract: "lean", StrictLinks: true, ImportKeepProposed: true, Grouping: "threads", Threads: Threads{Chunk: 70, Parallel: 8, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true, ConsolidateWindow: 24, InsertOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: false, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 16}, Digest: Digest{Enabled: true, ToDos: true, Parallel: 4, MinTopicStatements: 3}, AllowHosted: true, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true, HoldUpgrades: true},
+		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0, Extract: "lean", StrictLinks: true, ImportKeepProposed: true, Grouping: "threads", Threads: Threads{Chunk: 70, Parallel: 8, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true, ConsolidateWindow: 24, InsertOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: false, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 16}, Digest: Digest{Enabled: true, ToDos: true, ToDosFallback: true, Parallel: 4, MinTopicStatements: 3}, AllowHosted: true, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true, HoldUpgrades: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true, PullMissing: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

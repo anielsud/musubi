@@ -350,7 +350,9 @@ func (s *Store) MeetingTopics(sc sensitivity.Scope, itemID string, min int) ([]M
 // relating to it, so its state is read as before) with the to-do's own
 // words, owners and date over it; one that matched none stands alone with a
 // negative id. A to-do only floated is listed with proposals; one declined
-// in the meeting is closed.
+// in the meeting is closed. An item with no digest (not summarised yet, its
+// summary failed, or not a meeting) keeps its commitment statements, so
+// the list doesn't empty while summaries are made.
 func (s *Store) DigestCommitments(sc sensitivity.Scope, proposals bool) ([]Commitment, error) {
 	vis, vargs := digestVis(sc)
 	todos, err := s.scanDigestTodos(digestVisJoin+`WHERE (x.agreed != 'floated' OR ?) AND `+vis+` ORDER BY x.said_at DESC, x.id`, append([]any{proposals}, vargs...))
@@ -433,7 +435,11 @@ func (s *Store) DigestCommitments(sc sensitivity.Scope, proposals bool) ([]Commi
 		fix.Fix(&c.Statement)
 		out = append(out, c)
 	}
-	return out, nil
+	rest, err := s.loadCommitments(sc, commitmentCond+` AND NOT EXISTS (SELECT 1 FROM meeting_digests d WHERE d.item_id = st.item_id)`, []any{proposals})
+	if err != nil {
+		return nil, err
+	}
+	return append(out, rest...), nil
 }
 
 // String is for logs.

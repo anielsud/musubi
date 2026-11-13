@@ -603,9 +603,7 @@ func (s *Server) todos(_ context.Context, in ToDosIn) (*result, error) {
 	}
 	cfg := s.e.Cfg
 	req := knowledge.ToDoRequest{Proposals: in.Proposals, QuietAfter: cfg.Prep.QuietAfter()}
-	if cfg.Knowledge.Digest.ToDos {
-		req.Source = "digest"
-	}
+	req.Source = cfg.Knowledge.Digest.ToDoSource()
 	ts, err := s.views().ToDos(req, cfg.Owner.Name)
 	if err != nil {
 		return nil, err

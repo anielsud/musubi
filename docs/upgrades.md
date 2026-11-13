@@ -85,6 +85,11 @@ tuning. The full list, old and new values, is in
 [research-log.md](research-log.md) ("the defaults follow the owner's
 setup"). New meetings use them at once; existing ones follow when you
 rethread (§5). To keep an old behaviour, set its key in your config.
+Summaries are the exception: the first update after upgrading writes one
+for every meeting already read, all in that run, with no spending cap
+(about $0.02 per meeting hour with Claude Haiku 5.5; a local model may
+fail on long ones, which are tried again each run). Until a meeting has
+its summary, the to-do view lists its to-dos as before.
 
 ## 4. Switch to Musubi's recorder
 

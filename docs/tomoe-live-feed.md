@@ -50,3 +50,17 @@ segments too.
 If a session is active when a client connects, the server sends `hello`,
 the `session` `started` message, and then every current segment of that
 session in order, before live messages.
+
+## Musubi's recorder (2026-11-12)
+
+Musubi's own recorder (`internal/recorder/livefeed`) serves the same
+protocol at `live.sock` in its folder (`[recorder] data`, default
+`~/.local/share/musubi/recorder`), when its `[meeting] live_feed` is on
+(`[recorder.meeting] live_feed` in Musubi's config, or Tomoe's config
+while the recorder reads it; its built-in default is off). Its `hello`
+also says `"app":"tomoe"`. It adds `status`, `audio`, `diag` and `look`
+messages, which readers that don't know them ignore
+([recorder-screens.md](recorder-screens.md), "How Musubi talks to the
+recorder"). Live follows the feed of the recorder of record (`[recorder]
+of_record`); the app follows the recorder's feed for its state either
+way.

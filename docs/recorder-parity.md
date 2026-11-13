@@ -51,6 +51,8 @@ own folder (`~/.local/share/musubi/recorder`, or `--data`): sessions, a
 copy of Tomoe's voices taken at the start of each recording, the live
 feed's socket and the log. It reads Tomoe's config and models and never
 writes Tomoe's folder; it refuses to start with `--data` pointing there.
+(Since 2026-11-12 it can also stand alone, reading nothing of Tomoe's:
+`[recorder] tomoe = "off"`, recorder-screens.md, "Standalone".)
 
 Install (after `make dev-cert-mac` in Tomoe, once, for the signing
 identity), not while a meeting is being recorded:

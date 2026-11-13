@@ -211,6 +211,15 @@ func (a *Recorder) Start(ctx context.Context) error {
 		fmt.Printf("Warning: voices not copied from Tomoe: %v\n", err)
 	}
 	status := modelManager(cfg).Check()
+	if !status.Ready() && cfg.Transcription.DownloadMissing && config.OwnModelDir() != "" {
+		// A new install has none. Exiting would only be restarted every
+		// minute with nothing to load, and the control socket, which the
+		// app downloads through, would be gone each time.
+		if err := a.downloadRequired(cfg); err != nil {
+			fmt.Printf("models: %v\n", err)
+		}
+		status = modelManager(cfg).Check()
+	}
 	a.setupEngines(ctx, cfg, status)
 	a.mu.Lock()
 	ready := a.bundle.engines != nil

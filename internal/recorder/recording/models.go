@@ -160,3 +160,21 @@ func toolModel(toolID string, cfg *config.Config) (string, bool) {
 	}
 	return "", false
 }
+
+// downloadRequired downloads the models a recording can't start without
+// (models.Manager.Download) into the recorder's own folder, showing the
+// progress as Status.Busy. Better models for a task (Settings → Models)
+// are the owner's to download.
+func (a *Recorder) downloadRequired(cfg *config.Config) error {
+	defer a.setBusy("")
+	last := ""
+	return modelManager(cfg).WithFetcher(a.modelFetch).Download(false, func(step string, done, total int64) {
+		if total <= 0 {
+			return
+		}
+		if msg := fmt.Sprintf("Downloading %s: %d%% of %d MB", step, 100*done/total, total>>20); msg != last {
+			last = msg
+			a.setBusy(msg)
+		}
+	})
+}

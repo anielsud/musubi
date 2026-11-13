@@ -209,3 +209,24 @@ func TestControlDownloadOneAtATime(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// A start with nothing downloaded fetches the required models into the
+// recorder's own folder, and reports what failed.
+func TestDownloadRequired(t *testing.T) {
+	c := newControlled(t)
+	f := &fakeFetch{bodies: map[string][]byte{}}
+	c.modelFetch = f.fetch
+	cfg := c.config()
+	err := c.downloadRequired(&cfg)
+	if err == nil || !strings.Contains(err.Error(), "Parakeet") {
+		t.Fatalf("err = %v, want the Parakeet download's failure", err)
+	}
+	if len(f.asked) == 0 || f.asked[0] != models.ParakeetArchiveURL {
+		t.Errorf("asked %v, want the Parakeet archive first", f.asked)
+	}
+	var st control.Status
+	c.must(t, control.OpStatus, nil, &st)
+	if st.Busy != "" {
+		t.Errorf("still busy: %q", st.Busy)
+	}
+}

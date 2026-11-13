@@ -210,6 +210,11 @@ func TestToDosFromDigest(t *testing.T) {
 	if err := s.ReplaceStatements(m2, "v", "h", []store.Statement{{ChunkID: c2[0].ID, Kind: "fact", Text: "The plan went out", Holder: "Robin Vale", SaidAt: day(2)}}); err != nil {
 		t.Fatal(err)
 	}
+	// A meeting not summarised yet keeps its commitment statements.
+	m4, c4 := mk("m4", day(4), 0)
+	if err := s.ReplaceStatements(m4, "v", "h", []store.Statement{{ChunkID: c4[0].ID, Kind: "commitment", Status: "agreed", Text: "Kai will draft the agenda", Holder: "Kai Moreno", Who: []string{"Kai Moreno"}, SaidAt: day(4)}}); err != nil {
+		t.Fatal(err)
+	}
 	st1, _ := s.ItemStatements(m1)
 	st2, _ := s.ItemStatements(m2)
 	if err := s.RelateStatements(st2[0].ID, st1[0].ID, "completes"); err != nil {
@@ -243,6 +248,21 @@ func TestToDosFromDigest(t *testing.T) {
 		return out
 	}
 	got := list(sensitivity.Owner(), false)
+	if x, ok := got["Kai will draft the agenda"]; !ok || x.State != "open" || x.Digest != 0 {
+		t.Errorf("a meeting without a digest lost its to-do: %+v", x)
+	}
+	if _, ok := got["Robin will send the plan"]; ok {
+		t.Error("a summarised meeting's statement listed besides its digest to-do")
+	}
+	only, err := Views{Store: s, Scope: sensitivity.Owner(), Now: day(10)}.ToDos(ToDoRequest{Source: "digest-only"}, "Robin Vale")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, x := range only {
+		if x.Digest == 0 {
+			t.Errorf("digest-only listed a statement: %q", x.Text)
+		}
+	}
 	if x := got["Robin Vale will send the plan by Friday."]; x.State != "done" || x.Outcome == nil || !x.Mine || x.Digest == 0 {
 		t.Errorf("linked to-do: %+v", x)
 	}

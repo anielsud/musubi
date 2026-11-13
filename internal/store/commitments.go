@@ -58,8 +58,12 @@ func scanCommitmentCols(sc interface{ Scan(...any) error }, st *Statement, extra
 // first; with proposals, also positions and decisions still proposed
 // ("we should…"), which the extractors keep apart from commitments.
 func (s *Store) Commitments(sc sensitivity.Scope, proposals bool) ([]Commitment, error) {
-	return s.loadCommitments(sc, `(st.kind = 'commitment' OR (? AND st.status = 'proposed' AND st.kind IN ('position', 'decision', 'opinion')))`, []any{proposals})
+	return s.loadCommitments(sc, commitmentCond, []any{proposals})
 }
+
+// commitmentCond selects commitment statements, and with its one argument
+// (proposals) true, positions and decisions still proposed.
+const commitmentCond = `(st.kind = 'commitment' OR (? AND st.status = 'proposed' AND st.kind IN ('position', 'decision', 'opinion')))`
 
 // loadCommitments reads the statements cond selects (cond may use the
 // aliases st, c and i, and takes args), with the later statements that

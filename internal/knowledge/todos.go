@@ -66,8 +66,9 @@ type ToDo struct {
 type ToDoRequest struct {
 	Proposals  bool          `json:"proposals"`
 	QuietAfter time.Duration `json:"quietAfter,omitempty"`
-	// Source is "digest" to list the to-dos of meeting digests; anything
-	// else lists commitment statements.
+	// Source is "digest" to list the to-dos of meeting digests (and the
+	// commitment statements of items with none), "digest-only" for the
+	// digests' to-dos alone; anything else lists commitment statements.
 	Source string `json:"source,omitempty"`
 }
 
@@ -75,12 +76,21 @@ type ToDoRequest struct {
 // then due soonest, then most recently raised), then quiet, then closed.
 func (v Views) ToDos(req ToDoRequest, ownerName string) ([]ToDo, error) {
 	read := v.Store.Commitments
-	if req.Source == "digest" {
+	if req.Source == "digest" || req.Source == "digest-only" {
 		read = v.Store.DigestCommitments
 	}
 	cs, err := read(v.Scope, req.Proposals)
 	if err != nil {
 		return nil, err
+	}
+	if req.Source == "digest-only" {
+		kept := cs[:0]
+		for _, c := range cs {
+			if c.Digest != 0 {
+				kept = append(kept, c)
+			}
+		}
+		cs = kept
 	}
 	// Oldest first, so a repeat folds into the next time it was said and
 	// that one carries the count forward.

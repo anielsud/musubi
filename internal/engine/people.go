@@ -388,9 +388,7 @@ func (e *Engine) entityTopics(id string, names []string, n int) ([]TopicRef, err
 func (e *Engine) personToDos(p *person) []knowledge.ToDo {
 	v := knowledge.Views{Store: e.Store, Scope: sensitivity.Owner(), Now: time.Now()}
 	req := knowledge.ToDoRequest{QuietAfter: e.Cfg.Prep.QuietAfter()}
-	if e.Cfg.Knowledge.Digest.ToDos {
-		req.Source = "digest"
-	}
+	req.Source = e.Cfg.Knowledge.Digest.ToDoSource()
 	all, err := v.ToDos(req, e.Cfg.Owner.Name)
 	if err != nil {
 		return nil

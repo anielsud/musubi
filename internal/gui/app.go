@@ -248,6 +248,9 @@ func (a *App) Update() {
 			a.live.Reload()
 		}
 		a.maybeReconnectM365()
+		// After the update: a Teams transcript it fetched may name a
+		// recorded meeting's speakers (relabelled without model calls).
+		a.nameFromTeams()
 		a.emit("update:done", msg)
 		a.emit("app:status", a.Status())
 		a.emit("queue:changed", nil)

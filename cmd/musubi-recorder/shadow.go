@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"time"
 
@@ -29,7 +30,9 @@ var shadowCompareCmd = &cobra.Command{
 overlaps it most in time and prints, per pair: how far apart they started
 and stopped, both durations and line counts, the word error rate of the
 recorder's text against Tomoe's, and how often the two give an aligned
-word the same speaker. Recordings only one side has are listed after.
+word the same speaker (by name; an unnamed "Person N" by the unnamed
+Tomoe speaker it most often lines up with). Recordings only one side has are
+listed after.
 
 Reads both folders and writes nothing. The output is for the terminal:
 don't commit it anywhere.`,
@@ -206,7 +209,7 @@ func spokenWords(s *session.Session) (words, speakers []string) {
 // textScore is how the recorder's text compares with Tomoe's: its word
 // error rate with Tomoe's as the reference, and, over the words both
 // transcripts have at the same place in the alignment, how many carry
-// the same speaker label.
+// the same speaker (see sameSpeaker).
 type textScore struct {
 	wer           float64
 	matched, same int
@@ -217,21 +220,66 @@ func scoreText(ours, theirs *session.Session) textScore {
 	ref, refSpk := spokenWords(theirs)
 	score := textScore{wer: eval.Align(ref, hyp).Rate()}
 	// Words outside DiffText's hunks are equal and aligned one to one.
+	var pairs [][2]string // Tomoe's speaker, ours, per aligned word
 	i, j := 0, 0
-	count := func(ri, hj int) {
+	collect := func(ri, hj int) {
 		for ; i < ri && j < hj; i, j = i+1, j+1 {
-			score.matched++
-			if refSpk[i] == hypSpk[j] {
-				score.same++
-			}
+			pairs = append(pairs, [2]string{speakerName(refSpk[i]), speakerName(hypSpk[j])})
 		}
 	}
 	for _, h := range eval.DiffText(ref, hyp) {
-		count(h.RefFrom, h.HypFrom)
+		collect(h.RefFrom, h.HypFrom)
 		i, j = h.RefTo, h.HypTo
 	}
-	count(len(ref), len(hyp))
+	collect(len(ref), len(hyp))
+	unnamed := unnamedMatches(pairs)
+	for _, p := range pairs {
+		score.matched++
+		if p[0] == p[1] || unnamed[p[1]] == p[0] {
+			score.same++
+		}
+	}
 	return score
+}
+
+// speakerName is the person a speaker label names: "Person 3 (Ann)" is
+// Ann. Each recorder numbers its own speakers, so comparing whole labels
+// counted the same named person as a disagreement.
+func speakerName(label string) string {
+	if m := personLabel.FindStringSubmatch(label); m != nil && m[2] != "" {
+		return m[2]
+	}
+	return label
+}
+
+var personLabel = regexp.MustCompile(`^Person (\d+)(?: \((.*)\))?$`)
+
+// unnamedMatches pairs each of our unnamed speakers ("Person N", no name)
+// with the unnamed Tomoe speaker its words most often align with: the
+// numbers are each recorder's own, so only that correspondence can be
+// compared. An unnamed speaker against a named one stays a disagreement.
+// pairs hold speakerName results, so "Person N" there is unnamed.
+func unnamedMatches(pairs [][2]string) map[string]string {
+	counts := map[string]map[string]int{}
+	for _, p := range pairs {
+		if !personLabel.MatchString(p[0]) || !personLabel.MatchString(p[1]) {
+			continue
+		}
+		if counts[p[1]] == nil {
+			counts[p[1]] = map[string]int{}
+		}
+		counts[p[1]][p[0]]++
+	}
+	best := map[string]string{}
+	for ours, theirs := range counts {
+		n := 0
+		for t, c := range theirs {
+			if c > n || (c == n && t < best[ours]) {
+				best[ours], n = t, c
+			}
+		}
+	}
+	return best
 }
 
 func printShadowCompare(w io.Writer, rep shadowReport) {

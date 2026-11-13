@@ -43,3 +43,31 @@ Two-pass was turned on through a scratch copy of the config
 Turn decisions matched count for count in every meeting. Decode times were
 within 1% of each other (the six runs shared the machine, so absolute
 times are slower than live).
+
+## Live shadow
+
+`musubi-recorder run` records the same meetings as Tomoe, live, into its
+own folder (`~/.local/share/musubi/recorder`, or `--data`): sessions, a
+copy of Tomoe's voices taken at the start of each recording, the live
+feed's socket and the log. It reads Tomoe's config and models and never
+writes Tomoe's folder; it refuses to start with `--data` pointing there.
+
+Install (after `make dev-cert-mac` in Tomoe, once, for the signing
+identity), not while a meeting is being recorded:
+
+    make recorder-app
+    scripts/install-recorder.sh
+
+The LaunchAgent `com.anielsud.musubi.recorder` starts it at login and
+after a crash; `launchctl bootout gui/$(id -u)/com.anielsud.musubi.recorder`
+stops it, saving a recording in progress. Log:
+`~/.local/share/musubi/recorder/logs/recorder.log`.
+
+Compare with Tomoe (read-only on both folders; print to the terminal,
+don't commit the output):
+
+    musubi-recorder shadow compare --since 2026-11-12
+
+Per meeting: start and stop difference, durations, line counts, word
+error rate of the recorder's text against Tomoe's, the share of aligned
+words with the same speaker, and recordings only one side has.

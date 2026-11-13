@@ -1,4 +1,4 @@
-.PHONY: build test vet fmt licenses eval eval-record clean frontend build-gui install-gui-mac
+.PHONY: build test vet fmt licenses eval eval-record clean frontend build-gui install-gui-mac recorder-app
 
 # FTS5 is compiled into the SQLite driver only with this tag.
 TAGS := -tags sqlite_fts5
@@ -81,6 +81,36 @@ install-gui-mac: build build-gui
 		killall Dock; \
 	fi
 	@echo "Installed /Applications/Musubi.app ($(VERSION))"
+
+# Musubi Recorder.app: the meeting recorder as a windowless app
+# (LSUIElement) for its LaunchAgent; scripts/install-recorder.sh installs
+# and loads it. Signed with the identity Tomoe's `make dev-cert-mac`
+# creates, never ad hoc: macOS keeps the microphone and screen-recording
+# grants only while the signature's identity stays the same.
+RECORDER_APP := bin/Musubi Recorder.app
+RECORDER_IDENTITY ?= Tomoe Dev Signing
+
+recorder-app:
+	go build -ldflags "-X main.version=$(VERSION)" -o bin/musubi-recorder ./cmd/musubi-recorder
+	rm -rf "$(RECORDER_APP)"
+	mkdir -p "$(RECORDER_APP)/Contents/MacOS" "$(RECORDER_APP)/Contents/Frameworks"
+	cp bin/musubi-recorder "$(RECORDER_APP)/Contents/MacOS/"
+	# Bundle the native libraries the binary loads via @rpath (sherpa-onnx
+	# and ONNX Runtime, otherwise found in the Go module cache, which only
+	# exists on the build machine) and point the binary at the bundled
+	# copies instead. The diarizer finds ONNX Runtime the same way
+	# (internal/recorder/onnxrt).
+	@set -e; dst="$(RECORDER_APP)/Contents/MacOS/musubi-recorder"; \
+	for rp in $$(otool -l "$$dst" | awk '/cmd LC_RPATH/ {getline; getline; print $$2}'); do \
+		for lib in $$(otool -L "$$dst" | awk '/@rpath\// {sub("@rpath/", "", $$1); print $$1}'); do \
+			if [ -f "$$rp/$$lib" ]; then install -m 644 "$$rp/$$lib" "$(RECORDER_APP)/Contents/Frameworks/"; fi; \
+		done; \
+		install_name_tool -delete_rpath "$$rp" "$$dst"; \
+	done; \
+	install_name_tool -add_rpath @executable_path/../Frameworks "$$dst"
+	sed 's/__VERSION__/$(VERSION)/g' packaging/macos/recorder/Info.plist.template > "$(RECORDER_APP)/Contents/Info.plist"
+	codesign --sign "$(RECORDER_IDENTITY)" --force --deep "$(RECORDER_APP)"
+	@echo "Built $(RECORDER_APP) ($(VERSION)); install with scripts/install-recorder.sh"
 
 clean:
 	rm -rf bin build

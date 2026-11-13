@@ -1,6 +1,7 @@
-// Command musubi-recorder is Musubi's meeting recorder. For now it only
-// works offline, on audio Tomoe already saved, so its output can be
-// compared with Tomoe's before it records anything itself.
+// Command musubi-recorder is Musubi's meeting recorder. `run` records
+// meetings beside Tomoe into the recorder's own folder, so the two can be
+// compared (`shadow compare`) while Tomoe stays the recorder of record;
+// the session commands work offline, on audio Tomoe already saved.
 package main
 
 import (

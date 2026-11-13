@@ -24,6 +24,21 @@ Files with no upstream-authored lines, copied with import paths changed:
 - `audio`, `live`, `meeting`, `models`, `session`, `transcribe`,
   `videohint`: the files with no upstream lines; the rest were rewritten
   (below).
+- `guestaudio`: `bridge.h`, `bridge_darwin.m`, `callback_darwin.go`,
+  `tap_darwin.go`. `meetingaudio`: `meetingaudio_darwin.go` and its test.
+- `recording` (the live recorder, from Tomoe's `internal/backend`, with
+  `*App` now `*Recorder` and the Wails events, window and settings parts
+  removed): `livefeed.go` and its test, `meetingdiarize.go`,
+  `ownervoice.go`, `titles.go` (without `showCalendarTitle`) and its
+  `defaultTitle` test, `videohint.go` (the recording side only: the
+  watcher, `followMeetingAudio`, `watchMic`), `permissions_darwin.go`
+  (the status and prompt functions). From `app.go`, the owner-authored
+  `setupEngines`, `engineBundle` and `close`, `meetingEmbedder`,
+  `tuningFromConfig`, `startDetector`, `leaseEnginesLocked` and
+  `releaseLeaseLocked`, now in `recorder.go`, and the owner lines of
+  `StartSession`, `StopSession` and `persistSession` in `session.go`.
+- `Makefile` `recorder-app`: the library-bundling loop from Tomoe's
+  `install-gui-mac`.
 
 ## Rewritten
 
@@ -42,13 +57,26 @@ the upstream ones are new code.
 | transcribe | convert.go, engine.go, engine_set.go, factory.go, parakeet.go, streaming.go |
 | session | audio.go, diarize_runner.go, export.go, reidentify.go, session.go, store.go and tests |
 | live | coordinator.go, pipeline.go and tests |
+| guestaudio | capturer_darwin.go; new: doc.go |
+| meetingaudio | meetingaudio.go; new: meetingaudio_other.go (non-macOS stub); Tomoe's Linux files are not brought over |
+| recording | session.go (`StartSession`, `StopSession`, the save worker, `persistSession`), recorder.go (`buildEngines`, the `Recorder` type, shutdown), events.go (`emitSessionSegments`, `applySegment`), detect.go (from Tomoe's `handleDetectEvent`) |
+| cmd/musubi-recorder | diarize.go (from Tomoe's `cmd/tomoe/diarize.go`) |
+
+New, with no Tomoe source: `recording/voicecopy.go`,
+`recording/permissions_other.go`, the `recording` tests other than the
+two lifted ones, `cmd/musubi-recorder` `run.go`, `datadir.go`,
+`shadow.go` and their tests, `packaging/macos/recorder/`,
+`scripts/install-recorder.sh`.
 
 The config package has no `Save`: while Tomoe is the recorder of record,
-nothing in the recorder may write Tomoe's config file.
+nothing in the recorder may write Tomoe's config file. `SetDataDir` moves
+everything the recorder writes out of Tomoe's data folder; `run` and
+`diarize` refuse Tomoe's folder.
 
 ## Not brought over
 
 Hotkey, dictation (`live/dictation.go`, `Coordinator.Activity`), clipboard
-and auto-paste, Tomoe's window and tray,
+and auto-paste, Tomoe's window and tray, its settings, tools and voices
+pages, session list/export/delete/re-transcribe, notifications,
 multilingual mode (language detection, Bengali, the multi-engine switcher),
 hotwords, GPU libraries, Linux meeting detection.

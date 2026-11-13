@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Musubi Recorder</string>
+	<key>CFBundleDisplayName</key>
+	<string>Musubi Recorder</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.anielsud.musubi.recorder</string>
+	<key>CFBundleExecutable</key>
+	<string>musubi-recorder</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>CFBundleVersion</key>
+	<string>__VERSION__</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<!-- No Dock icon or menu bar: the recorder runs as a LaunchAgent. -->
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Musubi Recorder records your microphone in meetings to transcribe them.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Musubi Recorder captures meeting audio from other apps and reads the meeting window's speaker names.</string>
+</dict>
+</plist>

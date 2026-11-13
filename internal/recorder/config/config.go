@@ -390,15 +390,44 @@ func Path() string {
 	return filepath.Join(xdgDir("XDG_CONFIG_HOME", ".config"), "tomoe", "config.toml")
 }
 
-// DataDir is Tomoe's data folder, $XDG_DATA_HOME/tomoe
+// TomoeDataDir is Tomoe's data folder, $XDG_DATA_HOME/tomoe
 // (~/.local/share by default), holding models, sessions and voices.
-func DataDir() string {
+func TomoeDataDir() string {
 	return filepath.Join(xdgDir("XDG_DATA_HOME", ".local", "share"), "tomoe")
 }
 
-// ModelDir is where downloaded models are kept (DataDir/models).
+var (
+	dataDirMu sync.RWMutex
+	dataDir   string // "" until SetDataDir: Tomoe's folder
+)
+
+// SetDataDir moves what the recorder writes (sessions, voices, the live
+// feed's socket, hint analysis) to dir, so a recorder running beside
+// Tomoe never touches Tomoe's files. Models stay where Tomoe keeps them
+// (ModelDir). "" goes back to Tomoe's folder, which offline commands
+// such as session replay read.
+func SetDataDir(dir string) {
+	dataDirMu.Lock()
+	defer dataDirMu.Unlock()
+	dataDir = dir
+}
+
+// DataDir is the folder sessions, voices and the live socket live in:
+// the one SetDataDir chose, else Tomoe's (TomoeDataDir).
+func DataDir() string {
+	dataDirMu.RLock()
+	dir := dataDir
+	dataDirMu.RUnlock()
+	if dir != "" {
+		return dir
+	}
+	return TomoeDataDir()
+}
+
+// ModelDir is where downloaded models are kept: Tomoe's, read-only to the
+// recorder, whatever SetDataDir says.
 func ModelDir() string {
-	return filepath.Join(DataDir(), "models")
+	return filepath.Join(TomoeDataDir(), "models")
 }
 
 // SessionDir is where recorded sessions are saved (DataDir/sessions).

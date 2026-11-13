@@ -24,8 +24,12 @@ var assets embed.FS
 // version is set at build time (make build-gui).
 var version = "dev"
 
+// channel is "release" in the DMG the release workflow builds (make
+// CHANNEL=release); only that build checks for and installs updates.
+var channel = "local"
+
 func main() {
-	gui.Version = version
+	gui.Version, gui.Channel = version, channel
 	// A Dock-launched app has no terminal; keep a log for diagnosis.
 	if home, err := os.UserHomeDir(); err == nil {
 		dir := filepath.Join(home, "Library", "Logs", "Musubi")

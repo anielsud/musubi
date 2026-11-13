@@ -216,6 +216,9 @@ export interface AppStatus {
   onUpdate: boolean;
   autoMax: number;
   updateEvery: number;
+  version: string;
+  // A newer release, when the daily update check found one.
+  newVersion?: { version: string; url: string; prerelease: boolean };
 }
 
 export interface Statement {
@@ -879,7 +882,7 @@ export interface NamedByVoice { session: string; title: string; at: string; labe
 export interface VoiceDoubt { session: string; title: string; at: string; label: string; window: string; name: string; similarity: number; seconds: number; clip: VoiceClip; noProfile: boolean }
 export interface VoicePair { model: string; a: string; b: string; similarity: number }
 export interface SameNamePair { model: string; a: string; b: string; name: string; similarity: number; meetingsA: number; meetingsB: number; clipA: VoiceClip; clipB: VoiceClip }
-export interface UnknownVoice { session: string; title: string; at: string; label: string; seconds: number; clip: VoiceClip; soundsLike?: string; similarity?: number; returned?: boolean; returnedFrom?: string; sample?: SampleRef }
+export interface UnknownVoice { session: string; title: string; at: string; label: string; seconds: number; clip: VoiceClip; soundsLike?: string; similarity?: number; returned?: boolean; returnedFrom?: string; sample?: SampleRef; noVoice?: boolean; closest?: number }
 // SampleRef: a single sample taken out of a profile with "Not them" (profile: the one it came from).
 export interface SampleRef { model: string; profile: string; start: number; end: number }
 export interface ForgottenName { model: string; name: string }

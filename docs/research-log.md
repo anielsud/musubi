@@ -4062,3 +4062,83 @@ text (20+ anchors each).
 No case of Teams and the recorder naming two different people. Where
 they differ, the recorder is the more precise: Teams only knows the
 accounts on the call.
+
+## 2026-11-13: Live when the window is hidden — measured on a live meeting
+
+**Setup.** A real 33-minute meeting on the owner's Mac, with Musubi's
+recorder and Tomoe both recording (shadow) and the app on the
+`live-background` build. A probe hid the app every 5 minutes (as Cmd-H;
+the page's `visibilitychange` fired each time, logged as "window hidden")
+and showed it again 5 minutes later. It read each process's CPU time
+every 5 s and took a 10-second `sample` of the app halfway through each
+stretch. Each figure is CPU as a share of one core, averaged over the
+stretch.
+
+| Stretch | App | Ollama | Musubi recorder | Tomoe |
+|---|---|---|---|---|
+| shown, first 3 min | 2% | 10% | 67% | 70% |
+| hidden | 1% | 7% | 68% | 67% |
+| shown | 1% | 7% | 69% | 68% |
+| hidden | 2% | 9% | 68% | 66% |
+| shown | 6% | 12% | 77% | 78% |
+| hidden | 1% | 8% | 74% | 74% |
+| shown (4 min) | 2% | 16% | 83% | 83% |
+| **all hidden (15 min)** | **1%** | **8%** | 70% | 69% |
+| **all shown (14 min)** | **3%** | **11%** | 76% | 76% |
+
+**Findings:**
+- **The light mode works, but saves little:** about 2 points of a core in
+  the app and 3 in Ollama (local suggestions and lookup summaries). The
+  window came back with the panel redrawn at once.
+- **The app was idle most of the time.** Every sample was mostly threads
+  waiting. The few busy frames were SQLite page reads and Go memory
+  clearing. The cost measured on 2026-11-12 (45% of a core) was cut that
+  day; this meeting didn't bring it back.
+- **The recorders are the cost:** about 70% of a core each, and two of
+  them run while Tomoe records in shadow. They rise and fall together
+  with how much is said, as transcription and speaker work should.
+  Retiring Tomoe as the shadow would save about as much as the whole
+  rest of Musubi uses. What inside the recorder takes the 70%
+  (transcribing drafts, speaker embeddings, the window-name reads) is
+  the next thing to profile, in a meeting.
+
+Not measured: the web view's own process (drawing the panel), which
+the probe didn't separate from Safari's.
+
+## 2026-11-13: the recorder's CPU in a meeting — the transcription model spins
+
+**Seen:** in a 30-minute meeting on the owner's Mac (Musubi's recorder
+alone; Tomoe didn't record), the recorder averaged 47% of a core. Eight
+15-second `sample`s, 4 minutes apart, split its busy time (waits left
+out) like this:
+
+| What | Share |
+|---|---|
+| ONNX Runtime computing (transcription, voice fingerprints, segmentation) | 45% |
+| **ONNX Runtime's worker threads spinning while waiting** | **37%** |
+| Reading the meeting window (screen capture, text recognition, JPEG) | 5% |
+| Go runtime and the rest | 13% |
+
+The spinning threads were the intra-op pool of the final transcription
+model (Cohere Transcribe, `sherpa_onnx::OfflineRecognizer`), loaded with
+4 threads (`NewCohereEngine`'s default). sherpa-onnx doesn't expose ONNX
+Runtime's `allow_spinning`, so the thread count is the lever. Two-pass is
+off (`two_pass = false`), so this model alone writes each line when the
+speaker pauses.
+
+**Measured** offline, Cohere on 5 minutes of a recorded meeting (16 kHz
+mono, cut by the speech detector as live), on the owner's Mac:
+
+| Threads | Wall time | CPU time | Text |
+|---|---|---|---|
+| 4 (before) | 15.6 s | 59.5 s | 577 words |
+| 2 | 17.6 s | 35.0 s | identical |
+| 1 | 23.5 s | 23.5 s | identical |
+
+**Decision (owner, 2026-11-13):** 2 threads by default
+(`[transcription] threads`, 4 restores the previous behaviour). CPU for
+transcription is 41% lower; a 10-second stretch of speech takes about
+0.6 s instead of 0.5 s to appear. 1 thread would save 60% for about
+0.8 s per line.
+
+**Next to check:** the recorder's average in a meeting with 2 threads.

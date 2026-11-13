@@ -433,7 +433,16 @@ enters the cold lane like any other source.
   (default on) a due pick, or a model suggestion run, whose input is what
   the last one read (the conversation it reads, the scope and, for a
   pick, its votes) is skipped and the cadence kept. Menu ranking already
-  runs only when the cards it ranks change. The diagnostics panel's
+  runs only when the cards it ranks change. While the window can't be seen
+  (`live.background`, default on; the page's `visibilitychange`:
+  minimized, hidden, on a Space not shown, covered; another monitor
+  showing it counts as seen), Live does only what the topic cards depend
+  on, as a stepped replay's `CardsOnly` does: picks and the picked cards'
+  briefs, lookups that only put topics forward, and model suggestions on
+  complete lines. Entity graphs, card drawing, the menu's ranking and
+  lookup summaries wait, and the panel is redrawn once the window shows
+  (`Live.Redraw`). On a live meeting it took the app from 3% to 1% of a
+  core and Ollama from 11% to 8% (research log 2026-11-13). The diagnostics panel's
   "Record a 30 s profile" (`[diagnostics] profiling`) writes a CPU profile
   and a goroutine dump under the data folder's `profiles/`; Live's steps
   carry pprof labels (`step` = pick, suggest, fastlane, cards; queue for
@@ -450,6 +459,34 @@ enters the cold lane like any other source.
   view is the WebKit web content process macOS holds responsible for the
   app (left out where that can't be asked); a process counts in one
   component only.
+  The update check (`internal/updates`, `[updates]`, default on,
+  release candidates included) asks GitHub's API once a day,
+  anonymously, for the releases of the public releases-only repository
+  (`anielsud/musubi-releases`; the source repository is private). Only
+  the release workflow's DMG checks (`make CHANNEL=release`); a build
+  from source is `local` and never checks or installs, so it is never
+  replaced by a release behind it. The header offers a newer release.
+  **Update**, only when clicked, and never while recording or while an
+  update or run is going:
+  1. downloads the DMG over HTTPS from that repository's own download
+     URLs;
+  2. checks it against the `.sha256` file the workflow publishes beside
+     it;
+  3. mounts it read-only and checks that it holds the same bundle
+     identifier at that version and that its signature verifies. A
+     certificate-signed app also requires the new version to satisfy its
+     own designated requirement, meaning the same certificate (the checksum
+     comes from the same place as the DMG, so the signer is the real
+     tie). Releases are signed with the self-signed "Musubi Release
+     Signing" certificate (workflow secrets), so macOS's privacy
+     permissions, which it keys on that requirement, survive updates;
+  4. copies it beside the app and swaps the two by rename, putting the
+     old one back if the swap fails; the old one is kept as
+     `.Musubi-previous.app` until the next launch;
+  5. restarts the recorder (its agent runs the copy inside the app) and
+     relaunches Musubi.
+
+  `install = false` opens the release page instead.
 - **Stepped replay** (`musubi live --replay ID --stepped`): the meeting
   line by line on its own clock, each line's work (lookups, cards,
   suggestions, summaries) done before the next, so the result doesn't

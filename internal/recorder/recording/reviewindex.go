@@ -396,7 +396,7 @@ func (a *Recorder) reviewLists(stores map[string]*voices.Store) ([]UnknownVoice,
 		sessions = append(sessions, r)
 	}
 	a.review.mu.Unlock()
-	u, n, d := assembleReviews(sessions, stores, time.Now())
+	u, n, d := assembleReviews(sessions, stores, time.Now(), a.config().Meeting.AskUnfingerprintedSamples)
 	return u, n, d, true
 }
 
@@ -404,7 +404,7 @@ func (a *Recorder) reviewLists(stores map[string]*voices.Store) ([]UnknownVoice,
 // Voices page shows them: who's this from the last unknownDays (and any
 // voice taken out of a profile, whatever its age), named by voice and
 // window or voice from the last reviewDays, newest first, then longest.
-func assembleReviews(sessions []*sessionReview, stores map[string]*voices.Store, now time.Time) ([]UnknownVoice, []NamedByVoiceView, []VoiceDoubtView) {
+func assembleReviews(sessions []*sessionReview, stores map[string]*voices.Store, now time.Time, askNoVoice bool) ([]UnknownVoice, []NamedByVoiceView, []VoiceDoubtView) {
 	unknown, named, doubts := []UnknownVoice{}, []NamedByVoiceView{}, []VoiceDoubtView{}
 	unknownSince, reviewSince := now.AddDate(0, 0, -unknownDays), now.AddDate(0, 0, -reviewDays)
 	for _, r := range sessions {
@@ -431,7 +431,7 @@ func assembleReviews(sessions []*sessionReview, stores map[string]*voices.Store,
 			unknown = append(unknown, v)
 		}
 	}
-	unknown = append(unknown, returnedSamples(sessions, stores)...)
+	unknown = append(unknown, returnedSamples(sessions, stores, askNoVoice)...)
 	newestFirst := func(ai, bi time.Time, as, bs float64) bool {
 		if !ai.Equal(bi) {
 			return ai.After(bi)
@@ -471,5 +471,5 @@ func (a *Recorder) freshReviewLists(stores map[string]*voices.Store, now time.Ti
 			sessions = append(sessions, r)
 		}
 	}
-	return assembleReviews(sessions, stores, now)
+	return assembleReviews(sessions, stores, now, a.config().Meeting.AskUnfingerprintedSamples)
 }

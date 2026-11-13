@@ -318,7 +318,9 @@ function UnknownRow({ u, others, where, editable, busy, onName, onSkip }: { u: U
         {u.sample
           ? <div><b>A sample at {clockOf(u.sample.start)}</b> <span className="dim small">{u.label && <>under {bare(u.label)} </>}{where}{where ? ' · ' : ''}{spoke(u.seconds)}</span></div>
           : <div><b>{bare(u.label)}</b> <span className="dim small">{where}{where ? ' · ' : ''}spoke {spoke(u.seconds)}</span></div>}
-        {u.returned && <div className="dim small">You said this isn&apos;t {from}: who is it?</div>}
+        {u.returned && !u.noVoice && <div className="dim small">You said this isn&apos;t {from}: who is it?</div>}
+        {!u.soundsLike && !u.noVoice && (u.closest ?? 0) > 0 && <div className="dim small">It doesn&apos;t sound like any voice profile (the closest is {Math.round((u.closest ?? 0) * 100)}% alike).</div>}
+        {u.noVoice && <div className="dim small">You said this isn&apos;t {from}. It is too short to tell whose voice it is, so it can&apos;t teach anyone&apos;s voice.</div>}
         {u.soundsLike && (
           <div className="dim small">
             {(u.similarity ?? 0) >= 0.7 ? 'Sounds like' : 'Sounds a little like'} <FullName name={u.soundsLike} /> ({Math.round((u.similarity ?? 0) * 100)}%)
@@ -327,7 +329,7 @@ function UnknownRow({ u, others, where, editable, busy, onName, onSkip }: { u: U
         )}
       </div>
       {editable && <div className="voice-actions">
-        <NameForm busy={busy} onName={onName} title={nameTitle} />
+        {!u.noVoice && <NameForm busy={busy} onName={onName} title={nameTitle} />}
         {u.returned && <button disabled={busy} onClick={onSkip}
           title={u.sample ? 'Noise, crosstalk or you don\'t know: stop asking; the sample stays out of the voice it was in and teaches no one' : 'Noise, crosstalk or you don\'t know: stop asking; the speaker stays unnamed'}>Can&apos;t tell</button>}
       </div>}

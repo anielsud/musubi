@@ -144,6 +144,9 @@ func (r *Runner) digestMeetings(ctx context.Context, o KnowledgeOptions, items [
 		older = older[n:]
 	}
 	ks.Outdated.Digest = len(older)
+	if !o.Plan && len(o.Items) == 0 {
+		r.setWaiting("digest", len(older))
+	}
 	sort.Slice(jobs, func(a, b int) bool { return jobs[a].it.OccurredAt.After(jobs[b].it.OccurredAt) })
 	if o.Limit > 0 && len(jobs) > o.Limit {
 		jobs = jobs[:o.Limit]

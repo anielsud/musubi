@@ -55,10 +55,19 @@ upgraded database, so going back means restoring that copy.
 
 Nothing is re-extracted or rethreaded on its own because the code
 changed: a new extraction or threading version waits for you
-(`knowledge.updates = "explicit"`). To see what is on older versions:
+(`knowledge.updates = "explicit"`). So, on meetings that haven't
+changed, does what a new version would otherwise redo at a model's cost
+on the next update (`knowledge.hold_upgrades`): passages a new chunker
+would cut again (and so extract again), thread statuses under a new
+status version, meeting names under a new naming version or model. New
+meetings, and ones whose recording or transcript changed, are processed
+as before. **Status → Work queue** lists what waits, with an estimate,
+and **Apply upgrades** runs it under a spending cap. To see what is on
+older versions:
 
 ```sh
 $musubi knowledge --plan
+$musubi knowledge --redo extract,statuses,names   # applies what waits
 ```
 
 **Settings → Processing → Use recommended** sets the hosted models and

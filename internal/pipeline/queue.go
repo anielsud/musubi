@@ -44,13 +44,77 @@ type Queue struct {
 	CatchUpUSD    float64 `json:"catchUpUsd"`
 	RethreadUSD   float64 `json:"rethreadUsd"`
 	RethreadHours float64 `json:"rethreadHours"`
+	// Upgrades is work a new version left for the owner, as the last
+	// update found it (knowledge.hold_upgrades, knowledge.updates).
+	Upgrades Upgrades `json:"upgrades"`
+}
+
+// Upgrades is what a new version (of the code or a model) would redo on
+// existing data at a model's cost, waiting to be applied.
+type Upgrades struct {
+	// Passages: meetings a new chunker would cut again, and so re-extract.
+	// Extract: items extracted under an earlier extraction version.
+	Passages int `json:"passages"`
+	Extract  int `json:"extract"`
+	// Digest: meetings summarised under an earlier digest version.
+	Digest int `json:"digest"`
+	// Statuses: thread statuses under an earlier status version.
+	Statuses int `json:"statuses"`
+	// Names: meeting names under an earlier naming version or model.
+	Names int     `json:"names"`
+	USD   float64 `json:"usd"`
+}
+
+// centsName: one short call; centsDigest: a whole-meeting read, about
+// the cost of extraction (both rough, for estimates).
+const centsName, centsDigest = 0.1, 1.0
+
+// Redo are the stages applying the upgrades redoes (--redo).
+func (u Upgrades) Redo() []string {
+	var out []string
+	if u.Passages+u.Extract > 0 {
+		out = append(out, "extract")
+	}
+	if u.Digest > 0 {
+		out = append(out, "digest")
+	}
+	if u.Statuses > 0 {
+		out = append(out, "statuses")
+	}
+	if u.Names > 0 {
+		out = append(out, "names")
+	}
+	return out
+}
+
+func (r *Runner) upgrades() Upgrades {
+	u := Upgrades{Passages: r.waiting("passages"), Extract: r.waiting("extract"), Digest: r.waiting("digest"),
+		Statuses: r.waiting("statuses"), Names: r.waiting("names")}
+	u.USD = u.Cost()
+	return u
+}
+
+// UpgradesOf is the waiting upgrade work a run reported.
+func UpgradesOf(o Outdated) Upgrades {
+	u := Upgrades{Passages: o.Passages, Extract: o.Extract, Digest: o.Digest, Statuses: o.Statuses, Names: o.Names}
+	u.USD = u.Cost()
+	return u
+}
+
+// Cost estimates applying them, in dollars.
+func (u Upgrades) Cost() float64 {
+	// A re-extracted item is threaded again, and its threads' statuses
+	// rewritten; the statuses counted here are those of other threads.
+	read := float64(u.Passages + u.Extract)
+	return (read*(centsExtract+centsThread+centsLabelStatus) + float64(u.Digest)*centsDigest +
+		float64(u.Statuses)*centsLabelStatus + float64(u.Names)*centsName) / 100
 }
 
 // Queue reports the work waiting: what an update will take on its own,
 // and what needs a run started by hand.
 func (r *Runner) Queue() (Queue, error) {
 	kc := r.Cfg.Knowledge
-	q := Queue{Extract: kc.Extract, AutoMax: kc.AutoMax}
+	q := Queue{Extract: kc.Extract, AutoMax: kc.AutoMax, Upgrades: r.upgrades()}
 	items, err := r.Store.AllItems()
 	if err != nil {
 		return q, err

@@ -104,6 +104,13 @@ func stamp(tx *sql.Tx, stage, itemID, version, hash string) error {
 	return err
 }
 
+// SetChunkSource records what an item's current passages were cut from,
+// without code versions (pipeline: an upgrade that re-cuts unchanged
+// content waits for the owner).
+func (s *Store) SetChunkSource(itemID, key string) error {
+	return s.tx(func(tx *sql.Tx) error { return stamp(tx, "chunk-source", itemID, "src", key) })
+}
+
 func (s *Store) GlobalStamp(step string) (string, error) {
 	var h string
 	err := s.rdb.QueryRow(`SELECT input_hash FROM global_runs WHERE step = ?`, step).Scan(&h)

@@ -44,7 +44,13 @@ type Runner struct {
 	CuratedPath string
 	Log         io.Writer
 	Workers     int
+	// rechunkIDs are held passages a run applying upgrades re-cuts (see
+	// passagesWait); rechunkAll re-cuts them all.
+	rechunkIDs map[string]bool
+	rechunkAll bool
 }
+
+func (r *Runner) rechunk(id string) bool { return r.rechunkAll || r.rechunkIDs[id] }
 
 type Stats struct {
 	Fetched, Changed, Skipped int
@@ -146,10 +152,11 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 	}
 	// A recording that missed part of its meeting takes those stretches
 	// from the meeting's Teams transcript (knowledge.stitch), from here on.
-	stitchedItems, _, err := r.stitches(items, true)
+	stitchedItems, into, err := r.stitches(items, true)
 	if err != nil {
 		return err
 	}
+	partner := stitchedRaw(into, byID)
 	for i := range items {
 		if s, ok := stitchedItems[items[i].ID]; ok {
 			items[i] = s
@@ -185,19 +192,34 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 	if err != nil {
 		return err
 	}
+	held := 0
 	for i := range items {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		it := &items[i]
-		ch := it.ContentHash()
 		title := r.passageTitle(it, linked(it.ID), given[it.ID].Title)
-		chunkHash := hashOf("chunk", stages.ChunkVersion, ch, title)
-		chunks, err := r.ensure("chunk", it.ID, stages.ChunkVersion, chunkHash, st, func() error {
-			return r.Store.ReplaceChunks(it.ID, stages.ChunkVersion, chunkHash, stages.Chunk(*it, title))
-		})
-		if err != nil {
-			return err
+		pk := newPassageKey(it, title, partner[it.ID])
+		chunkHash := pk.hash
+		var chunks []store.Chunk
+		if stored, wait := r.passagesWait(it.ID, pk); wait && !r.rechunk(it.ID) {
+			// Re-cutting them would delete what was read from them, and
+			// reading them again costs model calls: they wait for the owner
+			// (knowledge.hold_upgrades), and the steps below keep working
+			// from them.
+			held++
+			chunkHash = stored
+		} else {
+			if chunks, err = r.ensure("chunk", it.ID, chunkVersion, chunkHash, st, func() error {
+				return r.Store.ReplaceChunks(it.ID, chunkVersion, chunkHash, chunkPassages(*it, title))
+			}); err != nil {
+				return err
+			}
+			if was, _ := r.Store.StageStamp("chunk-source", it.ID); was != "src/"+pk.source {
+				if err := r.Store.SetChunkSource(it.ID, pk.source); err != nil {
+					return err
+				}
+			}
 		}
 		if chunks == nil {
 			if chunks, err = r.Store.Chunks(it.ID); err != nil {
@@ -231,6 +253,10 @@ func (r *Runner) Process(ctx context.Context, st *Stats) error {
 			}
 		}
 	}
+	if held > 0 {
+		r.logf("chunk: %d meetings keep their passages until an upgrade is applied (knowledge.hold_upgrades)", held)
+	}
+	r.setWaiting("passages", held)
 	return r.runPool(ctx, st, "embed", len(jobs), func(yield func(func() (func() error, error))) {
 		for _, j := range jobs {
 			j := j

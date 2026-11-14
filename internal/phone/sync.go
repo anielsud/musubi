@@ -164,6 +164,9 @@ func (s *Syncer) syncSteps(ctx context.Context, fc *frameConn, fp string, name *
 			Meta  json.RawMessage `json:"meta"`
 			State *string         `json:"state"`
 		} `json:"recordings"`
+		// TooLarge: recordings whose meta.json alone is more than a frame;
+		// the phone skips them rather than stop listing there.
+		TooLarge []string `json:"too_large"`
 	}
 	if err := fc.call(map[string]any{"op": "list"}, &list); err != nil {
 		return err
@@ -172,6 +175,14 @@ func (s *Syncer) syncSteps(ctx context.Context, fc *frameConn, fp string, name *
 		return protoErr("%d recordings listed", len(list.Recordings))
 	}
 	stats.recordings = len(list.Recordings)
+	if len(list.TooLarge) > maxReported {
+		return protoErr("%d recordings too large", len(list.TooLarge))
+	}
+	for _, r := range list.TooLarge {
+		if id, ok := parseRID(r); ok {
+			s.cfg.Logf("phone: recording %s is too large for the phone to list (its meta.json is over 64 KB); skipped", id)
+		}
+	}
 	for _, r := range list.Recordings {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -212,7 +223,7 @@ func (s *Syncer) syncRecording(ctx context.Context, fc *frameConn, fp string, ra
 	if !validState(phoneState) {
 		phoneState = ""
 	}
-	var details *phonedetails.Details
+	var details *phonedetails.MetaDetails
 	if s.cfg.Details {
 		if details, err = metaDetails(raw); err != nil {
 			s.cfg.Logf("phone: recording %s: details skipped: %v", m.ID, err)

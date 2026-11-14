@@ -31,10 +31,23 @@ class DetailsEditor(private val store: RecordingStore, private val clock: Clock 
         return out!!
     }
 
-    /** Sets the notes; the same text again changes nothing (no new rev). */
+    /**
+     * Sets the notes: notes.txt (UTF-8) and its size and SHA-256 in meta.json, together under the
+     * store's lock. The same text again changes nothing (no new rev).
+     */
     fun setNotes(id: String, text: String): Details {
         if (text.length > Details.MAX_NOTES) throw Refused("Notes can be at most ${Details.MAX_NOTES} characters")
-        return edit(id) { d -> if (d.notes == text) null else d.copy(notes = text, notesUpdated = OffsetDateTime.now(clock)) }
+        val bytes = text.toByteArray(Charsets.UTF_8)
+        val sha = Hashing.sha256Hex(bytes)
+        return store.locked {
+            edit(id) { d ->
+                if (d.notes.sha256 == sha && d.notes.size == bytes.size.toLong()) null else {
+                    val f = File(store.dirFor(id), Details.NOTES_FILE)
+                    if (bytes.isEmpty()) f.delete() else Files.writeAtomic(f, bytes)
+                    d.copy(notes = NotesInfo(bytes.size.toLong(), sha, OffsetDateTime.now(clock)))
+                }
+            }
+        }
     }
 
     /** Adds a person by name (the same name again, ignoring case, changes nothing). */
@@ -63,9 +76,11 @@ class DetailsEditor(private val store: RecordingStore, private val clock: Clock 
     fun addPhoto(id: String, prepared: File): Details {
         try {
             require(prepared.parentFile == store.dirFor(id) && prepared.name.startsWith(INCOMING_PREFIX)) { "not an incoming file" }
-            val size = prepared.length()
-            if (size <= 0 || size > Details.MAX_PHOTO_BYTES) throw Refused("A photo can be at most 15 MB")
+            if (prepared.length() <= 0 || prepared.length() > Details.MAX_PHOTO_BYTES) throw Refused("A photo can be at most 15 MB")
             if (!isJpeg(prepared)) throw Refused("Not a JPEG photo")
+            // Where it was taken stays on the phone: GPS tags are removed, orientation kept.
+            ExifLocation.strip(prepared)
+            val size = prepared.length()
             val sha = Hashing.sha256File(prepared)
             return store.locked {
                 edit(id) { d ->

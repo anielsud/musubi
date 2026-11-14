@@ -47,8 +47,12 @@ class DetailsTest {
         assertEquals(5, d.rev)
         assertEquals("photo-0001.jpg", d.photos.single().name)
         val after = phone.store.read(r.id)!!
-        assertEquals("Invented note\nline two", after.meta.details.notes)
-        assertEquals(TestUtil.T0.plusHours(1).toInstant(), after.meta.details.notesUpdated!!.toInstant())
+        assertEquals("Invented note\nline two", phone.store.readNotes(r.id))
+        val nb = "Invented note\nline two".toByteArray(Charsets.UTF_8)
+        assertEquals(NotesInfo(nb.size.toLong(), Hashing.sha256Hex(nb), after.meta.details.notes.updated), after.meta.details.notes)
+        assertEquals(TestUtil.T0.plusHours(1).toInstant(), after.meta.details.notes.updated!!.toInstant())
+        // The text is in notes.txt, never in meta.json.
+        assertFalse(File(r.dir, RecordingStore.META).readText().contains("Invented note"))
         assertEquals(listOf(Attendee("Bo Sample", "bo@example.test")), after.meta.details.attendees)
         assertEquals(r.meta.chunks, after.meta.chunks)
         assertArrayEquals(audio, r.chunkFile(0).readBytes())
@@ -66,7 +70,7 @@ class DetailsTest {
         phone.store.updateMeta(m.id) { it.copy(chunks = it.chunks + ChunkInfo(0, 10, "a".repeat(64))) }
         phone.store.updateMeta(m.id) { it.copy(end = TestUtil.T0.plusMinutes(5)) }
         val after = phone.store.read(m.id)!!.meta
-        assertEquals("during", after.details.notes)
+        assertEquals("during", phone.store.readNotes(m.id))
         assertEquals(1, after.details.rev)
         assertEquals(1, after.chunks.size)
     }
@@ -130,8 +134,10 @@ class DetailsTest {
         assertEquals(3, d.getLong("rev"))
         assertEquals("Ana Example", d.getJSONArray("attendees").getJSONObject(0).getString("name"))
         assertFalse(d.getJSONArray("attendees").getJSONObject(0).has("email"))
-        assertEquals("n", d.getJSONObject("notes").getString("text"))
-        assertTrue(d.getJSONObject("notes").has("updated"))
+        val notes = d.getJSONObject("notes")
+        assertEquals(setOf("size", "sha256", "updated"), notes.keySet())
+        assertEquals(1, notes.getLong("size"))
+        assertEquals(Hashing.sha256Hex("n".toByteArray()), notes.getString("sha256"))
         val p = d.getJSONArray("photos").getJSONObject(0)
         assertEquals(setOf("name", "size", "sha256", "taken"), p.keySet())
         assertEquals(RecordingMeta.fromJson(text), phone.store.read(r.id)!!.meta)
@@ -217,13 +223,52 @@ class DetailsTest {
     }
 
     @Test
-    fun aRecordingWithLongNotesStillFitsTheList() {
+    fun longNotesDontGrowTheMeta() {
         val r = TestUtil.finishedRecording(phone.store, 30)
-        editor.setNotes(r.id, "word ".repeat(Details.MAX_NOTES / 5))
-        repeat(Details.MAX_PEOPLE) { editor.addPerson(r.id, "Invented Person Number $it") }
+        val before = File(r.dir, RecordingStore.META).length()
+        // The worst case for bytes: 20,000 characters of 3 bytes each. meta.json grows by the size and hash only.
+        editor.setNotes(r.id, "語".repeat(Details.MAX_NOTES))
+        assertTrue(File(r.dir, RecordingStore.META).length() - before < 200)
+        repeat(Details.MAX_PEOPLE) { editor.addPerson(r.id, "名".repeat(Details.MAX_NAME - 3) + it) }
         repeat(Details.MAX_PHOTOS) { addPhoto(r.id, jpeg(it, 10)) }
+        assertEquals(60_000, File(r.dir, Details.NOTES_FILE).length())
         val recs = phone.run(Frames.op("list")).replies.single().json.getJSONArray("recordings")
         assertEquals(1, recs.length())
+        // Fetched with file, checked like a photo.
+        val reply = phone.run(Frames.op("file", "rid" to r.id, "name" to "notes.txt")).replies.single()
+        assertEquals("語".repeat(Details.MAX_NOTES), String(reply.body!!, Charsets.UTF_8))
+        assertEquals(phone.store.read(r.id)!!.meta.details.notes.sha256, reply.json.getString("sha256"))
+    }
+
+    @Test
+    fun notesFileRefusals() {
+        val r = TestUtil.finishedRecording(phone.store, 1)
+        fun err1(vararg kv: Pair<String, Any?>) = err(phone.run(Frames.op("file", *kv)).replies.single())
+        assertEquals("unknown_file", err1("rid" to r.id, "name" to "notes.txt")) // no notes
+        editor.setNotes(r.id, "n")
+        File(r.dir, Details.NOTES_FILE).writeText("changed behind meta.json")
+        assertEquals("file_changed", err1("rid" to r.id, "name" to "notes.txt"))
+        editor.setNotes(r.id, "")
+        assertFalse(File(r.dir, Details.NOTES_FILE).exists())
+        assertEquals(NotesInfo.EMPTY_SHA256, phone.store.read(r.id)!!.meta.details.notes.sha256)
+        for (bad in listOf("notes.TXT", "./notes.txt", "notes.txt.tmp")) assertTrue(bad, phone.run(Frames.op("file", "rid" to r.id, "name" to bad)).violation)
+    }
+
+    @Test
+    fun aRecordingTooLargeToListIsSkippedNotABlock() {
+        val first = TestUtil.finishedRecording(phone.store, 1, TestUtil.T0)
+        val huge = TestUtil.finishedRecording(phone.store, 1, TestUtil.T0.plusHours(1))
+        val last = TestUtil.finishedRecording(phone.store, 1, TestUtil.T0.plusHours(2))
+        // A meta.json no frame can carry (as many chunks as a recording may have).
+        phone.store.updateMeta(huge.id) { m -> m.copy(chunks = (0 until 1000).map { ChunkInfo(it, 1, "a".repeat(64)) }) }
+        val run = phone.run(Frames.op("list"), Frames.op("agenda", "body" to 2).let { it + "{}".toByteArray() }, Frames.op("bye"))
+        val reply = run.replies[0].json
+        val ids = (0 until reply.getJSONArray("recordings").length()).map { reply.getJSONArray("recordings").getJSONObject(it).getJSONObject("meta").getString("id") }
+        assertEquals(listOf(first.id, last.id), ids)
+        assertEquals(listOf(huge.id), (0 until reply.getJSONArray("too_large").length()).map { reply.getJSONArray("too_large").getString(it) })
+        assertEquals(1, run.session.summary.listTooLarge)
+        assertFalse(run.session.summary.listTruncated)
+        assertTrue(reply.toString().toByteArray().size <= Frame.MAX_JSON)
     }
 
     @Test

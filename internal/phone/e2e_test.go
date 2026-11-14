@@ -1,8 +1,10 @@
 package phone
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"image"
@@ -267,16 +269,25 @@ func detailsAfterImport(t *testing.T, h *harness, d *emu, rid string, pinned tar
 	if err := os.MkdirAll(sess, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// A picture for the photo picker: a tiny JPEG the test makes.
+	// A picture for the photo picker: a tiny JPEG the test makes, with an
+	// invented GPS position (marked 0x0BADF00D) the phone must remove.
 	pic := filepath.Join(t.TempDir(), "invented-e2e.jpg")
 	img := image.NewRGBA(image.Rect(0, 0, 320, 240))
 	for i := range img.Pix {
 		img.Pix[i] = byte(i * 7)
 	}
-	f, _ := os.Create(pic)
-	jpeg.Encode(f, img, nil)
-	f.Close()
-	d.adbRun("push", pic, "/sdcard/Pictures/invented-e2e.jpg")
+	var jb bytes.Buffer
+	jpeg.Encode(&jb, img, nil)
+	imgTail := jb.Bytes()[jb.Len()-200:]
+	withGPS := append(append(append([]byte{}, jb.Bytes()[:2]...), exifWithGPS()...), jb.Bytes()[2:]...)
+	if err := os.WriteFile(pic, withGPS, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A new name each run: a file pushed over an earlier one keeps the
+	// earlier one's size in the media index, and the picker serves that.
+	onPhone := fmt.Sprintf("/sdcard/Pictures/invented-e2e-%d.jpg", time.Now().UnixNano())
+	d.adbRun("push", pic, onPhone)
+	t.Cleanup(func() { d.shell("rm", "-f", onPhone) })
 	d.shell("content", "call", "--method", "scan_volume", "--uri", "content://media", "--arg", "external_primary")
 
 	d.tap("Recordings")
@@ -300,12 +311,13 @@ func detailsAfterImport(t *testing.T, h *harness, d *emu, rid string, pinned tar
 	d.tap("Add (1)")
 	d.waitText(`Photos \(2/30\)`, 20*time.Second)
 	d.shell("input", "keyevent", "BACK") // leaving saves the notes
-	var meta string
 	waitFor(t, "the notes saved", func() bool {
-		meta = d.shell("run-as", "com.musubi.phone", "cat", "files/recordings/"+rid+"/meta.json")
-		return strings.Contains(meta, "Invented details note for the e2e")
+		return d.shell("run-as", "com.musubi.phone", "cat", "files/recordings/"+rid+"/notes.txt") == "Invented details note for the e2e"
 	})
-	t.Log("  ok: the phone saved the details (meta.json version 2)")
+	if meta := d.shell("run-as", "com.musubi.phone", "cat", "files/recordings/"+rid+"/meta.json"); strings.Contains(meta, "Invented details") {
+		t.Fatal("the notes' text is in meta.json")
+	}
+	t.Log("  ok: the phone saved the details (notes in notes.txt, not meta.json)")
 
 	h.s.session(context.Background(), pinned)
 	if o := h.s.Devices()[0].LastOutcome; !strings.HasPrefix(o, "synced: 1 recordings on the phone, 0 fetched, 0 imported") {
@@ -315,12 +327,28 @@ func detailsAfterImport(t *testing.T, h *harness, d *emu, rid string, pinned tar
 	if df == nil || df.Notes.Text != "Invented details note for the e2e" || len(df.Attendees) != 1 || df.Attendees[0].Name != "Test Attendee" || len(df.Photos) != 2 {
 		t.Fatalf("details on the Mac: %+v", df)
 	}
+	picked := false
 	for _, p := range df.Photos {
 		sum, size, err := fileSHA256(filepath.Join(sess, "photos", p.Name))
 		if err != nil || sum != p.SHA256 || size != p.Size {
 			t.Fatalf("photo %s on the Mac: %v", p.Name, err)
 		}
+		b, _ := os.ReadFile(filepath.Join(sess, "photos", p.Name))
+		if bytes.Contains(b, []byte{0x0B, 0xAD, 0xF0, 0x0D}) || bytes.Contains(b, []byte("GPSLatitude")) {
+			t.Fatalf("photo %s reached the Mac with its location", p.Name)
+		}
+		// The picked one: its image data arrives unchanged.
+		if bytes.Contains(b, imgTail) {
+			picked = true
+			if !bytes.Contains(b, []byte{0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x06}) {
+				t.Fatalf("photo %s lost its orientation", p.Name)
+			}
+		}
 	}
+	if !picked {
+		t.Fatal("the picked photo (with EXIF) isn't among them")
+	}
+	t.Log("  ok: the picked photo arrived without its GPS position and XMP, orientation kept")
 	t.Logf("  ok: rev %d applied: notes, 1 person, photos %s and %s (%d and %d bytes) checked", df.Rev, df.Photos[0].Name, df.Photos[1].Name, df.Photos[0].Size, df.Photos[1].Size)
 	var files string
 	waitFor(t, "the phone dropping the photos", func() bool {
@@ -328,6 +356,45 @@ func detailsAfterImport(t *testing.T, h *harness, d *emu, rid string, pinned tar
 		return !strings.Contains(files, "photo-")
 	})
 	t.Log("  ok: the phone deleted its photos once the Mac reported the current rev")
+}
+
+// exifWithGPS is an APP1 EXIF segment (big-endian) with orientation 6
+// and a GPS latitude whose values hold the marker 0x0BADF00D, then an
+// XMP segment repeating the position.
+func exifWithGPS() []byte {
+	var t bytes.Buffer
+	w16 := func(v uint16) { binary.Write(&t, binary.BigEndian, v) }
+	w32 := func(v uint32) { binary.Write(&t, binary.BigEndian, v) }
+	t.WriteString("MM")
+	w16(42)
+	w32(8)
+	w16(2) // IFD0: orientation, GPS pointer
+	w16(0x0112)
+	w16(3)
+	w32(1)
+	w16(6)
+	w16(0)
+	w16(0x8825)
+	w16(4)
+	w32(1)
+	w32(8 + 2 + 24 + 4)
+	w32(0)
+	w16(1) // GPS IFD at 38: latitude, 3 rationals at 38 + 2 + 12 + 4 = 56
+	w16(2)
+	w16(5)
+	w32(3)
+	w32(56)
+	w32(0)
+	for i := 0; i < 6; i++ {
+		w32(0x0BADF00D)
+	}
+	seg := func(body []byte) []byte {
+		n := len(body) + 2
+		return append([]byte{0xFF, 0xE1, byte(n >> 8), byte(n)}, body...)
+	}
+	out := seg(append([]byte("Exif\x00\x00"), t.Bytes()...))
+	return append(out, seg([]byte("http://ns.adobe.com/xap/1.0/\x00"+`<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">`+
+		`<rdf:Description rdf:about="" xmlns:exif="http://ns.adobe.com/exif/1.0/" exif:GPSLatitude="52,13.37N"/></rdf:RDF></x:xmpmeta>`))...)
 }
 
 func (h *harness) lastImport() control.ImportArgs {

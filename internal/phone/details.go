@@ -26,9 +26,9 @@ import (
 
 // metaDetails is meta.json's details, checked; nil when the meta has
 // none (version 1) or they don't hold up.
-func metaDetails(raw json.RawMessage) (*phonedetails.Details, error) {
+func metaDetails(raw json.RawMessage) (*phonedetails.MetaDetails, error) {
 	var m struct {
-		Details *phonedetails.Details `json:"details"`
+		Details *phonedetails.MetaDetails `json:"details"`
 	}
 	if err := json.Unmarshal(raw, &m); err != nil || m.Details == nil {
 		return nil, nil
@@ -55,9 +55,11 @@ func (s *Syncer) sessionDirOf(sid string) string {
 
 // applyDetails brings the session folder up to d for an imported
 // recording. It returns whether d is now applied; only a
-// broken connection is an error. A photo the phone no longer has (it
-// deletes them once the Mac has them) is kept from the session folder.
-func (s *Syncer) applyDetails(fc *frameConn, rid string, st *recState, d *phonedetails.Details) (bool, error) {
+// broken connection is an error. The notes' text is fetched (notes.txt)
+// unless the session folder already has it. A photo the phone no longer
+// has (it deletes them once the Mac has them) is kept from the session
+// folder.
+func (s *Syncer) applyDetails(fc *frameConn, rid string, st *recState, d *phonedetails.MetaDetails) (bool, error) {
 	if st.State != control.ImportImported {
 		return false, nil
 	}
@@ -69,13 +71,17 @@ func (s *Syncer) applyDetails(fc *frameConn, rid string, st *recState, d *phoned
 		s.cfg.Logf("phone: recording %s: session folder not found; details wait", rid)
 		return false, nil
 	}
-	stage := filepath.Join(s.recDir(rid), phonedetails.PhotosDir)
+	stage := filepath.Join(s.recDir(rid), "details")
 	if err := os.MkdirAll(stage, 0o700); err != nil {
+		return false, err
+	}
+	notes, ok, err := s.notesText(fc, rid, stage, sess, d.Notes)
+	if err != nil || !ok {
 		return false, err
 	}
 	var kept []phonedetails.Photo
 	for _, p := range d.Photos {
-		got, err := s.stagePhoto(fc, rid, stage, sess, p)
+		got, err := s.stageFile(fc, rid, stage, p.Name, p.Size, p.SHA256, phonedetails.PhotoPath(sess, p.Name))
 		if err != nil {
 			return false, err
 		}
@@ -94,8 +100,8 @@ func (s *Syncer) applyDetails(fc *frameConn, rid string, st *recState, d *phoned
 		s.cfg.Logf("phone: recording %s: photos not written: %v", rid, err)
 		return false, nil
 	}
-	out := phonedetails.File{Writer: phonedetails.Writer, Recording: rid, Details: *d}
-	out.Photos = kept
+	out := phonedetails.File{Writer: phonedetails.Writer, Recording: rid, Details: phonedetails.Details{
+		Rev: d.Rev, Attendees: d.Attendees, Notes: phonedetails.Notes{Text: notes, Updated: d.Notes.Updated}, Photos: kept}}
 	if out.Attendees == nil {
 		out.Attendees = []phonedetails.Attendee{}
 	}
@@ -114,7 +120,7 @@ func (s *Syncer) applyDetails(fc *frameConn, rid string, st *recState, d *phoned
 	st.DetailsRev = d.Rev
 	s.save(rid, st)
 	// Counts only: the notes and names stay out of the log.
-	s.cfg.Logf("phone: recording %s: details rev %d applied (%d people, %d photos, notes %t)", rid, d.Rev, len(d.Attendees), len(kept), d.Notes.Text != "")
+	s.cfg.Logf("phone: recording %s: details rev %d applied (%d people, %d photos, notes %t)", rid, d.Rev, len(d.Attendees), len(kept), notes != "")
 	if s.cfg.OnDetails != nil {
 		s.cfg.OnDetails()
 	}
@@ -129,15 +135,53 @@ const (
 	photoDamaged          // it arrived other than listed
 )
 
-// stagePhoto makes sure stage holds photo p, checked: already staged,
-// copied from the session folder (an earlier rev's), or fetched.
-func (s *Syncer) stagePhoto(fc *frameConn, rid, stage, sess string, p phonedetails.Photo) (photoGot, error) {
+// notesText is the notes' text for ref: none, the text the session
+// folder already has (same hash), or notes.txt fetched and checked. ok
+// is false when it didn't arrive right (the details wait for the next
+// sync).
+func (s *Syncer) notesText(fc *frameConn, rid, stage, sess string, ref phonedetails.NotesRef) (string, bool, error) {
+	if ref.Size == 0 {
+		return "", true, nil
+	}
+	if f := phonedetails.Read(sess); f != nil {
+		if sum := sha256.Sum256([]byte(f.Notes.Text)); hex.EncodeToString(sum[:]) == ref.SHA256 && int64(len(f.Notes.Text)) == ref.Size {
+			return f.Notes.Text, true, nil
+		}
+	}
+	got, err := s.stageFile(fc, rid, stage, phonedetails.NotesFile, ref.Size, ref.SHA256, "")
+	if err != nil || got != photoStaged {
+		if err == nil {
+			s.cfg.Logf("phone: recording %s: notes didn't arrive; details wait", rid)
+		}
+		return "", false, err
+	}
+	b, err := os.ReadFile(filepath.Join(stage, phonedetails.NotesFile))
+	if err == nil {
+		err = phonedetails.CheckNotes(b)
+	}
+	if err != nil {
+		s.cfg.Logf("phone: recording %s: notes not usable: %v", rid, err)
+		os.Remove(filepath.Join(stage, phonedetails.NotesFile))
+		return "", false, nil
+	}
+	return string(b), true, nil
+}
+
+// stageFile makes sure stage holds the details file name (size bytes,
+// SHA-256 sum), checked: already staged, copied from have (an earlier
+// rev's copy in the session folder, "" for none), or fetched.
+func (s *Syncer) stageFile(fc *frameConn, rid, stage, name string, wantSize int64, wantSum, have string) (photoGot, error) {
+	p := struct {
+		Name   string
+		Size   int64
+		SHA256 string
+	}{name, wantSize, wantSum}
 	path := filepath.Join(stage, p.Name)
 	if sum, size, err := fileSHA256(path); err == nil && sum == p.SHA256 && size == p.Size {
 		return photoStaged, nil
 	}
 	os.Remove(path)
-	if src := phonedetails.PhotoPath(sess, p.Name); src != "" {
+	if src := have; src != "" {
 		if fi, err := os.Lstat(src); err == nil && fi.Mode().IsRegular() {
 			if sum, size, err := fileSHA256(src); err == nil && sum == p.SHA256 && size == p.Size {
 				return photoStaged, copyPrivate(src, path)

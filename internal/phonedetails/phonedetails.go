@@ -27,7 +27,12 @@ const (
 	// Writer marks the file as phone sync's: no other writer is trusted.
 	Writer = "musubi"
 
-	MaxNotes      = 20_000 // characters
+	MaxNotes = 20_000 // characters
+	// MaxNotesBytes bounds notes.txt: MaxNotes characters of at most 4
+	// bytes each.
+	MaxNotesBytes = MaxNotes * 4
+	// NotesFile is the notes' file on the phone, fetched with `file`.
+	NotesFile     = "notes.txt"
 	MaxAttendees  = 50
 	MaxName       = 200 // characters
 	MaxEmail      = 320
@@ -64,7 +69,48 @@ type Photo struct {
 	Taken  string `json:"taken,omitempty"`
 }
 
-// Details is meta.json's "details".
+// NotesRef is meta.json's notes: the text is NotesFile, fetched like a
+// photo, so a long note never makes meta.json (and the phone's list)
+// large.
+type NotesRef struct {
+	Size    int64  `json:"size"`
+	SHA256  string `json:"sha256"`
+	Updated string `json:"updated,omitempty"`
+}
+
+// MetaDetails is meta.json's "details".
+type MetaDetails struct {
+	Rev       int64      `json:"rev"`
+	Attendees []Attendee `json:"attendees"`
+	Notes     NotesRef   `json:"notes"`
+	Photos    []Photo    `json:"photos"`
+}
+
+// Check validates m in place, as Details.Check does, with the notes'
+// size and hash in place of their text.
+func (m *MetaDetails) Check() error {
+	d := Details{Rev: m.Rev, Attendees: m.Attendees, Notes: Notes{Updated: m.Notes.Updated}, Photos: m.Photos}
+	if err := d.Check(); err != nil {
+		return err
+	}
+	m.Notes.SHA256 = strings.ToLower(m.Notes.SHA256)
+	if m.Notes.Size < 0 || m.Notes.Size > MaxNotesBytes || (m.Notes.Size > 0 && !shaHex.MatchString(m.Notes.SHA256)) {
+		return errors.New("details: notes are not listed right")
+	}
+	m.Attendees, m.Photos = d.Attendees, d.Photos
+	return nil
+}
+
+// CheckNotes checks notes.txt's text: UTF-8, at most MaxNotes characters.
+func CheckNotes(b []byte) error {
+	if !utf8.Valid(b) || utf8.RuneCount(b) > MaxNotes {
+		return errors.New("details: notes aren't UTF-8 text of at most 20,000 characters")
+	}
+	return nil
+}
+
+// Details is the details as phone-details.json keeps them, the notes'
+// text in place.
 type Details struct {
 	Rev       int64      `json:"rev"`
 	Attendees []Attendee `json:"attendees"`

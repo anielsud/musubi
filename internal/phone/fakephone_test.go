@@ -55,6 +55,7 @@ type fakePhone struct {
 	// bytes), "short" (fewer bytes); dropAfter closes the connection after
 	// that many chunks.
 	fault     map[string]string
+	tooLarge  []string
 	dropAfter int
 	served    int
 	conns     int
@@ -261,8 +262,13 @@ func (p *fakePhone) handle(raw net.Conn) {
 				}
 				recs = append(recs, map[string]any{"meta": json.RawMessage(p.recs[rid].meta), "state": st})
 			}
+			tl := p.tooLarge
 			p.mu.Unlock()
-			ok("recordings", recs)
+			if tl != nil {
+				ok("recordings", recs, "too_large", tl)
+			} else {
+				ok("recordings", recs)
+			}
 		case "chunk":
 			rid, _ := m["rid"].(string)
 			n := int(m["n"].(float64))

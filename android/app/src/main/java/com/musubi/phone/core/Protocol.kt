@@ -52,6 +52,8 @@ class SyncSession(
         var paired = false
         var listed = false
         var listTruncated = false
+        /** Recordings whose meta.json alone exceeds a frame: named in `list`'s `too_large`, not sent. */
+        var listTooLarge = 0
         var chunksSent = 0
         var filesSent = 0
         var statesApplied = 0
@@ -142,7 +144,8 @@ class SyncSession(
      */
     private fun list(w: FrameWriter) {
         val items = ArrayList<String>()
-        var size = LIST_OVERHEAD
+        val tooLarge = ArrayList<String>()
+        var size = LIST_OVERHEAD + TOO_LARGE_RESERVE
         var truncated = false
         for (r in store.list().sortedBy { it.meta.start }) {
             if (r.meta.isRecording || (r.sync.state == SyncState.IMPORTED && !newerDetails(r))) continue
@@ -151,6 +154,11 @@ class SyncSession(
                 .put("state", r.sync.serverState ?: JSONObject.NULL)
                 .toString()
             val bytes = item.toByteArray(Charsets.UTF_8).size + 1
+            // One recording too large for any frame is named and skipped, never a stop for the rest.
+            if (LIST_OVERHEAD + TOO_LARGE_RESERVE + bytes > Frame.MAX_JSON) {
+                if (tooLarge.size < MAX_TOO_LARGE) tooLarge += r.id
+                continue
+            }
             if (size + bytes > Frame.MAX_JSON) {
                 truncated = true
                 break
@@ -160,7 +168,9 @@ class SyncSession(
         }
         summary.listed = true
         summary.listTruncated = truncated
-        val json = """{"ok":true,"recordings":[${items.joinToString(",")}]}"""
+        summary.listTooLarge = tooLarge.size
+        val skipped = tooLarge.joinToString(",") { "\"$it\"" }
+        val json = """{"ok":true,"recordings":[${items.joinToString(",")}],"too_large":[$skipped]}"""
         w.write(json.toByteArray(Charsets.UTF_8))
     }
 
@@ -233,22 +243,32 @@ class SyncSession(
         reply(w, ok())
     }
 
-    /** A photo listed in the recording's details, checked against its listed size and SHA-256. */
+    /**
+     * The recording's notes (notes.txt) or a photo listed in its details, checked against the
+     * size and SHA-256 meta.json lists.
+     */
     private fun file(j: Map<String, Any?>, w: FrameWriter) {
         val rid = rid(j)
         val name = j["name"] as? String ?: throw ProtocolViolation("bad name")
-        if (!Details.isPhotoName(name)) throw ProtocolViolation("bad name")
+        if (!Details.isFileName(name)) throw ProtocolViolation("bad name")
         val r = store.read(rid)
         if (r == null || r.meta.isRecording) return fail(w, "unknown_recording")
-        val p = r.meta.details.photos.firstOrNull { it.name == name } ?: return fail(w, "unknown_file")
-        val f = r.photoFile(name)
+        val d = r.meta.details
+        val (size, sha) = if (name == Details.NOTES_FILE) {
+            if (d.notes.isEmpty) return fail(w, "unknown_file")
+            d.notes.size to d.notes.sha256
+        } else {
+            val p = d.photos.firstOrNull { it.name == name } ?: return fail(w, "unknown_file")
+            p.size to p.sha256
+        }
+        val f = r.detailsFile(name)
         if (!f.isFile) return fail(w, "gone")
-        if (f.length() != p.size || p.size > Frame.MAX_BODY || Hashing.sha256File(f) != p.sha256) return fail(w, "file_changed")
-        val head = ok().put("sha256", p.sha256).put("body", p.size)
-        w.write(head.toString().toByteArray(Charsets.UTF_8), p.size) { out ->
+        if (f.length() != size || size > Frame.MAX_BODY || Hashing.sha256File(f) != sha) return fail(w, "file_changed")
+        val head = ok().put("sha256", sha).put("body", size)
+        w.write(head.toString().toByteArray(Charsets.UTF_8), size) { out ->
             f.inputStream().use { input ->
                 val buf = ByteArray(64 * 1024)
-                var left = p.size
+                var left = size
                 while (left > 0) {
                     val k = input.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
                     if (k < 0) break
@@ -330,6 +350,9 @@ class SyncSession(
         const val MAX_ID = 200
         const val MAX_ERROR = 500
         private const val LIST_OVERHEAD = 64
+        /** Room kept in `list` for `too_large`: up to [MAX_TOO_LARGE] ids of 36 characters, quoted. */
+        private const val MAX_TOO_LARGE = 20
+        private const val TOO_LARGE_RESERVE = MAX_TOO_LARGE * 39 + 16
         val OPS = setOf("hello", "list", "chunk", "file", "state", "agenda", "bye", "pair_request", "pair_confirm", "pair_cancel")
         val MAC_STATES = setOf("received", "waiting", "transcribing", "imported", "failed")
 

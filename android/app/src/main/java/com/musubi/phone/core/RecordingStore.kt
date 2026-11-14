@@ -16,6 +16,11 @@ data class Recording(val dir: File, val meta: RecordingMeta, val sync: SyncStatu
         require(Details.isPhotoName(name)) { "bad photo name" }
         return File(dir, name)
     }
+    /** A file `file` may serve (notes.txt or a photo); the name is checked. */
+    fun detailsFile(name: String): File {
+        require(Details.isFileName(name)) { "bad file name" }
+        return File(dir, name)
+    }
 }
 
 /**
@@ -84,6 +89,12 @@ class RecordingStore(val root: File, private val clock: Clock = Clock.systemDefa
         if (r.sync.state != SyncState.IMPORTED || r.sync.detailsRev < r.meta.details.rev) return false
         (r.dir.listFiles() ?: emptyArray()).filter { Details.isPhotoName(it.name) }.forEach { it.delete() }
         true
+    }
+
+    /** The recording's notes (notes.txt); "" when it has none or they can't be read. */
+    fun readNotes(id: String): String = synchronized(lock) {
+        val f = File(dirFor(id), Details.NOTES_FILE)
+        if (!f.isFile) "" else runCatching { String(Files.readBounded(f, Details.MAX_NOTES_BYTES.toInt()), Charsets.UTF_8) }.getOrDefault("")
     }
 
     /** Runs [fn] under the store's lock (photo files and meta.json change together). */

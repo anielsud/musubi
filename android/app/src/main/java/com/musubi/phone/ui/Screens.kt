@@ -228,9 +228,9 @@ class RecordingsScreen(a: MainActivity) : Screen(a) {
             box.addView(a.button("Live text", outlined = true) { a.push(LiveTextScreen(a, r.id)) })
         }
         val d = m.details
-        if (d.attendees.isNotEmpty() || d.photos.isNotEmpty() || d.notes.isNotBlank()) {
+        if (d.attendees.isNotEmpty() || d.photos.isNotEmpty() || !d.notes.isEmpty) {
             val bits = listOfNotNull(
-                "notes".takeIf { d.notes.isNotBlank() },
+                "notes".takeIf { !d.notes.isEmpty },
                 "${d.attendees.size} people".takeIf { d.attendees.isNotEmpty() },
                 "${d.photos.size} photos".takeIf { d.photos.isNotEmpty() },
             )

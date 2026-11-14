@@ -141,9 +141,10 @@ class DetailsPanel(private val a: MainActivity, private val recordingId: () -> S
     fun refresh() {
         val r = current() ?: return
         val d = r.meta.details
-        if (!dirty && notes.text?.toString() != d.notes) {
+        val stored = App.store(a).readNotes(r.id)
+        if (!dirty && notes.text?.toString() != stored) {
             loading = true
-            notes.setText(d.notes)
+            notes.setText(stored)
             loading = false
         }
         peopleHead.text = "People (${d.attendees.size}/${Details.MAX_PEOPLE})"

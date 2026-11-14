@@ -35,7 +35,7 @@ func metaV2(id string, rev int, notes string, people []string, photos map[string
 	for _, name := range sortedNames(photos) {
 		ph = append(ph, map[string]any{"name": name, "size": len(photos[name]), "sha256": sum(photos[name]), "taken": "2026-11-17T10:30:00.000+01:00"})
 	}
-	m["details"] = map[string]any{"rev": rev, "attendees": att, "notes": map[string]any{"text": notes, "updated": "2026-11-17T10:40:00.000+01:00"}, "photos": ph}
+	m["details"] = map[string]any{"rev": rev, "attendees": att, "notes": map[string]any{"size": len(notes), "sha256": sum([]byte(notes)), "updated": "2026-11-17T10:40:00.000+01:00"}, "photos": ph}
 	b, _ := json.Marshal(m)
 	return b
 }
@@ -61,7 +61,14 @@ func (p *fakePhone) addV2(rid string, rev int, notes string, people []string, ph
 	if _, ok := p.recs[rid]; !ok {
 		p.order = append(p.order, rid)
 	}
-	p.recs[rid] = &fakeRec{meta: metaV2(rid, rev, notes, people, photos, chunks...), chunks: chunks, files: photos}
+	files := map[string][]byte{}
+	for k, v := range photos {
+		files[k] = v
+	}
+	if notes != "" {
+		files[phonedetails.NotesFile] = []byte(notes)
+	}
+	p.recs[rid] = &fakeRec{meta: metaV2(rid, rev, notes, people, photos, chunks...), chunks: chunks, files: files}
 }
 
 // detailsHarness has the recorder import at once into a session folder
@@ -94,7 +101,7 @@ func TestDetailsFetchedAndWritten(t *testing.T) {
 	notes := "Synthetic note: badge scanner pricing\nsecond line"
 	p.addV2(rid, 3, notes, []string{"Ana Example", "Bo Sample"}, map[string][]byte{"photo-0001.jpg": ph1, "photo-0002.jpg": ph2}, adts(2, 30, 1))
 	h.syncOnce(p)
-	if ops := strings.Join(p.opList(), " "); ops != "hello list chunk file file state agenda bye" {
+	if ops := strings.Join(p.opList(), " "); ops != "hello list chunk file file file state agenda bye" {
 		t.Errorf("ops %s", ops)
 	}
 	r := lastReport(p)
@@ -141,7 +148,7 @@ func TestDetailsLaterRevReplaces(t *testing.T) {
 	p.mu.Unlock()
 	p.ops = nil
 	h.syncOnce(p)
-	if ops := strings.Join(p.opList(), " "); ops != "hello list file state agenda bye" {
+	if ops := strings.Join(p.opList(), " "); ops != "hello list file file state agenda bye" {
 		t.Errorf("ops %s", ops)
 	}
 	if r := lastReport(p); r["state"] != "imported" || r["details_rev"] != float64(4) {
@@ -219,7 +226,7 @@ func TestDetailsWaitForImport(t *testing.T) {
 	h.rec.set(true, control.ImportImported)
 	p.ops = nil
 	h.syncOnce(p)
-	if ops := strings.Join(p.opList(), " "); ops != "hello list file state agenda bye" {
+	if ops := strings.Join(p.opList(), " "); ops != "hello list file file state agenda bye" {
 		t.Errorf("ops %s", ops)
 	}
 	if f := phonedetails.Read(sess); f == nil || f.Rev != 1 {
@@ -262,5 +269,51 @@ func TestDetailsBadNamesRefused(t *testing.T) {
 	}
 	if !strings.Contains(h.logged(), "details skipped") {
 		t.Error("not logged")
+	}
+}
+
+// Notes the session folder already has (same text) aren't fetched again;
+// notes that arrive other than listed hold the details back.
+func TestDetailsNotesFetchedOnce(t *testing.T) {
+	h, p, sess := detailsHarness(t)
+	p.addV2(rid, 1, "Synthetic notes", nil, nil, adts(2, 30, 1))
+	h.syncOnce(p)
+	if f := phonedetails.Read(sess); f == nil || f.Notes.Text != "Synthetic notes" {
+		t.Fatalf("details %+v", f)
+	}
+	p.states[rid] = "imported"
+	p.addV2(rid, 2, "Synthetic notes", []string{"Ana Example"}, nil, adts(2, 30, 1))
+	p.ops = nil
+	h.syncOnce(p)
+	if ops := strings.Join(p.opList(), " "); ops != "hello list state agenda bye" {
+		t.Errorf("ops %s", ops)
+	}
+	p.addV2(rid, 3, "Other synthetic notes", nil, nil, adts(2, 30, 1))
+	p.fault[rid+"/notes.txt"] = "bytes"
+	h.syncOnce(p)
+	if f := phonedetails.Read(sess); f == nil || f.Rev != 2 || f.Notes.Text != "Synthetic notes" {
+		t.Errorf("damaged notes applied: %+v", f)
+	}
+	delete(p.fault, rid+"/notes.txt")
+	h.syncOnce(p)
+	if f := phonedetails.Read(sess); f == nil || f.Rev != 3 || f.Notes.Text != "Other synthetic notes" {
+		t.Errorf("details %+v", f)
+	}
+}
+
+// The phone names recordings too large to list; the Mac logs them and
+// syncs the rest.
+func TestTooLargeLogged(t *testing.T) {
+	h := newHarness(t)
+	p := newFakePhone(t)
+	h.pairWith(p)
+	p.add(rid, adts(2, 30, 1))
+	p.tooLarge = []string{rid2}
+	h.syncOnce(p)
+	if !strings.Contains(h.logged(), "recording "+rid2+" is too large for the phone to list") {
+		t.Errorf("not logged:\n%s", h.logged())
+	}
+	if p.states[rid] != "waiting" {
+		t.Errorf("the other recording: %v", p.states)
 	}
 }

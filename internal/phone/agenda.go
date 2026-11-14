@@ -9,20 +9,15 @@ import (
 	"github.com/anielsud/musubi/internal/store"
 )
 
-// The agenda is what the phone carries to the meetings: the owner's
-// events and the briefs drafted for them, read in the owner's scope (the
-// phone is the owner's), each brief with its label so the phone shows it.
+// The agenda (pushed on every sync: Agenda, sync.go) is what the phone
+// carries to the meetings: the owner's events and the briefs drafted for
+// them, read in the owner's scope (the phone is the owner's), each brief
+// with its label so the phone shows it.
 
 const (
 	defaultDays = 10
 	maxDays     = 14
 )
-
-// Agenda is GET /v1/agenda's reply.
-type Agenda struct {
-	Events   []Event `json:"events"`
-	Drafting int     `json:"drafting"`
-}
 
 type Event struct {
 	ID        string     `json:"id"`

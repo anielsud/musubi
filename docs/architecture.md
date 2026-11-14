@@ -240,27 +240,48 @@ enters the cold lane like any other source.
   config file and no Tomoe folder writes a config with Musubi's recorder
   of record, Tomoe off and its live feed on (`internal/gui/firstrun.go`).
 
-- **Phone** ([phone.md](phone.md), part 2; 2026-11-13): with `[phone]
-  enabled` (default false; `port`, default 47615) the app runs
-  `internal/phone`, an HTTPS server (Go's crypto/tls, a self-signed ECDSA
-  P-256 certificate kept in `<data_dir>/phone/`, key 0600, pinned by the
-  phone) that closes connections from non-private addresses at accept.
-  Settings → Phone turns it on and lists and revokes devices. While it
-  listens, the app advertises `_musubi._tcp` over Bonjour (on macOS the
-  system's `dns-sd -R` as a child process, `phone/advertise_darwin.go`).
-  Pairing starts on the phone and is confirmed on both sides with a
-  6-digit code derived from the certificate and two nonces
-  (`phone.PairCode`); the app brings its window forward to ask Allow /
-  Deny. Only each token's SHA-256 is stored (`devices.json`). Paired
-  phones fetch the agenda (`phone.BuildAgenda`: calendar events in the
-  owner's scope with their saved briefs and labels; a request starts the
-  weekly drafting's path, `draftBriefsUntil`, for briefs missing in its
-  window, one pass at a time and not during a live meeting) and upload
-  recordings as ADTS chunks checked against their SHA-256. `complete`
-  checks every chunk against the phone's `meta.json`, joins the whole
-  ADTS frames into the recorder's inbox (`<recorder data>/inbox/<rid>.aac`)
-  and asks the recorder over `control.sock` to import it (op `import`);
-  chunks are deleted once the recorder reports the session saved.
+- **Phone** ([phone.md](phone.md), part 2; 2026-11-13, revised the same
+  day for the work Mac's firewall): with `[phone] enabled` (default false)
+  the app runs `internal/phone`, which makes only outgoing connections:
+  the phone is the TLS server. While on, it browses `_musubi-phone._tcp`
+  with the system's `dns-sd` (`-B`, then `-L` per phone and `-G` for its
+  addresses, each a child process under a small sh wrapper that kills it
+  when the app stops or exits, `phone/dnssd_darwin.go`), and dials a
+  phone whose advertised `fp` is a pin's first 16 hex digits, or one
+  advertising `pair=1`; every 10 minutes it also dials a paired phone not
+  seen on the local network at the addresses it last reported (Tailscale).
+  It dials private addresses only (RFC 1918, 100.64/10, fd7a:115c:a1e0::/48,
+  link-local with its interface, loopback), one connection per phone,
+  with timeouts on the dial, the handshake and every frame. Mutual TLS
+  (Go's crypto/tls, TLS 1.2+ with ECDHE and AEAD suites): the Mac's
+  self-signed ECDSA P-256 certificate (`<data_dir>/phone/`, key 0600) is
+  its client certificate; the phone's is trusted only by its pinned
+  SHA-256 (`phones.json`, 0600, with name, last addresses, last sync and
+  outcome). The protocol is framed JSON (4-byte length, at most 64 KB,
+  optional body of at most 64 MB; `phone/frame.go`), every field the phone
+  sends bounded and checked. Pairing starts on the phone and is confirmed
+  on both sides with a 6-digit code derived from both certificates (each
+  side takes them from the TLS session) and two nonces (`phone.PairCode`,
+  v2); the app brings its window forward to ask Allow / Deny, one prompt
+  at a time, and ignores a phone for 10 minutes after 3 denials in 10. A
+  sync (`phone/sync.go`): `hello` (name, addresses) → `list` → for each
+  recording not yet imported, fetch the missing chunks into
+  `<data_dir>/phone/recordings/<rid>/`, each checked against `meta.json`'s
+  SHA-256 and size (kept across syncs, so an interrupted one resumes),
+  join the whole ADTS frames into the recorder's inbox
+  (`<recorder data>/inbox/<rid>.aac`) and ask the recorder over
+  `control.sock` to import it (op `import`) → `state` for each recording
+  whose state changed → `agenda` (`phone.BuildAgenda`: calendar events in
+  the next 10 days, owner scope, with their saved briefs and labels; each
+  sync starts the weekly drafting's path, `draftBriefsUntil`, for briefs
+  missing in that window, one pass at a time and not during a live
+  meeting) → `bye`. Chunks are deleted once the recorder reports the
+  session saved; a recording it already has is reported `imported`
+  without being fetched again. A phone that refuses the Mac (a TLS alert,
+  or `not_paired` while it has pairing open: unpaired there) is shown as
+  refused, "pair again". `internal/phone/e2e_test.go`
+  (`MUSUBI_PHONE_E2E=1`) runs the real syncer against the app on an
+  emulator.
   The recorder (`recording/importer.go`) runs one import at a time as
   `musubi-recorder import --here` in a child process, never while a
   meeting records (a meeting that starts stops the child; the import

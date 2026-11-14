@@ -1,7 +1,6 @@
 package com.musubi.phone.net
 
 import com.musubi.phone.core.Hashing
-import java.net.InetSocketAddress
 import java.net.Socket
 import java.security.MessageDigest
 import java.security.cert.CertificateException
@@ -13,8 +12,8 @@ import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.X509TrustManager
 
 /**
- * TLS to the Mac trusts exactly one certificate: the one whose SHA-256 (over its DER bytes)
- * was shown to the owner and pinned at pairing. No CA, no other certificate, no fallback.
+ * Client-side TLS that trusts exactly one certificate (SHA-256 over its DER bytes): no CA, no
+ * other certificate, no fallback. Used only by the update checker's smoke-test mock.
  */
 object Pinning {
     private val PROTOCOLS = arrayOf("TLSv1.3", "TLSv1.2")
@@ -34,21 +33,7 @@ object Pinning {
             throw CertificateException("client certificates not used")
 
         override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-            if (!matches(chain?.firstOrNull(), pin)) throw CertificateException("certificate does not match the paired Mac")
-        }
-
-        override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
-    }
-
-    /** Records the server's certificate and then refuses it, so the handshake ends before any data is sent. */
-    private class CaptureTrustManager : X509TrustManager {
-        @Volatile var captured: X509Certificate? = null
-        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) =
-            throw CertificateException("client certificates not used")
-
-        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-            captured = chain?.firstOrNull()
-            throw CertificateException("capture only")
+            if (!matches(chain?.firstOrNull(), pin)) throw CertificateException("certificate does not match the pin")
         }
 
         override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
@@ -67,40 +52,6 @@ object Pinning {
     fun hostnameVerifier(pin: String): HostnameVerifier = HostnameVerifier { _, session ->
         val cert = runCatching { session.peerCertificates.firstOrNull() as? X509Certificate }.getOrNull()
         matches(cert, pin)
-    }
-
-    /** Opens a TLS handshake to [host]:[port] only to read the certificate's fingerprint. */
-    fun fetchFingerprint(host: String, port: Int, timeoutMs: Int = 5000): String {
-        val tm = CaptureTrustManager()
-        val ctx = SSLContext.getInstance("TLS")
-        ctx.init(null, arrayOf(tm), null)
-        val plain = Socket()
-        try {
-            plain.connect(InetSocketAddress(host, port), timeoutMs)
-            plain.soTimeout = timeoutMs
-            val s = ModernTls(ctx.socketFactory).createSocket(plain, host, port, true) as SSLSocket
-            runCatching { s.startHandshake() }
-            runCatching { s.close() }
-        } finally {
-            runCatching { plain.close() }
-        }
-        val cert = tm.captured ?: throw java.io.IOException("No certificate received from the Mac")
-        return fingerprint(cert)
-    }
-
-    /** True when [host]:[port] completes a TLS handshake with exactly the pinned certificate. */
-    fun probe(host: String, port: Int, pin: String, timeoutMs: Int = 3000): Boolean {
-        val plain = Socket()
-        return try {
-            plain.connect(InetSocketAddress(host, port), timeoutMs)
-            plain.soTimeout = timeoutMs
-            (socketFactory(pin).createSocket(plain, host, port, true) as SSLSocket).use { it.startHandshake() }
-            true
-        } catch (e: Exception) {
-            false
-        } finally {
-            runCatching { plain.close() }
-        }
     }
 
     /** Restricts sockets to TLS 1.2 and 1.3. */

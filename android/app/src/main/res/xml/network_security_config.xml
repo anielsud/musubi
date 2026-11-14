@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- No cleartext anywhere. Connections to the Mac also pin its certificate in code (net/Pinning.kt). -->
+<!-- No cleartext anywhere. The Mac connects to the phone over mutual TLS (net/TlsServer.kt). -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false" />
 </network-security-config>

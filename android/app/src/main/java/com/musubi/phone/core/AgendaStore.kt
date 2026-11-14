@@ -4,12 +4,12 @@ import java.io.File
 import java.time.Duration
 import java.time.OffsetDateTime
 
-/** The synced agenda (agenda.json in app-private storage), replaced on each fetch. */
+/** The synced agenda (agenda.json in app-private storage), replaced each time the Mac pushes one. */
 class AgendaStore(private val file: File) {
     @Synchronized
     fun load(): Agenda? {
         if (!file.isFile) return null
-        return runCatching { ApiParse.agendaFromStored(String(Files.readBounded(file, MAX_BYTES))) }.getOrNull()
+        return runCatching { AgendaParse.agendaFromStored(Files.readBounded(file, MAX_BYTES)) }.getOrNull()
     }
 
     /** Replaces the stored agenda, dropping events that ended more than a day before [now]. */
@@ -17,7 +17,7 @@ class AgendaStore(private val file: File) {
     fun replace(a: Agenda, now: OffsetDateTime) {
         val kept = a.copy(events = dropEnded(a.events, now))
         file.parentFile?.mkdirs()
-        Files.writeAtomic(file, ApiParse.agendaToJson(kept).toByteArray())
+        Files.writeAtomic(file, AgendaParse.agendaToJson(kept).toByteArray())
     }
 
     companion object {

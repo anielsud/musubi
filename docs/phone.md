@@ -139,7 +139,9 @@ program would sidestep the company's policy, so it is not an option.)
   a recording stops; and for up to 3 minutes in a periodic WorkManager
   job (every 15 minutes, network connected; Android may space these out
   when the phone is idle). A window ends early once a paired Mac has
-  finished a sync. Opening the app is the way to sync now.
+  finished a sync, except while the app is in the foreground (the Mac
+  comes back for Explore, part 3). Opening the app is the way to sync
+  now.
 - **Advertising**: during a window the phone registers `_musubi-phone._tcp`
   (Android NSD), instance `musubi-<first 8 hex digits of its certificate
   SHA-256>` (no device or owner name: it is also seen on other
@@ -329,12 +331,24 @@ Ask, served by the Mac over the connection the Mac opened.
   (Ask's streaming, for example); `ping` → `{}` every 30 seconds. Phone →
   Mac `live_end` when the app leaves the foreground; either side may
   close. One live connection per phone; closed after 10 minutes without
-  a request.
+  a request, and not dialed again until the phone advertises anew (its
+  app back in front).
+- A result, an event's data or an asset that doesn't fit a 64 KB frame
+  follows as the frame's body (`body: n`, at most 16 MB): for a result or
+  data, the JSON value itself. The Mac runs at most 4 calls at once (more
+  wait), each answered within 60 seconds (`timeout`); the phone sends
+  only requests, answers only pings, and anything else ends the
+  connection. Errors: `not_allowed`, `bad_args`, `timeout`, `too_large`,
+  `not_found` (assets), `failed` with a `message` (what the desktop would
+  show).
 - **Allowlist** on the Mac: only the read methods the Explore screens
   call, plus `Ask`/`StopAsk`; every other method (settings, edits,
   judgements, to-do marks, recorder control, diagnostics) is refused
   `not_allowed`. Scopes as on the desktop (`owner`, `shared-screen`).
-  Arguments are checked the way the desktop's calls are.
+  Arguments are checked the way the desktop's calls are. The list and why
+  each is there: `internal/gui/phonelive.go`. Ask's events reach the phone
+  only for the questions it asked. `[phone] explore = false` turns
+  Explore off (the phone is then only synced).
 - **Assets**: the Mac serves its own built frontend (the files embedded
   in the app) by path, nothing else, so the screens always match the
   Mac's version.
@@ -345,6 +359,13 @@ Ask, served by the Mac over the connection the Mac opened.
   navigation, no file access, nothing cached to disk. The frontend opens
   on Explore in a phone mode (`?phone=1`: no desktop-only chrome, narrow
   layout).
+- The bridge script comes from the app, not the Mac: it is put first into
+  the page's head, and its message port is handed to the page with
+  `postWebMessage` targeted at `https://musubi.local`, once the page has
+  loaded (calls made before wait). The page gets a content security
+  policy that allows only its own scripts and styles and data: images
+  (no fetches, frames, media or form posts); DOM storage is off; console
+  messages are not logged; WebView debugging only in debug builds.
 
 ## Trade-offs
 

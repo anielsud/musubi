@@ -225,7 +225,12 @@ object PhoneSync {
             SyncSession.End.CLOSED
         }
         record(session.summary, if (end == SyncSession.End.LIVE) SyncSession.End.BYE else end)
-        if (end == SyncSession.End.SYNCED) windows.endEarly()
+        if (end == SyncSession.End.SYNCED) {
+            // The app in front keeps listening: the Mac comes back for Explore.
+            val front = windows.isOpen(ListenWindows.Kind.FOREGROUND)
+            windows.endEarly()
+            if (front) windows.open(ListenWindows.Kind.FOREGROUND)
+        }
         runCatching { App.store(app).pruneImported() }
         kick()
         if (end == SyncSession.End.LIVE) serveLive(reader, writer)

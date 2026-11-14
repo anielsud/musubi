@@ -67,6 +67,8 @@ class MainActivity : AppCompatActivity() {
         toolbar = MaterialToolbar(this)
         content = FrameLayout(this)
         nav = BottomNavigationView(this)
+        // With Explore there are four tabs; keep every label shown.
+        nav.labelVisibilityMode = com.google.android.material.navigation.NavigationBarView.LABEL_VISIBILITY_LABELED
         nav.menu.add(0, TAB_TODAY, 0, "Today").setIcon(R.drawable.ic_today)
         nav.menu.add(0, TAB_RECORDINGS, 1, "Recordings").setIcon(R.drawable.ic_list)
         nav.menu.add(0, TAB_MAC, 2, "Mac").setIcon(R.drawable.ic_laptop)

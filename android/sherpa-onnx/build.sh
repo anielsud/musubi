@@ -19,8 +19,9 @@ SRC_SHA256=b0374cc56dbc186d442ae73d5de743bb092470b640c4c50ce7b029044c0c4fa8
 NDK_VERSION=27.0.11718014
 CMAKE_VERSION=3.31.5
 ABI=arm64-v8a
-# The build is reproducible (paths are mapped away), so its output is pinned too.
-LIB_SHA256=f02a737609ee1b13de59c04bd9d0a9b2401f03c41d1338c92595e8f5d0c2c758
+# The output is not pinned: it is byte-identical between builds on one machine but differs
+# between this Mac and the GitHub runner (2026-11-13). The inputs are what is pinned (source
+# tarball above, every CMake dependency by SHA-256, NDK and CMake versions), plus the GPL guard.
 STAMP="sherpa-onnx ${VERSION} ${SRC_SHA256} ndk ${NDK_VERSION} ${ABI} tts=off diarization=off"
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -29,8 +30,7 @@ work="$here/.work"
 
 sha256() { shasum -a 256 "$1" | awk '{print $1}'; }
 
-if [ -f "$out/STAMP" ] && [ "$(cat "$out/STAMP")" = "$STAMP" ] && [ -f "$out/jniLibs/$ABI/libsherpa-onnx-jni.so" ] &&
-  [ "$(sha256 "$out/jniLibs/$ABI/libsherpa-onnx-jni.so")" = "$LIB_SHA256" ]; then
+if [ -f "$out/STAMP" ] && [ "$(cat "$out/STAMP")" = "$STAMP" ] && [ -f "$out/jniLibs/$ABI/libsherpa-onnx-jni.so" ]; then
   exit 0
 fi
 
@@ -113,12 +113,7 @@ for f in OnlineRecognizer.kt OnlineStream.kt FeatureConfig.kt HomophoneReplacerC
   cp "$src/sherpa-onnx/kotlin-api/$f" "$out/kotlin/com/k2fsa/sherpa/onnx/$f"
 done
 cp "$src/LICENSE" "$out/LICENSE-sherpa-onnx"
-got="$(sha256 "$out/jniLibs/$ABI/libsherpa-onnx-jni.so")"
-if [ "$got" != "$LIB_SHA256" ]; then
-  rm -rf "$out"
-  echo "sherpa-onnx: built library SHA-256 $got does not match the pinned $LIB_SHA256" >&2
-  exit 1
-fi
+echo "sherpa-onnx: built library SHA-256 $(sha256 "$out/jniLibs/$ABI/libsherpa-onnx-jni.so")"
 echo "$STAMP" > "$out/STAMP"
 rm -rf "$src" "$build"
 echo "sherpa-onnx: built $VERSION ($ABI)"

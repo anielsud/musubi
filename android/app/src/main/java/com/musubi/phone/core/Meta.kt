@@ -14,6 +14,87 @@ data class ChunkInfo(val n: Int, val size: Long, val sha256: String) {
     val name: String get() = chunkName(n)
 }
 
+/** A person the owner listed as present (picked from the event or typed). */
+data class Attendee(val name: String, val email: String? = null)
+
+/** A photo in the recording's folder, as listed in meta.json. */
+data class PhotoInfo(val name: String, val size: Long, val sha256: String, val taken: OffsetDateTime)
+
+/**
+ * What the owner adds to a recording (docs/phone.md, "Recording details"): notes, people, photos.
+ * [rev] goes up with every edit; the Mac reports the rev it applied (`details_rev`).
+ */
+data class Details(
+    val rev: Long = 0,
+    val attendees: List<Attendee> = emptyList(),
+    val notes: String = "",
+    val notesUpdated: OffsetDateTime? = null,
+    val photos: List<PhotoInfo> = emptyList(),
+) {
+    fun toJson(): JSONObject {
+        val att = JSONArray()
+        for (a in attendees) att.put(JSONObject().put("name", a.name).also { o -> a.email?.let { o.put("email", it) } })
+        val ph = JSONArray()
+        for (p in photos) ph.put(JSONObject().put("name", p.name).put("size", p.size).put("sha256", p.sha256).put("taken", RecordingMeta.formatTime(p.taken)))
+        return JSONObject()
+            .put("rev", rev)
+            .put("attendees", att)
+            .put("notes", JSONObject().put("text", notes).put("updated", notesUpdated?.let { RecordingMeta.formatTime(it) } ?: JSONObject.NULL))
+            .put("photos", ph)
+    }
+
+    companion object {
+        const val MAX_NOTES = 20_000
+        const val MAX_PEOPLE = 50
+        const val MAX_NAME = 100
+        const val MAX_EMAIL = 320
+        const val MAX_PHOTOS = 30
+        const val MAX_PHOTO_BYTES = 15L * 1024 * 1024
+        private val PHOTO_RE = Regex("^photo-[0-9]{4}\\.jpg$")
+
+        /** The only shape a photo's file name has: it can never name a path outside the recording's folder. */
+        fun isPhotoName(name: String): Boolean = PHOTO_RE.matches(name)
+
+        fun photoName(n: Int): String = "photo-%04d.jpg".format(n)
+
+        /** A person's name as kept: trimmed, 1..[MAX_NAME] characters, no control characters; null otherwise. */
+        fun cleanName(s: String): String? {
+            val t = s.trim().replace(Regex("\\s+"), " ")
+            return t.takeIf { it.isNotEmpty() && it.length <= MAX_NAME && it.none { c -> c.isISOControl() } }
+        }
+
+        fun fromJson(o: JSONObject): Details {
+            val rev = o.optLong("rev", 0)
+            require(rev >= 0) { "bad rev" }
+            val att = o.optJSONArray("attendees") ?: JSONArray()
+            require(att.length() <= MAX_PEOPLE) { "too many people" }
+            val people = (0 until att.length()).map { i ->
+                val a = att.getJSONObject(i)
+                val name = cleanName(a.getString("name")) ?: throw IllegalArgumentException("bad name")
+                Attendee(name, a.optStringOrNull("email")?.take(MAX_EMAIL))
+            }
+            val n = o.optJSONObject("notes")
+            val text = n?.optString("text", "") ?: ""
+            require(text.length <= MAX_NOTES) { "notes too long" }
+            val updated = n?.optStringOrNull("updated")?.let { RecordingMeta.parseTime(it) }
+            val ph = o.optJSONArray("photos") ?: JSONArray()
+            require(ph.length() <= MAX_PHOTOS) { "too many photos" }
+            val photos = (0 until ph.length()).map { i ->
+                val p = ph.getJSONObject(i)
+                val name = p.getString("name")
+                require(isPhotoName(name)) { "bad photo name" }
+                val size = p.getLong("size")
+                require(size in 1..MAX_PHOTO_BYTES) { "bad photo size" }
+                val sha = p.getString("sha256")
+                require(Hashing.isSha256Hex(sha)) { "bad photo hash" }
+                PhotoInfo(name, size, sha, RecordingMeta.parseTime(p.getString("taken")))
+            }
+            require(photos.map { it.name }.toSet().size == photos.size) { "photo listed twice" }
+            return Details(rev, people, text, updated, photos)
+        }
+    }
+}
+
 /**
  * Contents of a recording's meta.json. This file is sent as-is to the Mac on `complete`,
  * so it holds only what the Mac needs; phone-side sync progress lives in sync.json.
@@ -25,6 +106,7 @@ data class RecordingMeta(
     val deviceName: String,
     val event: EventRef?,
     val chunks: List<ChunkInfo>,
+    val details: Details = Details(),
 ) {
     val isRecording: Boolean get() = end == null
 
@@ -43,11 +125,13 @@ data class RecordingMeta(
             arr.put(JSONObject().put("n", c.n).put("name", c.name).put("size", c.size).put("sha256", c.sha256))
         }
         o.put("chunks", arr)
+        o.put("details", details.toJson())
         return o.toString(2)
     }
 
     companion object {
-        const val VERSION = 1
+        /** 2 adds `details` (a version 1 meta reads as having none). */
+        const val VERSION = 2
         const val MAX_CHUNKS = 10_000
         private const val MAX_TEXT = 1000
 
@@ -74,7 +158,8 @@ data class RecordingMeta(
                 require(Hashing.isSha256Hex(sha)) { "bad chunk hash" }
                 ChunkInfo(n, size, sha)
             }
-            return RecordingMeta(id, start, end, deviceName, event, chunks)
+            val details = o.optJSONObject("details")?.let { Details.fromJson(it) } ?: Details()
+            return RecordingMeta(id, start, end, deviceName, event, chunks, details)
         }
 
         fun newId(): String = UUID.randomUUID().toString()

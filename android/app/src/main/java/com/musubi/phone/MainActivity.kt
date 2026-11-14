@@ -47,6 +47,33 @@ class MainActivity : AppCompatActivity() {
     private var pendingRecord = false
     private var settingsItem: android.view.MenuItem? = null
 
+    // Photos for a recording's details: the system photo picker (no storage permission) and the
+    // camera app writing into a FileProvider path in the recording's folder (no camera permission).
+    private var onPicked: ((List<android.net.Uri>) -> Unit)? = null
+    private var onTaken: ((Boolean) -> Unit)? = null
+    private val picker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        onPicked?.invoke(uris)
+        onPicked = null
+    }
+    private val camera = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        onTaken?.invoke(ok)
+        onTaken = null
+    }
+
+    fun pickPhotos(done: (List<android.net.Uri>) -> Unit) {
+        onPicked = done
+        picker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+
+    fun takePhoto(output: android.net.Uri, done: (Boolean) -> Unit) {
+        onTaken = done
+        runCatching { camera.launch(output) }.onFailure {
+            onTaken = null
+            done(false)
+            toast("No camera app")
+        }
+    }
+
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
         if (pendingRecord) {
             pendingRecord = false
@@ -112,6 +139,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        current()?.pause()
         tick.removeCallbacks(ticker)
         Updater.onPause(this)
         super.onPause()
@@ -131,6 +159,7 @@ class MainActivity : AppCompatActivity() {
     private fun current(): Screen? = stack.lastOrNull() ?: tab
 
     private fun showTab(id: Int) {
+        current()?.pause()
         stack.clear()
         tab = when (id) {
             TAB_RECORDINGS -> RecordingsScreen(this)
@@ -141,13 +170,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun push(s: Screen) {
+        current()?.pause()
         stack.addLast(s)
         render()
     }
 
     fun pop() {
         if (stack.isEmpty()) return
-        stack.removeLast()
+        stack.removeLast().pause()
         render()
     }
 
@@ -211,5 +241,7 @@ class MainActivity : AppCompatActivity() {
         private const val TAB_TODAY = 1
         private const val TAB_RECORDINGS = 2
         private const val TAB_MAC = 3
+        /** The FileProvider (res/xml/file_paths.xml) the camera writes a recording's photo through. */
+        const val FILES_AUTHORITY = "com.musubi.phone.files"
     }
 }

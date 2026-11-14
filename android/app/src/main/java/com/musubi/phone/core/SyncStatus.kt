@@ -30,6 +30,8 @@ data class SyncStatus(
     val error: String? = null,
     /** When the Mac reported `imported`; meta.json is kept for 30 days after this. */
     val importedAt: OffsetDateTime? = null,
+    /** The details rev the Mac reported it applied (`details_rev`). */
+    val detailsRev: Long = 0,
 ) {
     fun toJson(): String {
         val o = JSONObject()
@@ -39,6 +41,7 @@ data class SyncStatus(
         o.put("session_id", sessionId ?: JSONObject.NULL)
         o.put("error", error ?: JSONObject.NULL)
         o.put("imported_at", importedAt?.let { RecordingMeta.formatTime(it) } ?: JSONObject.NULL)
+        o.put("details_rev", detailsRev)
         return o.toString(2)
     }
 
@@ -54,6 +57,7 @@ data class SyncStatus(
                 sessionId = o.optStringOrNull("session_id"),
                 error = o.optStringOrNull("error"),
                 importedAt = o.optStringOrNull("imported_at")?.let { runCatching { RecordingMeta.parseTime(it) }.getOrNull() },
+                detailsRev = o.optLong("details_rev", 0).coerceAtLeast(0),
             )
         }
     }

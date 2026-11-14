@@ -118,6 +118,21 @@ func (a *App) draftBriefs(ctx context.Context) {
 }
 
 func (a *App) draftBriefsOnce(ctx context.Context) {
+	now := time.Now()
+	// The rest of the week: to the end of Sunday.
+	y, m, d := now.Date()
+	end := time.Date(y, m, d, 0, 0, 0, 0, now.Location()).AddDate(0, 0, 8-int(now.Weekday()+6)%7-1)
+	a.draftBriefsUntil(ctx, end, nil)
+}
+
+// draftBriefsUntil drafts (or redrafts, when what they rest on changed)
+// the talking points of the owner's upcoming events that start before
+// end, one at a time, calling visited after each event it has looked at.
+// One pass runs at a time (the weekly one, the phone's); nothing is
+// drafted while a meeting is live.
+func (a *App) draftBriefsUntil(ctx context.Context, end time.Time, visited func(itemID string)) {
+	a.briefMu.Lock()
+	defer a.briefMu.Unlock()
 	e := a.eng
 	if e == nil || a.live == nil || a.live.Status().Mode == "live" {
 		return
@@ -127,9 +142,6 @@ func (a *App) draftBriefsOnce(ctx context.Context) {
 		return
 	}
 	now := time.Now()
-	// The rest of the week: to the end of Sunday.
-	y, m, d := now.Date()
-	end := time.Date(y, m, d, 0, 0, 0, 0, now.Location()).AddDate(0, 0, 8-int(now.Weekday()+6)%7-1)
 	owner := sensitivity.Owner()
 	for _, t := range targets {
 		if ctx.Err() != nil || a.live.Status().Mode == "live" {
@@ -138,28 +150,40 @@ func (a *App) draftBriefsOnce(ctx context.Context) {
 		if !t.Upcoming || !t.At.After(now) || !t.At.Before(end) {
 			continue
 		}
-		v, err := a.Prep(knowledge.PrepRequest{Template: t.ItemID}, owner.Name)
-		if err != nil || v == nil || len(v.Subjects)+len(v.Open)+len(v.Share) == 0 {
-			continue
-		}
-		vb, _ := json.Marshal(v)
-		h := sha256.Sum256(append([]byte(e.AskLLM.ModelName()+"\n"), vb...))
-		input := hex.EncodeToString(h[:12])
-		if have, err := e.Store.PrepBriefFor(owner, t.ItemID); err != nil || have != nil && have.Input == input {
-			continue
-		}
-		ans, err := ask.PrepBrief(ctx, e, v, nil)
-		if err != nil || ans == nil || ans.Text == "" {
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "prep brief %s: %v\n", t.ItemID, err)
-			}
-			continue
-		}
-		th, _ := json.Marshal(ans.Threads)
-		if err := e.Store.SavePrepBrief(store.PrepBrief{ItemID: t.ItemID, Input: input, Model: e.AskLLM.ModelName(), Text: ans.Text,
-			Sources: ans.Sources, Threads: th, MadeAt: time.Now()}); err != nil {
+		if !a.draftBrief(ctx, e, owner, t) {
 			return
 		}
-		a.emit("prep:brief", map[string]string{"id": t.ItemID})
+		if visited != nil {
+			visited(t.ItemID)
+		}
 	}
+}
+
+// draftBrief drafts one event's talking points if they are missing or
+// stale; false when the store failed and the pass should stop.
+func (a *App) draftBrief(ctx context.Context, e *engine.Engine, owner sensitivity.Scope, t PrepTarget) bool {
+	v, err := a.Prep(knowledge.PrepRequest{Template: t.ItemID}, owner.Name)
+	if err != nil || v == nil || len(v.Subjects)+len(v.Open)+len(v.Share) == 0 {
+		return true
+	}
+	vb, _ := json.Marshal(v)
+	h := sha256.Sum256(append([]byte(e.AskLLM.ModelName()+"\n"), vb...))
+	input := hex.EncodeToString(h[:12])
+	if have, err := e.Store.PrepBriefFor(owner, t.ItemID); err != nil || have != nil && have.Input == input {
+		return true
+	}
+	ans, err := ask.PrepBrief(ctx, e, v, nil)
+	if err != nil || ans == nil || ans.Text == "" {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "prep brief %s: %v\n", t.ItemID, err)
+		}
+		return true
+	}
+	th, _ := json.Marshal(ans.Threads)
+	if err := e.Store.SavePrepBrief(store.PrepBrief{ItemID: t.ItemID, Input: input, Model: e.AskLLM.ModelName(), Text: ans.Text,
+		Sources: ans.Sources, Threads: th, MadeAt: time.Now()}); err != nil {
+		return false
+	}
+	a.emit("prep:brief", map[string]string{"id": t.ItemID})
+	return true
 }

@@ -1,0 +1,79 @@
+name: android-release
+# Builds the Musubi phone app (android/, docs/phone.md) on a macOS runner.
+# A tag android-v1.2.3 (matching versionName) builds the signed release APK
+# and publishes it with its checksum to the public releases-only repository,
+# which the app's update check reads. A pull request touching android/ only
+# runs the tests and a debug build.
+# Signed with the release key (secrets MUSUBI_ANDROID_KEYSTORE, base64 of
+# the PKCS12 keystore, and MUSUBI_ANDROID_KEYSTORE_PASSWORD). Never replace
+# it casually: installed copies only update to builds it signed.
+on:
+  push:
+    tags: ["android-v*"]
+  pull_request:
+    paths: ["android/**", ".github/workflows/android-release.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      # Pinned to what sherpa-onnx/build.sh checks for: its library hash is
+      # pinned, so a different NDK fails the build rather than shipping
+      # something unchecked.
+      - name: Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0" \
+            "ndk;27.0.11718014" "cmake;3.31.5" >/dev/null
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+      - name: Tests
+        run: ./gradlew --no-daemon -q testDebugUnitTest lintDebug
+      - name: Debug build
+        if: ${{ !startsWith(github.ref, 'refs/tags/android-v') }}
+        run: ./gradlew --no-daemon -q assembleDebug
+      - name: Signed release build
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        env:
+          KEYSTORE_B64: ${{ secrets.MUSUBI_ANDROID_KEYSTORE }}
+          MUSUBI_RELEASE_PASSWORD: ${{ secrets.MUSUBI_ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          [ -n "$KEYSTORE_B64" ] && [ -n "$MUSUBI_RELEASE_PASSWORD" ] || { echo "::error::release key secrets are not set"; exit 1; }
+          version="$(sed -n 's/^ *versionName = "\([0-9][0-9.]*\)"$/\1/p' app/build.gradle.kts)"
+          [ "android-v$version" = "$GITHUB_REF_NAME" ] || { echo "::error::tag $GITHUB_REF_NAME does not match versionName $version"; exit 1; }
+          umask 077
+          export MUSUBI_RELEASE_KEYSTORE="$RUNNER_TEMP/release.jks"
+          echo "$KEYSTORE_B64" | base64 --decode > "$MUSUBI_RELEASE_KEYSTORE"
+          ./release.sh
+          rm -f "$MUSUBI_RELEASE_KEYSTORE"
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        with:
+          name: musubi-phone-apk
+          path: |
+            android/dist/musubi-phone-*.apk
+            android/dist/musubi-phone-*.apk.sha256
+          if-no-files-found: error
+      # Only the APK, its checksum and a fixed line go to the public
+      # repository. Needs RELEASED_TOKEN (Contents: write there), as the
+      # Mac release does.
+      - name: Publish for the update check
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        env:
+          GH_TOKEN: ${{ secrets.RELEASED_TOKEN }}
+        run: |
+          [ -n "$GH_TOKEN" ] || { echo "::error::RELEASED_TOKEN is not set"; exit 1; }
+          version="${GITHUB_REF_NAME#android-v}"
+          gh release create "$GITHUB_REF_NAME" "dist/musubi-phone-$version.apk" "dist/musubi-phone-$version.apk.sha256" \
+            -R anielsud/musubi-releases --title "Musubi phone $version" --notes "Musubi phone app $version for Android."

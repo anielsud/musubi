@@ -39,6 +39,7 @@ type Config struct {
 	Backup      Backup      `toml:"backup"`
 	Diagnostics Diagnostics `toml:"diagnostics"`
 	Updates     Updates     `toml:"updates"`
+	Phone       Phone       `toml:"phone"`
 	// Providers are hosted endpoints set up once and named, for models to
 	// use with `via` (Settings → AI providers).
 	Providers map[string]Provider `toml:"providers"`
@@ -135,6 +136,21 @@ type Prep struct {
 	// false: talking points only when asked, the earlier behaviour.
 	AutoBrief bool `toml:"auto_brief"`
 }
+
+// Phone is the phone access server (internal/phone, docs/phone.md):
+// paired phones upload the meetings they recorded and fetch the agenda
+// with its briefs, over HTTPS from private addresses only.
+type Phone struct {
+	// Enabled starts the server with the app. false (the default): no
+	// listener at all, as before.
+	Enabled bool `toml:"enabled"`
+	// Port is the TCP port it listens on.
+	Port int `toml:"port"`
+}
+
+// PhoneDir is the phone server's folder: its certificate and key, the
+// paired devices, recordings being uploaded.
+func (c Config) PhoneDir() string { return filepath.Join(c.DataDir, "phone") }
 
 // QuietAfter is QuietDays as a duration.
 func (p Prep) QuietAfter() time.Duration { return time.Duration(p.QuietDays) * 24 * time.Hour }
@@ -793,6 +809,7 @@ func DefaultConfig() Config {
 		Backup:      Backup{Daily: true, KeepDaily: 7, BeforeChanges: true, KeepBefore: 5},
 		Diagnostics: Diagnostics{Profiling: true, Resources: true},
 		Updates:     Updates{Check: true, Install: true, Prereleases: true, Repo: "anielsud/musubi-releases"},
+		Phone:       Phone{Port: 47615},
 		Recorder:    Recorder{OfRecord: "tomoe", Watchdog: true, InstallAgent: true, Relabel: true, Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}
 }

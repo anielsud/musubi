@@ -71,6 +71,10 @@ type App struct {
 	// notReadyLogged: the first "not ready" since the last open is logged,
 	// to date when the screens started failing.
 	notReadyLogged atomic.Bool
+	// phone is the phone access server (phone.go); briefMu runs one
+	// brief-drafting pass at a time (prep.go).
+	phone   phoneState
+	briefMu sync.Mutex
 }
 
 func NewApp() *App { return &App{} }
@@ -168,6 +172,7 @@ func (a *App) openConfig(path, why string) (err error) {
 	if e.Cfg.Prep.AutoBrief && e.AskLLM != nil {
 		go a.draftBriefs(lctx)
 	}
+	a.startPhone(lctx, e)
 	if n := e.Cfg.Live.UpdateEvery; n > 0 {
 		go func() {
 			t := time.NewTicker(time.Duration(n) * time.Minute)
@@ -221,6 +226,7 @@ func (a *App) Shutdown(ctx context.Context) {
 	log.Printf("Musubi shutting down")
 	a.UnwatchResources()
 	a.closeDataset("shutdown")
+	a.waitPhone() // its Bonjour advertisement ends before the app does
 }
 
 // AppStatus is shown in the header and the status view.

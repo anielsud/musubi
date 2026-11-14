@@ -381,7 +381,9 @@ type linkTarget struct {
 
 // linkMeetings matches each Tomoe recording to the calendar event it most
 // likely was: the event must contain the recording's start (with 15 minutes
-// of slack either side) and overlap a good share of it.
+// of slack either side) and overlap a good share of it. A recording that
+// names its event (a phone's: Native "event_id") is linked to that event
+// whenever Musubi has it, whatever the times say.
 func linkMeetings(items []item.Item, owner string) (string, map[string]linkTarget) {
 	var meetings, events []item.Item
 	h := sha256.New()
@@ -397,9 +399,26 @@ func linkMeetings(items []item.Item, owner string) (string, map[string]linkTarge
 		}
 		fmt.Fprintf(h, "%s %d %d %v|", it.ID, it.OccurredAt.Unix(), it.End().Unix(), others(it, owner))
 	}
+	// Any event the owner named counts, even one too long or all-day to
+	// be matched by time (a conference day); not a cancelled one.
+	named := map[string]bool{}
+	for _, e := range items {
+		if e.Kind == item.KindEvent && e.Native["cancelled"] != "true" {
+			named[e.ID] = true
+		}
+	}
+	for _, m := range meetings {
+		if ev := m.Native["event_id"]; ev != "" {
+			fmt.Fprintf(h, "%s named %s %v|", m.ID, ev, named[ev]) // relinked when the event arrives; other links keep their hash
+		}
+	}
 	const slack = 15 * time.Minute
 	out := map[string]linkTarget{}
 	for _, m := range meetings {
+		if ev := m.Native["event_id"]; ev != "" && named[ev] {
+			out[m.ID] = linkTarget{ev, 1}
+			continue
+		}
 		mEnd := m.End()
 		mDur := mEnd.Sub(m.OccurredAt)
 		var best linkTarget

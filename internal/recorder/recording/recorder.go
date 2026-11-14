@@ -145,6 +145,10 @@ type Recorder struct {
 	// refused is why the data folder can't be used (a newer Musubi wrote
 	// it: dataformat.ErrNewer), set before Start; nil normally.
 	refused error
+
+	// imports are outside recordings being made into sessions
+	// (importer.go).
+	imports importQueue
 }
 
 // activeRecording is what a recording in progress needs to be stopped.
@@ -636,6 +640,7 @@ func (a *Recorder) Shutdown() {
 	if a.detector != nil {
 		a.detector.Stop()
 	}
+	a.stopImports()
 
 	// A stop the detector began just before may not have queued its save
 	// yet; closing saves under it would lose that session.

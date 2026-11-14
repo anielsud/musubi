@@ -4,11 +4,9 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -19,9 +17,9 @@ import (
 	"time"
 )
 
-// The server's certificate is self-signed: the phone pins its SHA-256
-// fingerprint at pairing, whose code is derived from it (pairing.go), so
-// no CA (and no hostname) is involved.
+// The Mac's certificate is self-signed and is its TLS client certificate
+// when it dials a phone: the phone pins its SHA-256 at pairing, whose code
+// is derived from it (pairing.go), so no CA (and no hostname) is involved.
 // It is made once and kept, so a pinned phone keeps working.
 
 const (
@@ -59,7 +57,7 @@ func loadOrCreateCert(dir string, now time.Time) (tls.Certificate, error) {
 		NotBefore:             now.Add(-time.Hour),
 		NotAfter:              now.AddDate(certYears, 0, 0),
 		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 		DNSNames:              []string{"musubi.local"},
 	}
@@ -80,16 +78,6 @@ func loadOrCreateCert(dir string, now time.Time) (tls.Certificate, error) {
 		return tls.Certificate{}, err
 	}
 	return tls.LoadX509KeyPair(filepath.Join(dir, certFile), filepath.Join(dir, keyFile))
-}
-
-// Fingerprint is the SHA-256 of a certificate's DER bytes, lowercase hex:
-// what the phone pins.
-func Fingerprint(cert tls.Certificate) string {
-	if len(cert.Certificate) == 0 {
-		return ""
-	}
-	sum := sha256.Sum256(cert.Certificate[0])
-	return hex.EncodeToString(sum[:])
 }
 
 // writePrivate writes b to path (mode 0600) through a temporary file, so

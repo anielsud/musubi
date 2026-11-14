@@ -20,24 +20,23 @@ import (
 	"github.com/anielsud/musubi/internal/recorder/control"
 )
 
-// A phone's recording arrives as numbered ADTS chunks, each checked
-// against the SHA-256 the phone sent with it, then a complete call with
-// the phone's meta.json. Chunks live in the Musubi data folder
-// (phone/recordings/<rid>/) until the recorder has the meeting saved.
+// A phone's recording is fetched as numbered ADTS chunks, each checked
+// against its SHA-256 and size in the phone's meta.json. Chunks are staged
+// in the Musubi data folder (phone/recordings/<rid>/) until the recorder
+// has the meeting saved, so an interrupted sync resumes where it stopped.
 
 const (
 	maxChunkBytes = 64 << 20
 	maxChunks     = 10_000
-	maxMetaBytes  = 1 << 20
-	stateFile     = "state.json"
-	metaFile      = "meta.json"
+	// maxRecordingBytes bounds what one recording may stage: 2 GB, about
+	// 46 hours at the phone's 96 kbps.
+	maxRecordingBytes = 2 << 30
+	stateFile         = "state.json"
 )
 
-// Recording states (GET /v1/recordings/{rid}): received until complete,
-// then the recorder's import states.
-const (
-	StateReceived = "received"
-)
+// StateReceived: every chunk is on the Mac, not yet with the recorder.
+// The other states are the recorder's import states (control.Import*).
+const StateReceived = "received"
 
 var (
 	ridPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -65,8 +64,14 @@ func chunkName(n int) string { return fmt.Sprintf("chunk-%04d.aac", n) }
 
 // recState is a recording's state.json.
 type recState struct {
-	Device    string    `json:"device"`
-	State     string    `json:"state"`
+	// Phone is the certificate SHA-256 of the phone it came from; a
+	// recording is only ever another phone's by mistake or malice.
+	Phone string `json:"phone,omitempty"`
+	// State is "" while chunks are being fetched.
+	State string `json:"state"`
+	// Retry: a failure on the Mac's side (damaged chunk, join, handing
+	// over), tried again at the next sync; a failed import is not.
+	Retry     bool      `json:"retry,omitempty"`
 	Session   string    `json:"session_id,omitempty"`
 	Error     string    `json:"error,omitempty"`
 	StartedAt time.Time `json:"started_at,omitzero"`
@@ -121,7 +126,8 @@ type metaChunk struct {
 	sum  string
 }
 
-// parseMeta checks a meta.json for rid: its id, a start time with zone,
+// parseMeta checks a meta.json (for rid, or any recording when rid is
+// ""): its id, a start time with zone,
 // an event id of the right shape, and a non-empty list of distinct
 // chunks in range. It returns the chunks in order.
 func parseMeta(b []byte, rid string) (*meta, time.Time, []metaChunk, error) {
@@ -129,7 +135,7 @@ func parseMeta(b []byte, rid string) (*meta, time.Time, []metaChunk, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return nil, time.Time{}, nil, fmt.Errorf("meta.json isn't JSON")
 	}
-	if id, ok := parseRID(m.ID); !ok || id != rid {
+	if id, ok := parseRID(m.ID); !ok || (rid != "" && id != rid) {
 		return nil, time.Time{}, nil, fmt.Errorf("meta.json is for another recording")
 	}
 	start, err := time.Parse(time.RFC3339Nano, m.Start)
@@ -144,15 +150,20 @@ func parseMeta(b []byte, rid string) (*meta, time.Time, []metaChunk, error) {
 	}
 	seen := map[int]bool{}
 	var out []metaChunk
+	var total int64
 	for _, c := range m.Chunks {
 		sum := strings.ToLower(c.SHA256)
 		if c.N < 0 || c.N >= maxChunks || seen[c.N] || c.Size < 0 || c.Size > maxChunkBytes || !shaPattern.MatchString(sum) {
 			return nil, time.Time{}, nil, fmt.Errorf("meta.json has a bad chunk entry")
 		}
+		if total += c.Size; total > maxRecordingBytes {
+			return nil, time.Time{}, nil, fmt.Errorf("meta.json lists too much audio")
+		}
 		seen[c.N] = true
 		out = append(out, metaChunk{c.N, c.Size, sum})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].n < out[j].n })
+	m.ID = strings.ToLower(m.ID)
 	return &m, start, out, nil
 }
 

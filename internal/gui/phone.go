@@ -19,57 +19,57 @@ import (
 	"github.com/anielsud/musubi/internal/sensitivity"
 )
 
-// Settings → Phone (docs/phone.md, part 2): the phone access server runs
-// while the dataset is open and [phone] enabled is set. Paired phones
-// upload their recordings, which the recorder imports, and fetch the
-// owner's agenda with its briefs.
+// Settings → Phone (docs/phone.md, part 2): phone sync runs while the
+// dataset is open and [phone] enabled is set. The Mac looks for phones on
+// the local network and dials them (it listens on no port), fetches their
+// recordings, which the recorder imports, and pushes the owner's agenda
+// with its briefs.
 
 type phoneState struct {
-	mu        sync.Mutex
-	srv       *phone.Server
-	listening bool
-	err       string
-	// served is closed when the last server has stopped serving (and
-	// advertising); a reopen and the app's exit wait for it.
-	served chan struct{}
-	// The drafting agenda requests start.
+	mu   sync.Mutex
+	sync *phone.Syncer
+	err  string
+	// ran is closed when the last syncer has stopped (its dns-sd
+	// children and connections ended); a reopen and the app's exit wait
+	// for it.
+	ran chan struct{}
+	// The drafting syncs start.
 	draft phone.Drafter
 }
 
-// waitPhone waits, at most a few seconds, for the last phone server to
-// stop: its Bonjour name and its port are then free.
+// waitPhone waits, at most a few seconds, for the last syncer to stop.
 func (a *App) waitPhone() {
 	a.phone.mu.Lock()
-	served := a.phone.served
+	ran := a.phone.ran
 	a.phone.mu.Unlock()
-	if served == nil {
+	if ran == nil {
 		return
 	}
 	select {
-	case <-served:
+	case <-ran:
 	case <-time.After(5 * time.Second):
-		log.Printf("phone: the previous server is still stopping")
+		log.Printf("phone: the previous phone sync is still stopping")
 	}
 }
 
-// startPhone opens the phone server for e and serves until ctx ends,
-// when [phone] enabled is set.
+// startPhone opens phone sync for e and runs it until ctx ends, when
+// [phone] enabled is set.
 func (a *App) startPhone(ctx context.Context, e *engine.Engine) {
 	a.waitPhone()
 	a.phone.mu.Lock()
-	a.phone.srv, a.phone.listening, a.phone.err = nil, false, ""
+	a.phone.sync, a.phone.err = nil, ""
 	a.phone.mu.Unlock()
 	if !e.Cfg.Phone.Enabled {
 		return
 	}
-	srv, err := a.openPhone(ctx, e)
-	served := make(chan struct{})
+	s, err := a.openPhone(ctx, e)
+	ran := make(chan struct{})
 	a.phone.mu.Lock()
-	a.phone.srv = srv
+	a.phone.sync = s
 	if err != nil {
 		a.phone.err = err.Error()
 	} else {
-		a.phone.served = served
+		a.phone.ran = ran
 	}
 	a.phone.mu.Unlock()
 	if err != nil {
@@ -77,43 +77,17 @@ func (a *App) startPhone(ctx context.Context, e *engine.Engine) {
 		return
 	}
 	go func() {
-		defer close(served)
-		// A reopen stops the old server just before this one starts, so
-		// the port can still be held for a moment.
-		for try := 0; ctx.Err() == nil; try++ {
-			a.phone.mu.Lock()
-			a.phone.listening, a.phone.err = true, ""
-			a.phone.mu.Unlock()
-			a.emit("phone:changed", nil)
-			err := srv.Serve(ctx)
-			a.phone.mu.Lock()
-			a.phone.listening = false
-			if err != nil {
-				a.phone.err = fmt.Sprintf("can't listen on port %d: %v", e.Cfg.Phone.Port, err)
-			}
-			a.phone.mu.Unlock()
-			a.emit("phone:changed", nil)
-			if err == nil || try >= 5 {
-				if err != nil {
-					log.Printf("phone: %v", err)
-				}
-				return
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Second):
-			}
-		}
+		defer close(ran)
+		s.Run(ctx)
+		a.emit("phone:changed", nil)
 	}()
 }
 
-// openPhone opens the phone server's folder (certificate, devices)
-// without listening.
-func (a *App) openPhone(ctx context.Context, e *engine.Engine) (*phone.Server, error) {
+// openPhone opens phone sync's folder (certificate, paired phones)
+// without starting it.
+func (a *App) openPhone(ctx context.Context, e *engine.Engine) (*phone.Syncer, error) {
 	return phone.New(phone.Config{
 		Dir:          e.Cfg.PhoneDir(),
-		Port:         e.Cfg.Phone.Port,
 		RecorderData: e.Cfg.Recorder.Data,
 		Import: func(ctx context.Context, args control.ImportArgs) (control.ImportStatus, error) {
 			var st control.ImportStatus
@@ -132,7 +106,7 @@ func (a *App) openPhone(ctx context.Context, e *engine.Engine) (*phone.Server, e
 }
 
 // askPair brings the window forward, whatever screen is open, and asks
-// the owner to Allow or Deny a phone's pair request.
+// the owner to Allow or Deny a phone's pairing.
 func (a *App) askPair(p phone.PairPrompt) {
 	if a.ctx != nil && a.emitFn == nil {
 		wruntime.Show(a.ctx)
@@ -178,16 +152,13 @@ func (a *App) phoneDrafting(ctx context.Context, e *engine.Engine, until time.Ti
 
 // PhoneView is Settings → Phone.
 type PhoneView struct {
-	Enabled   bool           `json:"enabled"`
-	Port      int            `json:"port"`
-	Listening bool           `json:"listening"`
+	Enabled bool `json:"enabled"`
+	// Looking: the Mac is looking for phones on the local network;
+	// LookError says why not, when it should be.
+	Looking   bool           `json:"looking"`
+	LookError string         `json:"lookError,omitempty"`
 	Error     string         `json:"error,omitempty"`
 	Devices   []phone.Device `json:"devices"`
-	// Advertised: the Mac is announced on the local network (Bonjour) as
-	// AdvertisedAs; AdvertiseError says why not, when it should be.
-	Advertised     bool   `json:"advertised"`
-	AdvertisedAs   string `json:"advertisedAs,omitempty"`
-	AdvertiseError string `json:"advertiseError,omitempty"`
 	// OfRecord: Musubi takes in the recorder's meetings, so imported
 	// phone recordings reach it ([recorder] of_record = "musubi").
 	OfRecord bool `json:"ofRecord"`
@@ -197,33 +168,32 @@ func (a *App) PhoneState() (PhoneView, error) {
 	if a.eng == nil {
 		return PhoneView{}, a.notReady()
 	}
-	v := PhoneView{Enabled: a.eng.Cfg.Phone.Enabled, Port: a.eng.Cfg.Phone.Port, OfRecord: a.eng.Cfg.MusubiRecords(), Devices: []phone.Device{}}
+	v := PhoneView{Enabled: a.eng.Cfg.Phone.Enabled, OfRecord: a.eng.Cfg.MusubiRecords(), Devices: []phone.Device{}}
 	a.phone.mu.Lock()
-	srv := a.phone.srv
-	v.Listening, v.Error = a.phone.listening, a.phone.err
+	s := a.phone.sync
+	v.Error = a.phone.err
 	a.phone.mu.Unlock()
-	if srv != nil {
-		v.Advertised, v.AdvertisedAs, v.AdvertiseError = srv.Advertising()
+	if s != nil {
+		v.Looking, v.LookError = s.Looking()
+	} else {
+		s, _ = a.phoneDevicesOnly()
 	}
-	if srv == nil {
-		srv, _ = a.phoneDevicesOnly()
-	}
-	if srv != nil {
-		v.Devices = srv.Devices()
+	if s != nil {
+		v.Devices = s.Devices()
 	}
 	return v, nil
 }
 
-// phoneDevicesOnly opens the phone folder while the server is off, to
-// list or revoke devices paired before; nil when none ever were.
-func (a *App) phoneDevicesOnly() (*phone.Server, error) {
-	if _, err := os.Stat(filepath.Join(a.eng.Cfg.PhoneDir(), "devices.json")); err != nil {
+// phoneDevicesOnly opens the phone folder while sync is off, to list or
+// unpair phones paired before; nil when none ever were.
+func (a *App) phoneDevicesOnly() (*phone.Syncer, error) {
+	if _, err := os.Stat(filepath.Join(a.eng.Cfg.PhoneDir(), "phones.json")); err != nil {
 		return nil, nil
 	}
-	return phone.New(phone.Config{Dir: a.eng.Cfg.PhoneDir(), Port: a.eng.Cfg.Phone.Port})
+	return phone.New(phone.Config{Dir: a.eng.Cfg.PhoneDir()})
 }
 
-// SetPhoneEnabled turns the phone server on or off ([phone] enabled) and
+// SetPhoneEnabled turns phone sync on or off ([phone] enabled) and
 // reopens the dataset so it takes effect.
 func (a *App) SetPhoneEnabled(on bool) error {
 	if a.eng == nil {
@@ -235,44 +205,43 @@ func (a *App) SetPhoneEnabled(on bool) error {
 	return a.reopen("phone:changed")
 }
 
-// PhonePairRequest is the phone's pair request waiting for the owner's
-// answer, or nil.
+// PhonePairRequest is the pairing waiting for the owner's answer, or nil.
 func (a *App) PhonePairRequest() *phone.PairPrompt {
 	a.phone.mu.Lock()
-	srv := a.phone.srv
+	s := a.phone.sync
 	a.phone.mu.Unlock()
-	if srv == nil {
+	if s == nil {
 		return nil
 	}
-	return srv.PairPrompt()
+	return s.PairPrompt()
 }
 
-// PhoneAnswerPair is the owner's Allow (allow true) or Deny of a pair
-// request; the phone gets its token once it has confirmed too.
+// PhoneAnswerPair is the owner's Allow (allow true) or Deny of a pairing;
+// the phone is paired once its owner has confirmed there too.
 func (a *App) PhoneAnswerPair(id string, allow bool) error {
 	a.phone.mu.Lock()
-	srv := a.phone.srv
+	s := a.phone.sync
 	a.phone.mu.Unlock()
-	if srv == nil {
-		return errors.New("the phone server is off")
+	if s == nil {
+		return errors.New("phone sync is off")
 	}
-	return srv.AnswerPair(id, allow)
+	return s.AnswerPair(id, allow)
 }
 
-// PhoneRevoke unpairs a phone: its token stops working at once. What is
-// already on the phone stays there.
+// PhoneRevoke unpairs a phone: its pin is removed, so its connections
+// fail. What is already on the phone stays there.
 func (a *App) PhoneRevoke(id string) error {
 	if a.eng == nil {
 		return a.notReady()
 	}
 	a.phone.mu.Lock()
-	srv := a.phone.srv
+	s := a.phone.sync
 	a.phone.mu.Unlock()
-	if srv == nil {
+	if s == nil {
 		var err error
-		if srv, err = a.phoneDevicesOnly(); err != nil || srv == nil {
-			return fmt.Errorf("no such device")
+		if s, err = a.phoneDevicesOnly(); err != nil || s == nil {
+			return fmt.Errorf("no such phone")
 		}
 	}
-	return srv.Revoke(id)
+	return s.Unpair(id)
 }

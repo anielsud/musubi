@@ -4,9 +4,9 @@ import type { PhoneView } from '../../types';
 import { Spinner } from '../common';
 import { Row } from './shared';
 
-// Phone: the server paired phones sync with (docs/phone.md). Off by
-// default; while on, Musubi listens on the local network (private
-// addresses only) for paired phones.
+// Phone: sync with paired phones (docs/phone.md). Off by default; while
+// on, Musubi looks for phones on the local network and connects to them
+// (it never listens for connections itself).
 export function PhoneTab() {
   const [v, setV] = useState<PhoneView | null>(null);
   const [err, setErr] = useState('');
@@ -25,7 +25,7 @@ export function PhoneTab() {
     api.setPhoneEnabled(!v.enabled).then(() => { setBusy(false); load(); }, (e) => { setBusy(false); setErr(String(e)); load(); });
   };
   const revoke = (id: string, name: string) => {
-    if (!confirm(`Unpair ${name}? It stops syncing at once. What is already on the phone stays there.`)) return;
+    if (!confirm(`Unpair ${name}? It stops syncing with this Mac. What is already on the phone stays there.`)) return;
     api.phoneRevoke(id).then(load, (e) => setErr(String(e)));
   };
   const devices = v.devices ?? [];
@@ -35,16 +35,12 @@ export function PhoneTab() {
       <section className="kv">
         <div className="section-head"><span>Phone</span></div>
         <p className="dim small">
-          A paired phone records meetings where this Mac isn&apos;t (on site, in person) and sends them here to be transcribed
-          when it can reach this Mac again; it also carries your agenda and its briefs. While this is on, Musubi listens on
-          port {v.port} for paired phones, over HTTPS and from private networks only (home or office Wi-Fi, Tailscale).
+          A paired phone records meetings where this Mac isn&apos;t (on site, in person); when both are on the same
+          network again (home or office Wi-Fi, or Tailscale on both), Musubi connects to the phone, fetches the recordings
+          to be transcribed here, and gives the phone your agenda and its briefs. Musubi only connects out, to private
+          addresses, over encrypted connections that both sides check.
         </p>
-        <Row k="phone server" v={v.enabled ? (v.listening ? 'on, listening' : 'on, not listening') : 'off'} />
-        {v.enabled && v.listening && (
-          <Row k="on the local network" v={v.advertised
-            ? `announced as “${v.advertisedAs}”`
-            : `not announced${v.advertiseError ? ` (${v.advertiseError})` : ''}`} />
-        )}
+        <Row k="phone sync" v={!v.enabled ? 'off' : v.looking ? 'on, looking for phones' : `on, not looking for phones${v.lookError ? ` (${v.lookError})` : ''}`} />
         {v.error && <div className="error small">{v.error}</div>}
         {v.enabled && !v.ofRecord && (
           <div className="dim small">Recordings from the phone go to Musubi&apos;s recorder; Musubi takes them in once it records your meetings (Settings → Recording).</div>
@@ -56,8 +52,8 @@ export function PhoneTab() {
         </div>
         {v.enabled && (
           <div className="dim small">
-            Pairing starts on the phone: open Mac, pick this Mac from the list, and Musubi asks you to allow it, with a
-            code to compare with the phone&apos;s.
+            Pairing starts on the phone: tap <b>Pair with your Mac</b> there, and Musubi asks you to allow it, with a code
+            to compare with the phone&apos;s.
           </div>
         )}
       </section>
@@ -69,7 +65,9 @@ export function PhoneTab() {
           <div key={d.id} className="kv-row">
             <span className="k">{d.name}</span>
             <span className="v">
-              paired {fmtDate(d.paired)}{d.last_seen ? `, last seen ${fmtDate(d.last_seen)}` : ''}{' '}
+              {d.last_sync ? `last sync ${fmtDate(d.last_sync)}` : `paired ${fmtDate(d.paired)}, not synced yet`}
+              {d.last_outcome ? ` (${d.last_outcome})` : ''}
+              {(d.addresses ?? []).length > 0 ? `; last addresses ${(d.addresses ?? []).join(', ')}` : ''}{' '}
               <button className="small" onClick={() => revoke(d.id, d.name)}>Unpair</button>
             </span>
           </div>

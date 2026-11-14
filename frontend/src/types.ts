@@ -924,15 +924,18 @@ export interface SplitCount { profile: string; name: string; label: string; line
 export interface SplitLine { start: number; end: number; fingerprints: number; label?: string; best: number; second: number }
 export interface SplitResult { batch?: string; counts: SplitCount[] | null; undecided: number; lines: SplitLine[] | null }
 
-// Settings → Phone (internal/gui/phone.go).
+// Settings → Phone (internal/gui/phone.go): a paired phone; id is its
+// certificate's SHA-256.
 export interface PhoneDevice {
   id: string;
   name: string;
   paired: string;
-  last_seen?: string;
+  last_sync?: string;
+  last_outcome?: string;
+  addresses: string[] | null;
 }
 
-// A phone's pair request waiting for the owner's Allow or Deny.
+// A phone's pairing waiting for the owner's Allow or Deny.
 export interface PhonePairPrompt {
   id: string;
   deviceName: string;
@@ -942,12 +945,9 @@ export interface PhonePairPrompt {
 
 export interface PhoneView {
   enabled: boolean;
-  port: number;
-  listening: boolean;
+  looking: boolean;
+  lookError?: string;
   error?: string;
   devices: PhoneDevice[] | null;
-  advertised: boolean;
-  advertisedAs?: string;
-  advertiseError?: string;
   ofRecord: boolean;
 }

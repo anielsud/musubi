@@ -137,19 +137,18 @@ type Prep struct {
 	AutoBrief bool `toml:"auto_brief"`
 }
 
-// Phone is the phone access server (internal/phone, docs/phone.md):
-// paired phones upload the meetings they recorded and fetch the agenda
-// with its briefs, over HTTPS from private addresses only.
+// Phone is phone sync (internal/phone, docs/phone.md): the Mac finds
+// paired phones on the local network and dials them (it listens on no
+// port), fetches the meetings they recorded and pushes the agenda with its
+// briefs, over mutual TLS to private addresses only.
 type Phone struct {
-	// Enabled starts the server with the app. false (the default): no
-	// listener at all, as before.
+	// Enabled starts phone sync with the app. false (the default): no
+	// browsing and no connections at all, as before.
 	Enabled bool `toml:"enabled"`
-	// Port is the TCP port it listens on.
-	Port int `toml:"port"`
 }
 
-// PhoneDir is the phone server's folder: its certificate and key, the
-// paired devices, recordings being uploaded.
+// PhoneDir is phone sync's folder: its certificate and key, the paired
+// phones, recordings being fetched.
 func (c Config) PhoneDir() string { return filepath.Join(c.DataDir, "phone") }
 
 // QuietAfter is QuietDays as a duration.
@@ -809,7 +808,6 @@ func DefaultConfig() Config {
 		Backup:      Backup{Daily: true, KeepDaily: 7, BeforeChanges: true, KeepBefore: 5},
 		Diagnostics: Diagnostics{Profiling: true, Resources: true},
 		Updates:     Updates{Check: true, Install: true, Prereleases: true, Repo: "anielsud/musubi-releases"},
-		Phone:       Phone{Port: 47615},
 		Recorder:    Recorder{OfRecord: "tomoe", Watchdog: true, InstallAgent: true, Relabel: true, Data: filepath.Join(home, ".local", "share", "musubi", "recorder")},
 	}
 }

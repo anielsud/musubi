@@ -71,7 +71,7 @@ type App struct {
 	// notReadyLogged: the first "not ready" since the last open is logged,
 	// to date when the screens started failing.
 	notReadyLogged atomic.Bool
-	// phone is the phone access server (phone.go); briefMu runs one
+	// phone is phone sync (phone.go); briefMu runs one
 	// brief-drafting pass at a time (prep.go).
 	phone   phoneState
 	briefMu sync.Mutex
@@ -226,7 +226,7 @@ func (a *App) Shutdown(ctx context.Context) {
 	log.Printf("Musubi shutting down")
 	a.UnwatchResources()
 	a.closeDataset("shutdown")
-	a.waitPhone() // its Bonjour advertisement ends before the app does
+	a.waitPhone() // its dns-sd children and connections end before the app does
 }
 
 // AppStatus is shown in the header and the status view.

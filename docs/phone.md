@@ -217,10 +217,51 @@ ops, oversize frames and malformed JSON close the connection.
 
 Agenda JSON: `{events: [{id, start, end, subject, location, organizer,
 attendees: [{name}], brief: {text, made_at, sensitivity: {level, share,
-why}} | null}], drafting: n, made_at}`.
+why}, sources: [source]} | null, open: [{text, who, due, thread, raised,
+quiet, overdue, private, sources: [source]}]}], drafting: n, made_at}`,
+where `source` is `{n, title, kind, occurred_at, speakers, text,
+sensitivity}` (owner's decision of 2026-11-13: citations either link to
+what backs them or are left out).
+- `brief.text` cites `[n]`, the `n` of a source in `brief.sources` (the
+  same numbering as the desktop's Answer). `open` are the "open between
+  us" items the desktop's prep shows, in its order; their text has the
+  desktop's item citations removed, and their `sources` (at most 3,
+  numbered from 1) are the passages behind them.
+- A source's `text` is the cited passage, at most 1,200 characters; each
+  carries its own sensitivity label. At most 30 sources per brief and 15
+  open items per event.
+- The phone renders `**bold**`, bullet lists (`-`/`*`, nested by two
+  spaces) and paragraphs, shows `[n]` as a small tappable mark that opens
+  the source (title, date, speakers, passage, label), and drops a `[n]`
+  with no matching source.
 
 `rid` is the phone's UUID, `n` 0–9999. The phone refuses `chunk` and
 `state` for unknown recordings.
+
+**Recording details** (owner's decision of 2026-11-13: attach to the
+meeting)
+- On the Recording screen and on any recording afterwards: **Notes**
+  (free text, at most 20,000 characters, editable any time), **People**
+  (picked from the event's attendees, or typed; at most 50), **Photos**
+  (camera, or the system photo picker; JPEG, at most 15 MB each, at
+  most 30; stored in the recording's folder).
+- `meta.json` gains `details: {rev, attendees: [{name, email?}], notes:
+  {text, updated}, photos: [{name, size, sha256, taken}]}`; `rev` goes up
+  with every edit. `version` becomes 2.
+- New op `file` `{rid, name}` → `{sha256}` + body: a photo listed in
+  `details.photos`.
+- `state` gains `details_rev`: the `rev` the Mac has applied. `list` also
+  includes an imported recording whose `details.rev` is above the
+  `details_rev` the Mac last reported (and only its `meta`, no chunks
+  fetched again).
+- The phone deletes a recording's photos together with its audio, once
+  the Mac has reported `imported` and the current `details_rev`.
+- On the Mac the details go into the session folder (`phone-details.json`,
+  `photos/`) and onto the meeting: notes are the owner's notes on that
+  meeting (shown and searchable, the meeting's sensitivity); attendees
+  are the meeting's people and invitees for speaker naming; photos are
+  kept with the meeting, labelled owner-only, and never sent to a hosted
+  model. A later `rev` replaces the earlier details.
 
 ### 2. The Mac side
 
@@ -270,10 +311,40 @@ decision of 2026-11-13). The session is marked
 and links it to the calendar event by time; when the phone named an
 event, that event is the link.
 
-### 3. Musubi's screens on the phone (after this round)
+### 3. Explore on the phone (owner's decision of 2026-11-13: reuse the
+desktop screens; read and Ask only)
 
-Reading and Ask on the phone, through the connection the Mac opens (the
-Mac cannot accept connections). Not designed yet.
+While the app is in the foreground on a network where the Mac can reach
+it, the phone shows an **Explore** tab: Musubi's own Explore screens and
+Ask, served by the Mac over the connection the Mac opened.
+
+- The phone's advertisement adds `live=1` while the app is in the
+  foreground. The Mac dials such a paired phone at once (after a sync if
+  one is due) and sends `live_start`; the phone answers `{}` and the
+  connection carries both directions from then on.
+- From `live_start` every frame has an `id` (the sender's counter; a
+  reply repeats it). Phone → Mac: `rpc {id, method, args: [...]}` →
+  `{id, ok, result}`; `asset {id, path}` → `{id, ok, type}` + body.
+  Mac → phone: `event {name, data}` (no reply) for the frontend's events
+  (Ask's streaming, for example); `ping` → `{}` every 30 seconds. Phone →
+  Mac `live_end` when the app leaves the foreground; either side may
+  close. One live connection per phone; closed after 10 minutes without
+  a request.
+- **Allowlist** on the Mac: only the read methods the Explore screens
+  call, plus `Ask`/`StopAsk`; every other method (settings, edits,
+  judgements, to-do marks, recorder control, diagnostics) is refused
+  `not_allowed`. Scopes as on the desktop (`owner`, `shared-screen`).
+  Arguments are checked the way the desktop's calls are.
+- **Assets**: the Mac serves its own built frontend (the files embedded
+  in the app) by path, nothing else, so the screens always match the
+  Mac's version.
+- On the phone: a WebView on a private origin (`https://musubi.local/`)
+  whose requests are answered from the live connection; a bridge object
+  that stands in for the desktop's `window.go.gui.App` and
+  `window.runtime` (events), present only on that origin; no other
+  navigation, no file access, nothing cached to disk. The frontend opens
+  on Explore in a phone mode (`?phone=1`: no desktop-only chrome, narrow
+  layout).
 
 ## Trade-offs
 

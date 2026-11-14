@@ -14,6 +14,7 @@ import (
 
 	"github.com/anielsud/musubi/internal/config"
 	"github.com/anielsud/musubi/internal/engine"
+	"github.com/anielsud/musubi/internal/knowledge"
 	"github.com/anielsud/musubi/internal/phone"
 	"github.com/anielsud/musubi/internal/recorder/control"
 	"github.com/anielsud/musubi/internal/sensitivity"
@@ -95,8 +96,16 @@ func (a *App) openPhone(ctx context.Context, e *engine.Engine) (*phone.Syncer, e
 			return st, err
 		},
 		// The owner's own agenda: the phone carries what the owner sees.
-		Agenda: func(_ context.Context, days int) ([]phone.Event, error) {
-			return phone.BuildAgenda(e.Store, sensitivity.Owner(), time.Now(), days)
+		// Open items as the desktop's prep shows them for the event.
+		Agenda: func(ctx context.Context, days int) ([]phone.Event, error) {
+			open := func(id string) ([]knowledge.PrepOpen, error) {
+				v, err := e.Prep(ctx, knowledge.PrepRequest{Template: id}, sensitivity.Owner())
+				if err != nil || v == nil {
+					return nil, err
+				}
+				return v.Open, nil
+			}
+			return phone.BuildAgenda(e.Store, sensitivity.Owner(), time.Now(), days, open)
 		},
 		Drafting:      func(until time.Time) int { return a.phoneDrafting(ctx, e, until) },
 		Logf:          log.Printf,

@@ -48,7 +48,11 @@ class MainActivity : AppCompatActivity() {
     private var settingsItem: android.view.MenuItem? = null
 
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
-        if (pendingRecord) {
+        val calendarDone = pendingCalendar
+        if (calendarDone != null && Manifest.permission.READ_CALENDAR in res) {
+            pendingCalendar = null
+            calendarDone(DeviceCalendar.granted(this))
+        } else if (pendingRecord) {
             pendingRecord = false
             if (res[Manifest.permission.RECORD_AUDIO] == true || hasMic()) startRecording(pendingEvent)
             else toast("Musubi needs the microphone to record")
@@ -201,7 +205,13 @@ class MainActivity : AppCompatActivity() {
         push(RecordingScreen(this))
     }
 
-    fun requestCalendar() = permissions.launch(arrayOf(Manifest.permission.READ_CALENDAR))
+    private var pendingCalendar: ((Boolean) -> Unit)? = null
+
+    /** Asks for READ_CALENDAR, then calls [then] with whether it is granted. */
+    fun requestCalendar(then: (Boolean) -> Unit) {
+        pendingCalendar = then
+        permissions.launch(arrayOf(Manifest.permission.READ_CALENDAR))
+    }
 
     fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 

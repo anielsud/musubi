@@ -38,12 +38,56 @@ class AgendaParseTest {
     @Test
     fun mergePrefersSyncedEvents() {
         fun ev(id: String, subject: String, min: Long, phone: Boolean) = AgendaEvent(id, TestUtil.T0.plusMinutes(min), TestUtil.T0.plusMinutes(min + 30),
-            subject, "", "", emptyList(), null, phone)
+            subject, "", "", emptyList(), null, fromPhone = phone)
         val merged = AgendaStore.merge(
             listOf(ev("m1", "Booth demo", 60, false)),
             listOf(ev("p1", "booth demo", 60, true), ev("p2", "Dinner", 300, true)),
             TestUtil.T0,
         )
         assertEquals(listOf("m1", "p2"), merged.map { it.id })
+    }
+
+    @Test
+    fun sourcesAndOpenItemsAreParsedCappedAndRoundTrip() {
+        fun src(n: Int) = JSONObject().put("n", n).put("title", "Planning call").put("kind", "meeting").put("occurred_at", "2026-11-10T15:00:00Z")
+            .put("speakers", "Robin Vale").put("text", "x".repeat(5000))
+            .put("sensitivity", JSONObject().put("level", "internal").put("share", "internal").put("why", ""))
+        val srcs = JSONArray()
+        for (n in listOf(1, 1, 0, 2000) + (2..40)) srcs.put(src(n)) // a repeat, out-of-range ns, then 39 more
+        srcs.put(JSONObject().put("n", "3"))
+        val open = JSONArray()
+        open.put(JSONObject().put("text", "Send the plan").put("who", "Robin Vale").put("due", "2026-11-20").put("thread", "Rollout")
+            .put("raised", "2026-11-12T09:00:00Z").put("overdue", true).put("quiet", false).put("private", true)
+            .put("sources", JSONArray().put(src(1)).put(src(2)).put(src(3)).put(src(4))))
+        open.put(JSONObject().put("text", "")) // no text: skipped
+        for (i in 0 until 20) open.put(JSONObject().put("text", "More $i").put("raised", JSONObject.NULL))
+        val body = JSONObject().put("drafting", 0).put("events", JSONArray()
+            .put(JSONObject().put("id", "e1").put("start", "2026-11-18T09:00:00+01:00").put("end", "2026-11-18T09:30:00+01:00")
+                .put("brief", JSONObject().put("text", "Ask [1]").put("sensitivity", JSONObject().put("level", "internal").put("share", "internal"))
+                    .put("sources", srcs))
+                .put("open", open)))
+        val a = AgendaParse.agenda(body.toString().toByteArray(), TestUtil.T0)
+        val e = a.events.single()
+        val ns = e.brief!!.sources.map { it.n }
+        assertEquals(AgendaParse.MAX_BRIEF_SOURCES, ns.size)
+        assertEquals(listOf(1) + (2..30), ns)
+        assertEquals(AgendaParse.MAX_PASSAGE, e.brief!!.sources[0].text.length)
+        assertEquals(AgendaParse.MAX_OPEN, e.open.size)
+        val o = e.open[0]
+        assertEquals(listOf("Send the plan", "Robin Vale", "2026-11-20", "Rollout"), listOf(o.text, o.who, o.due, o.thread))
+        assertEquals(true, o.overdue && o.private && !o.quiet)
+        assertEquals(AgendaParse.MAX_OPEN_SOURCES, o.sources.size)
+        assertNull(e.open[1].raised)
+        assertEquals(a, AgendaParse.agendaFromStored(AgendaParse.agendaToJson(a).toByteArray()))
+    }
+
+    @Test
+    fun olderAgendasWithoutSourcesOrOpenStillParse() {
+        val body = JSONObject().put("drafting", 0).put("events", JSONArray()
+            .put(JSONObject().put("id", "e1").put("start", "2026-11-18T09:00:00+01:00").put("end", "2026-11-18T09:30:00+01:00")
+                .put("brief", JSONObject().put("text", "Ask [1]").put("sensitivity", JSONObject().put("level", "internal").put("share", "internal")))))
+        val e = AgendaParse.agenda(body.toString().toByteArray(), null).events.single()
+        assertEquals(emptyList<Source>(), e.brief!!.sources)
+        assertEquals(emptyList<OpenItem>(), e.open)
     }
 }

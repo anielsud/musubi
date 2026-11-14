@@ -65,6 +65,7 @@ class TodayScreen(a: MainActivity) : Screen(a) {
     private lateinit var record: com.google.android.material.button.MaterialButton
     private lateinit var list: LinearLayout
     private lateinit var status: TextView
+    private val calendar = PhoneCalendarRow(a)
 
     override fun build(): View {
         val root = a.vbox(16)
@@ -92,9 +93,7 @@ class TodayScreen(a: MainActivity) : Screen(a) {
         if ((agenda?.drafting ?: 0) > 0) parts += "${agenda!!.drafting} briefs still being drafted on the Mac"
         status.text = parts.joinToString(" · ")
         list.removeAllViews()
-        if (!DeviceCalendar.granted(a)) {
-            list.addView(a.button("Also show the phone's calendar", outlined = true) { a.requestCalendar() })
-        }
+        list.addView(calendar.view(this))
         val events = mergedEvents(a)
         if (events.isEmpty()) list.addView(a.label("No upcoming events.", secondary = true).marginTop(a, 16))
         var lastDay = ""
@@ -118,7 +117,7 @@ class TodayScreen(a: MainActivity) : Screen(a) {
             box.addView(a.label(shown, 13f, secondary = true))
         }
         val row = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
-        if (e.brief != null) row.addView(a.button("Brief", outlined = true) { a.openBrief(e) })
+        if (e.brief != null || e.open.isNotEmpty()) row.addView(a.button("Brief", outlined = true) { a.openBrief(e) })
         row.addView(a.button("Record this meeting") { a.startRecording(e.ref()) }.also {
             it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = a.dp(8) }
         })
@@ -246,6 +245,7 @@ class BriefScreen(a: MainActivity, private val e: AgendaEvent) : Screen(a) {
         val b = e.brief
         if (b == null) {
             box.addView(a.label("No brief for this event.").marginTop(a, 16))
+            if (e.open.isNotEmpty()) box.addView(BriefUi.openItems(a, e.open).marginTop(a, 24))
         } else {
             val sens = a.vbox(12)
             sens.addView(a.label("Sensitivity: ${b.sensitivity.level} · share: ${b.sensitivity.share}", 14f, bold = true))
@@ -253,7 +253,8 @@ class BriefScreen(a: MainActivity, private val e: AgendaEvent) : Screen(a) {
             if (b.sensitivity.why.isNotBlank()) sens.addView(a.label("Why: ${b.sensitivity.why}", 13f))
             box.addView(a.card(sens).marginTop(a, 12))
             b.madeAt?.let { box.addView(a.label("Drafted ${Fmt.day(it)} ${Fmt.time(it)}", 12f, secondary = true).marginTop(a, 8)) }
-            box.addView(a.label(b.text, 15f).apply { setTextIsSelectable(true) }.marginTop(a, 12))
+            box.addView(BriefUi.render(a, b.text, b.sources).marginTop(a, 4))
+            if (e.open.isNotEmpty()) box.addView(BriefUi.openItems(a, e.open).marginTop(a, 24))
         }
         return scrolling(a, box)
     }

@@ -4,6 +4,7 @@ package main
 
 import (
 	"embed"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -46,6 +47,10 @@ func main() {
 		}
 	}
 	app := gui.NewApp()
+	// Explore on the phone serves the same built frontend.
+	if dist, err := fs.Sub(assets, "frontend/dist"); err == nil {
+		app.SetFrontend(dist)
+	}
 	err := wails.Run(&options.App{
 		Title:            "Musubi",
 		Width:            1080,

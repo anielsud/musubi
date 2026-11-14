@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +86,10 @@ func (s *Syncer) sync(ctx context.Context, fc *frameConn, fp string) {
 	var stats syncStats
 	err := s.syncSteps(ctx, fc, fp, &name, &stats)
 	outcome := "synced: " + stats.String()
+	if refusedByPhone(err) {
+		s.phoneRefused(fp, name, err)
+		return
+	}
 	if err != nil {
 		var pe *phoneError
 		if errors.As(err, &pe) {
@@ -101,6 +106,33 @@ func (s *Syncer) sync(ctx context.Context, fc *frameConn, fp string) {
 	s.pins.update(fp, func(d *Device) {
 		d.LastSync, d.LastOutcome = now, outcome
 	})
+	s.cfg.OnChange()
+}
+
+// refusedOutcome: the phone no longer trusts this Mac (unpaired there,
+// or paired with another Mac); only pairing again helps.
+const refusedOutcome = "refused by the phone: it no longer has this Mac paired (pair again)"
+
+// refusedByPhone reports whether err is the phone refusing this Mac: a TLS
+// alert (with TLS 1.3 the phone checks the Mac's certificate after the
+// Mac's side of the handshake is done, so the alert arrives on the first
+// read), or "not_paired" from a phone that has pairing open.
+func refusedByPhone(err error) bool {
+	if err == nil {
+		return false
+	}
+	var oe *net.OpError
+	if errors.As(err, &oe) && oe.Op == "remote error" {
+		return true
+	}
+	var pe *phoneError
+	return errors.As(err, &pe) && pe.code == "not_paired"
+}
+
+// phoneRefused records a refusal: Settings says so, and the log says why.
+func (s *Syncer) phoneRefused(fp, name string, err error) {
+	s.cfg.Logf("phone: %q refused this Mac (%v): it no longer has this Mac paired; pair again", name, err)
+	s.pins.update(fp, func(d *Device) { d.LastOutcome = refusedOutcome })
 	s.cfg.OnChange()
 }
 

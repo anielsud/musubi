@@ -711,6 +711,23 @@ func TestSyncProtocolViolation(t *testing.T) {
 	}
 }
 
+func TestRefusedByPhone(t *testing.T) {
+	for _, pairing := range []bool{false, true} {
+		h := newHarness(t)
+		p := newFakePhone(t)
+		h.pairWith(p)
+		p.pinnedMac, p.pairing = nil, pairing // unpaired on the phone; maybe pairing again
+		h.syncOnce(p)
+		d := h.s.Devices()[0]
+		if d.LastOutcome != refusedOutcome || !d.LastSync.IsZero() {
+			t.Errorf("pairing %v: outcome %q, last sync %v", pairing, d.LastOutcome, d.LastSync)
+		}
+		if !strings.Contains(h.logged(), "no longer has this Mac paired") {
+			t.Errorf("pairing %v: not logged", pairing)
+		}
+	}
+}
+
 func TestUnpair(t *testing.T) {
 	h := newHarness(t)
 	p := newFakePhone(t)

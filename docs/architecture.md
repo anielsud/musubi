@@ -277,7 +277,11 @@ enters the cold lane like any other source.
   missing in that window, one pass at a time and not during a live
   meeting) → `bye`. Chunks are deleted once the recorder reports the
   session saved; a recording it already has is reported `imported`
-  without being fetched again.
+  without being fetched again. A phone that refuses the Mac (a TLS alert,
+  or `not_paired` while it has pairing open: unpaired there) is shown as
+  refused, "pair again". `internal/phone/e2e_test.go`
+  (`MUSUBI_PHONE_E2E=1`) runs the real syncer against the app on an
+  emulator.
   The recorder (`recording/importer.go`) runs one import at a time as
   `musubi-recorder import --here` in a child process, never while a
   meeting records (a meeting that starts stops the child; the import

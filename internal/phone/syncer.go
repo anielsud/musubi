@@ -375,6 +375,10 @@ func (s *Syncer) dialFailed(t target, err error) {
 		}
 		return
 	}
+	if t.pin != "" && refusedByPhone(err) {
+		s.phoneRefused(t.pin, name, err)
+		return
+	}
 	if s.unreachableLog.ok(s.cfg.Now()) {
 		s.cfg.Logf("phone: %q not reachable: %v", name, err)
 	}

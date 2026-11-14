@@ -164,7 +164,18 @@ func readMsg(r io.Reader) (map[string]any, []byte, error) {
 
 func (p *fakePhone) handle(raw net.Conn) {
 	defer raw.Close()
-	c := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{p.cert}, ClientAuth: tls.RequireAnyClientCert, MinVersion: tls.VersionTLS12})
+	// As the app does: a client certificate other than the pinned one
+	// fails the handshake (an alert), except while pairing is open.
+	c := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{p.cert}, ClientAuth: tls.RequireAnyClientCert, MinVersion: tls.VersionTLS12,
+		VerifyPeerCertificate: func(certs [][]byte, _ [][]*x509.Certificate) error {
+			sum := sha256.Sum256(certs[0])
+			p.mu.Lock()
+			defer p.mu.Unlock()
+			if p.pairing || (p.pinnedMac != nil && bytes.Equal(p.pinnedMac, sum[:])) {
+				return nil
+			}
+			return fmt.Errorf("not the paired Mac")
+		}})
 	raw.SetDeadline(time.Now().Add(10 * time.Second))
 	if err := c.Handshake(); err != nil {
 		return
@@ -199,6 +210,7 @@ func (p *fakePhone) handle(raw net.Conn) {
 		fail := func(code string) error { return writeMsg(c, map[string]any{"ok": false, "error": code}, nil) }
 		pairOp := op == "pair_request" || op == "pair_confirm" || op == "pair_cancel"
 		if !paired && !pairOp {
+			fail("not_paired")
 			return
 		}
 		switch op {

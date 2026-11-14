@@ -95,3 +95,25 @@ func TestGivenTitleFallback(t *testing.T) {
 		t.Errorf("calendar wins: %q", got)
 	}
 }
+
+// The people the owner listed on the phone are invitees too, after the
+// calendar's, each once; on their own when there is no calendar.json.
+func TestInviteesFromPhoneDetails(t *testing.T) {
+	dir := t.TempDir()
+	details := `{"writer":"musubi","rev":2,"attendees":[{"name":"Kai Moreno"},{"name":"Lee Field"}],"notes":{"text":""},"photos":[]}`
+	if err := os.WriteFile(filepath.Join(dir, "phone-details.json"), []byte(details), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(ReadCalendarInvitees(dir), ","); got != "Kai Moreno,Lee Field" {
+		t.Errorf("phone only: %s", got)
+	}
+	cal := `{"writer":"musubi","subject":"x","organizer":{"name":"Robin Vale"},"invitees":[{"name":"Kai Moreno"}]}`
+	os.WriteFile(filepath.Join(dir, calendarFileName), []byte(cal), 0o600)
+	if got := strings.Join(ReadCalendarInvitees(dir), ","); got != "Robin Vale,Kai Moreno,Lee Field" {
+		t.Errorf("both: %s", got)
+	}
+	os.WriteFile(filepath.Join(dir, "phone-details.json"), []byte(`{"writer":"someone","attendees":[{"name":"X Y"}]}`), 0o600)
+	if got := strings.Join(ReadCalendarInvitees(dir), ","); got != "Robin Vale,Kai Moreno" {
+		t.Errorf("other writer: %s", got)
+	}
+}

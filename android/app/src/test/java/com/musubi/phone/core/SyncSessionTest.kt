@@ -155,8 +155,11 @@ class SyncSessionTest {
                 .put("brief", JSONObject.NULL))
             .put(JSONObject().put("id", "old").put("start", "2026-11-10T12:00:00+01:00").put("end", "2026-11-10T13:00:00+01:00")))
             .toString().toByteArray()
+        val before = phone.agenda.version
         val run = phone.run(agendaFrame(body))
         assertTrue(run.replies.single().json.getBoolean("ok"))
+        // Today redraws on this: the agenda can arrive while it is open.
+        assertEquals(before + 1, phone.agenda.version)
         val a = phone.agenda.load()!!
         assertEquals(listOf("e1"), a.events.map { it.id })
         assertEquals(2, a.drafting)
@@ -164,6 +167,7 @@ class SyncSessionTest {
         assertEquals("bad_agenda", err(phone.run(agendaFrame("[]".toByteArray())).replies.single()))
         assertEquals("bad_agenda", err(phone.run(agendaFrame("{\"events\":1}".toByteArray())).replies.single()))
         assertEquals(listOf("e1"), phone.agenda.load()!!.events.map { it.id })
+        assertEquals("a refused agenda changes nothing", before + 1, phone.agenda.version)
         assertTrue(phone.run(Frames.op("agenda")).violation)
         assertTrue(phone.run(Frames.frame("""{"op":"list","body":2}""", "{}".toByteArray())).violation)
     }

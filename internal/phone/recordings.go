@@ -77,7 +77,10 @@ type recState struct {
 	StartedAt time.Time `json:"started_at,omitzero"`
 	EventID   string    `json:"event_id,omitempty"`
 	Inbox     string    `json:"inbox,omitempty"`
-	Updated   time.Time `json:"updated"`
+	// DetailsRev is the rev of the phone's details last written into the
+	// session folder.
+	DetailsRev int64     `json:"details_rev,omitempty"`
+	Updated    time.Time `json:"updated"`
 }
 
 func readState(dir string) (*recState, error) {

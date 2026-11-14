@@ -55,14 +55,19 @@ type fakePhone struct {
 	// bytes), "short" (fewer bytes); dropAfter closes the connection after
 	// that many chunks.
 	fault     map[string]string
+	tooLarge  []string
 	dropAfter int
 	served    int
 	conns     int
+	// live takes the connection over after live_start (live mode);
+	// nil: live_start is refused.
+	live func(c net.Conn)
 }
 
 type fakeRec struct {
 	meta   []byte
 	chunks [][]byte
+	files  map[string][]byte
 }
 
 func selfSigned(t *testing.T, cn string) (tls.Certificate, []byte) {
@@ -260,8 +265,13 @@ func (p *fakePhone) handle(raw net.Conn) {
 				}
 				recs = append(recs, map[string]any{"meta": json.RawMessage(p.recs[rid].meta), "state": st})
 			}
+			tl := p.tooLarge
 			p.mu.Unlock()
-			ok("recordings", recs)
+			if tl != nil {
+				ok("recordings", recs, "too_large", tl)
+			} else {
+				ok("recordings", recs)
+			}
 		case "chunk":
 			rid, _ := m["rid"].(string)
 			n := int(m["n"].(float64))
@@ -290,6 +300,25 @@ func (p *fakePhone) handle(raw net.Conn) {
 			if drop {
 				return
 			}
+		case "file":
+			rid, _ := m["rid"].(string)
+			name, _ := m["name"].(string)
+			p.mu.Lock()
+			r := p.recs[rid]
+			var b []byte
+			if r != nil {
+				b = append([]byte{}, r.files[name]...)
+			}
+			f := p.fault[rid+"/"+name]
+			p.mu.Unlock()
+			if r == nil || r.files[name] == nil || f == "gone" {
+				fail("gone")
+				continue
+			}
+			if f == "bytes" {
+				b[0] ^= 0xFF
+			}
+			writeMsg(c, map[string]any{"ok": true, "sha256": sum(r.files[name]), "body": len(b)}, b)
 		case "state":
 			p.mu.Lock()
 			p.reports = append(p.reports, m)
@@ -305,6 +334,17 @@ func (p *fakePhone) handle(raw net.Conn) {
 			p.agendas = append(p.agendas, a)
 			p.mu.Unlock()
 			ok()
+		case "live_start":
+			p.mu.Lock()
+			live := p.live
+			p.mu.Unlock()
+			if live == nil {
+				fail("not_live")
+				return
+			}
+			ok()
+			live(c)
+			return
 		case "bye":
 			ok()
 			return

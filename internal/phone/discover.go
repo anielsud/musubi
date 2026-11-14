@@ -293,9 +293,18 @@ func (s *Syncer) consider(ctx context.Context, r sighting, periodic bool) {
 	now := s.cfg.Now()
 	t := target{fp16: fp16, pair: r.txt["pair"] == "1"}
 	pin, paired := s.pins.byPrefix(fp16)
+	wantLive := paired && s.cfg.Live != nil && r.txt["live"] == "1"
 	s.mu.Lock()
 	if paired {
 		s.seen[fp16] = now
+	}
+	// A live connection closed for being idle is opened again only when
+	// the phone advertises anew (it came back to the foreground).
+	if !periodic || !wantLive {
+		delete(s.liveIdled, fp16)
+	}
+	if s.liveIdled[fp16] {
+		wantLive = false
 	}
 	tried, synced := s.pairTried[fp16], s.synced[fp16]
 	s.mu.Unlock()
@@ -313,10 +322,11 @@ func (s *Syncer) consider(ctx context.Context, r sighting, periodic bool) {
 		if periodic {
 			gap = resyncVisible - time.Second
 		}
-		if !synced.IsZero() && now.Sub(synced) < gap {
+		// Explore is dialed at once; session syncs first when one is due.
+		if !wantLive && !synced.IsZero() && now.Sub(synced) < gap {
 			return
 		}
-		t.pin = pin.ID
+		t.pin, t.live = pin.ID, wantLive
 	default:
 		return
 	}

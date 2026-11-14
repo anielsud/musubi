@@ -239,26 +239,57 @@ func shareable(l sensitivity.Label) bool {
 // Prep builds the view. items are every item (for attendees); owner is the
 // owner's name, left out of the group.
 func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.Item, owner string) (*PrepView, error) {
-	v := &PrepView{Title: req.Title, Since: req.Since}
-	if req.Last != "" {
-		now := req.Now
-		if now.IsZero() {
-			now = time.Now()
-		}
-		last, err := Views{Store: st, Scope: sc, Now: now}.MeetingPage(req.Last, 3, req.QuietAfter, owner)
-		if err != nil {
-			return nil, err
-		}
-		v.Last = last
+	return NewPrepBase(st, sc, items).Prep(req, owner)
+}
+
+// PrepBase is what a prep reads whatever the meeting: every item, the
+// threads and their items in scope, their statuses, and each statement's
+// text and speakers under the confirmed spellings. Read once, it prepares
+// many meetings (the phone's agenda: one per event); the threads are read
+// on the first prep that needs them. Not for concurrent use.
+type PrepBase struct {
+	st    *store.Store
+	sc    sensitivity.Scope
+	items []item.Item
+	byID  map[string]*item.Item
+	small map[string]float64
+
+	threadsRead bool
+	name        map[int64]string
+	tis         map[int64][]store.ThreadItem
+	statuses    map[int64]store.ThreadStatusRow
+	latest      time.Time
+	// whos are a statement's speakers, textKey its text as mentioned
+	// reads it (PrepNameKey, padded), both under its spellings.
+	whos    map[int64][]string
+	textKey map[int64]string
+	// byWord lists the statements with each word of their textKey, so a
+	// group's mentions are looked for only where its names' words are.
+	byWord map[string][]int64
+}
+
+func NewPrepBase(st *store.Store, sc sensitivity.Scope, items []item.Item) *PrepBase {
+	b := &PrepBase{st: st, sc: sc, items: items, byID: make(map[string]*item.Item, len(items)), small: make(map[string]float64, len(items))}
+	for i := range items {
+		b.byID[items[i].ID] = &items[i]
+		b.small[items[i].ID] = meetingWeight(len(items[i].Participants))
 	}
+	return b
+}
+
+func (b *PrepBase) readThreads() error {
+	if b.threadsRead {
+		return nil
+	}
+	st, sc := b.st, b.sc
 	sp, err := st.ConfirmedSpellings()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	spell := Spellings(sp)
 	scoped, err := st.ScopedSpellings()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	// The spellings for one statement: the global ones and those confirmed
 	// for it alone.
@@ -275,12 +306,99 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 		}
 		return m
 	}
+	idx, err := st.ThreadIndex()
+	if err != nil {
+		return err
+	}
+	b.name = map[int64]string{}
+	var all []int64
+	for _, r := range idx {
+		if r.LabelLevel <= sc.MaxLevel {
+			b.name[r.ID] = r.Name
+			all = append(all, r.ID)
+		}
+	}
+	if b.tis, err = st.VisibleThreadItems(sc, all); err != nil {
+		return err
+	}
+	if b.statuses, err = st.ThreadStatuses(sc); err != nil {
+		return err
+	}
+	b.whos, b.textKey, b.byWord = map[int64][]string{}, map[int64]string{}, map[string][]int64{}
+	for _, its := range b.tis {
+		for _, it := range its {
+			if it.SaidAt.After(b.latest) {
+				b.latest = it.SaidAt
+			}
+			if _, done := b.textKey[it.ID]; done {
+				continue
+			}
+			sf := spellFor(it.ID)
+			whos := it.Who
+			if len(whos) == 0 && it.Holder != "" {
+				whos = []string{it.Holder}
+			}
+			cw := make([]string, len(whos))
+			for i, wn := range whos {
+				cw[i] = sf.Canonical(wn)
+			}
+			b.whos[it.ID] = cw
+			key := " " + PrepNameKey(sf.Canonical(it.Text)) + " "
+			b.textKey[it.ID] = key
+			seen := map[string]bool{}
+			for _, w := range strings.Fields(key) {
+				if !seen[w] {
+					seen[w] = true
+					b.byWord[w] = append(b.byWord[w], it.ID)
+				}
+			}
+		}
+	}
+	b.threadsRead = true
+	return nil
+}
+
+// mentioning is the statements whose text mentions one of g (as
+// g.mentioned reads it): a name's first word is one of the text's words
+// wherever the name is in it, so only those statements are read.
+func (b *PrepBase) mentioning(g people) map[int64]bool {
+	out := map[int64]bool{}
+	look := func(k string) {
+		for _, id := range b.byWord[strings.Fields(k)[0]] {
+			if !out[id] && strings.Contains(b.textKey[id], " "+k+" ") {
+				out[id] = true
+			}
+		}
+	}
+	for k := range g.full {
+		look(k)
+	}
+	for f := range g.first {
+		if len(f) >= 3 {
+			look(f)
+		}
+	}
+	return out
+}
+
+// Prep builds the view for one meeting (see Prep).
+func (b *PrepBase) Prep(req PrepRequest, owner string) (*PrepView, error) {
+	st, sc, items := b.st, b.sc, b.items
+	v := &PrepView{Title: req.Title, Since: req.Since}
+	if req.Last != "" {
+		now := req.Now
+		if now.IsZero() {
+			now = time.Now()
+		}
+		last, err := Views{Store: st, Scope: sc, Now: now}.MeetingPage(req.Last, 3, req.QuietAfter, owner)
+		if err != nil {
+			return nil, err
+		}
+		v.Last = last
+	}
 	var names []string
 	emails := map[string]bool{} // the group's, to know them under other names
-	byID := map[string]*item.Item{}
-	for i := range items {
-		byID[items[i].ID] = &items[i]
-	}
+	byID := b.byID
 	ownerKey := PrepNameKey(owner)
 	if t := byID[req.Template]; t != nil {
 		v.Title, v.Since = t.Title, t.OccurredAt
@@ -319,10 +437,7 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 	// large staff meeting they sat in.
 	attended := map[string]bool{}
 	met := map[string]bool{}
-	small := map[string]float64{}
-	for _, it := range items {
-		small[it.ID] = meetingWeight(len(it.Participants))
-	}
+	small := b.small
 	for _, it := range items {
 		if it.Kind == item.KindEvent {
 			continue
@@ -344,34 +459,10 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 			v.New = append(v.New, n)
 		}
 	}
-	idx, err := st.ThreadIndex()
-	if err != nil {
+	if err := b.readThreads(); err != nil {
 		return nil, err
 	}
-	name := map[int64]string{}
-	var all []int64
-	for _, r := range idx {
-		if r.LabelLevel <= sc.MaxLevel {
-			name[r.ID] = r.Name
-			all = append(all, r.ID)
-		}
-	}
-	tis, err := st.VisibleThreadItems(sc, all)
-	if err != nil {
-		return nil, err
-	}
-	statuses, err := st.ThreadStatuses(sc)
-	if err != nil {
-		return nil, err
-	}
-	var latest time.Time
-	for _, its := range tis {
-		for _, it := range its {
-			if it.SaidAt.After(latest) {
-				latest = it.SaidAt
-			}
-		}
-	}
+	name, tis, statuses, latest := b.name, b.tis, b.statuses, b.latest
 	if v.Since.IsZero() {
 		v.Since = latest.Add(-14 * 24 * time.Hour)
 	}
@@ -387,24 +478,21 @@ func Prep(st *store.Store, sc sensitivity.Scope, req PrepRequest, items []item.I
 		subject              bool // what the meeting's title and description are about
 	}
 	var ss []scored
+	mentioned := b.mentioning(group)
 	for tid, its := range tis {
 		s := scored{id: tid, holders: map[string]int{}}
 		meets := map[string]bool{}
 		for _, it := range its {
 			w := math.Pow(0.5, latest.Sub(it.SaidAt).Hours()/prepHalfLife.Hours()) * small[it.ItemID]
-			whos := it.Who
-			if len(whos) == 0 && it.Holder != "" {
-				whos = []string{it.Holder}
-			}
-			for _, wn := range whos {
-				if n, ok := group.match(spellFor(it.ID).Canonical(wn)); ok {
+			for _, wn := range b.whos[it.ID] {
+				if n, ok := group.match(wn); ok {
 					s.score += 2 * w
 					s.said++
 					s.holders[n]++
 					break
 				}
 			}
-			if group.mentioned(spellFor(it.ID).Canonical(it.Text)) {
+			if mentioned[it.ID] {
 				s.score += 1.5 * w
 				s.about++
 			}

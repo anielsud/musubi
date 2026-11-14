@@ -100,7 +100,7 @@ Planned connectors, in order:
 
 | Connector | Access |
 |---|---|
-| `tomoe` | reads `*/session.json` in the sessions folder of the recorder of record: Tomoe's (`tomoe_sessions`, default) or, with `[recorder] of_record = "musubi"`, Musubi's recorder's (`[recorder] data`/sessions), then only sessions created after `[recorder] since` |
+| `tomoe` | reads `*/session.json` in the sessions folder of the recorder of record: Tomoe's (`tomoe_sessions`, default) or, with `[recorder] of_record = "musubi"`, Musubi's recorder's (`[recorder] data`/sessions), then only sessions created after `[recorder] since`; a phone recording's `phone-details.json` (its notes and people; the photo files are never read) comes with its session as one record (`[phone] details`; docs/phone.md, "Recording details") |
 | `calendar` | ICS or Graph; gives meetings their titles and attendees |
 | `mcpdrop` | an inbox directory that scheduled Claude Code jobs fill from the approved M365 / Salesforce / Zoom connectors, as JSON |
 | `graph` | direct Microsoft Graph (mail, chat), once an Entra app registration is approved; until then `internal/m365` signs in as Microsoft's already-consented Graph Command Line Tools client and writes calendar events, Teams transcripts, meeting chats and (off by default) mail and Teams chats into the inbox, and looks up internal participants in the directory: docs/teams-design.md |
@@ -282,6 +282,19 @@ enters the cold lane like any other source.
   refused, "pair again". `internal/phone/e2e_test.go`
   (`MUSUBI_PHONE_E2E=1`) runs the real syncer against the app on an
   emulator.
+  Explore on the phone (part 3, `phone/live.go`, `gui/phonelive.go`;
+  `[phone] explore`, default on): a paired phone advertising `live=1` (its
+  app in front) is dialed at once, synced first when due, and sent
+  `live_start`; the connection then carries the phone's `rpc` (an app
+  method, allowlisted: the read methods the Explore screens and Ask call,
+  arguments decoded as Wails does and bounded, scopes `owner` and
+  `shared-screen` only) and `asset` (the embedded frontend by path, known
+  types only) and the Mac's `event`s (Ask's, for the phone's own questions,
+  through a tap on `emit`) and pings; 4 calls at once, 60 s each, closed
+  after 10 minutes without a request. The frontend's phone mode
+  (`?phone=1`, `PhoneApp.tsx`) shows Explore and Ask without edits, voices,
+  audio or desktop chrome. `gui/phone_explore_e2e_test.go` (build tag
+  `musubi_e2e`) opens it on an emulator over invented data.
   The recorder (`recording/importer.go`) runs one import at a time as
   `musubi-recorder import --here` in a child process, never while a
   meeting records (a meeting that starts stops the child; the import

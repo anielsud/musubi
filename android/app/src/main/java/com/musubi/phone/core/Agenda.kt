@@ -5,7 +5,37 @@ import org.json.JSONObject
 import java.time.OffsetDateTime
 
 data class Sensitivity(val level: String, val share: String, val why: String)
-data class Brief(val text: String, val madeAt: OffsetDateTime?, val sensitivity: Sensitivity)
+data class Brief(
+    val text: String,
+    val madeAt: OffsetDateTime?,
+    val sensitivity: Sensitivity,
+    /** What the text cites as [n], by n; empty in agendas from before sources were sent. */
+    val sources: List<Source> = emptyList(),
+)
+
+/** A passage behind a brief or an open item, with its own label. */
+data class Source(
+    val n: Int,
+    val title: String,
+    val kind: String,
+    val occurredAt: OffsetDateTime?,
+    val speakers: String,
+    val text: String,
+    val sensitivity: Sensitivity,
+)
+
+/** An item open between the owner and the event's people, as the desktop's prep shows it. */
+data class OpenItem(
+    val text: String,
+    val who: String,
+    val due: String,
+    val thread: String,
+    val raised: OffsetDateTime?,
+    val quiet: Boolean,
+    val overdue: Boolean,
+    val private: Boolean,
+    val sources: List<Source>,
+)
 
 data class AgendaEvent(
     val id: String,
@@ -16,6 +46,8 @@ data class AgendaEvent(
     val organizer: String,
     val attendees: List<String>,
     val brief: Brief?,
+    /** Open between us; empty in older agendas. */
+    val open: List<OpenItem> = emptyList(),
     /** True for events read from the phone's own calendar (never synced from the Mac). */
     val fromPhone: Boolean = false,
 )
@@ -31,6 +63,12 @@ object AgendaParse {
     const val MAX_ATTENDEES = 200
     const val MAX_SHORT = 500
     const val MAX_BRIEF = 200_000
+    const val MAX_BRIEF_SOURCES = 30
+    const val MAX_OPEN = 15
+    const val MAX_OPEN_SOURCES = 3
+    const val MAX_PASSAGE = 1200
+    const val MAX_OPEN_TEXT = 2000
+    const val MAX_SOURCE_N = 999
 
     /** Throws when the body is not a JSON object with an `events` array. */
     fun agenda(body: ByteArray, fetchedAt: OffsetDateTime?): Agenda {
@@ -52,18 +90,28 @@ object AgendaParse {
         val att = e["attendees"] as? List<*> ?: emptyList<Any?>()
         val names = att.take(MAX_ATTENDEES).mapNotNull { a -> (a.asObject()?.get("name") as? String)?.takeIf { it.isNotEmpty() }?.take(MAX_SHORT) }
         val brief = e["brief"].asObject()?.let { b ->
-            val s = b["sensitivity"].asObject()
             Brief(
                 text = (b["text"] as String).take(MAX_BRIEF),
-                madeAt = (b["made_at"] as? String)?.let { runCatching { RecordingMeta.parseTime(it) }.getOrNull() },
-                // A brief with no label is shown as unlabelled, never as public.
-                sensitivity = Sensitivity(
-                    level = s.str("level")?.take(64) ?: "unlabelled",
-                    share = s.str("share")?.take(64) ?: "unknown",
-                    why = s.str("why")?.take(MAX_SHORT) ?: "",
-                ),
+                madeAt = time(b["made_at"]),
+                sensitivity = sensitivity(b["sensitivity"].asObject()),
+                sources = sources(b["sources"], MAX_BRIEF_SOURCES),
             )
         }
+        val open = (e["open"] as? List<*> ?: emptyList<Any?>()).take(MAX_OPEN * 4).mapNotNull { x ->
+            val o = x.asObject() ?: return@mapNotNull null
+            val text = (o["text"] as? String)?.takeIf { it.isNotBlank() }?.take(MAX_OPEN_TEXT) ?: return@mapNotNull null
+            OpenItem(
+                text = text,
+                who = o.str("who")?.take(MAX_SHORT) ?: "",
+                due = o.str("due")?.take(64) ?: "",
+                thread = o.str("thread")?.take(MAX_SHORT) ?: "",
+                raised = time(o["raised"]),
+                quiet = o["quiet"] == true,
+                overdue = o["overdue"] == true,
+                private = o["private"] == true,
+                sources = sources(o["sources"], MAX_OPEN_SOURCES),
+            )
+        }.take(MAX_OPEN)
         return AgendaEvent(
             id = (e["id"] as String).take(MAX_SHORT).also { require(it.isNotEmpty()) },
             start = start,
@@ -73,8 +121,48 @@ object AgendaParse {
             organizer = (e["organizer"] as? String ?: "").take(MAX_SHORT),
             attendees = names,
             brief = brief,
+            open = open,
         )
     }
+
+    private fun time(v: Any?): OffsetDateTime? = (v as? String)?.let { runCatching { RecordingMeta.parseTime(it) }.getOrNull() }
+
+    // A label that is missing is shown as unlabelled, never as public.
+    private fun sensitivity(s: Map<String, Any?>?) = Sensitivity(
+        level = s.str("level")?.take(64) ?: "unlabelled",
+        share = s.str("share")?.take(64) ?: "unknown",
+        why = s.str("why")?.take(MAX_SHORT) ?: "",
+    )
+
+    /** At most [max] sources with a distinct n in 1..MAX_SOURCE_N; malformed ones are skipped. */
+    private fun sources(v: Any?, max: Int): List<Source> {
+        val out = ArrayList<Source>()
+        val seen = HashSet<Int>()
+        for (x in (v as? List<*> ?: return emptyList()).take(max * 4)) {
+            if (out.size == max) break
+            val o = x.asObject() ?: continue
+            val n = (o["n"] as? Long)?.takeIf { it in 1..MAX_SOURCE_N.toLong() }?.toInt() ?: continue
+            if (!seen.add(n)) continue
+            out += Source(
+                n = n,
+                title = o.str("title")?.take(MAX_SHORT) ?: "",
+                kind = o.str("kind")?.take(64) ?: "",
+                occurredAt = time(o["occurred_at"]),
+                speakers = o.str("speakers")?.take(MAX_SHORT) ?: "",
+                text = (o["text"] as? String ?: "").take(MAX_PASSAGE),
+                sensitivity = sensitivity(o["sensitivity"].asObject()),
+            )
+        }
+        return out
+    }
+
+    private fun sensJson(s: Sensitivity) = JSONObject().put("level", s.level).put("share", s.share).put("why", s.why)
+
+    private fun sourcesJson(l: List<Source>) = JSONArray(l.map { s ->
+        JSONObject().put("n", s.n).put("title", s.title).put("kind", s.kind)
+            .put("occurred_at", s.occurredAt?.let { RecordingMeta.formatTime(it) } ?: JSONObject.NULL)
+            .put("speakers", s.speakers).put("text", s.text).put("sensitivity", sensJson(s.sensitivity))
+    })
 
     @Suppress("UNCHECKED_CAST")
     private fun Any?.asObject(): Map<String, Any?>? = this as? Map<String, Any?>
@@ -97,8 +185,15 @@ object AgendaParse {
                 JSONObject()
                     .put("text", b.text)
                     .put("made_at", b.madeAt?.let { RecordingMeta.formatTime(it) } ?: JSONObject.NULL)
-                    .put("sensitivity", JSONObject().put("level", b.sensitivity.level).put("share", b.sensitivity.share).put("why", b.sensitivity.why))
+                    .put("sensitivity", sensJson(b.sensitivity))
+                    .put("sources", sourcesJson(b.sources))
             } ?: JSONObject.NULL)
+            o.put("open", JSONArray(e.open.map { x ->
+                JSONObject().put("text", x.text).put("who", x.who).put("due", x.due).put("thread", x.thread)
+                    .put("raised", x.raised?.let { RecordingMeta.formatTime(it) } ?: JSONObject.NULL)
+                    .put("quiet", x.quiet).put("overdue", x.overdue).put("private", x.private)
+                    .put("sources", sourcesJson(x.sources))
+            }))
             arr.put(o)
         }
         return JSONObject()

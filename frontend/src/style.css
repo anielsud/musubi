@@ -990,3 +990,29 @@ input.search { width: 100%; margin: 6px 0; }
 .modal { width: 100%; max-width: 340px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; font-size: 13px; }
 .modal h3 { margin: 0 0 10px; font-size: 15px; word-break: break-word; }
 .modal p { margin: 0 0 10px; }
+
+/* Phone mode (?phone=1, PhoneApp): the phone's WebView, a narrow screen
+   with touch. No traffic lights to leave room for; bigger touch targets;
+   nothing wider than the screen. */
+.app.phone { font-size: 15px; }
+.app.phone .titlebar { padding: 8px 12px; min-height: 0; }
+.app.phone .tabs button { padding: 10px 14px; font-size: 15px; }
+.app.phone .view { padding: 10px 10px 32px; overflow-x: hidden; }
+.app.phone .segmented { align-self: stretch; overflow-x: auto; }
+.app.phone .segmented button { flex: 1; padding: 8px 10px; font-size: 14px; }
+.app.phone .lookup input { flex: 1; min-width: 0; font-size: 16px; }
+.app.phone .person-tiles { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+.app.phone .drawer { width: 100vw; border-left: 0; }
+.app.phone .drawer-head { padding: 12px 12px 10px; }
+.app.phone .icon-btn { width: 36px; height: 36px; }
+.app.phone .chip, .app.phone .link { min-height: 28px; }
+.app.phone pre, .app.phone table { max-width: 100%; overflow-x: auto; }
+.app.phone img, .app.phone svg { max-width: 100%; }
+.phone-ask .examples { margin-top: 4px; }
+.phone-details { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.phone-notes { white-space: pre-wrap; border-left: 2px solid var(--line); padding: 2px 0 2px 10px; }
+.phone-photos { display: flex; flex-wrap: wrap; gap: 6px; }
+.phone-thumb { width: 96px; height: 96px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; overflow: hidden; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.phone-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.phone-photo-open { display: flex; flex-direction: column; gap: 4px; }
+.phone-photo-open img { max-width: 100%; max-height: 70vh; object-fit: contain; border-radius: 6px; }

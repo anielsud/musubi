@@ -1,5 +1,7 @@
-// Package tomoe reads Tomoe's saved sessions. It reads only session.json;
-// audio and video never enter Musubi.
+// Package tomoe reads Tomoe's saved sessions. It reads only session.json
+// and, for a phone recording, the details phone sync wrote beside it
+// (phone-details.json; its photos are never read); audio and video never
+// enter Musubi.
 package tomoe
 
 import (
@@ -10,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/anielsud/musubi/internal/phonedetails"
 	"github.com/anielsud/musubi/internal/recorder/dataformat"
 	"github.com/anielsud/musubi/internal/source"
 )
@@ -21,10 +24,14 @@ const Name = "tomoe"
 // shadowed meetings Tomoe already gave Musubi), plus earlier ones Known
 // reports Musubi already has: meetings migrated from Tomoe keep their
 // session ids, so a speaker fixed in one of them is taken in again.
+//
+// PhoneDetails takes in a phone recording's details with its session
+// ([phone] details; false reads session.json alone, as before).
 type Connector struct {
-	Dir   string
-	Since time.Time
-	Known func(ref string) bool
+	Dir          string
+	Since        time.Time
+	Known        func(ref string) bool
+	PhoneDetails bool
 }
 
 func (c Connector) Name() string { return Name }
@@ -64,9 +71,33 @@ func (c Connector) Fetch(ctx context.Context, emit func(source.Record) error) er
 				continue
 			}
 		}
+		if c.PhoneDetails {
+			if b, err = WithDetails(b, filepath.Join(c.Dir, e.Name())); err != nil {
+				return err
+			}
+		}
 		if err := emit(source.Record{Source: Name, Ref: e.Name(), ContentType: "application/x-tomoe-session+json", Data: b}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// WithDetails is a session's record: sessionJSON alone, or, when the
+// session folder dir has phone sync's details, both together
+// ({"tomoe_session": …, "phone_details": …}, which item translates), so
+// a later edit on the phone is a changed record. Details that don't
+// hold up are left out; the meeting is still read.
+func WithDetails(sessionJSON []byte, dir string) ([]byte, error) {
+	d, err := phonedetails.ReadRaw(dir)
+	if err != nil || d == nil {
+		return sessionJSON, nil
+	}
+	if _, err := phonedetails.Parse(d); err != nil {
+		return sessionJSON, nil
+	}
+	return json.Marshal(struct {
+		Session json.RawMessage `json:"tomoe_session"`
+		Details json.RawMessage `json:"phone_details"`
+	}{sessionJSON, d})
 }

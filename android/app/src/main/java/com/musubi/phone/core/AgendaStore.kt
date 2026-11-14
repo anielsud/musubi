@@ -6,6 +6,15 @@ import java.time.OffsetDateTime
 
 /** The synced agenda (agenda.json in app-private storage), replaced each time the Mac pushes one. */
 class AgendaStore(private val file: File) {
+    /**
+     * Goes up each time an agenda is stored, so a screen showing the agenda (Today) can redraw when
+     * a sync brings one while it is open: with the agenda built in the background on the Mac, the
+     * first sync often brings none and a later one does.
+     */
+    @Volatile
+    var version: Long = 0
+        private set
+
     @Synchronized
     fun load(): Agenda? {
         if (!file.isFile) return null
@@ -18,6 +27,7 @@ class AgendaStore(private val file: File) {
         val kept = a.copy(events = dropEnded(a.events, now))
         file.parentFile?.mkdirs()
         Files.writeAtomic(file, AgendaParse.agendaToJson(kept).toByteArray())
+        version++
     }
 
     companion object {

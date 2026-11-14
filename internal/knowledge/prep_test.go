@@ -2,6 +2,7 @@ package knowledge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -344,5 +345,53 @@ func TestDedupeOpen(t *testing.T) {
 func TestStripIDsRange(t *testing.T) {
 	if got := StripIDs("the disputed figure (20358-20365) and more [12, 14]."); got != "the disputed figure and more." {
 		t.Errorf("got %q", got)
+	}
+}
+
+// One PrepBase prepares several meetings as Prep does each alone.
+func TestPrepBaseSharedAcrossMeetings(t *testing.T) {
+	f := newCardFixture(t)
+	f.st.ClearThreads()
+	th := &Threader{Store: f.st, LLM: &scriptedThreads{}, Chunk: 70, Parallel: 2}
+	for _, it := range []ThreadItem{
+		{ID: "m:1", Start: time.Date(2026, 9, 16, 15, 0, 0, 0, time.UTC)},
+		{ID: "m:3", Start: time.Date(2026, 9, 23, 15, 0, 0, 0, time.UTC)},
+		{ID: "m:2", Start: time.Date(2026, 9, 30, 15, 0, 0, 0, time.UTC)},
+	} {
+		if _, err := th.Thread(context.Background(), it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, _ := f.st.AllItems()
+	for i := range all {
+		switch all[i].ID {
+		case "m:1":
+			all[i].Participants = []item.Participant{{Name: "Ruiz, Dana", Role: "attendee"}, {Name: "Sam Owner", Owner: true}}
+		default:
+			all[i].Participants = []item.Participant{{Name: "Lee Chen", Role: "attendee"}, {Name: "Sam Owner", Owner: true}}
+		}
+	}
+	now := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
+	reqs := []PrepRequest{
+		{Template: "m:1", Now: now},
+		{Template: "m:2", Now: now, MarkPrivate: true, QuietAfter: 21 * 24 * time.Hour},
+		{People: []string{"Dana Ruiz", "Lee Chen"}, Now: now},
+		{Template: "m:none", Now: now},
+	}
+	b := NewPrepBase(f.st, sensitivity.Owner(), all)
+	for _, r := range reqs {
+		want, err := Prep(f.st, sensitivity.Owner(), r, all, "Sam Owner")
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := b.Prep(r, "Sam Owner")
+		if err != nil {
+			t.Fatal(err)
+		}
+		wj, _ := json.Marshal(want)
+		gj, _ := json.Marshal(got)
+		if string(wj) != string(gj) {
+			t.Errorf("%+v: shared base differs\n got %s\nwant %s", r, gj, wj)
+		}
 	}
 }

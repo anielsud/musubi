@@ -35,6 +35,8 @@ abstract class Screen(protected val a: MainActivity) {
     protected abstract fun build(): View
     open fun refresh() {}
     open fun tick() {}
+    /** The screen is being left or the app paused: save what is unsaved. */
+    open fun pause() {}
 }
 
 /** Events shown on the phone: synced agenda merged with the phone's calendar. */
@@ -65,6 +67,7 @@ class TodayScreen(a: MainActivity) : Screen(a) {
     private lateinit var record: com.google.android.material.button.MaterialButton
     private lateinit var list: LinearLayout
     private lateinit var status: TextView
+    private val calendar = PhoneCalendarRow(a)
 
     override fun build(): View {
         val root = a.vbox(16)
@@ -80,11 +83,16 @@ class TodayScreen(a: MainActivity) : Screen(a) {
         return root
     }
 
+    private var agendaShown = -1L
+
     override fun tick() {
         record.text = if (RecorderStatus.isRecording) "Recording… (open)" else "Record (ad hoc)"
+        // A sync brought an agenda while Today is open.
+        if (App.agenda(a).version != agendaShown) refresh()
     }
 
     override fun refresh() {
+        agendaShown = App.agenda(a).version
         tick()
         val agenda = App.agenda(a).load()
         val parts = mutableListOf<String>()
@@ -92,9 +100,7 @@ class TodayScreen(a: MainActivity) : Screen(a) {
         if ((agenda?.drafting ?: 0) > 0) parts += "${agenda!!.drafting} briefs still being drafted on the Mac"
         status.text = parts.joinToString(" · ")
         list.removeAllViews()
-        if (!DeviceCalendar.granted(a)) {
-            list.addView(a.button("Also show the phone's calendar", outlined = true) { a.requestCalendar() })
-        }
+        list.addView(calendar.view(this))
         val events = mergedEvents(a)
         if (events.isEmpty()) list.addView(a.label("No upcoming events.", secondary = true).marginTop(a, 16))
         var lastDay = ""
@@ -118,7 +124,7 @@ class TodayScreen(a: MainActivity) : Screen(a) {
             box.addView(a.label(shown, 13f, secondary = true))
         }
         val row = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
-        if (e.brief != null) row.addView(a.button("Brief", outlined = true) { a.openBrief(e) })
+        if (e.brief != null || e.open.isNotEmpty()) row.addView(a.button("Brief", outlined = true) { a.openBrief(e) })
         row.addView(a.button("Record this meeting") { a.startRecording(e.ref()) }.also {
             it.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = a.dp(8) }
         })
@@ -134,6 +140,7 @@ class RecordingScreen(a: MainActivity) : Screen(a) {
     private lateinit var event: TextView
     private lateinit var source: TextView
     private val live = LiveTextPanel(a)
+    private val details = DetailsPanel(a) { RecorderStatus.recordingId }
     private val openedAt = System.currentTimeMillis()
 
     override fun build(): View {
@@ -153,6 +160,7 @@ class RecordingScreen(a: MainActivity) : Screen(a) {
         root.addView(a.button("Stop") { RecorderService.stop(a) }.apply { minHeight = a.dp(72); textSize = 20f }.marginTop(a, 32),
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).also { it.topMargin = a.dp(32) })
         root.addView(live.view.marginTop(a, 24))
+        root.addView(details.view.marginTop(a, 24))
         return scrolling(a, root)
     }
 
@@ -168,7 +176,10 @@ class RecordingScreen(a: MainActivity) : Screen(a) {
         source.text = "Microphone: ${RecorderStatus.source}"
         event.text = "Event: " + (RecorderStatus.eventSubject ?: "none (ad hoc)")
         live.tick()
+        details.tick()
     }
+
+    override fun pause() = details.flush()
 }
 
 class RecordingsScreen(a: MainActivity) : Screen(a) {
@@ -189,7 +200,7 @@ class RecordingsScreen(a: MainActivity) : Screen(a) {
 
     override fun refresh() {
         val recs = App.store(a).list()
-        val sig = recs.joinToString { it.id + it.sync.state + it.sync.uploaded.size + it.meta.chunks.size + it.meta.event?.id + it.sync.serverState }
+        val sig = recs.joinToString { it.id + it.sync.state + it.sync.uploaded.size + it.meta.chunks.size + it.meta.event?.id + it.sync.serverState + it.meta.details.rev }
         if (sig == lastSig && list.childCount > 0) return
         lastSig = sig
         list.removeAllViews()
@@ -220,16 +231,22 @@ class RecordingsScreen(a: MainActivity) : Screen(a) {
         if (r.id != RecorderStatus.recordingId && App.store(a).liveTextFile(r.id) != null) {
             box.addView(a.button("Live text", outlined = true) { a.push(LiveTextScreen(a, r.id)) })
         }
+        val d = m.details
+        if (d.attendees.isNotEmpty() || d.photos.isNotEmpty() || !d.notes.isEmpty) {
+            val bits = listOfNotNull(
+                "notes".takeIf { !d.notes.isEmpty },
+                "${d.attendees.size} people".takeIf { d.attendees.isNotEmpty() },
+                "${d.photos.size} photos".takeIf { d.photos.isNotEmpty() },
+            )
+            box.addView(a.label(bits.joinToString(" · "), 13f, secondary = true))
+        }
         val c = a.card(box)
-        val editable = !m.isRecording && (r.sync.state == SyncState.ON_PHONE || r.sync.state == SyncState.UPLOADING)
         c.setOnClickListener {
             when {
                 r.id == RecorderStatus.recordingId -> a.push(RecordingScreen(a))
-                editable -> pickEvent(a, m.start) { ev ->
-                    runCatching { App.store(a).updateMeta(r.id) { it.copy(event = ev) } }
-                    lastSig = ""
-                    refresh()
-                }
+                // Interrupted recordings are closed at the next start; until then they can't be edited.
+                m.isRecording -> {}
+                else -> a.push(RecordingDetailScreen(a, r.id))
             }
         }
         return c
@@ -246,6 +263,7 @@ class BriefScreen(a: MainActivity, private val e: AgendaEvent) : Screen(a) {
         val b = e.brief
         if (b == null) {
             box.addView(a.label("No brief for this event.").marginTop(a, 16))
+            if (e.open.isNotEmpty()) box.addView(BriefUi.openItems(a, e.open).marginTop(a, 24))
         } else {
             val sens = a.vbox(12)
             sens.addView(a.label("Sensitivity: ${b.sensitivity.level} · share: ${b.sensitivity.share}", 14f, bold = true))
@@ -253,7 +271,8 @@ class BriefScreen(a: MainActivity, private val e: AgendaEvent) : Screen(a) {
             if (b.sensitivity.why.isNotBlank()) sens.addView(a.label("Why: ${b.sensitivity.why}", 13f))
             box.addView(a.card(sens).marginTop(a, 12))
             b.madeAt?.let { box.addView(a.label("Drafted ${Fmt.day(it)} ${Fmt.time(it)}", 12f, secondary = true).marginTop(a, 8)) }
-            box.addView(a.label(b.text, 15f).apply { setTextIsSelectable(true) }.marginTop(a, 12))
+            box.addView(BriefUi.render(a, b.text, b.sources).marginTop(a, 4))
+            if (e.open.isNotEmpty()) box.addView(BriefUi.openItems(a, e.open).marginTop(a, 24))
         }
         return scrolling(a, box)
     }

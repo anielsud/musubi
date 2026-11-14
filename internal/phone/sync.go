@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anielsud/musubi/internal/phonedetails"
 	"github.com/anielsud/musubi/internal/recorder/control"
 )
 
@@ -55,7 +56,7 @@ func (e *errDamaged) Error() string {
 // syncStats is a sync's outcome, for the log and Settings.
 type syncStats struct {
 	recordings, fetched, imported, skipped, events int
-	agendaSent, agendaErr                          bool
+	agendaSent, agendaErr, agendaPending           bool
 }
 
 func (st syncStats) String() string {
@@ -66,14 +67,17 @@ func (st syncStats) String() string {
 	switch {
 	case st.agendaSent:
 		return s + fmt.Sprintf("; agenda of %d events sent", st.events)
+	case st.agendaPending:
+		return s + "; agenda still being built"
 	case st.agendaErr:
 		return s + "; agenda not sent"
 	}
 	return s
 }
 
-// sync runs a sync on fc with the paired phone fp.
-func (s *Syncer) sync(ctx context.Context, fc *frameConn, fp string) {
+// sync runs a sync on fc with the paired phone fp; before live mode
+// (live) it ends without bye. It reports whether the sync completed.
+func (s *Syncer) sync(ctx context.Context, fc *frameConn, fp string, live bool) bool {
 	fp16 := fp[:16]
 	now := s.cfg.Now()
 	s.mu.Lock()
@@ -84,11 +88,11 @@ func (s *Syncer) sync(ctx context.Context, fc *frameConn, fp string) {
 		name = d.Name
 	}
 	var stats syncStats
-	err := s.syncSteps(ctx, fc, fp, &name, &stats)
+	err := s.syncSteps(ctx, fc, fp, &name, &stats, live)
 	outcome := "synced: " + stats.String()
 	if refusedByPhone(err) {
 		s.phoneRefused(fp, name, err)
-		return
+		return false
 	}
 	if err != nil {
 		var pe *phoneError
@@ -107,6 +111,7 @@ func (s *Syncer) sync(ctx context.Context, fc *frameConn, fp string) {
 		d.LastSync, d.LastOutcome = now, outcome
 	})
 	s.cfg.OnChange()
+	return err == nil
 }
 
 // refusedOutcome: the phone no longer trusts this Mac (unpaired there,
@@ -136,7 +141,7 @@ func (s *Syncer) phoneRefused(fp, name string, err error) {
 	s.cfg.OnChange()
 }
 
-func (s *Syncer) syncSteps(ctx context.Context, fc *frameConn, fp string, name *string, stats *syncStats) error {
+func (s *Syncer) syncSteps(ctx context.Context, fc *frameConn, fp string, name *string, stats *syncStats, live bool) error {
 	var hello struct {
 		V          int      `json:"v"`
 		DeviceName string   `json:"device_name"`
@@ -163,6 +168,9 @@ func (s *Syncer) syncSteps(ctx context.Context, fc *frameConn, fp string, name *
 			Meta  json.RawMessage `json:"meta"`
 			State *string         `json:"state"`
 		} `json:"recordings"`
+		// TooLarge: recordings whose meta.json alone is more than a frame;
+		// the phone skips them rather than stop listing there.
+		TooLarge []string `json:"too_large"`
 	}
 	if err := fc.call(map[string]any{"op": "list"}, &list); err != nil {
 		return err
@@ -171,6 +179,14 @@ func (s *Syncer) syncSteps(ctx context.Context, fc *frameConn, fp string, name *
 		return protoErr("%d recordings listed", len(list.Recordings))
 	}
 	stats.recordings = len(list.Recordings)
+	if len(list.TooLarge) > maxReported {
+		return protoErr("%d recordings too large", len(list.TooLarge))
+	}
+	for _, r := range list.TooLarge {
+		if id, ok := parseRID(r); ok {
+			s.cfg.Logf("phone: recording %s is too large for the phone to list (its meta.json is over 64 KB); skipped", id)
+		}
+	}
 	for _, r := range list.Recordings {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -186,6 +202,9 @@ func (s *Syncer) syncSteps(ctx context.Context, fc *frameConn, fp string, name *
 
 	if err := s.pushAgenda(ctx, fc, stats); err != nil {
 		return err
+	}
+	if live {
+		return nil // live_start follows
 	}
 	return fc.call(map[string]any{"op": "bye"}, nil)
 }
@@ -211,7 +230,13 @@ func (s *Syncer) syncRecording(ctx context.Context, fc *frameConn, fp string, ra
 	if !validState(phoneState) {
 		phoneState = ""
 	}
-	if phoneState == control.ImportImported {
+	var details *phonedetails.MetaDetails
+	if s.cfg.Details {
+		if details, err = metaDetails(raw); err != nil {
+			s.cfg.Logf("phone: recording %s: details skipped: %v", m.ID, err)
+		}
+	}
+	if phoneState == control.ImportImported && details == nil {
 		return nil // reported before; the phone drops the audio
 	}
 	rid := m.ID
@@ -234,13 +259,23 @@ func (s *Syncer) syncRecording(ctx context.Context, fc *frameConn, fp string, ra
 	if err != nil {
 		return err
 	}
-	if st.State == control.ImportImported {
+	if st.State == control.ImportImported && phoneState != control.ImportImported {
 		stats.imported++
 	}
-	if st.State == "" || st.State == phoneState {
+	// The phone lists an imported recording again only for newer details.
+	detailsDone := false
+	if details != nil {
+		if detailsDone, err = s.applyDetails(fc, rid, st, details); err != nil {
+			return err
+		}
+	}
+	if st.State == "" || (st.State == phoneState && !detailsDone) {
 		return nil
 	}
 	req := map[string]any{"op": "state", "rid": rid, "state": st.State}
+	if detailsDone {
+		req["details_rev"] = st.DetailsRev
+	}
 	if st.State == control.ImportImported && st.Session != "" {
 		req["session_id"] = st.Session
 	}
@@ -426,6 +461,11 @@ func (s *Syncer) pushAgenda(ctx context.Context, fc *frameConn, stats *syncStats
 	}
 	now := s.cfg.Now()
 	evs, err := s.cfg.Agenda(ctx, defaultDays)
+	if errors.Is(err, ErrAgendaNotReady) {
+		// The phone keeps the agenda it has; the next sync sends the build.
+		stats.agendaPending = true
+		return nil
+	}
 	if err != nil {
 		s.cfg.Logf("phone: agenda: %v", err)
 		stats.agendaErr = true

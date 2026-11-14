@@ -4,6 +4,7 @@ import type { ClaimView, KnowledgeCounts, Statement, StatusPoint, ThreadDetail, 
 import { Empty, LabelBadge, Spelled, Spinner } from './common';
 import { Name, Names } from './people';
 import { TopicViews, clusterColor, useWide } from './TopicViews';
+import { phoneMode } from '../phone';
 
 // Status presentation: what's live first, then what changed.
 export const statusOrder = ['contested', 'established', 'likely', 'open', 'speculative', 'uncertain', 'answered', 'done', 'superseded', 'disproven', 'stale'];
@@ -140,9 +141,9 @@ function TopicPage({ id, scope, onBack, onOpen, onSource }: { id: number; scope:
         <div className="people"><span className="dim">who: </span>{t.people!.slice(0, 8).map((p, i) => <span key={p.name}>{i > 0 && ' · '}<Name name={p.name} /> ({p.claims})</span>)}</div>
       )}
 
-      {t.thread && scope === 'owner' && <ThreadEdit id={t.id} scope={scope} picked={picked} setPicked={setPicked} onDone={reload} />}
+      {t.thread && scope === 'owner' && !phoneMode && <ThreadEdit id={t.id} scope={scope} picked={picked} setPicked={setPicked} onDone={reload} />}
       {t.thread ? (
-        <ThreadSection d={t.thread} onSource={onSource} owner={scope === 'owner'} onChanged={reload} picked={picked} onPick={(x) => {
+        <ThreadSection d={t.thread} onSource={onSource} owner={scope === 'owner' && !phoneMode} onChanged={reload} picked={picked} onPick={(x) => {
           const n = new Set(picked ?? []);
           if (n.has(x)) n.delete(x); else n.add(x);
           setPicked(n);
@@ -421,7 +422,7 @@ export function ClaimCard({ c, scope, open, onToggle, onSource, onChanged }: { c
           <div className="stmts">
             {sts.map((s) => <StatementRow key={s.id} s={s} onSource={onSource} />)}
           </div>
-          {scope === 'owner' && sts.length > 0 && <Judge statementId={sts[sts.length - 1].id} verdict={c.belief.verdict} onDone={onChanged} />}
+          {scope === 'owner' && !phoneMode && sts.length > 0 && <Judge statementId={sts[sts.length - 1].id} verdict={c.belief.verdict} onDone={onChanged} />}
         </div>
       )}
     </article>

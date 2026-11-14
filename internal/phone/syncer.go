@@ -15,6 +15,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
+	"io/fs"
 	"net"
 	"net/netip"
 	"os"
@@ -60,8 +61,12 @@ type Config struct {
 	// Agenda lists the events in the next days days; Drafting starts the
 	// briefs missing up to until drafting in the background (unless a
 	// meeting is live) and says how many are left.
-	Agenda   func(ctx context.Context, days int) ([]Event, error)
-	Drafting func(until time.Time) int
+	Agenda func(ctx context.Context, days int) ([]Event, error)
+	// Details applies a recording's notes, people and photos to its
+	// session folder ([phone] details); OnDetails is told when it did.
+	Details   bool
+	OnDetails func()
+	Drafting  func(until time.Time) int
 	// Logf logs (never a nonce, a code or a key); OnChange tells Settings
 	// that the phones, a pairing or the browsing changed; OnPairRequest
 	// asks the owner to Allow or Deny a pairing.
@@ -69,6 +74,11 @@ type Config struct {
 	OnChange      func()
 	OnPairRequest func(PairPrompt)
 	Now           func() time.Time
+	// Live serves Explore on the phone (docs/phone.md, part 3) from
+	// Assets, the app's built frontend; nil: a phone advertising live=1
+	// is only synced, as before.
+	Live   LiveHandler
+	Assets fs.FS
 }
 
 // Syncer is phone sync. Its paired phones can be listed and unpaired
@@ -87,6 +97,8 @@ type Syncer struct {
 	pairWait time.Duration
 	// phonePort is dialed at reported addresses: PhonePort.
 	phonePort uint16
+	// Live mode's timings (live.go), shortened in tests.
+	liveIdle, livePing, liveReadWait, liveCallTimeout time.Duration
 
 	mu      sync.Mutex
 	looking bool
@@ -103,6 +115,9 @@ type Syncer struct {
 	pairTried map[string]time.Time
 	seen      map[string]time.Time
 	synced    map[string]time.Time
+	// liveIdled: phones whose live connection was closed for being idle;
+	// dialed for live mode again only once their advertisement changes.
+	liveIdled map[string]bool
 
 	recMu sync.Mutex
 	recs  map[string]*sync.Mutex
@@ -145,8 +160,9 @@ func New(cfg Config) (*Syncer, error) {
 	sum := sha256.Sum256(cert.Certificate[0])
 	var d net.Dialer
 	return &Syncer{cfg: cfg, cert: cert, fpRaw: sum[:], pins: p, dnssd: platformDNSSD, dial: d.DialContext, pairWait: pairValidFor, phonePort: PhonePort,
+		liveIdle: liveIdleClose, livePing: livePingEvery, liveReadWait: liveReadWait, liveCallTimeout: liveCallTimeout,
 		busy: map[string]bool{}, denials: map[string][]time.Time{}, ignore: map[string]time.Time{},
-		pairTried: map[string]time.Time{}, seen: map[string]time.Time{}, synced: map[string]time.Time{},
+		pairTried: map[string]time.Time{}, seen: map[string]time.Time{}, synced: map[string]time.Time{}, liveIdled: map[string]bool{},
 		recs: map[string]*sync.Mutex{}}, nil
 }
 
@@ -215,12 +231,16 @@ loop:
 
 // target is a phone to dial: fp16 is its certificate's first 16 hex
 // digits (advertised, or its pin's), pin its pinned certificate unless
-// pairing.
+// pairing; live: it asks for Explore (live=1).
 type target struct {
 	fp16  string
 	pin   string
 	pair  bool
+	live  bool
 	addrs []netip.AddrPort
+	// resyncs: syncs this dial has run because the phone ended Explore to
+	// sync (live mode); the next one is run whether or not it is due.
+	resyncs int
 }
 
 // start dials t in the background unless that phone already has a
@@ -356,8 +376,52 @@ func (s *Syncer) session(ctx context.Context, t target) (netip.AddrPort, string)
 		s.pair(ctx, fc, sum, conn.RemoteAddr())
 		return used, hex.EncodeToString(sum)
 	}
-	s.sync(ctx, fc, t.pin)
+	if !t.live {
+		s.sync(ctx, fc, t.pin, false)
+		return used, ""
+	}
+	// Explore: a sync first when one is due, then live mode on the same
+	// connection (the phone serves one connection at a time).
+	s.mu.Lock()
+	last := s.synced[t.fp16]
+	s.mu.Unlock()
+	if t.resyncs > 0 || last.IsZero() || s.cfg.Now().Sub(last) >= resyncGap {
+		if !s.sync(ctx, fc, t.pin, true) {
+			return used, ""
+		}
+	}
+	name := "phone"
+	if d, ok := s.pins.get(t.pin); ok {
+		name = d.Name
+	}
+	switch s.startLive(ctx, fc, name) {
+	case liveEndIdle:
+		s.mu.Lock()
+		s.liveIdled[t.fp16] = true
+		s.mu.Unlock()
+	case liveEndSync:
+		// The phone ended Explore to sync (a recording finished): sync on
+		// a fresh connection, then Explore again; it still advertises
+		// live=1.
+		if t.resyncs < maxLiveResyncs && ctx.Err() == nil {
+			conn.Close()
+			next := t
+			next.resyncs++
+			next.addrs = append([]netip.AddrPort{used}, without(t.addrs, used)...)
+			return s.session(ctx, next)
+		}
+	}
 	return used, ""
+}
+
+func without(aps []netip.AddrPort, x netip.AddrPort) []netip.AddrPort {
+	var out []netip.AddrPort
+	for _, ap := range aps {
+		if ap != x {
+			out = append(out, ap)
+		}
+	}
+	return out
 }
 
 // dialFailed logs a phone that couldn't be reached (at most once a

@@ -25,6 +25,7 @@ import com.musubi.phone.rec.RecorderConfig
 import com.musubi.phone.rec.RecorderService
 import com.musubi.phone.rec.RecorderStatus
 import com.musubi.phone.ui.BriefScreen
+import com.musubi.phone.ui.ExploreScreen
 import com.musubi.phone.ui.MacScreen
 import com.musubi.phone.ui.RecordingScreen
 import com.musubi.phone.ui.RecordingsScreen
@@ -35,7 +36,10 @@ import com.musubi.phone.core.AgendaEvent
 import com.musubi.phone.sync.PhoneSync
 import com.musubi.phone.update.Updater
 
-/** The single activity: three tabs (Today, Recordings, Mac) plus pushed Recording and Brief screens. */
+/**
+ * The single activity: three tabs (Today, Recordings, Mac), a fourth (Explore) while the Mac holds
+ * Explore's connection, plus pushed Recording and Brief screens.
+ */
 class MainActivity : AppCompatActivity() {
     private lateinit var toolbar: MaterialToolbar
     private lateinit var content: FrameLayout
@@ -47,8 +51,39 @@ class MainActivity : AppCompatActivity() {
     private var pendingRecord = false
     private var settingsItem: android.view.MenuItem? = null
 
+    // Photos for a recording's details: the system photo picker (no storage permission) and the
+    // camera app writing into a FileProvider path in the recording's folder (no camera permission).
+    private var onPicked: ((List<android.net.Uri>) -> Unit)? = null
+    private var onTaken: ((Boolean) -> Unit)? = null
+    private val picker = registerForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        onPicked?.invoke(uris)
+        onPicked = null
+    }
+    private val camera = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        onTaken?.invoke(ok)
+        onTaken = null
+    }
+
+    fun pickPhotos(done: (List<android.net.Uri>) -> Unit) {
+        onPicked = done
+        picker.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+
+    fun takePhoto(output: android.net.Uri, done: (Boolean) -> Unit) {
+        onTaken = done
+        runCatching { camera.launch(output) }.onFailure {
+            onTaken = null
+            done(false)
+            toast("No camera app")
+        }
+    }
+
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
-        if (pendingRecord) {
+        val calendarDone = pendingCalendar
+        if (calendarDone != null && Manifest.permission.READ_CALENDAR in res) {
+            pendingCalendar = null
+            calendarDone(DeviceCalendar.granted(this))
+        } else if (pendingRecord) {
             pendingRecord = false
             if (res[Manifest.permission.RECORD_AUDIO] == true || hasMic()) startRecording(pendingEvent)
             else toast("Musubi needs the microphone to record")
@@ -63,6 +98,8 @@ class MainActivity : AppCompatActivity() {
         toolbar = MaterialToolbar(this)
         content = FrameLayout(this)
         nav = BottomNavigationView(this)
+        // With Explore there are four tabs; keep every label shown.
+        nav.labelVisibilityMode = com.google.android.material.navigation.NavigationBarView.LABEL_VISIBILITY_LABELED
         nav.menu.add(0, TAB_TODAY, 0, "Today").setIcon(R.drawable.ic_today)
         nav.menu.add(0, TAB_RECORDINGS, 1, "Recordings").setIcon(R.drawable.ic_list)
         nav.menu.add(0, TAB_MAC, 2, "Mac").setIcon(R.drawable.ic_laptop)
@@ -99,6 +136,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        // Explore lasts only while the app is in front: its page goes with it.
+        if (tab is ExploreScreen) nav.selectedItemId = TAB_TODAY
         PhoneSync.foreground(false)
         super.onStop()
     }
@@ -112,6 +151,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        current()?.pause()
         tick.removeCallbacks(ticker)
         Updater.onPause(this)
         super.onPause()
@@ -119,6 +159,7 @@ class MainActivity : AppCompatActivity() {
 
     private val ticker = object : Runnable {
         override fun run() {
+            syncExplore()
             current()?.tick()
             RecorderStatus.lastError?.let {
                 RecorderStatus.lastError = null
@@ -130,24 +171,39 @@ class MainActivity : AppCompatActivity() {
 
     private fun current(): Screen? = stack.lastOrNull() ?: tab
 
+    /** The Explore tab is there only while the Mac holds Explore's connection (or is bringing it back after a sync). */
+    private fun syncExplore() {
+        val available = PhoneSync.exploreAvailable
+        val shown = nav.menu.findItem(TAB_EXPLORE) != null
+        if (available && !shown) nav.menu.add(0, TAB_EXPLORE, 3, "Explore").setIcon(R.drawable.ic_explore)
+        if (!available && shown) {
+            if (tab is ExploreScreen) nav.selectedItemId = TAB_TODAY
+            nav.menu.removeItem(TAB_EXPLORE)
+        }
+    }
+
     private fun showTab(id: Int) {
+        current()?.pause()
         stack.clear()
+        (tab as? ExploreScreen)?.dispose()
         tab = when (id) {
             TAB_RECORDINGS -> RecordingsScreen(this)
             TAB_MAC -> MacScreen(this)
+            TAB_EXPLORE -> ExploreScreen(this)
             else -> TodayScreen(this)
         }
         render()
     }
 
     fun push(s: Screen) {
+        current()?.pause()
         stack.addLast(s)
         render()
     }
 
     fun pop() {
         if (stack.isEmpty()) return
-        stack.removeLast()
+        stack.removeLast().pause()
         render()
     }
 
@@ -201,7 +257,13 @@ class MainActivity : AppCompatActivity() {
         push(RecordingScreen(this))
     }
 
-    fun requestCalendar() = permissions.launch(arrayOf(Manifest.permission.READ_CALENDAR))
+    private var pendingCalendar: ((Boolean) -> Unit)? = null
+
+    /** Asks for READ_CALENDAR, then calls [then] with whether it is granted. */
+    fun requestCalendar(then: (Boolean) -> Unit) {
+        pendingCalendar = then
+        permissions.launch(arrayOf(Manifest.permission.READ_CALENDAR))
+    }
 
     fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 
@@ -211,5 +273,8 @@ class MainActivity : AppCompatActivity() {
         private const val TAB_TODAY = 1
         private const val TAB_RECORDINGS = 2
         private const val TAB_MAC = 3
+        private const val TAB_EXPLORE = 4
+        /** The FileProvider (res/xml/file_paths.xml) the camera writes a recording's photo through. */
+        const val FILES_AUTHORITY = "com.musubi.phone.files"
     }
 }

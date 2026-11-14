@@ -276,6 +276,11 @@ func (s *Store) ids(query string, args ...any) ([]int64, error) {
 	return out, rows.Err()
 }
 
+// ChunkHit is one chunk as a search result, nil when sc may not see it.
+func (s *Store) ChunkHit(sc sensitivity.Scope, chunkID int64) (*Hit, error) {
+	return s.hit(sc, chunkID)
+}
+
 // hit loads one chunk for display, re-applying the scope. A meeting shows
 // the title of the calendar event it was linked to.
 func (s *Store) hit(sc sensitivity.Scope, chunkID int64) (*Hit, error) {

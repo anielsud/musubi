@@ -8,21 +8,21 @@ import android.util.Log
 /**
  * Advertises the phone while it listens (docs/phone.md, "Advertising"): `_musubi-phone._tcp`,
  * instance `musubi-<first 8 hex of the certificate SHA-256>` (no device or owner name), TXT
- * `v=2`, `fp=<first 16 hex>` and `pair=1` only while pairing is open. Changing `pair` means
- * registering again. Call from one thread only (PhoneSync's control thread).
+ * `v=2`, `fp=<first 16 hex>`, `pair=1` only while pairing is open and `live=1` only while the app
+ * is in the foreground (Explore). Changing `pair` or `live` means registering again. Call from one thread only (PhoneSync's control thread).
  */
 class Advertiser(context: Context, private val certSha256Hex: String, private val port: Int) {
     private val nsd = context.applicationContext.getSystemService(NsdManager::class.java)
     private var listener: NsdManager.RegistrationListener? = null
-    private var advertisedPair: Boolean? = null
+    private var advertised: Pair<Boolean, Boolean>? = null
 
-    /** Registers, re-registers or unregisters so the advertisement matches [on] and [pair]. */
-    fun update(on: Boolean, pair: Boolean) {
+    /** Registers, re-registers or unregisters so the advertisement matches [on], [pair] and [live]. */
+    fun update(on: Boolean, pair: Boolean, live: Boolean = false) {
         if (!on) {
             unregister()
             return
         }
-        if (advertisedPair == pair && listener != null) return
+        if (advertised == (pair to live) && listener != null) return
         unregister()
         val info = NsdServiceInfo().apply {
             serviceName = instanceName(certSha256Hex)
@@ -32,6 +32,7 @@ class Advertiser(context: Context, private val certSha256Hex: String, private va
             setAttribute("v", "2")
             setAttribute("fp", certSha256Hex.take(16))
             if (pair) setAttribute("pair", "1")
+            if (live) setAttribute("live", "1")
         }
         val l = object : NsdManager.RegistrationListener {
             override fun onServiceRegistered(s: NsdServiceInfo) {
@@ -47,7 +48,7 @@ class Advertiser(context: Context, private val certSha256Hex: String, private va
         val r = runCatching { nsd.registerService(info, NsdManager.PROTOCOL_DNS_SD, l) }
         if (r.isSuccess) {
             listener = l
-            advertisedPair = pair
+            advertised = pair to live
         } else {
             Log.w(TAG, "advertising refused: ${r.exceptionOrNull()?.javaClass?.simpleName}")
         }
@@ -56,7 +57,7 @@ class Advertiser(context: Context, private val certSha256Hex: String, private va
     private fun unregister() {
         listener?.let { runCatching { nsd.unregisterService(it) } }
         listener = null
-        advertisedPair = null
+        advertised = null
     }
 
     companion object {

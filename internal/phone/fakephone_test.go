@@ -58,6 +58,9 @@ type fakePhone struct {
 	dropAfter int
 	served    int
 	conns     int
+	// live takes the connection over after live_start (live mode);
+	// nil: live_start is refused.
+	live func(c net.Conn)
 }
 
 type fakeRec struct {
@@ -305,6 +308,17 @@ func (p *fakePhone) handle(raw net.Conn) {
 			p.agendas = append(p.agendas, a)
 			p.mu.Unlock()
 			ok()
+		case "live_start":
+			p.mu.Lock()
+			live := p.live
+			p.mu.Unlock()
+			if live == nil {
+				fail("not_live")
+				return
+			}
+			ok()
+			live(c)
+			return
 		case "bye":
 			ok()
 			return

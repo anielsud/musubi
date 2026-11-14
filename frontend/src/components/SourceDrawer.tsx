@@ -3,6 +3,7 @@ import { api, fmtDate, kindIcon } from '../api';
 import type { ItemView } from '../types';
 import { LabelBadge, Spinner } from './common';
 import { Name } from './people';
+import { phoneMode } from '../phone';
 
 export interface SourceRef {
   itemId: string;
@@ -24,7 +25,7 @@ export function SourceDrawer({ src, onClose }: { src: SourceRef; onClose: () => 
   const audio = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState<number | null>(null);
   const stopAt = useRef(0);
-  const session = src.itemId.startsWith('tomoe:') ? src.itemId.slice('tomoe:'.length) : '';
+  const session = !phoneMode && src.itemId.startsWith('tomoe:') ? src.itemId.slice('tomoe:'.length) : '';
 
   useEffect(() => {
     setItem(undefined);

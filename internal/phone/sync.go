@@ -72,8 +72,9 @@ func (st syncStats) String() string {
 	return s
 }
 
-// sync runs a sync on fc with the paired phone fp.
-func (s *Syncer) sync(ctx context.Context, fc *frameConn, fp string) {
+// sync runs a sync on fc with the paired phone fp; before live mode
+// (live) it ends without bye. It reports whether the sync completed.
+func (s *Syncer) sync(ctx context.Context, fc *frameConn, fp string, live bool) bool {
 	fp16 := fp[:16]
 	now := s.cfg.Now()
 	s.mu.Lock()
@@ -84,11 +85,11 @@ func (s *Syncer) sync(ctx context.Context, fc *frameConn, fp string) {
 		name = d.Name
 	}
 	var stats syncStats
-	err := s.syncSteps(ctx, fc, fp, &name, &stats)
+	err := s.syncSteps(ctx, fc, fp, &name, &stats, live)
 	outcome := "synced: " + stats.String()
 	if refusedByPhone(err) {
 		s.phoneRefused(fp, name, err)
-		return
+		return false
 	}
 	if err != nil {
 		var pe *phoneError
@@ -107,6 +108,7 @@ func (s *Syncer) sync(ctx context.Context, fc *frameConn, fp string) {
 		d.LastSync, d.LastOutcome = now, outcome
 	})
 	s.cfg.OnChange()
+	return err == nil
 }
 
 // refusedOutcome: the phone no longer trusts this Mac (unpaired there,
@@ -136,7 +138,7 @@ func (s *Syncer) phoneRefused(fp, name string, err error) {
 	s.cfg.OnChange()
 }
 
-func (s *Syncer) syncSteps(ctx context.Context, fc *frameConn, fp string, name *string, stats *syncStats) error {
+func (s *Syncer) syncSteps(ctx context.Context, fc *frameConn, fp string, name *string, stats *syncStats, live bool) error {
 	var hello struct {
 		V          int      `json:"v"`
 		DeviceName string   `json:"device_name"`
@@ -186,6 +188,9 @@ func (s *Syncer) syncSteps(ctx context.Context, fc *frameConn, fp string, name *
 
 	if err := s.pushAgenda(ctx, fc, stats); err != nil {
 		return err
+	}
+	if live {
+		return nil // live_start follows
 	}
 	return fc.call(map[string]any{"op": "bye"}, nil)
 }

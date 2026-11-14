@@ -86,7 +86,10 @@ func (a *App) startPhone(ctx context.Context, e *engine.Engine) {
 // openPhone opens phone sync's folder (certificate, paired phones)
 // without starting it.
 func (a *App) openPhone(ctx context.Context, e *engine.Engine) (*phone.Syncer, error) {
+	live, assets := a.phoneLiveFor(e.Cfg.Phone.Explore)
 	return phone.New(phone.Config{
+		Live:         live,
+		Assets:       assets,
 		Dir:          e.Cfg.PhoneDir(),
 		RecorderData: e.Cfg.Recorder.Data,
 		Import: func(ctx context.Context, args control.ImportArgs) (control.ImportStatus, error) {

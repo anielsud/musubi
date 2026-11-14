@@ -5,6 +5,7 @@ import { Spinner } from './common';
 import { Name } from './people';
 import { ActNotes, ReviewItems, VoiceProfileCard, VoicesError, readOnlyWhy, useAct, useEditable, useVoices } from './voices';
 import type { VoicesView } from '../types';
+import { phoneMode } from '../phone';
 
 // PersonView is a person's page: who they are (Microsoft 365 directory),
 // what they look and sound like (from Tomoe's recordings), and what the
@@ -39,7 +40,7 @@ export function PersonView({ id, scope, onPick, onOpenItem, onTopic }: {
             {(d?.phones ?? []).concat(d?.mobile ? [d.mobile] : []).map((ph) => <span key={ph}> · <a href={'tel:' + ph}>{ph}</a></span>)}
           </div>
           {d?.hireDate && <div className="dim small">joined {new Date(d.hireDate).toLocaleDateString(undefined, { year: 'numeric', month: 'long' })}</div>}
-          {p.voice && <Voice clip={p.voice} />}
+          {p.voice && !phoneMode && <Voice clip={p.voice} />}
         </div>
       </div>
 
@@ -85,7 +86,7 @@ export function PersonView({ id, scope, onPick, onOpenItem, onTopic }: {
         ))}</ul>
       </>}
 
-      <PersonVoice names={[p.name, ...p.names]} />
+      {!phoneMode && <PersonVoice names={[p.name, ...p.names]} />}
 
       {p.names.length > 1 && <div className="dim small">also known as {p.names.filter((n) => n !== p.name.toLowerCase()).slice(0, 6).map((n, i) => <span key={n}>{i > 0 && ', '}<Name name={n} /></span>)}</div>}
     </div>

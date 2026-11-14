@@ -15,6 +15,7 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"errors"
+	"io/fs"
 	"net"
 	"net/netip"
 	"os"
@@ -69,6 +70,11 @@ type Config struct {
 	OnChange      func()
 	OnPairRequest func(PairPrompt)
 	Now           func() time.Time
+	// Live serves Explore on the phone (docs/phone.md, part 3) from
+	// Assets, the app's built frontend; nil: a phone advertising live=1
+	// is only synced, as before.
+	Live   LiveHandler
+	Assets fs.FS
 }
 
 // Syncer is phone sync. Its paired phones can be listed and unpaired
@@ -87,6 +93,8 @@ type Syncer struct {
 	pairWait time.Duration
 	// phonePort is dialed at reported addresses: PhonePort.
 	phonePort uint16
+	// Live mode's timings (live.go), shortened in tests.
+	liveIdle, livePing, liveReadWait, liveCallTimeout time.Duration
 
 	mu      sync.Mutex
 	looking bool
@@ -103,6 +111,9 @@ type Syncer struct {
 	pairTried map[string]time.Time
 	seen      map[string]time.Time
 	synced    map[string]time.Time
+	// liveIdled: phones whose live connection was closed for being idle;
+	// dialed for live mode again only once their advertisement changes.
+	liveIdled map[string]bool
 
 	recMu sync.Mutex
 	recs  map[string]*sync.Mutex
@@ -145,8 +156,9 @@ func New(cfg Config) (*Syncer, error) {
 	sum := sha256.Sum256(cert.Certificate[0])
 	var d net.Dialer
 	return &Syncer{cfg: cfg, cert: cert, fpRaw: sum[:], pins: p, dnssd: platformDNSSD, dial: d.DialContext, pairWait: pairValidFor, phonePort: PhonePort,
+		liveIdle: liveIdleClose, livePing: livePingEvery, liveReadWait: liveReadWait, liveCallTimeout: liveCallTimeout,
 		busy: map[string]bool{}, denials: map[string][]time.Time{}, ignore: map[string]time.Time{},
-		pairTried: map[string]time.Time{}, seen: map[string]time.Time{}, synced: map[string]time.Time{},
+		pairTried: map[string]time.Time{}, seen: map[string]time.Time{}, synced: map[string]time.Time{}, liveIdled: map[string]bool{},
 		recs: map[string]*sync.Mutex{}}, nil
 }
 
@@ -215,11 +227,12 @@ loop:
 
 // target is a phone to dial: fp16 is its certificate's first 16 hex
 // digits (advertised, or its pin's), pin its pinned certificate unless
-// pairing.
+// pairing; live: it asks for Explore (live=1).
 type target struct {
 	fp16  string
 	pin   string
 	pair  bool
+	live  bool
 	addrs []netip.AddrPort
 }
 
@@ -356,7 +369,30 @@ func (s *Syncer) session(ctx context.Context, t target) (netip.AddrPort, string)
 		s.pair(ctx, fc, sum, conn.RemoteAddr())
 		return used, hex.EncodeToString(sum)
 	}
-	s.sync(ctx, fc, t.pin)
+	if !t.live {
+		s.sync(ctx, fc, t.pin, false)
+		return used, ""
+	}
+	// Explore: a sync first when one is due, then live mode on the same
+	// connection (the phone serves one connection at a time).
+	s.mu.Lock()
+	last := s.synced[t.fp16]
+	s.mu.Unlock()
+	if last.IsZero() || s.cfg.Now().Sub(last) >= resyncGap {
+		if !s.sync(ctx, fc, t.pin, true) {
+			return used, ""
+		}
+	}
+	name := "phone"
+	if d, ok := s.pins.get(t.pin); ok {
+		name = d.Name
+	}
+	idle := s.startLive(ctx, fc, name)
+	s.mu.Lock()
+	if idle {
+		s.liveIdled[t.fp16] = true
+	}
+	s.mu.Unlock()
 	return used, ""
 }
 

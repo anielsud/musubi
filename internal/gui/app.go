@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/anielsud/musubi/internal/pipeline"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -75,11 +76,16 @@ type App struct {
 	// brief-drafting pass at a time (prep.go).
 	phone   phoneState
 	briefMu sync.Mutex
+	// frontend is the built frontend (SetFrontend), which Explore on the
+	// phone serves; phoneTaps pass events on to it (phonelive.go).
+	frontend  fs.FS
+	phoneTaps phoneTaps
 }
 
 func NewApp() *App { return &App{} }
 
 func (a *App) emit(ev string, data any) {
+	a.phoneTaps.emit(ev, data)
 	if a.emitFn != nil {
 		a.emitFn(ev, data)
 		return

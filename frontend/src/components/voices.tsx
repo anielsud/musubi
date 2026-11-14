@@ -25,7 +25,8 @@ const agreeFlag = 0.6;
 // against, so its score is no evidence either way.
 const odd = (h: { agreement: number; learned?: boolean; confirmed?: boolean; compared?: boolean }, n: number) => n > 1 && !h.confirmed && h.learned !== false && h.compared !== false && h.agreement < agreeFlag;
 
-export function useVoices() {
+// off: phone mode, which shows no voices and may not call the recorder.
+export function useVoices(off = false) {
   const [view, setView] = useState<VoicesView | null>(null);
   const [err, setErr] = useState('');
   const load = () => api.voices().then((v) => { setView(v); setErr(''); }, (e) => { setView(null); setErr(String(e)); });
@@ -37,6 +38,7 @@ export function useVoices() {
     return () => clearTimeout(t);
   }, [view]);
   useEffect(() => {
+    if (off) return;
     load();
     // recorder:conn: the recorder came back (a restart, or Musubi opened
     // while it was starting): what failed to load loads now.

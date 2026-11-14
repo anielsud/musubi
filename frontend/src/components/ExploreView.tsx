@@ -6,6 +6,7 @@ import { Empty, HitRow, LabelBadge, Spinner } from './common';
 import { GraphView } from './GraphView';
 import { ClaimResults, TopicsPane } from './Knowledge';
 import { CorrectionsView } from './CorrectionsView';
+import { phoneMode } from '../phone';
 import { ActNotes, AllVoices, RelearnNote, ReviewItems, VoicesError, openReviews, readOnlyWhy, useAct, useEditable, useVoices } from './voices';
 
 interface Props {
@@ -33,14 +34,14 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
   const openTopicHere = (id: number) => { setFocus(null); setTopicWant({ id, n: Date.now() }); setMode('topics'); };
   const [lastQ, setLastQ] = useState('');
   const openSource = (itemId: string, chunkId: number) => onOpen({ itemId, chunkId } as unknown as Hit, scope);
-  const voices = useVoices();
+  const voices = useVoices(phoneMode);
   const reviews = openReviews(voices.view);
 
   useEffect(() => {
     if (topicReq) setMode('topics');
   }, [topicReq]);
   useEffect(() => {
-    if (correctReq && scope === 'owner') setMode('corrections');
+    if (correctReq && scope === 'owner' && !phoneMode) setMode('corrections');
   }, [correctReq]);
 
   useEffect(() => {
@@ -79,9 +80,9 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
       <div className="segmented">
         <button className={mode === 'topics' ? 'on' : ''} onClick={() => { setMode('topics'); setFocus(null); }}>Topics</button>
         {scope === 'owner' && <button className={mode === 'people' ? 'on' : ''} onClick={() => { setMode('people'); setFocus(null); }}>People</button>}
-        {scope === 'owner' && <button className={mode === 'voices' ? 'on' : ''} onClick={() => { setMode('voices'); setFocus(null); }} title="Voice profiles, and voices to name or check">Voices{reviews > 0 && <span className="count" title="Voices to check"> {reviews}</span>}</button>}
+        {scope === 'owner' && !phoneMode && <button className={mode === 'voices' ? 'on' : ''} onClick={() => { setMode('voices'); setFocus(null); }} title="Voice profiles, and voices to name or check">Voices{reviews > 0 && <span className="count" title="Voices to check"> {reviews}</span>}</button>}
         <button className={mode === 'search' ? 'on' : ''} onClick={() => setMode('search')}>Search</button>
-        {scope === 'owner' && <button className={mode === 'corrections' ? 'on' : ''} onClick={() => { setMode('corrections'); setFocus(null); }} title="Misheard or misspelled names and terms to confirm or reject">Corrections</button>}
+        {scope === 'owner' && !phoneMode && <button className={mode === 'corrections' ? 'on' : ''} onClick={() => { setMode('corrections'); setFocus(null); }} title="Misheard or misspelled names and terms to confirm or reject">Corrections</button>}
       </div>
       {mode === 'topics' && <TopicsPane scope={scope} onSource={openSource} want={topicWant ?? topicReq} />}
       {mode === 'people' && scope === 'owner' && (focus ? (
@@ -93,8 +94,8 @@ export function ExploreView({ scope, focus, setFocus, onOpen, onOpenItem, topicR
           <PersonView id={focus} scope={scope} onPick={setFocus} onOpenItem={onOpenItem} onTopic={openTopicHere} />
         </section>
       ) : <PeoplePane onPick={setFocus} />)}
-      {mode === 'voices' && scope === 'owner' && <><VoiceReviews voices={voices} /><AllVoices voices={voices} /></>}
-      {mode === 'corrections' && scope === 'owner' && <CorrectionsView onSource={openSource} start={correctReq} />}
+      {mode === 'voices' && scope === 'owner' && !phoneMode && <><VoiceReviews voices={voices} /><AllVoices voices={voices} /></>}
+      {mode === 'corrections' && scope === 'owner' && !phoneMode && <CorrectionsView onSource={openSource} start={correctReq} />}
       {mode === 'search' && <>
       <form className="lookup" onSubmit={(e) => { e.preventDefault(); run(q); }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search passages, people, customers…" />

@@ -35,6 +35,8 @@ abstract class Screen(protected val a: MainActivity) {
     protected abstract fun build(): View
     open fun refresh() {}
     open fun tick() {}
+    /** The screen is being left or the app paused: save what is unsaved. */
+    open fun pause() {}
 }
 
 /** Events shown on the phone: synced agenda merged with the phone's calendar. */
@@ -133,6 +135,7 @@ class RecordingScreen(a: MainActivity) : Screen(a) {
     private lateinit var event: TextView
     private lateinit var source: TextView
     private val live = LiveTextPanel(a)
+    private val details = DetailsPanel(a) { RecorderStatus.recordingId }
     private val openedAt = System.currentTimeMillis()
 
     override fun build(): View {
@@ -152,6 +155,7 @@ class RecordingScreen(a: MainActivity) : Screen(a) {
         root.addView(a.button("Stop") { RecorderService.stop(a) }.apply { minHeight = a.dp(72); textSize = 20f }.marginTop(a, 32),
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).also { it.topMargin = a.dp(32) })
         root.addView(live.view.marginTop(a, 24))
+        root.addView(details.view.marginTop(a, 24))
         return scrolling(a, root)
     }
 
@@ -167,7 +171,10 @@ class RecordingScreen(a: MainActivity) : Screen(a) {
         source.text = "Microphone: ${RecorderStatus.source}"
         event.text = "Event: " + (RecorderStatus.eventSubject ?: "none (ad hoc)")
         live.tick()
+        details.tick()
     }
+
+    override fun pause() = details.flush()
 }
 
 class RecordingsScreen(a: MainActivity) : Screen(a) {
@@ -188,7 +195,7 @@ class RecordingsScreen(a: MainActivity) : Screen(a) {
 
     override fun refresh() {
         val recs = App.store(a).list()
-        val sig = recs.joinToString { it.id + it.sync.state + it.sync.uploaded.size + it.meta.chunks.size + it.meta.event?.id + it.sync.serverState }
+        val sig = recs.joinToString { it.id + it.sync.state + it.sync.uploaded.size + it.meta.chunks.size + it.meta.event?.id + it.sync.serverState + it.meta.details.rev }
         if (sig == lastSig && list.childCount > 0) return
         lastSig = sig
         list.removeAllViews()
@@ -219,16 +226,22 @@ class RecordingsScreen(a: MainActivity) : Screen(a) {
         if (r.id != RecorderStatus.recordingId && App.store(a).liveTextFile(r.id) != null) {
             box.addView(a.button("Live text", outlined = true) { a.push(LiveTextScreen(a, r.id)) })
         }
+        val d = m.details
+        if (d.attendees.isNotEmpty() || d.photos.isNotEmpty() || !d.notes.isEmpty) {
+            val bits = listOfNotNull(
+                "notes".takeIf { !d.notes.isEmpty },
+                "${d.attendees.size} people".takeIf { d.attendees.isNotEmpty() },
+                "${d.photos.size} photos".takeIf { d.photos.isNotEmpty() },
+            )
+            box.addView(a.label(bits.joinToString(" · "), 13f, secondary = true))
+        }
         val c = a.card(box)
-        val editable = !m.isRecording && (r.sync.state == SyncState.ON_PHONE || r.sync.state == SyncState.UPLOADING)
         c.setOnClickListener {
             when {
                 r.id == RecorderStatus.recordingId -> a.push(RecordingScreen(a))
-                editable -> pickEvent(a, m.start) { ev ->
-                    runCatching { App.store(a).updateMeta(r.id) { it.copy(event = ev) } }
-                    lastSig = ""
-                    refresh()
-                }
+                // Interrupted recordings are closed at the next start; until then they can't be edited.
+                m.isRecording -> {}
+                else -> a.push(RecordingDetailScreen(a, r.id))
             }
         }
         return c

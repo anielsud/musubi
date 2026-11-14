@@ -149,6 +149,11 @@ type Phone struct {
 	// paired phone while its app is open (docs/phone.md, part 3). false:
 	// the phone is only synced, as before.
 	Explore bool `toml:"explore"`
+	// Details takes in the notes, people and photos the owner adds to a
+	// recording on the phone (docs/phone.md, "Recording details"): sync
+	// fetches them into the session folder and ingest puts them on the
+	// meeting. false: neither, as before.
+	Details bool `toml:"details"`
 }
 
 // PhoneDir is phone sync's folder: its certificate and key, the paired
@@ -799,8 +804,8 @@ func DefaultConfig() Config {
 		Sensitivity:   Sensitivity{InternalMinAudience: 15, AudienceFromSpeakers: true},
 		Ask:           Ask{Threads: true},
 		Prep:          Prep{QuietDays: 21, MarkPrivate: true, AutoBrief: true},
+		Phone:         Phone{Explore: true, Details: true},
 		MCP:           MCP{Enabled: true, MaxShare: "owner-only", Write: true},
-		Phone:         Phone{Explore: true},
 		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, FirstDays: 42, Reconnect: true, TomoeContext: true, Transcripts: true, TeamsNames: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
 		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0, Extract: "lean", StrictLinks: true, ImportKeepProposed: true, Grouping: "threads", Threads: Threads{Chunk: 70, Parallel: 8, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true, ConsolidateWindow: 24, InsertOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: false, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 16}, Digest: Digest{Enabled: true, ToDos: true, ToDosFallback: true, Parallel: 4, MinTopicStatements: 3}, AllowHosted: true, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true, HoldUpgrades: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true, PullMissing: true},

@@ -11,6 +11,16 @@ import java.time.OffsetDateTime
 data class Recording(val dir: File, val meta: RecordingMeta, val sync: SyncStatus) {
     val id: String get() = meta.id
     fun chunkFile(n: Int): File = File(dir, chunkName(n))
+    /** A listed photo's file; the name is checked, so it never leaves the folder. */
+    fun photoFile(name: String): File {
+        require(Details.isPhotoName(name)) { "bad photo name" }
+        return File(dir, name)
+    }
+    /** A file `file` may serve (notes.txt or a photo); the name is checked. */
+    fun detailsFile(name: String): File {
+        require(Details.isFileName(name)) { "bad file name" }
+        return File(dir, name)
+    }
 }
 
 /**
@@ -69,6 +79,26 @@ class RecordingStore(val root: File, private val clock: Clock = Clock.systemDefa
         val dir = dirFor(id)
         (dir.listFiles() ?: emptyArray()).filter { chunkNumber(it.name) != null || it.name == LiveTextFile.NAME }.forEach { it.delete() }
     }
+
+    /**
+     * Removes a recording's photos once the Mac has them: imported and the current details applied
+     * (docs/phone.md, "Recording details"). Their entries stay in meta.json, as the Mac keeps them.
+     */
+    fun deletePhotosIfApplied(id: String): Boolean = synchronized(lock) {
+        val r = readDir(dirFor(id)) ?: return false
+        if (r.sync.state != SyncState.IMPORTED || r.sync.detailsRev < r.meta.details.rev) return false
+        (r.dir.listFiles() ?: emptyArray()).filter { Details.isPhotoName(it.name) }.forEach { it.delete() }
+        true
+    }
+
+    /** The recording's notes (notes.txt); "" when it has none or they can't be read. */
+    fun readNotes(id: String): String = synchronized(lock) {
+        val f = File(dirFor(id), Details.NOTES_FILE)
+        if (!f.isFile) "" else runCatching { String(Files.readBounded(f, Details.MAX_NOTES_BYTES.toInt()), Charsets.UTF_8) }.getOrDefault("")
+    }
+
+    /** Runs [fn] under the store's lock (photo files and meta.json change together). */
+    fun <T> locked(fn: () -> T): T = synchronized(lock) { fn() }
 
     /** The recording's live text, if live text was on during it and the audio is still here. */
     fun liveTextFile(id: String): File? = File(dirFor(id), LiveTextFile.NAME).takeIf { it.isFile }

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anielsud/musubi/internal/phonedetails"
 	"github.com/anielsud/musubi/internal/recorder/control"
 )
 
@@ -167,6 +168,9 @@ func (s *Syncer) syncSteps(ctx context.Context, fc *frameConn, fp string, name *
 			Meta  json.RawMessage `json:"meta"`
 			State *string         `json:"state"`
 		} `json:"recordings"`
+		// TooLarge: recordings whose meta.json alone is more than a frame;
+		// the phone skips them rather than stop listing there.
+		TooLarge []string `json:"too_large"`
 	}
 	if err := fc.call(map[string]any{"op": "list"}, &list); err != nil {
 		return err
@@ -175,6 +179,14 @@ func (s *Syncer) syncSteps(ctx context.Context, fc *frameConn, fp string, name *
 		return protoErr("%d recordings listed", len(list.Recordings))
 	}
 	stats.recordings = len(list.Recordings)
+	if len(list.TooLarge) > maxReported {
+		return protoErr("%d recordings too large", len(list.TooLarge))
+	}
+	for _, r := range list.TooLarge {
+		if id, ok := parseRID(r); ok {
+			s.cfg.Logf("phone: recording %s is too large for the phone to list (its meta.json is over 64 KB); skipped", id)
+		}
+	}
 	for _, r := range list.Recordings {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -218,7 +230,13 @@ func (s *Syncer) syncRecording(ctx context.Context, fc *frameConn, fp string, ra
 	if !validState(phoneState) {
 		phoneState = ""
 	}
-	if phoneState == control.ImportImported {
+	var details *phonedetails.MetaDetails
+	if s.cfg.Details {
+		if details, err = metaDetails(raw); err != nil {
+			s.cfg.Logf("phone: recording %s: details skipped: %v", m.ID, err)
+		}
+	}
+	if phoneState == control.ImportImported && details == nil {
 		return nil // reported before; the phone drops the audio
 	}
 	rid := m.ID
@@ -241,13 +259,23 @@ func (s *Syncer) syncRecording(ctx context.Context, fc *frameConn, fp string, ra
 	if err != nil {
 		return err
 	}
-	if st.State == control.ImportImported {
+	if st.State == control.ImportImported && phoneState != control.ImportImported {
 		stats.imported++
 	}
-	if st.State == "" || st.State == phoneState {
+	// The phone lists an imported recording again only for newer details.
+	detailsDone := false
+	if details != nil {
+		if detailsDone, err = s.applyDetails(fc, rid, st, details); err != nil {
+			return err
+		}
+	}
+	if st.State == "" || (st.State == phoneState && !detailsDone) {
 		return nil
 	}
 	req := map[string]any{"op": "state", "rid": rid, "state": st.State}
+	if detailsDone {
+		req["details_rev"] = st.DetailsRev
+	}
 	if st.State == control.ImportImported && st.Session != "" {
 		req["session_id"] = st.Session
 	}

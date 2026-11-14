@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { api, fmtDate, on, speakerName } from '../api';
-import type { Hit, MeetingListItem, MeetingPage, MeetingToDo, PrepRequest, PrepTarget } from '../types';
-import { Empty, Spinner } from './common';
+import type { Hit, MeetingDetails, MeetingListItem, MeetingPage, MeetingToDo, PrepRequest, PrepTarget } from '../types';
+import { Empty, LabelBadge, Spinner } from './common';
 import { Names } from './people';
 import { PrepPage } from './PrepView';
 import { LookTimeline } from './recorder';
@@ -374,9 +374,57 @@ function MeetingPageView({ id, scope, onBack, onOpen, onTopic, onPrep }: {
           </ul>
         </>
       )}
+      <PhoneDetails itemId={id} scope={scope} />
       {scope === 'owner' && <MeetingRecording itemId={id} />}
     </div>
   );
+}
+
+// PhoneDetails is what the owner added to a phone recording: notes and
+// people under the meeting's label, photos (owner-only) in owner scope.
+function PhoneDetails({ itemId, scope }: { itemId: string; scope: string }) {
+  const [d, setD] = useState<MeetingDetails | null>(null);
+  const [open, setOpen] = useState<{ name: string; url: string } | null>(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    setD(null); setOpen(null); setErr('');
+    api.meetingDetails(itemId, scope).then((x) => setD(x ?? null), (e) => setErr(String(e)));
+  }, [itemId, scope]);
+  if (err) return <div className="error small">{err}</div>;
+  if (!d) return null;
+  const show = (name: string) => api.meetingPhoto(itemId, name, scope, false).then((url) => setOpen({ name, url }), (e) => setErr(String(e)));
+  return (
+    <div className="phone-details">
+      <div className="section-head"><span>From your phone</span><span className="dim small"><LabelBadge label={d.label} compact /> share: {d.share}</span></div>
+      {d.people.length > 0 && <div className="small"><b>People:</b> {d.people.map((p) => p.name).join(', ')}</div>}
+      {d.notes && <div className="phone-notes small">{d.notes}</div>}
+      {d.photos.length > 0 && (
+        <>
+          <div className="dim small">Photos ({d.photos.length}) · owner-only: kept on this Mac, never sent to a model</div>
+          <div className="phone-photos">
+            {d.photos.map((p) => <PhoneThumb key={p.name} itemId={itemId} scope={scope} name={p.name} onOpen={() => show(p.name)} />)}
+          </div>
+        </>
+      )}
+      {(d.photosHidden ?? 0) > 0 && <div className="dim small">{d.photosHidden} photos, shown in your own scope only.</div>}
+      {open && (
+        <div className="phone-photo-open">
+          <img src={open.url} alt={open.name} />
+          <button className="link small" onClick={() => setOpen(null)}>close</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PhoneThumb({ itemId, scope, name, onOpen }: { itemId: string; scope: string; name: string; onOpen: () => void }) {
+  const [url, setUrl] = useState('');
+  useEffect(() => {
+    let live = true;
+    api.meetingPhoto(itemId, name, scope, true).then((u) => { if (live) setUrl(u); }, () => {});
+    return () => { live = false; };
+  }, [itemId, name, scope]);
+  return <button className="phone-thumb" onClick={onOpen} title={name}>{url ? <img src={url} alt={name} /> : <Spinner />}</button>;
 }
 
 // notesMarkdown is the meeting page as Markdown: what the page shows in

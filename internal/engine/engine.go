@@ -106,7 +106,7 @@ func Connectors(cfg config.Config, st *store.Store, inbox string) []source.Conne
 	if d := cfg.SessionsDir(); d != "" {
 		// Sessions before since are read when Musubi already has them, so
 		// an edited migrated meeting is taken in again.
-		conns = append(conns, tomoe.Connector{Dir: d, Since: cfg.SessionsSince(), Known: func(ref string) bool {
+		conns = append(conns, tomoe.Connector{Dir: d, Since: cfg.SessionsSince(), PhoneDetails: cfg.Phone.Details, Known: func(ref string) bool {
 			_, ok, _ := st.ManifestHash(tomoe.Name, ref)
 			return ok
 		}})

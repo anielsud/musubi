@@ -52,7 +52,9 @@ func Chunk(it item.Item, title string) []store.Chunk {
 		}
 		if cur != nil {
 			prev := it.Segments[i-1].Speaker
-			if words+n > chunkMax || words >= chunkTarget || (words >= chunkMin && s.Speaker != prev) {
+			// The owner's notes never share a passage with what was said.
+			notesEdge := (s.From == item.NotesFrom) != (it.Segments[i-1].From == item.NotesFrom)
+			if words+n > chunkMax || words >= chunkTarget || (words >= chunkMin && s.Speaker != prev) || notesEdge {
 				flush(i)
 			}
 		}
@@ -60,7 +62,9 @@ func Chunk(it item.Item, title string) []store.Chunk {
 			cur = &store.Chunk{ItemID: it.ID, Seq: len(out), SegFrom: i, Start: s.Start}
 		}
 		line := s.Text
-		if s.From != "" {
+		if s.From == item.NotesFrom {
+			line = "[your notes] " + s.Text
+		} else if s.From != "" {
 			// Marked, so what's read from it knows the owner didn't hear it.
 			line = "[" + s.From + " transcript, not heard by you] " + s.Text
 		}

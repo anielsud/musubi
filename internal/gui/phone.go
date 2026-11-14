@@ -121,8 +121,15 @@ func (a *App) openPhone(ctx context.Context, e *engine.Engine, agenda *phone.Age
 			return st, err
 		},
 		// Built in the background; a sync sends the last build.
-		Agenda:        agenda.Agenda,
-		Drafting:      func(until time.Time) int { return a.phoneDrafting(ctx, e, until) },
+		Agenda:   agenda.Agenda,
+		Drafting: func(until time.Time) int { return a.phoneDrafting(ctx, e, until) },
+		Details:  e.Cfg.Phone.Details,
+		// New details are taken in as a saved meeting is.
+		OnDetails: func() {
+			if e.Cfg.Live.UpdateOnSave {
+				go a.update("a phone recording's details arrived")
+			}
+		},
 		Logf:          log.Printf,
 		OnChange:      func() { a.emit("phone:changed", nil) },
 		OnPairRequest: a.askPair,

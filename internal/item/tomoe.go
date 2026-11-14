@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/anielsud/musubi/internal/phonedetails"
 )
 
 type tomoeSession struct {
@@ -62,7 +64,33 @@ func isRoomName(s string) bool {
 	return false
 }
 
+// tomoeWithDetails is a phone recording's session with the details the
+// owner added on the phone (source/tomoe wraps the two files when the
+// session folder has phone-details.json); a plain session file has
+// neither key.
+type tomoeWithDetails struct {
+	Session json.RawMessage `json:"tomoe_session"`
+	Details json.RawMessage `json:"phone_details"`
+}
+
+// NotesFrom marks the owner's notes among a meeting's segments.
+const NotesFrom = "notes"
+
+// maxNoteWords splits a long notes paragraph so a passage stays a
+// passage (the chunker cuts only between segments).
+const maxNoteWords = 150
+
 func fromTomoe(b []byte) ([]Item, error) {
+	var w tomoeWithDetails
+	if err := json.Unmarshal(b, &w); err != nil {
+		return nil, err
+	}
+	var details *phonedetails.File
+	if len(w.Session) > 0 {
+		b = w.Session
+		// Details that don't hold up are left out; the meeting is not.
+		details, _ = phonedetails.Parse(w.Details)
+	}
 	var s tomoeSession
 	if err := json.Unmarshal(b, &s); err != nil {
 		return nil, err
@@ -94,7 +122,52 @@ func fromTomoe(b []byte) ([]Item, error) {
 			it.Participants = append(it.Participants, Participant{Name: name, Role: "speaker", Owner: owner})
 		}
 	}
+	if details != nil {
+		addDetails(&it, &details.Details)
+	}
 	return []Item{it}, nil
+}
+
+// addDetails puts the owner's phone details on a recording's item: the
+// people picked as present become its attendees (after its speakers),
+// the notes its last segments, the owner's, marked NotesFrom, so they are
+// passages with the meeting's label, searchable like the rest. Photos
+// stay out of the item: nothing derived from them reaches a stage or a
+// model.
+func addDetails(it *Item, d *phonedetails.Details) {
+	have := map[string]bool{}
+	for _, p := range it.Participants {
+		have[strings.ToLower(p.Name)] = true
+	}
+	for _, a := range d.Attendees {
+		if have[strings.ToLower(a.Name)] {
+			continue
+		}
+		have[strings.ToLower(a.Name)] = true
+		it.Participants = append(it.Participants, Participant{Name: a.Name, Email: a.Email, Role: "attendee"})
+	}
+	at := it.EndedAt.Sub(it.OccurredAt).Seconds()
+	if at < 0 {
+		at = 0
+	}
+	for _, para := range noteParagraphs(d.Notes.Text) {
+		it.Segments = append(it.Segments, Segment{Speaker: "You", Start: at, End: at, Text: para, From: NotesFrom})
+	}
+}
+
+// noteParagraphs splits notes into their non-empty lines, each cut to at
+// most maxNoteWords words.
+func noteParagraphs(text string) []string {
+	var out []string
+	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		words := strings.Fields(line)
+		for len(words) > 0 {
+			n := min(len(words), maxNoteWords)
+			out = append(out, strings.Join(words[:n], " "))
+			words = words[n:]
+		}
+	}
+	return out
 }
 
 // TomoeContentType is a recorder session file's content type, for
@@ -129,7 +202,7 @@ func RenameSpeaker(it Item, old, newName string) (Item, bool) {
 	out.Segments = append([]Segment(nil), it.Segments...)
 	n := 0
 	for i := range out.Segments {
-		if out.Segments[i].Speaker == old {
+		if out.Segments[i].Speaker == old && out.Segments[i].From != NotesFrom {
 			out.Segments[i].Speaker = newName
 			n++
 		}
@@ -155,6 +228,9 @@ func RenameSpeaker(it Item, old, newName string) (Item, bool) {
 	}
 	seen := map[string]bool{}
 	for _, s := range out.Segments {
+		if s.From == NotesFrom {
+			continue // the owner's notes name no speaker
+		}
 		p, ok := known[s.Speaker]
 		if !ok {
 			out.Native["unknown_participants"] = "true"
@@ -162,6 +238,13 @@ func RenameSpeaker(it Item, old, newName string) (Item, bool) {
 		}
 		if !seen[s.Speaker] {
 			seen[s.Speaker] = true
+			out.Participants = append(out.Participants, p)
+		}
+	}
+	// People the owner listed as present stay, after the speakers, as
+	// the translation puts them.
+	for _, p := range it.Participants {
+		if p.Role == "attendee" && !seen[p.Name] && p.Name != old {
 			out.Participants = append(out.Participants, p)
 		}
 	}

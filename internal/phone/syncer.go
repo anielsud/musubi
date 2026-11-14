@@ -61,8 +61,12 @@ type Config struct {
 	// Agenda lists the events in the next days days; Drafting starts the
 	// briefs missing up to until drafting in the background (unless a
 	// meeting is live) and says how many are left.
-	Agenda   func(ctx context.Context, days int) ([]Event, error)
-	Drafting func(until time.Time) int
+	Agenda func(ctx context.Context, days int) ([]Event, error)
+	// Details applies a recording's notes, people and photos to its
+	// session folder ([phone] details); OnDetails is told when it did.
+	Details   bool
+	OnDetails func()
+	Drafting  func(until time.Time) int
 	// Logf logs (never a nonce, a code or a key); OnChange tells Settings
 	// that the phones, a pairing or the browsing changed; OnPairRequest
 	// asks the owner to Allow or Deny a pairing.

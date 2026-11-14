@@ -210,7 +210,7 @@ ops, oversize frames and malformed JSON close the connection.
 | op | request → reply |
 |---|---|
 | `hello` | `{v: 2, mac_name}` → `{v: 2, device_name, app_version, addresses: [ip…]}` |
-| `list` | → `{recordings: [{meta: <meta.json>, state: <last state the Mac reported> \| null}]}` (finished recordings only) |
+| `list` | → `{recordings: [{meta: <meta.json>, state: <last state the Mac reported> \| null}], too_large: [rid…]}` (finished recordings only; as many as fit the frame, the rest on a later sync; a recording whose `meta.json` alone can't fit any frame is skipped and named in `too_large` (at most 20), which the Mac logs, so it never holds up the others) |
 | `chunk` | `{rid, n}` → `{sha256}` + body (the chunk's bytes) |
 | `state` | `{rid, state: received \| waiting \| transcribing \| imported \| failed, session_id?, error?}` → `{}` |
 | `agenda` | `{body: n}` + the agenda JSON (the shape below) → `{}` |
@@ -246,12 +246,16 @@ meeting)
   (free text, at most 20,000 characters, editable any time), **People**
   (picked from the event's attendees, or typed; at most 50), **Photos**
   (camera, or the system photo picker; JPEG, at most 15 MB each, at
-  most 30; stored in the recording's folder).
+  most 30; stored in the recording's folder, without location: GPS tags
+  and XMP are removed when a photo is saved there, orientation kept).
 - `meta.json` gains `details: {rev, attendees: [{name, email?}], notes:
-  {text, updated}, photos: [{name, size, sha256, taken}]}`; `rev` goes up
-  with every edit. `version` becomes 2.
-- New op `file` `{rid, name}` → `{sha256}` + body: a photo listed in
-  `details.photos`.
+  {size, sha256, updated}, photos: [{name, size, sha256, taken}]}`; `rev`
+  goes up with every edit. `version` becomes 2. The notes' text is
+  `notes.txt` in the recording's folder (UTF-8, at most 20,000
+  characters), so a long note never makes `meta.json` (and `list`) large.
+- New op `file` `{rid, name}` → `{sha256}` + body: `notes.txt` (when
+  `details.notes.size` > 0) or a photo listed in `details.photos`; each
+  checked against the size and SHA-256 `meta.json` lists.
 - `state` gains `details_rev`: the `rev` the Mac has applied. `list` also
   includes an imported recording whose `details.rev` is above the
   `details_rev` the Mac last reported (and only its `meta`, no chunks
@@ -264,6 +268,16 @@ meeting)
   are the meeting's people and invitees for speaker naming; photos are
   kept with the meeting, labelled owner-only, and never sent to a hosted
   model. A later `rev` replaces the earlier details.
+- How (2026-11-13): sync applies details once the recorder has the
+  meeting saved, then reports `details_rev`; the session's
+  `phone-details.json` (`writer: "musubi"`, the notes' text in it) is read
+  by ingest as one record with `session.json` (the photo files are never
+  read), so a new `rev` is a new raw version of the meeting. The notes become the meeting's last segments,
+  the owner's, marked as notes (passages of their own, under the meeting's
+  label); the people its attendees (after its speakers) and invitees in
+  `ReadCalendarInvitees`; the photos stay out of the item entirely and
+  are shown on the meeting page, in the owner's scope only.
+  `[phone] details = false` restores the earlier behaviour.
 
 ### 2. The Mac side
 

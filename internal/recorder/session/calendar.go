@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/anielsud/musubi/internal/phonedetails"
 )
 
 // calendarFileName is the calendar event a companion app matched a
@@ -104,14 +106,23 @@ func readCalendar(dir string) *calendarFile {
 
 // ReadCalendarInvitees is the names of the people invited to the calendar
 // event a session folder's calendar.json matched (the organizer and the
-// invitees, each once, as one printable line), or nil when there is no
-// such file, it is unreadable or from another writer.
+// invitees), then those the owner listed as present on the phone
+// (phone-details.json, a phone recording's), each once, as one printable
+// line; nil when there is neither file, readable and from the companion
+// app.
 func ReadCalendarInvitees(dir string) []string {
-	c := readCalendar(dir)
-	if c == nil {
+	var people []calendarPerson
+	if c := readCalendar(dir); c != nil {
+		people = append([]calendarPerson{c.Organizer}, c.Invitees...)
+	}
+	if d := phonedetails.Read(dir); d != nil {
+		for _, a := range d.Attendees {
+			people = append(people, calendarPerson{Name: a.Name, Email: a.Email})
+		}
+	}
+	if people == nil {
 		return nil
 	}
-	people := append([]calendarPerson{c.Organizer}, c.Invitees...)
 	if len(people) > maxCalendarPeople {
 		people = people[:maxCalendarPeople]
 	}

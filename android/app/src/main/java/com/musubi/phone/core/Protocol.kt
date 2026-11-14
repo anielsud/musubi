@@ -56,7 +56,10 @@ class SyncSession(
         var paired = false
         var listed = false
         var listTruncated = false
+        /** Recordings whose meta.json alone exceeds a frame: named in `list`'s `too_large`, not sent. */
+        var listTooLarge = 0
         var chunksSent = 0
+        var filesSent = 0
         var statesApplied = 0
         var importedNow = 0
         var agendaUpdated = false
@@ -98,6 +101,7 @@ class SyncSession(
                             "hello" -> if (!hello(h.json, writer)) return End.VERSION
                             "list" -> list(writer)
                             "chunk" -> chunk(h.json, writer)
+                            "file" -> file(h.json, writer)
                             "state" -> state(h.json, writer)
                             "agenda" -> agenda(h, reader, writer)
                             "live_start" -> if (liveAllowed()) {
@@ -117,9 +121,14 @@ class SyncSession(
 
     private fun syncComplete() = summary.listed && summary.agendaUpdated && summary.errors == 0 && !summary.listTruncated
 
-    /** A finished recording the Mac has not yet reported on, or pairing in progress. */
+    /** A finished recording the Mac has not yet reported on or whose newer details it hasn't applied, or pairing in progress. */
     private fun pending(): Boolean =
-        pairing.isOpen() || store.list().any { !it.meta.isRecording && it.sync.state != SyncState.IMPORTED && it.sync.serverState == null }
+        pairing.isOpen() || store.list().any {
+            !it.meta.isRecording && ((it.sync.state != SyncState.IMPORTED && it.sync.serverState == null) || newerDetails(it))
+        }
+
+    /** An imported recording whose details changed since the Mac applied them: listed again, meta only. */
+    private fun newerDetails(r: Recording) = r.sync.state == SyncState.IMPORTED && r.meta.details.rev > r.sync.detailsRev
 
     private fun hello(j: Map<String, Any?>, w: FrameWriter): Boolean {
         val v = j["v"] as? Long ?: throw ProtocolViolation("bad v")
@@ -140,19 +149,26 @@ class SyncSession(
 
     /**
      * Finished recordings not yet imported, oldest first, as many as fit one frame; the rest
-     * follow on a later sync. Imported ones are left out: their audio is gone and the Mac has them.
+     * follow on a later sync. Imported ones are left out (their audio is gone and the Mac has them)
+     * unless their details changed since the Mac applied them.
      */
     private fun list(w: FrameWriter) {
         val items = ArrayList<String>()
-        var size = LIST_OVERHEAD
+        val tooLarge = ArrayList<String>()
+        var size = LIST_OVERHEAD + TOO_LARGE_RESERVE
         var truncated = false
         for (r in store.list().sortedBy { it.meta.start }) {
-            if (r.meta.isRecording || r.sync.state == SyncState.IMPORTED) continue
+            if (r.meta.isRecording || (r.sync.state == SyncState.IMPORTED && !newerDetails(r))) continue
             val item = JSONObject()
                 .put("meta", JSONObject(r.meta.toJson()))
                 .put("state", r.sync.serverState ?: JSONObject.NULL)
                 .toString()
             val bytes = item.toByteArray(Charsets.UTF_8).size + 1
+            // One recording too large for any frame is named and skipped, never a stop for the rest.
+            if (LIST_OVERHEAD + TOO_LARGE_RESERVE + bytes > Frame.MAX_JSON) {
+                if (tooLarge.size < MAX_TOO_LARGE) tooLarge += r.id
+                continue
+            }
             if (size + bytes > Frame.MAX_JSON) {
                 truncated = true
                 break
@@ -162,7 +178,9 @@ class SyncSession(
         }
         summary.listed = true
         summary.listTruncated = truncated
-        val json = """{"ok":true,"recordings":[${items.joinToString(",")}]}"""
+        summary.listTooLarge = tooLarge.size
+        val skipped = tooLarge.joinToString(",") { "\"$it\"" }
+        val json = """{"ok":true,"recordings":[${items.joinToString(",")}],"too_large":[$skipped]}"""
         w.write(json.toByteArray(Charsets.UTF_8))
     }
 
@@ -204,8 +222,14 @@ class SyncSession(
         val sessionId = optString(j, "session_id", MAX_ID)?.also { s -> if (s.any { it.isISOControl() }) throw ProtocolViolation("bad session_id") }
         // Shown to the owner: control characters become spaces rather than ending the sync.
         val err = optString(j, "error", MAX_ERROR)?.map { if (it.isISOControl()) ' ' else it }?.joinToString("")
+        val detailsRev = if (j.containsKey("details_rev") && j["details_rev"] != null) {
+            (j["details_rev"] as? Long)?.takeIf { it >= 0 } ?: throw ProtocolViolation("bad details_rev")
+        } else null
         val r = store.read(rid)
         if (r == null || r.meta.isRecording) return fail(w, "unknown_recording")
+        // The Mac can only have applied a rev it was listed.
+        if (detailsRev != null && detailsRev > r.meta.details.rev) throw ProtocolViolation("details_rev ahead")
+        if (detailsRev != null) store.updateSync(rid) { it.copy(detailsRev = maxOf(it.detailsRev, detailsRev)) }
         when (st) {
             "imported" -> {
                 if (r.sync.state != SyncState.IMPORTED) summary.importedNow++
@@ -214,6 +238,7 @@ class SyncSession(
                         importedAt = it.importedAt ?: OffsetDateTime.now(clock))
                 }
                 store.deleteAudio(rid)
+                store.deletePhotosIfApplied(rid)
             }
             "failed" -> store.updateSync(rid) {
                 if (it.state == SyncState.IMPORTED) it
@@ -226,6 +251,43 @@ class SyncSession(
         }
         summary.statesApplied++
         reply(w, ok())
+    }
+
+    /**
+     * The recording's notes (notes.txt) or a photo listed in its details, checked against the
+     * size and SHA-256 meta.json lists.
+     */
+    private fun file(j: Map<String, Any?>, w: FrameWriter) {
+        val rid = rid(j)
+        val name = j["name"] as? String ?: throw ProtocolViolation("bad name")
+        if (!Details.isFileName(name)) throw ProtocolViolation("bad name")
+        val r = store.read(rid)
+        if (r == null || r.meta.isRecording) return fail(w, "unknown_recording")
+        val d = r.meta.details
+        val (size, sha) = if (name == Details.NOTES_FILE) {
+            if (d.notes.isEmpty) return fail(w, "unknown_file")
+            d.notes.size to d.notes.sha256
+        } else {
+            val p = d.photos.firstOrNull { it.name == name } ?: return fail(w, "unknown_file")
+            p.size to p.sha256
+        }
+        val f = r.detailsFile(name)
+        if (!f.isFile) return fail(w, "gone")
+        if (f.length() != size || size > Frame.MAX_BODY || Hashing.sha256File(f) != sha) return fail(w, "file_changed")
+        val head = ok().put("sha256", sha).put("body", size)
+        w.write(head.toString().toByteArray(Charsets.UTF_8), size) { out ->
+            f.inputStream().use { input ->
+                val buf = ByteArray(64 * 1024)
+                var left = size
+                while (left > 0) {
+                    val k = input.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+                    if (k < 0) break
+                    out.write(buf, 0, k)
+                    left -= k
+                }
+            }
+        }
+        summary.filesSent++
     }
 
     private fun agenda(h: FrameHeader, reader: FrameReader, w: FrameWriter) {
@@ -298,7 +360,10 @@ class SyncSession(
         const val MAX_ID = 200
         const val MAX_ERROR = 500
         private const val LIST_OVERHEAD = 64
-        val OPS = setOf("hello", "list", "chunk", "state", "agenda", "bye", "pair_request", "pair_confirm", "pair_cancel", "live_start")
+        /** Room kept in `list` for `too_large`: up to [MAX_TOO_LARGE] ids of 36 characters, quoted. */
+        private const val MAX_TOO_LARGE = 20
+        private const val TOO_LARGE_RESERVE = MAX_TOO_LARGE * 39 + 16
+        val OPS = setOf("hello", "list", "chunk", "file", "state", "agenda", "bye", "pair_request", "pair_confirm", "pair_cancel", "live_start")
         val MAC_STATES = setOf("received", "waiting", "transcribing", "imported", "failed")
 
         /** A 16-byte nonce in base64 (standard or URL alphabet, padded or not). */

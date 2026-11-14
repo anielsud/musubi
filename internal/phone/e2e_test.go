@@ -1,10 +1,14 @@
 package phone
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"io"
 	"net"
 	"net/netip"
@@ -18,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anielsud/musubi/internal/phonedetails"
 	"github.com/anielsud/musubi/internal/recorder/control"
 )
 
@@ -25,7 +30,8 @@ import (
 // an EMULATOR (docs/phone.md, "Sync: the Mac dials the phone"): pairing
 // (cancelled, then confirmed on both, codes compared with the phone's
 // screen), a short recording fetched, joined and imported, the agenda on
-// Today, an interrupted sync resumed, the periodic listening window, a
+// Today, details (a note, a person, a camera photo and a picked one)
+// added to the imported recording and arriving, an interrupted sync resumed, the periodic listening window, a
 // sync ending a window early, and the Mac's dial after the phone unpaired.
 //
 //	MUSUBI_PHONE_E2E=1 MUSUBI_E2E_SERIAL=emulator-5610 go test -run TestPhoneEndToEnd -v -timeout 45m ./internal/phone/
@@ -50,6 +56,7 @@ func TestPhoneEndToEnd(t *testing.T) {
 
 	h := newHarness(t)
 	h.rec.set(true, control.ImportImported)
+	h.s.cfg.Details = true
 	start := time.Now().Add(2 * time.Hour).Truncate(time.Minute)
 	h.s.cfg.Agenda = func(context.Context, int) ([]Event, error) {
 		return []Event{{ID: "calendar:e2e-1", Start: start, End: start.Add(time.Hour), Subject: "Invented planning session",
@@ -130,6 +137,9 @@ func TestPhoneEndToEnd(t *testing.T) {
 	d.waitText(`Paired with Test Mac`, 10*time.Second)
 	d.waitText(`Synced: \d+ parts sent, 1 transcribed, agenda updated`, 10*time.Second)
 	t.Log("  ok: the phone's Mac screen shows the sync")
+
+	t.Log("(6) recording details added after the import: a note, a person and two photos (camera, picker) arrive")
+	detailsAfterImport(t, h, d, rid1, target{fp16: dev.ID[:16], pin: dev.ID, addrs: []netip.AddrPort{phoneAddr}})
 
 	t.Log("(5) an interrupted sync resumes")
 	d.record(35 * time.Second)
@@ -248,6 +258,143 @@ func TestPhoneEndToEnd(t *testing.T) {
 		t.Errorf("the Mac didn't say the phone refused it: %q", after.LastOutcome)
 	}
 	d.tap("Cancel")
+}
+
+// detailsAfterImport edits an imported recording's details on the phone
+// and checks the next sync writes them into its session folder and the
+// phone then drops its photos.
+func detailsAfterImport(t *testing.T, h *harness, d *emu, rid string, pinned target) {
+	t.Helper()
+	sess := filepath.Join(h.dir, "recorder", "sessions", rid)
+	if err := os.MkdirAll(sess, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A picture for the photo picker: a tiny JPEG the test makes, with an
+	// invented GPS position (marked 0x0BADF00D) the phone must remove.
+	pic := filepath.Join(t.TempDir(), "invented-e2e.jpg")
+	img := image.NewRGBA(image.Rect(0, 0, 320, 240))
+	for i := range img.Pix {
+		img.Pix[i] = byte(i * 7)
+	}
+	var jb bytes.Buffer
+	jpeg.Encode(&jb, img, nil)
+	imgTail := jb.Bytes()[jb.Len()-200:]
+	withGPS := append(append(append([]byte{}, jb.Bytes()[:2]...), exifWithGPS()...), jb.Bytes()[2:]...)
+	if err := os.WriteFile(pic, withGPS, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A new name each run: a file pushed over an earlier one keeps the
+	// earlier one's size in the media index, and the picker serves that.
+	onPhone := fmt.Sprintf("/sdcard/Pictures/invented-e2e-%d.jpg", time.Now().UnixNano())
+	d.adbRun("push", pic, onPhone)
+	t.Cleanup(func() { d.shell("rm", "-f", onPhone) })
+	d.shell("content", "call", "--method", "scan_volume", "--uri", "content://media", "--arg", "external_primary")
+
+	d.tap("Recordings")
+	d.tap("Ad hoc")
+	d.waitText(`Photos \(0/30\)`, 10*time.Second)
+	d.tap("Notes")
+	d.shell("input", "text", "Invented%sdetails%snote%sfor%sthe%se2e")
+	d.shell("input", "keyevent", "BACK") // the keyboard
+	d.tap("Add person")
+	d.tap("Type a name…")
+	d.tap("Name")
+	d.shell("input", "text", "Test%sAttendee")
+	d.tap("Add")
+	d.waitText(`People \(1/50\)`, 10*time.Second)
+	d.tap("Take photo")
+	d.tap("Shutter")
+	d.tap("Done")
+	d.waitText(`Photos \(1/30\)`, 20*time.Second)
+	d.tap("Choose photos")
+	d.tapPrefix("Photo taken on")
+	d.tap("Add (1)")
+	d.waitText(`Photos \(2/30\)`, 20*time.Second)
+	d.shell("input", "keyevent", "BACK") // leaving saves the notes
+	waitFor(t, "the notes saved", func() bool {
+		return d.shell("run-as", "com.musubi.phone", "cat", "files/recordings/"+rid+"/notes.txt") == "Invented details note for the e2e"
+	})
+	if meta := d.shell("run-as", "com.musubi.phone", "cat", "files/recordings/"+rid+"/meta.json"); strings.Contains(meta, "Invented details") {
+		t.Fatal("the notes' text is in meta.json")
+	}
+	t.Log("  ok: the phone saved the details (notes in notes.txt, not meta.json)")
+
+	h.s.session(context.Background(), pinned)
+	if o := h.s.Devices()[0].LastOutcome; !strings.HasPrefix(o, "synced: 1 recordings on the phone, 0 fetched, 0 imported") {
+		t.Fatalf("details sync: outcome %q", o)
+	}
+	df := phonedetails.Read(sess)
+	if df == nil || df.Notes.Text != "Invented details note for the e2e" || len(df.Attendees) != 1 || df.Attendees[0].Name != "Test Attendee" || len(df.Photos) != 2 {
+		t.Fatalf("details on the Mac: %+v", df)
+	}
+	picked := false
+	for _, p := range df.Photos {
+		sum, size, err := fileSHA256(filepath.Join(sess, "photos", p.Name))
+		if err != nil || sum != p.SHA256 || size != p.Size {
+			t.Fatalf("photo %s on the Mac: %v", p.Name, err)
+		}
+		b, _ := os.ReadFile(filepath.Join(sess, "photos", p.Name))
+		if bytes.Contains(b, []byte{0x0B, 0xAD, 0xF0, 0x0D}) || bytes.Contains(b, []byte("GPSLatitude")) {
+			t.Fatalf("photo %s reached the Mac with its location", p.Name)
+		}
+		// The picked one: its image data arrives unchanged.
+		if bytes.Contains(b, imgTail) {
+			picked = true
+			if !bytes.Contains(b, []byte{0x01, 0x12, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x06}) {
+				t.Fatalf("photo %s lost its orientation", p.Name)
+			}
+		}
+	}
+	if !picked {
+		t.Fatal("the picked photo (with EXIF) isn't among them")
+	}
+	t.Log("  ok: the picked photo arrived without its GPS position and XMP, orientation kept")
+	t.Logf("  ok: rev %d applied: notes, 1 person, photos %s and %s (%d and %d bytes) checked", df.Rev, df.Photos[0].Name, df.Photos[1].Name, df.Photos[0].Size, df.Photos[1].Size)
+	var files string
+	waitFor(t, "the phone dropping the photos", func() bool {
+		files = d.shell("run-as", "com.musubi.phone", "ls", "files/recordings/"+rid)
+		return !strings.Contains(files, "photo-")
+	})
+	t.Log("  ok: the phone deleted its photos once the Mac reported the current rev")
+}
+
+// exifWithGPS is an APP1 EXIF segment (big-endian) with orientation 6
+// and a GPS latitude whose values hold the marker 0x0BADF00D, then an
+// XMP segment repeating the position.
+func exifWithGPS() []byte {
+	var t bytes.Buffer
+	w16 := func(v uint16) { binary.Write(&t, binary.BigEndian, v) }
+	w32 := func(v uint32) { binary.Write(&t, binary.BigEndian, v) }
+	t.WriteString("MM")
+	w16(42)
+	w32(8)
+	w16(2) // IFD0: orientation, GPS pointer
+	w16(0x0112)
+	w16(3)
+	w32(1)
+	w16(6)
+	w16(0)
+	w16(0x8825)
+	w16(4)
+	w32(1)
+	w32(8 + 2 + 24 + 4)
+	w32(0)
+	w16(1) // GPS IFD at 38: latitude, 3 rationals at 38 + 2 + 12 + 4 = 56
+	w16(2)
+	w16(5)
+	w32(3)
+	w32(56)
+	w32(0)
+	for i := 0; i < 6; i++ {
+		w32(0x0BADF00D)
+	}
+	seg := func(body []byte) []byte {
+		n := len(body) + 2
+		return append([]byte{0xFF, 0xE1, byte(n >> 8), byte(n)}, body...)
+	}
+	out := seg(append([]byte("Exif\x00\x00"), t.Bytes()...))
+	return append(out, seg([]byte("http://ns.adobe.com/xap/1.0/\x00"+`<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">`+
+		`<rdf:Description rdf:about="" xmlns:exif="http://ns.adobe.com/exif/1.0/" exif:GPSLatitude="52,13.37N"/></rdf:RDF></x:xmpmeta>`))...)
 }
 
 func (h *harness) lastImport() control.ImportArgs {
@@ -521,6 +668,24 @@ func (d *emu) tap(label string) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	d.t.Fatalf("no %q on screen; it shows:\n%s", label, d.screenText())
+}
+
+// tapPrefix taps the first node whose text or description starts with
+// prefix.
+func (d *emu) tapPrefix(prefix string) {
+	d.t.Helper()
+	end := time.Now().Add(10 * time.Second)
+	for time.Now().Before(end) {
+		for _, n := range d.nodes() {
+			if strings.HasPrefix(n.text, prefix) || strings.HasPrefix(n.desc, prefix) {
+				d.shell("input", "tap", strconv.Itoa(n.x), strconv.Itoa(n.y))
+				time.Sleep(700 * time.Millisecond)
+				return
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	d.t.Fatalf("nothing starting %q on screen; it shows:\n%s", prefix, d.screenText())
 }
 
 func (d *emu) waitText(pattern string, timeout time.Duration) []string {

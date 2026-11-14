@@ -3,6 +3,7 @@
 import type { GatewayModel, GatewayView, GroupView, ModelCatalog, PrefGroup, ProviderView, StorageView, BackupView, TestResult, M365View, PersonProfile, PersonRow, PersonPage, AliasUsage, AliasView, AppStatus, ClaimView, MeetingListItem, MeetingPage, QueueView, EntityRef, Graph, Hit, ItemView, KnowledgeCounts, LivePrep, LiveStatus, MeetingRef, PrepRequest, PrepTarget, PrepView, SavedBrief, StatementEdit, ThreadEditView, ToDo, TopicMapData, TopicSummary, TopicView } from './types';
 import type { ResSnapshot } from './types';
 import type { PhonePairPrompt, PhoneView } from './types';
+import type { MeetingDetails } from './types';
 import type { NamedSample, ProfileSamples, SampleArgs, SplitResult, SplitTarget } from './types';
 import type { LookView, MeetingSpeakers, RecDiag, RecordingModels, RecordingSettings, RecorderView, RecSources, RecStatus, RelabelResult, ReturnVoiceResult, ToolStatus, VoiceArgs, VoiceClip, VoicesView } from './types';
 
@@ -134,6 +135,8 @@ export const api = {
   returnVoiceMeeting: (model: string, id: string, session: string): Promise<ReturnVoiceResult> => app().ReturnVoiceMeeting(model, id, session),
   discardedClip: (model: string, id: string, session: string): Promise<VoiceClip> => app().DiscardedClip(model, id, session),
   meetingSpeakers: (itemId: string): Promise<MeetingSpeakers | null> => app().MeetingSpeakers(itemId),
+  meetingDetails: (itemId: string, scope: string): Promise<MeetingDetails | null> => app().MeetingDetails(itemId, scope),
+  meetingPhoto: (itemId: string, name: string, scope: string, thumb: boolean): Promise<string> => app().MeetingPhoto(itemId, name, scope, thumb),
   deleteMeeting: (itemId: string): Promise<void> => app().DeleteMeeting(itemId),
   recordingSettings: (): Promise<RecordingSettings> => app().RecordingSettings(),
   setRecordingSetting: (table: string, key: string, value: boolean | number | string): Promise<void> => app().SetRecordingSetting(table, key, value),

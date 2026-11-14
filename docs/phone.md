@@ -117,8 +117,13 @@ a light model)
   it stops.
 - Signing: one release key, kept outside git
   (`~/.config/musubi/android/release.jks`, mode 0600), its passwords in
-  the macOS Keychain. `android/release.sh` builds, signs and writes the
-  checksum; it publishes only with `--publish`.
+  the macOS Keychain, and as repository secrets (`MUSUBI_ANDROID_KEYSTORE`,
+  `MUSUBI_ANDROID_KEYSTORE_PASSWORD`); the owner keeps a backup. A tag
+  `android-v<versionName>` runs `.github/workflows/android-release.yml`,
+  which tests, builds and signs with `android/release.sh` and publishes to
+  `musubi-releases` (`RELEASED_TOKEN`, as the Mac release). Locally,
+  `android/release.sh` builds the same signed APK; `--publish` exists for
+  emergencies only.
 
 **Finding the Mac** (owner's decision of 2026-11-13: no typed addresses)
 - The Mac advertises `_musubi._tcp` on the local network (Bonjour) while

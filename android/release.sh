@@ -32,7 +32,14 @@ APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
 
 keychain_has() { security find-generic-password -s "$SERVICE" -a "$ACCOUNT" >/dev/null 2>&1; }
 
-if [[ ! -f "$KEYSTORE" ]]; then
+# In CI (.github/workflows/android-release.yml) the key comes from repository secrets: the
+# workflow writes the keystore to a 0600 temp file and passes its path and password here.
+if [[ -n "${MUSUBI_RELEASE_KEYSTORE:-}" ]]; then
+  KEYSTORE="$MUSUBI_RELEASE_KEYSTORE"
+  [[ -n "${MUSUBI_RELEASE_PASSWORD:-}" ]] || { echo "MUSUBI_RELEASE_PASSWORD is not set." >&2; exit 1; }
+fi
+
+if [[ -z "${MUSUBI_RELEASE_PASSWORD:-}" && ! -f "$KEYSTORE" ]]; then
   if keychain_has; then
     echo "The Keychain has a $SERVICE password but $KEYSTORE is missing. Restore the keystore; not making a new key." >&2
     exit 1
@@ -56,8 +63,12 @@ if [[ ! -f "$KEYSTORE" ]]; then
 fi
 
 [[ "$(stat -f %Lp "$KEYSTORE")" == "600" ]] || { echo "$KEYSTORE must be mode 0600." >&2; exit 1; }
-PASS="$(security find-generic-password -s "$SERVICE" -a "$ACCOUNT" -w 2>/dev/null)" || {
-  echo "No $SERVICE password in the Keychain." >&2; exit 1; }
+if [[ -n "${MUSUBI_RELEASE_PASSWORD:-}" ]]; then
+  PASS="$MUSUBI_RELEASE_PASSWORD"
+else
+  PASS="$(security find-generic-password -s "$SERVICE" -a "$ACCOUNT" -w 2>/dev/null)" || {
+    echo "No $SERVICE password in the Keychain." >&2; exit 1; }
+fi
 
 VERSION="$(sed -n 's/^ *versionName = "\([0-9][0-9.]*\)"$/\1/p' "$HERE/app/build.gradle.kts")"
 [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){1,3}$ ]] || { echo "Could not read versionName." >&2; exit 1; }

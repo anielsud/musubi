@@ -58,11 +58,24 @@ func TestPhoneEndToEnd(t *testing.T) {
 	h.rec.set(true, control.ImportImported)
 	h.s.cfg.Details = true
 	start := time.Now().Add(2 * time.Hour).Truncate(time.Minute)
-	h.s.cfg.Agenda = func(context.Context, int) ([]Event, error) {
+	// The agenda goes through the app's cache, built in the background;
+	// the first build is held until after the first sync, as on a large
+	// dataset, so that sync sends none and a later one must.
+	releaseBuild := make(chan struct{})
+	agenda := &AgendaCache{Logf: t.Logf, Build: func(ctx context.Context, _ int) ([]Event, error) {
+		select {
+		case <-releaseBuild:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 		return []Event{{ID: "calendar:e2e-1", Start: start, End: start.Add(time.Hour), Subject: "Invented planning session",
 			Location: "Room 1", Organizer: "Test Organizer", Attendees: []Attendee{{Name: "Test Person"}},
 			Brief: &Brief{Text: "An invented brief.", MadeAt: time.Now(), Sensitivity: Sensitivity{Level: "internal", Share: "internal"}}}}, nil
-	}
+	}}
+	cacheCtx, stopCache := context.WithCancel(context.Background())
+	t.Cleanup(stopCache)
+	go agenda.Run(cacheCtx)
+	h.s.cfg.Agenda = agenda.Agenda
 
 	port := freePort(t)
 	d.adbRun("forward", fmt.Sprintf("tcp:%d", port), "tcp:47616")
@@ -125,17 +138,28 @@ func TestPhoneEndToEnd(t *testing.T) {
 	}
 	dev := devs[0]
 	t.Logf("  ok: paired with %q (%s), outcome %q, addresses %v", dev.Name, dev.ID[:16], dev.LastOutcome, dev.Addresses)
-	if !strings.HasPrefix(dev.LastOutcome, "synced: 1 recordings on the phone, 1 fetched, 1 imported; agenda of 1 events sent") {
+	if !strings.HasPrefix(dev.LastOutcome, "synced: 1 recordings on the phone, 1 fetched, 1 imported; agenda still being built") {
 		t.Fatalf("outcome %q", dev.LastOutcome)
 	}
 	rid1 := h.lastImport().ID
 	checkImported(t, h, d, rid1)
 	d.tap("Today")
-	d.waitText(`Invented planning session`, 10*time.Second)
-	t.Log("  ok: the agenda is on Today")
+	if d.hasText("Invented planning session") {
+		t.Fatal("an agenda on Today before any was sent")
+	}
+	t.Log("  ok: the first sync sent no agenda (still being built)")
+	close(releaseBuild)
+	waitFor(t, "the agenda built", func() bool { _, err := agenda.Agenda(context.Background(), 10); return err == nil })
+	h.s.session(context.Background(), target{fp16: dev.ID[:16], pin: dev.ID, addrs: []netip.AddrPort{phoneAddr}})
+	if o := h.s.Devices()[0].LastOutcome; !strings.HasPrefix(o, "synced: 0 recordings on the phone, 0 fetched, 0 imported; agenda of 1 events sent") {
+		t.Fatalf("second sync: outcome %q", o)
+	}
+	d.tap("Today")
+	d.waitText(`Invented planning session`, 15*time.Second)
+	t.Log("  ok: the next sync sent the built agenda; it is on Today")
 	d.tap("Mac")
 	d.waitText(`Paired with Test Mac`, 10*time.Second)
-	d.waitText(`Synced: \d+ parts sent, 1 transcribed, agenda updated`, 10*time.Second)
+	d.waitText(`Synced:[^\n]*agenda updated`, 10*time.Second) // the second sync: the agenda only
 	t.Log("  ok: the phone's Mac screen shows the sync")
 
 	t.Log("(6) recording details added after the import: a note, a person and two photos (camera, picker) arrive")

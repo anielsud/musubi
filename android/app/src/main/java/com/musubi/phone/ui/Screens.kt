@@ -83,11 +83,16 @@ class TodayScreen(a: MainActivity) : Screen(a) {
         return root
     }
 
+    private var agendaShown = -1L
+
     override fun tick() {
         record.text = if (RecorderStatus.isRecording) "Recording… (open)" else "Record (ad hoc)"
+        // A sync brought an agenda while Today is open.
+        if (App.agenda(a).version != agendaShown) refresh()
     }
 
     override fun refresh() {
+        agendaShown = App.agenda(a).version
         tick()
         val agenda = App.agenda(a).load()
         val parts = mutableListOf<String>()

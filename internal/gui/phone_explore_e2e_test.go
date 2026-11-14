@@ -4,6 +4,8 @@ package gui
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/netip"
@@ -29,9 +31,12 @@ import (
 // EMULATOR against the real Mac code (docs/phone.md, part 3): phone sync
 // with this app's allowlist and its built frontend, over a temporary
 // dataset of invented meetings. It pairs, lets the Mac dial the phone for
-// Explore, opens the Explore tab, runs a search and an Ask (no model is
-// configured, so the answer is its sources only), takes screenshots, and
-// checks that leaving the app ends Explore.
+// Explore, opens the Explore tab, runs a search; then a finished recording
+// appears on the phone while Explore is open, and the phone ends Explore
+// for a sync, the Mac syncs it and opens Explore again (the page keeps its
+// search, and searches again on the new connection); then an Ask (no model
+// is configured, so the answer is its sources only), screenshots, and
+// leaving the app ends Explore.
 //
 //	make frontend
 //	(cd android && ./gradlew assembleDebug) && adb -s emulator-5662 install -r android/app/build/outputs/apk/debug/app-debug.apk
@@ -155,6 +160,26 @@ func TestPhoneExploreEndToEnd(t *testing.T) {
 	d.screenshot(filepath.Join(shots, "2-search.png"))
 	t.Log("  ok: search found the invented meeting")
 
+	t.Log("a recording finishes while Explore is open: it syncs, and Explore comes back")
+	rid := seedRecording(t, d)
+	seeded := time.Now()
+	waitUntil(t, "Explore ended for a sync", 20*time.Second, func() bool { return strings.Contains(logged(), "ended (the phone has something to sync)") })
+	d.screenshot(filepath.Join(shots, "2b-syncing.png"))
+	waitUntil(t, "the recording synced", 20*time.Second, func() bool { return strings.Contains(logged(), "recording "+rid+": ") })
+	waitUntil(t, "Explore open again", 20*time.Second, func() bool { return strings.Count(logged(), "Explore open on") >= 2 })
+	t.Logf("  ok: synced and Explore open again %.1f s after the recording appeared", time.Since(seeded).Seconds())
+	if took := time.Since(seeded); took > 15*time.Second {
+		t.Errorf("took %s", took)
+	}
+	d.waitText(`Invented pricing review`, 10*time.Second) // the page kept its search
+	d.tapField()
+	d.shell("input", "keyevent", "123") // end of the field
+	d.shell("input", "text", "%stiers")
+	d.shell("input", "keyevent", "66")
+	d.waitText(`Invented pricing review`, 20*time.Second)
+	d.screenshot(filepath.Join(shots, "2c-after-sync.png"))
+	t.Log("  ok: the page kept its search and searches on the new connection")
+
 	t.Log("open the passage")
 	d.tapWhere("the pricing passage", func(n droidNode) bool { return strings.Contains(n.text, "Invented pricing review") })
 	d.waitText(`passages visible`, 20*time.Second)
@@ -183,6 +208,41 @@ func TestPhoneExploreEndToEnd(t *testing.T) {
 		t.Errorf("meeting text or a query reached the log:\n%s", l)
 	}
 	t.Logf("screenshots in %s", shots)
+}
+
+// seedRecording puts a finished recording (a few seconds of silent ADTS
+// frames) into the app's storage, as the recorder leaves one, and returns
+// its id.
+func seedRecording(t *testing.T, d *droid) string {
+	t.Helper()
+	var chunk []byte
+	for i := 0; i < 200; i++ {
+		l := 7 + 10
+		chunk = append(chunk, 0xFF, 0xF1, 0x4C, byte(0x40|l>>11), byte(l>>3), byte((l&7)<<5|0x1F), 0xFC)
+		chunk = append(chunk, make([]byte, 10)...)
+	}
+	sum := sha256.Sum256(chunk)
+	rid := "6d1f0c3a-2b4e-4c8f-9a7d-0e5b3c2a1f40"
+	start := time.Now().Add(-10 * time.Minute)
+	meta := fmt.Sprintf(`{"version":1,"id":%q,"start":%q,"end":%q,"device_name":"Test Phone","event":null,"chunks":[{"n":0,"name":"chunk-0000.aac","size":%d,"sha256":%q}]}`,
+		rid, start.Format("2006-01-02T15:04:05.000-07:00"), start.Add(5*time.Minute).Format("2006-01-02T15:04:05.000-07:00"), len(chunk), hex.EncodeToString(sum[:]))
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o600)
+	os.WriteFile(filepath.Join(dir, "chunk-0000.aac"), chunk, 0o600)
+	tmp := "/data/local/tmp/musubi-e2e-" + rid[:8]
+	d.shell("mkdir", "-p", tmp)
+	for _, f := range []string{"chunk-0000.aac", "meta.json"} {
+		d.adbRun("push", filepath.Join(dir, f), tmp+"/"+f)
+	}
+	d.shell("chmod", "-R", "a+rX", tmp)
+	// The chunk first, meta.json last: the app never sees a meta without its audio.
+	d.shell("run-as", "com.musubi.phone", "sh", "-c",
+		fmt.Sprintf("'mkdir -p files/recordings/%[1]s.tmp && cp %[2]s/chunk-0000.aac %[2]s/meta.json files/recordings/%[1]s.tmp/ && mv files/recordings/%[1]s.tmp files/recordings/%[1]s'", rid, tmp))
+	d.shell("rm", "-rf", tmp)
+	if !strings.Contains(d.shell("run-as", "com.musubi.phone", "ls", "files/recordings/"+rid), "meta.json") {
+		t.Fatal("the recording wasn't seeded")
+	}
+	return rid
 }
 
 // exploreDataset is an app over a temporary store of invented meetings.

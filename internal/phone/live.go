@@ -81,6 +81,9 @@ type liveFrame struct {
 	Args   []json.RawMessage `json:"args"`
 	Path   *string           `json:"path"`
 	Body   *int64            `json:"body"`
+	// Sync on live_end: the phone has something to sync and wants
+	// Explore back right after.
+	Sync bool `json:"sync"`
 }
 
 // liveStats is what a live connection did, for the log: counts only.
@@ -117,10 +120,20 @@ type liveEvent struct {
 	data any
 }
 
+// Why a live connection ended, when it matters to what follows.
+const (
+	liveEndIdle = "idle"
+	liveEndSync = "the phone has something to sync"
+	// maxLiveResyncs bounds the syncs one dial runs for a phone that
+	// ends Explore to sync, so a phone that keeps asking can't hold the
+	// Mac in a loop.
+	maxLiveResyncs = 5
+)
+
 // startLive asks the phone for live mode and serves it until the phone
-// ends it, it falls silent or idle, or ctx ends. It reports whether the
-// connection ended for being idle.
-func (s *Syncer) startLive(ctx context.Context, fc *frameConn, name string) (idle bool) {
+// ends it, it falls silent or idle, or ctx ends. It returns why it ended
+// ("" when it never started).
+func (s *Syncer) startLive(ctx context.Context, fc *frameConn, name string) string {
 	if err := fc.call(map[string]any{"op": "live_start"}, nil); err != nil {
 		var pe *phoneError
 		if errors.As(err, &pe) {
@@ -128,7 +141,7 @@ func (s *Syncer) startLive(ctx context.Context, fc *frameConn, name string) (idl
 		} else {
 			s.cfg.Logf("phone: live mode with %q not started: %v", name, err)
 		}
-		return false
+		return ""
 	}
 	lc := &liveConn{s: s, fc: fc, sem: make(chan struct{}, liveInFlight), events: make(chan liveEvent, maxLiveEvents),
 		done: make(chan struct{}), lastReq: time.Now(), pings: map[int64]bool{}}
@@ -137,7 +150,7 @@ func (s *Syncer) startLive(ctx context.Context, fc *frameConn, name string) (idl
 	why := lc.run(ctx)
 	lc.calls.Close()
 	s.cfg.Logf("phone: Explore on %q ended (%s): %s", name, why, &lc.stats)
-	return why == "idle"
+	return why
 }
 
 func (lc *liveConn) end(why string) {
@@ -230,7 +243,11 @@ func (lc *liveConn) read(ctx context.Context) error {
 			}
 		case "live_end":
 			lc.reply(id, map[string]any{"ok": true}, nil)
-			lc.end("the phone left")
+			if f.Sync {
+				lc.end(liveEndSync)
+			} else {
+				lc.end("the phone left")
+			}
 			return nil
 		default:
 			return protoErr("live op %q", cleanText(f.Op, 20))
@@ -270,7 +287,7 @@ func (lc *liveConn) keepAlive(ctx context.Context) {
 		idle := time.Since(lc.lastReq) >= lc.s.liveIdle
 		lc.mu.Unlock()
 		if idle {
-			lc.end("idle")
+			lc.end(liveEndIdle)
 			return
 		}
 		id := lc.nextID.Add(1)

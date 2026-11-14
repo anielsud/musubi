@@ -14,6 +14,7 @@ import com.musubi.phone.core.PairingFlow
 import com.musubi.phone.core.PhoneInfo
 import com.musubi.phone.core.ProtocolViolation
 import com.musubi.phone.core.SyncSession
+import com.musubi.phone.core.SyncState
 import com.musubi.phone.net.Advertiser
 import com.musubi.phone.net.ClientTrust
 import com.musubi.phone.net.PhoneIdentity
@@ -84,6 +85,26 @@ object PhoneSync {
     /** Where the Mac's events go: the Explore screen's bridge, while it is open. */
     @Volatile var liveEvents: ((name: String, dataJson: String) -> Unit)? = null
 
+    /**
+     * Until when Explore waits for the Mac to come back: the phone ended it to sync (a recording
+     * finished), and the Mac opens it again once synced. Monotonic, like the windows.
+     */
+    @Volatile private var resumeUntil = 0L
+    private var lastSyncCheck = 0L
+    /** Recordings Explore was already ended for: a recording the Mac can't take ends it once only. */
+    private val pausedFor = HashSet<String>()
+    /** Questions asked from Explore whose answer is still being written (id → when asked). */
+    private val openAsks = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** The Explore tab is shown: its connection is open, or it is coming back after a sync. */
+    val exploreAvailable: Boolean get() = live != null || now() < resumeUntil
+    /** Explore is ended for a sync and coming back: the screen says so instead of failing. */
+    val exploreSyncing: Boolean get() = live == null && now() < resumeUntil
+
+    fun askOpen(id: String, open: Boolean) {
+        if (open) openAsks[id] = now() else openAsks.remove(id)
+    }
+
     fun init(context: Context) {
         app = context.applicationContext
         paired = PairedMac(app)
@@ -104,7 +125,10 @@ object PhoneSync {
     fun foreground(on: Boolean) {
         if (on) windows.open(ListenWindows.Kind.FOREGROUND) else windows.close(ListenWindows.Kind.FOREGROUND)
         // Explore lasts only while the app is in front.
-        if (!on) live?.end()
+        if (!on) {
+            resumeUntil = 0L
+            live?.end()
+        }
         kick()
     }
 
@@ -180,6 +204,7 @@ object PhoneSync {
             server?.stop()
         }
         live?.expire()
+        pauseForSync()
         synchronized(quiet) { quiet.notifyAll() }
         if (want && !ticking) {
             ticking = true
@@ -196,6 +221,9 @@ object PhoneSync {
     }
 
     private const val LIVE_READ_MS = 95_000
+    private const val SYNC_CHECK_MS = 3_000L
+    private const val RESUME_MS = 60_000L
+    private const val ASK_HOLD_MS = 60_000L
 
     private fun refused() {
         paired.lastResult = "Refused a Mac that is not the paired one"
@@ -236,9 +264,32 @@ object PhoneSync {
         if (end == SyncSession.End.LIVE) serveLive(reader, writer)
     }
 
+    /**
+     * Control thread: while Explore holds the connection, a sync can't run. When a recording has
+     * finished that the Mac hasn't heard of, Explore is ended for a sync; the Mac syncs and opens
+     * it again (docs/phone.md, part 3). Not while an answer is being written (it would be lost),
+     * for at most a minute.
+     */
+    private fun pauseForSync() {
+        val l = live ?: return
+        val t = now()
+        if (t - lastSyncCheck < SYNC_CHECK_MS) return
+        lastSyncCheck = t
+        val waiting = runCatching {
+            App.store(app).list().filter { !it.meta.isRecording && it.sync.state != SyncState.IMPORTED && it.sync.serverState == null }.map { it.id }
+        }.getOrDefault(emptyList())
+        if (waiting.none { it !in pausedFor }) return
+        openAsks.values.removeAll { t - it > ASK_HOLD_MS }
+        if (openAsks.isNotEmpty()) return
+        pausedFor += waiting
+        resumeUntil = t + RESUME_MS
+        l.end(sync = true)
+    }
+
     /** Server thread: Explore's connection, until either side ends it. */
     private fun serveLive(reader: com.musubi.phone.core.FrameReader, writer: FrameWriter) {
         val link = LiveLink(reader, writer, { name, data -> liveEvents?.invoke(name, data) })
+        resumeUntil = 0L
         live = link
         kick()
         try {

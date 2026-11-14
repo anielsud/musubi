@@ -139,18 +139,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun current(): Screen? = stack.lastOrNull() ?: tab
 
-    /** The Explore tab is there only while the Mac holds Explore's connection. */
+    /** The Explore tab is there only while the Mac holds Explore's connection (or is bringing it back after a sync). */
     private fun syncExplore() {
-        val link = PhoneSync.live
+        val available = PhoneSync.exploreAvailable
         val shown = nav.menu.findItem(TAB_EXPLORE) != null
-        if (link != null && !shown) nav.menu.add(0, TAB_EXPLORE, 3, "Explore").setIcon(R.drawable.ic_explore)
-        if (link == null && shown) {
+        if (available && !shown) nav.menu.add(0, TAB_EXPLORE, 3, "Explore").setIcon(R.drawable.ic_explore)
+        if (!available && shown) {
             if (tab is ExploreScreen) nav.selectedItemId = TAB_TODAY
             nav.menu.removeItem(TAB_EXPLORE)
         }
-        // The Mac connected again: the page moves to the new connection.
-        val t = tab as? ExploreScreen
-        if (t != null && link != null && t.link !== link) showTab(TAB_EXPLORE)
     }
 
     private fun showTab(id: Int) {

@@ -19,25 +19,28 @@ import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.TextView
 import com.musubi.phone.BuildConfig
 import com.musubi.phone.MainActivity
 import com.musubi.phone.core.BridgeMessages
 import com.musubi.phone.core.ExploreRequests
 import com.musubi.phone.core.LiveLink
+import com.musubi.phone.core.StrictJson
 import com.musubi.phone.sync.PhoneSync
 import java.util.concurrent.Executors
 
 /**
  * Explore (docs/phone.md, part 3): Musubi's own Explore screens and Ask, served by the Mac over the
- * connection it opened ([LiveLink]). Shown only while that connection lasts. The WebView loads only
+ * connection it opened ([LiveLink]). Shown only while that connection lasts, or while the Mac brings
+ * it back after a sync: the page stays, says "Syncing with your Mac…", and its calls wait for the new
+ * connection (one that the sync cut off is asked again there). The WebView loads only
  * `https://musubi.local/`, answered from the connection; the bridge is reachable from that origin
  * only; no other navigation, no file or content access, nothing cached or stored.
  */
 class ExploreScreen(a: MainActivity) : Screen(a) {
     override val title = "Explore"
-    /** The connection this screen shows; MainActivity replaces the screen when it changes. */
-    val link: LiveLink? = PhoneSync.live
     private var web: WebView? = null
+    private var syncing: TextView? = null
     private var port: WebMessagePort? = null
     private val main = Handler(Looper.getMainLooper())
     // Calls are written to the socket off the main thread.
@@ -46,22 +49,71 @@ class ExploreScreen(a: MainActivity) : Screen(a) {
 
     override fun build(): View {
         val box = FrameLayout(a)
-        val l = link
-        if (l == null) {
+        if (!PhoneSync.exploreAvailable) {
             box.addView(a.label("Explore opens when your Mac connects.", secondary = true).apply { gravity = Gravity.CENTER },
                 FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             return box
         }
-        val w = webView(l)
+        val w = webView()
         web = w
         box.addView(w, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        PhoneSync.liveEvents = { name, data -> main.post { send(BridgeMessages.event(name, data)) } }
+        syncing = a.label("Syncing with your Mac…", 14f).apply {
+            gravity = Gravity.CENTER
+            setPadding(a.dp(12), a.dp(8), a.dp(12), a.dp(8))
+            setBackgroundColor(0xE0202630.toInt())
+            setTextColor(0xFFFFFFFF.toInt())
+            visibility = View.GONE
+        }
+        box.addView(syncing, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
+        PhoneSync.liveEvents = { name, data ->
+            if (name == "ask:done") askId(data, "id")?.let { PhoneSync.askOpen(it, false) }
+            main.post { send(BridgeMessages.event(name, data)) }
+        }
         w.loadUrl(ExploreRequests.START_URL)
         return box
     }
 
+    override fun tick() {
+        syncing?.visibility = if (PhoneSync.exploreSyncing) View.VISIBLE else View.GONE
+    }
+
+    /** The connection, waiting up to [ms] while the Mac brings it back after a sync. */
+    private fun awaitLink(ms: Long): LiveLink? {
+        val end = System.currentTimeMillis() + ms
+        while (true) {
+            PhoneSync.live?.let { if (it.isOpen) return it }
+            if (!PhoneSync.exploreAvailable || System.currentTimeMillis() >= end) return null
+            Thread.sleep(100)
+        }
+    }
+
+    /** Runs a call from the page on the current connection; one cut off by a sync is asked again. */
+    private fun call(c: BridgeMessages.Call, again: Boolean) {
+        val l = awaitLink(WAIT_MS)
+        if (l == null) {
+            main.post { send(BridgeMessages.reply(c.pageId, LiveLink.Reply(false, error = "closed"))) }
+            return
+        }
+        val ask = if (c.method == "Ask") askId(c.argsJson, null) else null
+        ask?.let { PhoneSync.askOpen(it, true) }
+        l.rpc(c.method, c.argsJson) { r ->
+            if (!r.ok && r.error == "closed" && !again && PhoneSync.exploreAvailable) {
+                runCatching { io.execute { call(c, true) } }
+                return@rpc
+            }
+            if (!r.ok) ask?.let { PhoneSync.askOpen(it, false) }
+            main.post { send(BridgeMessages.reply(c.pageId, r)) }
+        }
+    }
+
+    /** An Ask's id: the first argument of the call, or [key] of an event's data. */
+    private fun askId(json: String, key: String?): String? = runCatching {
+        val v = StrictJson.parse(json)
+        (if (key == null) (v as List<*>).firstOrNull() else (v as Map<*, *>)[key]) as? String
+    }.getOrNull()
+
     @SuppressLint("SetJavaScriptEnabled")
-    private fun webView(l: LiveLink): WebView {
+    private fun webView(): WebView {
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         val w = WebView(a)
         w.settings.apply {
@@ -81,7 +133,9 @@ class ExploreScreen(a: MainActivity) : Screen(a) {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = true
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
-                val r = ExploreRequests.handle(request.method, request.url.toString(), bridgeJs) { path -> l.asset(path) }
+                val r = ExploreRequests.handle(request.method, request.url.toString(), bridgeJs) { path ->
+                    awaitLink(WAIT_MS)?.asset(path) ?: LiveLink.Reply(false, error = "closed")
+                }
                 return WebResourceResponse(r.mime, r.charset, r.status, r.reason, r.headers, r.body.inputStream())
             }
 
@@ -111,11 +165,8 @@ class ExploreScreen(a: MainActivity) : Screen(a) {
         val mine = ports[0]
         mine.setWebMessageCallback(object : WebMessagePort.WebMessageCallback() {
             override fun onMessage(p: WebMessagePort, message: WebMessage) {
-                val call = BridgeMessages.parseCall(message.data ?: return) ?: return
-                val l = link ?: return
-                io.execute {
-                    l.rpc(call.method, call.argsJson) { r -> main.post { send(BridgeMessages.reply(call.pageId, r)) } }
-                }
+                val c = BridgeMessages.parseCall(message.data ?: return) ?: return
+                runCatching { io.execute { call(c, false) } }
             }
         }, main)
         port = mine
@@ -142,5 +193,10 @@ class ExploreScreen(a: MainActivity) : Screen(a) {
         web = null
         WebStorage.getInstance().deleteAllData()
         io.shutdown()
+    }
+
+    companion object {
+        /** How long a call waits for the Mac to bring Explore back after a sync. */
+        private const val WAIT_MS = 30_000L
     }
 }

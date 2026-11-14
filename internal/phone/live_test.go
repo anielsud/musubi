@@ -479,3 +479,54 @@ func TestAssetPath(t *testing.T) {
 		t.Error("served without a frontend")
 	}
 }
+
+func TestLiveEndForSyncThenExploreAgain(t *testing.T) {
+	h, p, _, _ := liveHarness(t, nil)
+	var mu sync.Mutex
+	n := 0
+	p.live = func(c net.Conn) {
+		mu.Lock()
+		n++
+		first := n == 1
+		mu.Unlock()
+		ps := &phoneSide{t: t, c: c}
+		if first {
+			// A recording finished during Explore: it is added, then the
+			// phone ends Explore to sync.
+			p.add(rid, adts(40, 200, 1))
+			ps.wait(ps.send(map[string]any{"op": "live_end", "sync": true}))
+			return
+		}
+		ps.wait(ps.send(map[string]any{"op": "rpc", "method": "Search", "args": []any{"x"}}))
+		ps.wait(ps.send(map[string]any{"op": "live_end"}))
+	}
+	h.syncOnce(p) // a sync just now: the first dial goes straight to Explore
+	p.mu.Lock()
+	p.ops = nil
+	p.mu.Unlock()
+	h.s.session(context.Background(), h.liveTarget(p))
+	ops := p.opList()
+	if !slices.Equal(ops[:1], []string{"live_start"}) || !slices.Contains(ops[1:], "chunk") || ops[len(ops)-1] != "live_start" {
+		t.Errorf("ops %v: Explore, then a sync on a new connection (though not due), then Explore again", ops)
+	}
+	if slices.Contains(ops, "bye") {
+		t.Errorf("bye before Explore again: %v", ops)
+	}
+	if !strings.Contains(h.logged(), "ended (the phone has something to sync)") || !strings.Contains(h.logged(), "ended (the phone left)") {
+		t.Errorf("log:\n%s", h.logged())
+	}
+}
+
+func TestLiveEndForSyncBounded(t *testing.T) {
+	h, p, _, _ := liveHarness(t, nil)
+	var opened atomic.Int64
+	p.live = func(c net.Conn) {
+		opened.Add(1)
+		ps := &phoneSide{t: t, c: c}
+		ps.wait(ps.send(map[string]any{"op": "live_end", "sync": true}))
+	}
+	h.s.session(context.Background(), h.liveTarget(p))
+	if got := opened.Load(); got != maxLiveResyncs+1 {
+		t.Errorf("Explore opened %d times for a phone that always asks to sync", got)
+	}
+}

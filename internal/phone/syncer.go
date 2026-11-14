@@ -234,6 +234,9 @@ type target struct {
 	pair  bool
 	live  bool
 	addrs []netip.AddrPort
+	// resyncs: syncs this dial has run because the phone ended Explore to
+	// sync (live mode); the next one is run whether or not it is due.
+	resyncs int
 }
 
 // start dials t in the background unless that phone already has a
@@ -378,7 +381,7 @@ func (s *Syncer) session(ctx context.Context, t target) (netip.AddrPort, string)
 	s.mu.Lock()
 	last := s.synced[t.fp16]
 	s.mu.Unlock()
-	if last.IsZero() || s.cfg.Now().Sub(last) >= resyncGap {
+	if t.resyncs > 0 || last.IsZero() || s.cfg.Now().Sub(last) >= resyncGap {
 		if !s.sync(ctx, fc, t.pin, true) {
 			return used, ""
 		}
@@ -387,13 +390,34 @@ func (s *Syncer) session(ctx context.Context, t target) (netip.AddrPort, string)
 	if d, ok := s.pins.get(t.pin); ok {
 		name = d.Name
 	}
-	idle := s.startLive(ctx, fc, name)
-	s.mu.Lock()
-	if idle {
+	switch s.startLive(ctx, fc, name) {
+	case liveEndIdle:
+		s.mu.Lock()
 		s.liveIdled[t.fp16] = true
+		s.mu.Unlock()
+	case liveEndSync:
+		// The phone ended Explore to sync (a recording finished): sync on
+		// a fresh connection, then Explore again; it still advertises
+		// live=1.
+		if t.resyncs < maxLiveResyncs && ctx.Err() == nil {
+			conn.Close()
+			next := t
+			next.resyncs++
+			next.addrs = append([]netip.AddrPort{used}, without(t.addrs, used)...)
+			return s.session(ctx, next)
+		}
 	}
-	s.mu.Unlock()
 	return used, ""
+}
+
+func without(aps []netip.AddrPort, x netip.AddrPort) []netip.AddrPort {
+	var out []netip.AddrPort
+	for _, ap := range aps {
+		if ap != x {
+			out = append(out, ap)
+		}
+	}
+	return out
 }
 
 // dialFailed logs a phone that couldn't be reached (at most once a

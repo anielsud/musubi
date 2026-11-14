@@ -155,7 +155,19 @@ class LiveLinkTest {
         val l = link(Frames.frame("""{"id":1,"ok":true}"""))
         l.end()
         l.run()
-        assertEquals("live_end", sent().single().json.getString("op"))
+        val end = sent().single().json
+        assertEquals("live_end", end.getString("op"))
+        assertFalse(end.has("sync"))
+    }
+
+    @Test
+    fun endForASyncSaysSo() {
+        val l = link(Frames.frame("""{"id":1,"ok":true}"""))
+        l.end(sync = true)
+        l.run()
+        val end = sent().single().json
+        assertEquals("live_end", end.getString("op"))
+        assertTrue(end.getBoolean("sync"))
     }
 }
 

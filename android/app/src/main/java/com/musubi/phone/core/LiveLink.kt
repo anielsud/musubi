@@ -195,9 +195,12 @@ class LiveLink(
         return if (latch.await(timeoutMs, TimeUnit.MILLISECONDS)) got!! else Reply(false, error = "timeout")
     }
 
-    /** The app left the foreground: tell the Mac, which answers and closes. */
-    fun end() {
-        sendFrame(Kind.END, 5_000L, {}) { id -> """{"op":"live_end","id":$id}""" }
+    /**
+     * Ends Explore: the app left the foreground, or ([sync]) the phone has something to sync; the
+     * Mac then syncs on a new connection and opens Explore again. The Mac answers and closes.
+     */
+    fun end(sync: Boolean = false) {
+        sendFrame(Kind.END, 5_000L, {}) { id -> if (sync) """{"op":"live_end","id":$id,"sync":true}""" else """{"op":"live_end","id":$id}""" }
     }
 
     /** Fails requests the Mac has not answered in time; called about once a second. */

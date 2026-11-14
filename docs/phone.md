@@ -330,7 +330,14 @@ Ask, served by the Mac over the connection the Mac opened.
   Mac → phone: `event {name, data}` (no reply) for the frontend's events
   (Ask's streaming, for example); `ping` → `{}` every 30 seconds. Phone →
   Mac `live_end` when the app leaves the foreground; either side may
-  close. One live connection per phone; closed after 10 minutes without
+  close. While Explore holds the connection no sync can run, so when a
+  recording finishes that the Mac hasn't heard of, the phone sends
+  `live_end {sync: true}` (once per recording, not while an Ask answer is
+  being written, for at most a minute); the Mac then syncs on a new
+  connection, due or not, and opens Explore again (at most 5 times per
+  dial). Meanwhile the phone keeps the page, shows "Syncing with your
+  Mac…" and holds the page's calls (up to 30 seconds; one the sync cut
+  off is asked again). One live connection per phone; closed after 10 minutes without
   a request, and not dialed again until the phone advertises anew (its
   app back in front).
 - A result, an event's data or an asset that doesn't fit a 64 KB frame

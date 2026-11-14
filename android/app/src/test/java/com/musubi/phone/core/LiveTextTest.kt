@@ -135,12 +135,8 @@ class LiveTextFileTest {
         LiveTextFile(File(r.dir, LiveTextFile.NAME)).append(0, "invented sentence")
         assertTrue(store.liveTextFile(r.id) != null)
 
-        val mac = FakeMac()
-        mac.state = "transcribing"
-        SyncEngine(store, AgendaStore(File(TestUtil.tempDir(), "agenda.json")), mac, TestUtil.clockAt(TestUtil.T0.plusHours(2))).run()
-        assertEquals(setOf(r.id to 0, r.id to 1), mac.chunks.keys)
-        assertFalse(mac.completed[r.id]!!.contains("live"))
-        assertFalse(mac.calls.any { it.contains("live") })
+        // The Mac sees meta.json and chunks only (SyncSessionTest.liveTextIsNeverListedOrServed).
+        assertFalse(store.metaBytes(r.id).toString(Charsets.UTF_8).contains("live"))
 
         store.deleteAudio(r.id)
         assertNull(store.liveTextFile(r.id))

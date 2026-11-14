@@ -32,6 +32,7 @@ import com.musubi.phone.ui.Screen
 import com.musubi.phone.ui.SettingsScreen
 import com.musubi.phone.ui.TodayScreen
 import com.musubi.phone.core.AgendaEvent
+import com.musubi.phone.sync.PhoneSync
 import com.musubi.phone.update.Updater
 
 /** The single activity: three tabs (Today, Recordings, Mac) plus pushed Recording and Brief screens. */
@@ -89,6 +90,17 @@ class MainActivity : AppCompatActivity() {
         })
         nav.selectedItemId = TAB_TODAY
         Updater.checkOnStart(this)
+    }
+
+    // The app in the foreground is a listening window: opening the app is how the owner syncs now.
+    override fun onStart() {
+        super.onStart()
+        PhoneSync.foreground(true)
+    }
+
+    override fun onStop() {
+        PhoneSync.foreground(false)
+        super.onStop()
     }
 
     override fun onResume() {

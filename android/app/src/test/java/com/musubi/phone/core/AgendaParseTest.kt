@@ -6,7 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-class ApiParseTest {
+class AgendaParseTest {
     @Test
     fun badEventsAreSkippedAndBriefsKeepTheirLabel() {
         val body = JSONObject().put("drafting", 1).put("events", JSONArray()
@@ -18,7 +18,7 @@ class ApiParseTest {
             .put(JSONObject().put("id", "e3").put("start", "2026-11-18T10:00:00+01:00").put("end", "2026-11-18T09:00:00+01:00"))
             .put(JSONObject().put("id", "e4").put("start", "2026-11-18T11:00:00+01:00").put("end", "2026-11-18T12:00:00+01:00")
                 .put("brief", JSONObject().put("text", "Unlabelled"))))
-        val a = ApiParse.agenda(body.toString().toByteArray(), null)
+        val a = AgendaParse.agenda(body.toString().toByteArray(), null)
         assertEquals(listOf("e1", "e4"), a.events.map { it.id })
         assertEquals("internal", a.events[0].brief!!.sensitivity.share)
         assertEquals("unlabelled", a.events[1].brief!!.sensitivity.level)
@@ -31,23 +31,8 @@ class ApiParseTest {
             .put(JSONObject().put("id", "e1").put("start", "2026-11-18T09:00:00+01:00").put("end", "2026-11-18T09:30:00+01:00")
                 .put("attendees", JSONArray().put(JSONObject().put("name", "Jamie Placeholder")))
                 .put("brief", JSONObject().put("text", "x").put("sensitivity", JSONObject().put("level", "l").put("share", "party-only").put("why", "pay")))))
-        val a = ApiParse.agenda(body.toString().toByteArray(), TestUtil.T0)
-        assertEquals(a, ApiParse.agendaFromStored(ApiParse.agendaToJson(a)))
-    }
-
-    @Test
-    fun recordingStateMustBeKnown() {
-        assertEquals("waiting", ApiParse.recordingState("""{"state":"waiting"}""".toByteArray()).state)
-        val r = runCatching { ApiParse.recordingState("""{"state":"deleted"}""".toByteArray()) }
-        assert(r.isFailure)
-    }
-
-    @Test
-    fun pairReplyIsValidated() {
-        val ok = ApiParse.pair("""{"device_id":"dev-1","token":"AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_"}""".toByteArray())
-        assertEquals("dev-1", ok.deviceId)
-        assert(runCatching { ApiParse.pair("""{"device_id":"dev-1","token":"short"}""".toByteArray()) }.isFailure)
-        assert(runCatching { ApiParse.pair("""{"device_id":"dev 1\n","token":"AbCdEfGhIjKlMnOpQrSt"}""".toByteArray()) }.isFailure)
+        val a = AgendaParse.agenda(body.toString().toByteArray(), TestUtil.T0)
+        assertEquals(a, AgendaParse.agendaFromStored(AgendaParse.agendaToJson(a).toByteArray()))
     }
 
     @Test

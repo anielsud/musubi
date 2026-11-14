@@ -2,7 +2,7 @@
 
 # FTS5 is compiled into the SQLite driver only with this tag.
 TAGS := -tags sqlite_fts5
-VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION := $(shell git describe --tags --match 'v[0-9]*' --always --dirty 2>/dev/null || echo dev)
 # release: the DMG the release workflow builds, which checks for and
 # installs updates; local: every other build, which never does.
 CHANNEL ?= local

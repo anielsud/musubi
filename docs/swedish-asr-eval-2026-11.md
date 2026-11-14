@@ -99,3 +99,9 @@ more Norwegian/Icelandic words or æ/ø/ð/þ:
 - Left: Whisper's usual errors on fillers and crosstalk within the allowed
   languages (a made-up short English or Swedish phrase), which the guard
   can't see.
+
+## Threads (2026-11-14)
+
+`transcription.threads` (main's default 2) against the 8 used above, A,
+guard on: 31.1% of real time on 2 threads, 32.3% on 4, 29.0% on 8, and the
+same text on all three (0 lines differ). Turbo keeps up at the default.

@@ -951,3 +951,14 @@ export interface PhoneView {
   devices: PhoneDevice[] | null;
   ofRecord: boolean;
 }
+
+// A phone recording's details on its meeting page (Go: gui.MeetingDetails).
+export interface MeetingDetails {
+  notes: string;
+  notesUpdated?: string;
+  people: { name: string; email?: string }[];
+  label: Label;
+  share: string;
+  photos: { name: string; taken?: string; size: number }[];
+  photosHidden?: number;
+}

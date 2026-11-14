@@ -100,7 +100,7 @@ Planned connectors, in order:
 
 | Connector | Access |
 |---|---|
-| `tomoe` | reads `*/session.json` in the sessions folder of the recorder of record: Tomoe's (`tomoe_sessions`, default) or, with `[recorder] of_record = "musubi"`, Musubi's recorder's (`[recorder] data`/sessions), then only sessions created after `[recorder] since` |
+| `tomoe` | reads `*/session.json` in the sessions folder of the recorder of record: Tomoe's (`tomoe_sessions`, default) or, with `[recorder] of_record = "musubi"`, Musubi's recorder's (`[recorder] data`/sessions), then only sessions created after `[recorder] since`; a phone recording's `phone-details.json` (its notes and people; the photo files are never read) comes with its session as one record (`[phone] details`; docs/phone.md, "Recording details") |
 | `calendar` | ICS or Graph; gives meetings their titles and attendees |
 | `mcpdrop` | an inbox directory that scheduled Claude Code jobs fill from the approved M365 / Salesforce / Zoom connectors, as JSON |
 | `graph` | direct Microsoft Graph (mail, chat), once an Entra app registration is approved; until then `internal/m365` signs in as Microsoft's already-consented Graph Command Line Tools client and writes calendar events, Teams transcripts, meeting chats and (off by default) mail and Teams chats into the inbox, and looks up internal participants in the directory: docs/teams-design.md |

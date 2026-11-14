@@ -262,6 +262,16 @@ meeting)
   are the meeting's people and invitees for speaker naming; photos are
   kept with the meeting, labelled owner-only, and never sent to a hosted
   model. A later `rev` replaces the earlier details.
+- How (2026-11-13): sync applies details once the recorder has the
+  meeting saved, then reports `details_rev`; the session's
+  `phone-details.json` (`writer: "musubi"`) and the photos are read by
+  ingest as one record with `session.json`, so a new `rev` is a new raw
+  version of the meeting. The notes become the meeting's last segments,
+  the owner's, marked as notes (passages of their own, under the meeting's
+  label); the people its attendees (after its speakers) and invitees in
+  `ReadCalendarInvitees`; the photos stay out of the item entirely and
+  are shown on the meeting page, in the owner's scope only.
+  `[phone] details = false` restores the earlier behaviour.
 
 ### 2. The Mac side
 

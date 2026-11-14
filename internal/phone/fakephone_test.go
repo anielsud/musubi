@@ -63,6 +63,7 @@ type fakePhone struct {
 type fakeRec struct {
 	meta   []byte
 	chunks [][]byte
+	files  map[string][]byte
 }
 
 func selfSigned(t *testing.T, cn string) (tls.Certificate, []byte) {
@@ -290,6 +291,25 @@ func (p *fakePhone) handle(raw net.Conn) {
 			if drop {
 				return
 			}
+		case "file":
+			rid, _ := m["rid"].(string)
+			name, _ := m["name"].(string)
+			p.mu.Lock()
+			r := p.recs[rid]
+			var b []byte
+			if r != nil {
+				b = append([]byte{}, r.files[name]...)
+			}
+			f := p.fault[rid+"/"+name]
+			p.mu.Unlock()
+			if r == nil || r.files[name] == nil || f == "gone" {
+				fail("gone")
+				continue
+			}
+			if f == "bytes" {
+				b[0] ^= 0xFF
+			}
+			writeMsg(c, map[string]any{"ok": true, "sha256": sum(r.files[name]), "body": len(b)}, b)
 		case "state":
 			p.mu.Lock()
 			p.reports = append(p.reports, m)

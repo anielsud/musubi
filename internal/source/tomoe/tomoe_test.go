@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,5 +54,38 @@ func TestNewerRecorderFolderRefused(t *testing.T) {
 	err := Connector{Dir: dir}.Fetch(context.Background(), func(source.Record) error { n++; return nil })
 	if !errors.Is(err, dataformat.ErrNewer) || n != 0 {
 		t.Fatalf("%d read, %v", n, err)
+	}
+}
+
+// A session folder with phone sync's details is read with them, only
+// when PhoneDetails is on; other folders are read as before.
+func TestPhoneDetailsWrapped(t *testing.T) {
+	dir := t.TempDir()
+	plain := filepath.Join(dir, "11111111-0000-4000-8000-0000000000a1")
+	phone := filepath.Join(dir, "11111111-0000-4000-8000-0000000000a2")
+	session := []byte(`{"title":"x","created_at":"2026-11-17T10:00:00Z","segments":[]}`)
+	for _, d := range []string{plain, phone} {
+		os.MkdirAll(d, 0o700)
+		os.WriteFile(filepath.Join(d, "session.json"), session, 0o600)
+	}
+	os.WriteFile(filepath.Join(phone, "phone-details.json"), []byte(`{"writer":"musubi","rev":1,"attendees":[],"notes":{"text":"n"},"photos":[]}`), 0o600)
+	os.MkdirAll(filepath.Join(phone, "photos"), 0o700)
+	os.WriteFile(filepath.Join(phone, "photos", "photo-0001.jpg"), []byte("PHOTO-BYTES"), 0o600)
+	for _, on := range []bool{false, true} {
+		got := map[string]string{}
+		err := Connector{Dir: dir, PhoneDetails: on}.Fetch(context.Background(), func(r source.Record) error {
+			got[r.Ref] = string(r.Data)
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got[filepath.Base(plain)] != string(session) {
+			t.Errorf("on=%v: plain session changed: %s", on, got[filepath.Base(plain)])
+		}
+		p := got[filepath.Base(phone)]
+		if on != strings.Contains(p, `"phone_details"`) || strings.Contains(p, "PHOTO-BYTES") {
+			t.Errorf("on=%v: phone session %s", on, p)
+		}
 	}
 }

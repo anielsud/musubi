@@ -5,6 +5,8 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"io"
 	"net"
 	"net/netip"
@@ -18,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anielsud/musubi/internal/phonedetails"
 	"github.com/anielsud/musubi/internal/recorder/control"
 )
 
@@ -25,7 +28,8 @@ import (
 // an EMULATOR (docs/phone.md, "Sync: the Mac dials the phone"): pairing
 // (cancelled, then confirmed on both, codes compared with the phone's
 // screen), a short recording fetched, joined and imported, the agenda on
-// Today, an interrupted sync resumed, the periodic listening window, a
+// Today, details (a note, a person, a camera photo and a picked one)
+// added to the imported recording and arriving, an interrupted sync resumed, the periodic listening window, a
 // sync ending a window early, and the Mac's dial after the phone unpaired.
 //
 //	MUSUBI_PHONE_E2E=1 MUSUBI_E2E_SERIAL=emulator-5610 go test -run TestPhoneEndToEnd -v -timeout 45m ./internal/phone/
@@ -50,6 +54,7 @@ func TestPhoneEndToEnd(t *testing.T) {
 
 	h := newHarness(t)
 	h.rec.set(true, control.ImportImported)
+	h.s.cfg.Details = true
 	start := time.Now().Add(2 * time.Hour).Truncate(time.Minute)
 	h.s.cfg.Agenda = func(context.Context, int) ([]Event, error) {
 		return []Event{{ID: "calendar:e2e-1", Start: start, End: start.Add(time.Hour), Subject: "Invented planning session",
@@ -130,6 +135,9 @@ func TestPhoneEndToEnd(t *testing.T) {
 	d.waitText(`Paired with Test Mac`, 10*time.Second)
 	d.waitText(`Synced: \d+ parts sent, 1 transcribed, agenda updated`, 10*time.Second)
 	t.Log("  ok: the phone's Mac screen shows the sync")
+
+	t.Log("(6) recording details added after the import: a note, a person and two photos (camera, picker) arrive")
+	detailsAfterImport(t, h, d, rid1, target{fp16: dev.ID[:16], pin: dev.ID, addrs: []netip.AddrPort{phoneAddr}})
 
 	t.Log("(5) an interrupted sync resumes")
 	d.record(35 * time.Second)
@@ -248,6 +256,78 @@ func TestPhoneEndToEnd(t *testing.T) {
 		t.Errorf("the Mac didn't say the phone refused it: %q", after.LastOutcome)
 	}
 	d.tap("Cancel")
+}
+
+// detailsAfterImport edits an imported recording's details on the phone
+// and checks the next sync writes them into its session folder and the
+// phone then drops its photos.
+func detailsAfterImport(t *testing.T, h *harness, d *emu, rid string, pinned target) {
+	t.Helper()
+	sess := filepath.Join(h.dir, "recorder", "sessions", rid)
+	if err := os.MkdirAll(sess, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// A picture for the photo picker: a tiny JPEG the test makes.
+	pic := filepath.Join(t.TempDir(), "invented-e2e.jpg")
+	img := image.NewRGBA(image.Rect(0, 0, 320, 240))
+	for i := range img.Pix {
+		img.Pix[i] = byte(i * 7)
+	}
+	f, _ := os.Create(pic)
+	jpeg.Encode(f, img, nil)
+	f.Close()
+	d.adbRun("push", pic, "/sdcard/Pictures/invented-e2e.jpg")
+	d.shell("content", "call", "--method", "scan_volume", "--uri", "content://media", "--arg", "external_primary")
+
+	d.tap("Recordings")
+	d.tap("Ad hoc")
+	d.waitText(`Photos \(0/30\)`, 10*time.Second)
+	d.tap("Notes")
+	d.shell("input", "text", "Invented%sdetails%snote%sfor%sthe%se2e")
+	d.shell("input", "keyevent", "BACK") // the keyboard
+	d.tap("Add person")
+	d.tap("Type a name…")
+	d.tap("Name")
+	d.shell("input", "text", "Test%sAttendee")
+	d.tap("Add")
+	d.waitText(`People \(1/50\)`, 10*time.Second)
+	d.tap("Take photo")
+	d.tap("Shutter")
+	d.tap("Done")
+	d.waitText(`Photos \(1/30\)`, 20*time.Second)
+	d.tap("Choose photos")
+	d.tapPrefix("Photo taken on")
+	d.tap("Add (1)")
+	d.waitText(`Photos \(2/30\)`, 20*time.Second)
+	d.shell("input", "keyevent", "BACK") // leaving saves the notes
+	var meta string
+	waitFor(t, "the notes saved", func() bool {
+		meta = d.shell("run-as", "com.musubi.phone", "cat", "files/recordings/"+rid+"/meta.json")
+		return strings.Contains(meta, "Invented details note for the e2e")
+	})
+	t.Log("  ok: the phone saved the details (meta.json version 2)")
+
+	h.s.session(context.Background(), pinned)
+	if o := h.s.Devices()[0].LastOutcome; !strings.HasPrefix(o, "synced: 1 recordings on the phone, 0 fetched, 0 imported") {
+		t.Fatalf("details sync: outcome %q", o)
+	}
+	df := phonedetails.Read(sess)
+	if df == nil || df.Notes.Text != "Invented details note for the e2e" || len(df.Attendees) != 1 || df.Attendees[0].Name != "Test Attendee" || len(df.Photos) != 2 {
+		t.Fatalf("details on the Mac: %+v", df)
+	}
+	for _, p := range df.Photos {
+		sum, size, err := fileSHA256(filepath.Join(sess, "photos", p.Name))
+		if err != nil || sum != p.SHA256 || size != p.Size {
+			t.Fatalf("photo %s on the Mac: %v", p.Name, err)
+		}
+	}
+	t.Logf("  ok: rev %d applied: notes, 1 person, photos %s and %s (%d and %d bytes) checked", df.Rev, df.Photos[0].Name, df.Photos[1].Name, df.Photos[0].Size, df.Photos[1].Size)
+	var files string
+	waitFor(t, "the phone dropping the photos", func() bool {
+		files = d.shell("run-as", "com.musubi.phone", "ls", "files/recordings/"+rid)
+		return !strings.Contains(files, "photo-")
+	})
+	t.Log("  ok: the phone deleted its photos once the Mac reported the current rev")
 }
 
 func (h *harness) lastImport() control.ImportArgs {
@@ -521,6 +601,24 @@ func (d *emu) tap(label string) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	d.t.Fatalf("no %q on screen; it shows:\n%s", label, d.screenText())
+}
+
+// tapPrefix taps the first node whose text or description starts with
+// prefix.
+func (d *emu) tapPrefix(prefix string) {
+	d.t.Helper()
+	end := time.Now().Add(10 * time.Second)
+	for time.Now().Before(end) {
+		for _, n := range d.nodes() {
+			if strings.HasPrefix(n.text, prefix) || strings.HasPrefix(n.desc, prefix) {
+				d.shell("input", "tap", strconv.Itoa(n.x), strconv.Itoa(n.y))
+				time.Sleep(700 * time.Millisecond)
+				return
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	d.t.Fatalf("nothing starting %q on screen; it shows:\n%s", prefix, d.screenText())
 }
 
 func (d *emu) waitText(pattern string, timeout time.Duration) []string {

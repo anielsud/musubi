@@ -49,7 +49,13 @@ func (e *Engine) recorderSession(id string) ([]byte, error) {
 	if id == "" || id == "." || id == ".." || filepath.Base(id) != id || strings.ContainsAny(id, `/\`) {
 		return nil, fmt.Errorf("not a session id: %q", id)
 	}
-	return os.ReadFile(filepath.Join(e.Cfg.RecorderSessions(), id, "session.json"))
+	dir := filepath.Join(e.Cfg.RecorderSessions(), id)
+	b, err := os.ReadFile(filepath.Join(dir, "session.json"))
+	if err != nil || !e.Cfg.Phone.Details {
+		return b, err
+	}
+	// As ingest reads it: a phone recording's details come with it.
+	return tomoe.WithDetails(b, dir)
 }
 
 // RelabelProfile has the recorder put voice profile id's name on the
@@ -108,6 +114,11 @@ func (e *Engine) CheckRelabelSession(ctx context.Context, sessionID string, sess
 	r, err := e.Runner(nil, io.Discard)
 	if err != nil {
 		return err
+	}
+	if e.Cfg.Phone.Details {
+		if sessionJSON, err = tomoe.WithDetails(sessionJSON, filepath.Join(e.Cfg.RecorderSessions(), sessionID)); err != nil {
+			return err
+		}
 	}
 	_, err = r.RelabelSpeaker(ctx, pipeline.RelabelRequest{ItemID: tomoe.Name + ":" + sessionID, Session: sessionJSON, Check: true})
 	return err

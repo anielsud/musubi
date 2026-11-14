@@ -990,3 +990,11 @@ input.search { width: 100%; margin: 6px 0; }
 .modal { width: 100%; max-width: 340px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; font-size: 13px; }
 .modal h3 { margin: 0 0 10px; font-size: 15px; word-break: break-word; }
 .modal p { margin: 0 0 10px; }
+
+.phone-details { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.phone-notes { white-space: pre-wrap; border-left: 2px solid var(--line); padding: 2px 0 2px 10px; }
+.phone-photos { display: flex; flex-wrap: wrap; gap: 6px; }
+.phone-thumb { width: 96px; height: 96px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; overflow: hidden; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.phone-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.phone-photo-open { display: flex; flex-direction: column; gap: 4px; }
+.phone-photo-open img { max-width: 100%; max-height: 70vh; object-fit: contain; border-radius: 6px; }

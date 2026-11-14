@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anielsud/musubi/internal/phonedetails"
 	"github.com/anielsud/musubi/internal/recorder/control"
 )
 
@@ -211,7 +212,13 @@ func (s *Syncer) syncRecording(ctx context.Context, fc *frameConn, fp string, ra
 	if !validState(phoneState) {
 		phoneState = ""
 	}
-	if phoneState == control.ImportImported {
+	var details *phonedetails.Details
+	if s.cfg.Details {
+		if details, err = metaDetails(raw); err != nil {
+			s.cfg.Logf("phone: recording %s: details skipped: %v", m.ID, err)
+		}
+	}
+	if phoneState == control.ImportImported && details == nil {
 		return nil // reported before; the phone drops the audio
 	}
 	rid := m.ID
@@ -234,13 +241,23 @@ func (s *Syncer) syncRecording(ctx context.Context, fc *frameConn, fp string, ra
 	if err != nil {
 		return err
 	}
-	if st.State == control.ImportImported {
+	if st.State == control.ImportImported && phoneState != control.ImportImported {
 		stats.imported++
 	}
-	if st.State == "" || st.State == phoneState {
+	// The phone lists an imported recording again only for newer details.
+	detailsDone := false
+	if details != nil {
+		if detailsDone, err = s.applyDetails(fc, rid, st, details); err != nil {
+			return err
+		}
+	}
+	if st.State == "" || (st.State == phoneState && !detailsDone) {
 		return nil
 	}
 	req := map[string]any{"op": "state", "rid": rid, "state": st.State}
+	if detailsDone {
+		req["details_rev"] = st.DetailsRev
+	}
 	if st.State == control.ImportImported && st.Session != "" {
 		req["session_id"] = st.Session
 	}

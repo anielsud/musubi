@@ -86,10 +86,37 @@ func (e *Engine) PrepTargets() ([]PrepTarget, error) {
 // Prep gathers what to bring to a meeting.
 // The context bounds the search for the threads an event is about.
 func (e *Engine) Prep(ctx context.Context, req knowledge.PrepRequest, sc sensitivity.Scope) (*knowledge.PrepView, error) {
+	p, err := e.NewPrepper(sc)
+	if err != nil {
+		return nil, err
+	}
+	return p.Prep(ctx, req)
+}
+
+// Prepper prepares many meetings from one read of what they share (the
+// phone's agenda: one prep per event): every item, the threads, their
+// statuses and spellings are read once, and an event's title is embedded
+// once however many events share it. What it returns is what Prep would.
+// Not for concurrent use.
+type Prepper struct {
+	e     *Engine
+	sc    sensitivity.Scope
+	items []item.Item
+	base  *knowledge.PrepBase
+	vecs  map[string][]float32
+}
+
+func (e *Engine) NewPrepper(sc sensitivity.Scope) (*Prepper, error) {
 	items, err := e.Store.AllItems()
 	if err != nil {
 		return nil, err
 	}
+	return &Prepper{e: e, sc: sc, items: items, base: knowledge.NewPrepBase(e.Store, sc, items), vecs: map[string][]float32{}}, nil
+}
+
+// Prep gathers what to bring to one meeting.
+func (p *Prepper) Prep(ctx context.Context, req knowledge.PrepRequest) (*knowledge.PrepView, error) {
+	e, items := p.e, p.items
 	if req.Template != "" {
 		// An upcoming event prepares from the last meeting of its series, so
 		// "since" is when you last met and that meeting's recap anchors the
@@ -111,24 +138,46 @@ func (e *Engine) Prep(ctx context.Context, req knowledge.PrepRequest, sc sensiti
 		}
 	}
 	req.QuietAfter, req.MarkPrivate = e.Cfg.Prep.QuietAfter(), e.Cfg.Prep.MarkPrivate
-	if req.About, err = e.prepAbout(ctx, sc, req.Template, items); err != nil {
+	var err error
+	if req.About, err = p.about(ctx, req.Template); err != nil {
 		return nil, err
 	}
-	return knowledge.Prep(e.Store, sc, req, items, e.Cfg.Owner.Name)
+	return p.base.Prep(req, e.Cfg.Owner.Name)
 }
 
-// prepAbout finds the threads an event's title and description are about.
-func (e *Engine) prepAbout(ctx context.Context, sc sensitivity.Scope, id string, items []item.Item) ([]int64, error) {
-	for _, it := range items {
+// about finds the threads an event's title and description are about
+// (ThreadsAbout), embedding each query once.
+func (p *Prepper) about(ctx context.Context, id string) ([]int64, error) {
+	e := p.e
+	for _, it := range p.items {
 		if it.ID != id || it.Kind != item.KindEvent {
 			continue
 		}
-		ms, err := e.ThreadsAbout(ctx, sc, knowledge.MeetingQuery(it, e.Cfg.Owner.Name, e.Cfg.Owner.InternalDomains))
+		q := knowledge.MeetingQuery(it, e.Cfg.Owner.Name, e.Cfg.Owner.InternalDomains)
+		if strings.TrimSpace(q) == "" {
+			return nil, nil
+		}
+		f, err := e.ThreadFinder()
+		if err != nil || f == nil {
+			return nil, err
+		}
+		vec, ok := p.vecs[q]
+		if !ok {
+			vec = e.Embed(ctx, q)
+			// A failed embedding isn't kept: the next event with this
+			// query tries again, as Prep would.
+			if vec != nil {
+				p.vecs[q] = vec
+			}
+		}
+		if vec == nil {
+			return nil, nil
+		}
 		var ids []int64
-		for _, m := range ms {
+		for _, m := range f.About(p.sc, vec, q) {
 			ids = append(ids, m.ID)
 		}
-		return ids, err
+		return ids, nil
 	}
 	return nil, nil
 }

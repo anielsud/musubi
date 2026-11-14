@@ -292,6 +292,14 @@ port.
   starts drafting missing briefs in that window in the background (the
   same drafting as the weekly pass, not during a live meeting), so the
   next sync carries them.
+  The agenda is built in the background and kept in memory (a full
+  build reads a prep for every event: 4.7 s on the owner's dataset,
+  2026-11-13); a sync sends the last build at once. It is rebuilt when
+  its inputs change (an update, a brief drafted, a meeting's people
+  changed) or the day changes, at most every 15 minutes, never during a
+  live meeting (a meeting that goes live stops a build). Until the first
+  build after the app starts, a sync sends no agenda and the phone keeps
+  the one it has.
 - **Devices**: **Settings → Phone** lists paired phones (name, last
   sync, last addresses) with Unpair, shows whether the Mac is looking
   for phones, and the last sync's outcome.

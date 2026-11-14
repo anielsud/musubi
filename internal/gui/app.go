@@ -86,6 +86,7 @@ func NewApp() *App { return &App{} }
 
 func (a *App) emit(ev string, data any) {
 	a.phoneTaps.emit(ev, data)
+	a.phone.agendaChanged(ev)
 	if a.emitFn != nil {
 		a.emitFn(ev, data)
 		return

@@ -55,7 +55,7 @@ func (e *errDamaged) Error() string {
 // syncStats is a sync's outcome, for the log and Settings.
 type syncStats struct {
 	recordings, fetched, imported, skipped, events int
-	agendaSent, agendaErr                          bool
+	agendaSent, agendaErr, agendaPending           bool
 }
 
 func (st syncStats) String() string {
@@ -66,6 +66,8 @@ func (st syncStats) String() string {
 	switch {
 	case st.agendaSent:
 		return s + fmt.Sprintf("; agenda of %d events sent", st.events)
+	case st.agendaPending:
+		return s + "; agenda still being built"
 	case st.agendaErr:
 		return s + "; agenda not sent"
 	}
@@ -431,6 +433,11 @@ func (s *Syncer) pushAgenda(ctx context.Context, fc *frameConn, stats *syncStats
 	}
 	now := s.cfg.Now()
 	evs, err := s.cfg.Agenda(ctx, defaultDays)
+	if errors.Is(err, ErrAgendaNotReady) {
+		// The phone keeps the agenda it has; the next sync sends the build.
+		stats.agendaPending = true
+		return nil
+	}
 	if err != nil {
 		s.cfg.Logf("phone: agenda: %v", err)
 		stats.agendaErr = true

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -36,6 +37,21 @@ type phoneState struct {
 	ran chan struct{}
 	// The drafting syncs start.
 	draft phone.Drafter
+	// agenda is the running syncer's agenda cache, nil when none runs;
+	// emit marks it changed (agendaChanged).
+	agenda atomic.Pointer[phone.AgendaCache]
+}
+
+// agendaChanged marks the phone's agenda for a rebuild after an event
+// that can change it: an update (items, threads, the calendar), a brief
+// drafted, a meeting's people or speakers changed.
+func (p *phoneState) agendaChanged(ev string) {
+	switch ev {
+	case "update:done", "prep:brief", "meetings:changed":
+		if c := p.agenda.Load(); c != nil {
+			c.Invalidate()
+		}
+	}
 }
 
 // waitPhone waits, at most a few seconds, for the last syncer to stop.
@@ -63,7 +79,8 @@ func (a *App) startPhone(ctx context.Context, e *engine.Engine) {
 	if !e.Cfg.Phone.Enabled {
 		return
 	}
-	s, err := a.openPhone(ctx, e)
+	cache := a.phoneAgenda(e)
+	s, err := a.openPhone(ctx, e, cache)
 	ran := make(chan struct{})
 	a.phone.mu.Lock()
 	a.phone.sync = s
@@ -77,16 +94,21 @@ func (a *App) startPhone(ctx context.Context, e *engine.Engine) {
 		log.Printf("phone: not started: %v", err)
 		return
 	}
+	a.phone.agenda.Store(cache)
+	actx, stop := context.WithCancel(ctx)
+	go cache.Run(actx)
 	go func() {
 		defer close(ran)
 		s.Run(ctx)
+		stop()
+		a.phone.agenda.CompareAndSwap(cache, nil)
 		a.emit("phone:changed", nil)
 	}()
 }
 
 // openPhone opens phone sync's folder (certificate, paired phones)
 // without starting it.
-func (a *App) openPhone(ctx context.Context, e *engine.Engine) (*phone.Syncer, error) {
+func (a *App) openPhone(ctx context.Context, e *engine.Engine, agenda *phone.AgendaCache) (*phone.Syncer, error) {
 	live, assets := a.phoneLiveFor(e.Cfg.Phone.Explore)
 	return phone.New(phone.Config{
 		Live:         live,
@@ -98,11 +120,31 @@ func (a *App) openPhone(ctx context.Context, e *engine.Engine) (*phone.Syncer, e
 			err := control.NewClient(e.Cfg.RecorderControlSocket()).Call(ctx, control.OpImport, args, &st)
 			return st, err
 		},
-		// The owner's own agenda: the phone carries what the owner sees.
-		// Open items as the desktop's prep shows them for the event.
-		Agenda: func(ctx context.Context, days int) ([]phone.Event, error) {
+		// Built in the background; a sync sends the last build.
+		Agenda:        agenda.Agenda,
+		Drafting:      func(until time.Time) int { return a.phoneDrafting(ctx, e, until) },
+		Logf:          log.Printf,
+		OnChange:      func() { a.emit("phone:changed", nil) },
+		OnPairRequest: a.askPair,
+	})
+}
+
+// phoneAgenda is the agenda cache for e: the owner's own agenda (the
+// phone carries what the owner sees), with open items as the desktop's
+// prep shows them, all events' preps from one read (engine.Prepper). Not
+// built while a meeting is live.
+func (a *App) phoneAgenda(e *engine.Engine) *phone.AgendaCache {
+	return &phone.AgendaCache{
+		Build: func(ctx context.Context, days int) ([]phone.Event, error) {
+			p, err := e.NewPrepper(sensitivity.Owner())
+			if err != nil {
+				return nil, err
+			}
 			open := func(id string) ([]knowledge.PrepOpen, error) {
-				v, err := e.Prep(ctx, knowledge.PrepRequest{Template: id}, sensitivity.Owner())
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+				v, err := p.Prep(ctx, knowledge.PrepRequest{Template: id})
 				if err != nil || v == nil {
 					return nil, err
 				}
@@ -110,11 +152,9 @@ func (a *App) openPhone(ctx context.Context, e *engine.Engine) (*phone.Syncer, e
 			}
 			return phone.BuildAgenda(e.Store, sensitivity.Owner(), time.Now(), days, open)
 		},
-		Drafting:      func(until time.Time) int { return a.phoneDrafting(ctx, e, until) },
-		Logf:          log.Printf,
-		OnChange:      func() { a.emit("phone:changed", nil) },
-		OnPairRequest: a.askPair,
-	})
+		Live: func() bool { return a.live != nil && a.live.Status().Mode == "live" },
+		Logf: log.Printf,
+	}
 }
 
 // askPair brings the window forward, whatever screen is open, and asks

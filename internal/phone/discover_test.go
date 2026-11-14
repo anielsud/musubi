@@ -272,3 +272,35 @@ func TestDiscoveryUnsupported(t *testing.T) {
 	cancel()
 	<-stopped
 }
+
+// A phone's dns-sd -L killed from outside (2026-11-13: a stray pkill) is
+// started again; otherwise the phone stays "seen" and is never dialed.
+func TestFollowRestartsResolver(t *testing.T) {
+	h := newHarness(t)
+	p := newFakePhone(t)
+	h.pairWith(p)
+	inst := "musubi-" + p.fpHex()[:8]
+	f := &fakeDNSSD{script: func(args []string) []string {
+		switch args[0] {
+		case "-B":
+			return []string{"Browsing for _musubi-phone._tcp.local.", browseLine("Add", inst)}
+		case "-L":
+			return lookupLines(args[1], "paired.local.", p.port, "v=2 fp="+p.fpHex()[:16])
+		case "-G":
+			return addrLines(args[2], "127.0.0.1")
+		}
+		return nil
+	}}
+	h.s.dnssd = f.start
+	ctx, cancel := context.WithCancel(context.Background())
+	stopped := make(chan struct{})
+	go func() { h.s.Run(ctx); close(stopped) }()
+	waitFor(t, "the phone followed", func() bool { return len(f.ran("-L")) == 1 })
+	f.ran("-L")[0].Stop()
+	waitFor(t, "the resolver started again", func() bool { return len(f.ran("-L")) == 2 })
+	cancel()
+	<-stopped
+	if !f.allStopped() {
+		t.Error("a dns-sd was left running")
+	}
+}

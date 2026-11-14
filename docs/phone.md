@@ -180,6 +180,9 @@ program would sidestep the company's policy, so it is not an option.)
    1,000,000, zero-padded to 6 digits. Each side takes both certificates
    from the TLS session itself, so a machine in the middle makes the
    codes differ.
+   Test vector: Mac certificate SHA-256 = bytes `00 01 … 1f`, phone
+   certificate SHA-256 = `20 … 3f`, Mac nonce = `40 … 4f`, phone nonce =
+   `50 … 5f` → SHA-256 starts `c1d59190`, code **999120**.
 4. Musubi brings its window forward: "Pair <device name>? Code 123 456",
    **Allow** / **Deny**. The phone shows the code with **Confirm** /
    **Cancel**. After Allow the Mac sends `pair_confirm` and waits (up to

@@ -2,6 +2,7 @@ package com.musubi.phone.sync
 
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import com.musubi.phone.App
 import com.musubi.phone.BuildConfig
 import com.musubi.phone.core.AddressFilter
@@ -63,7 +64,9 @@ class PairedMac(context: Context) {
 object PhoneSync {
     private lateinit var app: Context
     private lateinit var paired: PairedMac
-    private val windows = ListenWindows { System.currentTimeMillis() }
+    /** Monotonic: a wall-clock change (time zone, manual set, network time) must not stretch a window. */
+    fun now(): Long = SystemClock.elapsedRealtime()
+    private val windows = ListenWindows { now() }
     lateinit var pairing: PairingFlow
         private set
     private val ctl = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "musubi-sync-control").apply { isDaemon = true } }
@@ -77,7 +80,7 @@ object PhoneSync {
     fun init(context: Context) {
         app = context.applicationContext
         paired = PairedMac(app)
-        pairing = PairingFlow({ System.currentTimeMillis() }) { fp, name -> paired.save(fp, name) }
+        pairing = PairingFlow({ now() }) { fp, name -> paired.save(fp, name) }
         Migration.run(app)
     }
 
@@ -111,9 +114,9 @@ object PhoneSync {
 
     /** Blocks until the window of [kind] has ended and no connection is in progress, at most [maxMs]. */
     fun awaitWindowEnd(kind: ListenWindows.Kind, maxMs: Long) {
-        val end = System.currentTimeMillis() + maxMs
+        val end = now() + maxMs
         synchronized(quiet) {
-            while (System.currentTimeMillis() < end && (windows.isOpen(kind) || server?.busy == true)) {
+            while (now() < end && (windows.isOpen(kind) || server?.busy == true)) {
                 quiet.wait(1_000)
             }
         }

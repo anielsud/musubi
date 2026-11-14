@@ -135,7 +135,7 @@ class MacScreen(a: MainActivity) : Screen(a) {
     }
 
     private fun waitingText(p: PairingFlow.State.Waiting): String {
-        val left = ((p.until - System.currentTimeMillis()) / 1000).coerceAtLeast(0)
+        val left = ((p.until - PhoneSync.now()) / 1000).coerceAtLeast(0)
         return "Musubi on the Mac shows a code when it finds this phone. %d:%02d left.".format(left / 60, left % 60)
     }
 

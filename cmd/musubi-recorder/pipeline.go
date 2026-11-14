@@ -36,15 +36,16 @@ func loadOfflinePipeline(cfg *config.Config, status *models.Status, lang string,
 func loadOfflinePipelineThreads(cfg *config.Config, status *models.Status, lang string, withEmbedder, withStreaming bool, threads int) (*offlinePipeline, error) {
 	p := &offlinePipeline{status: status}
 	engines, err := transcribe.NewEngineSetFromConfig(transcribe.Config{
-		EncoderPath:    status.EncoderPath,
-		DecoderPath:    status.DecoderPath,
-		JoinerPath:     status.JoinerPath,
-		TokensPath:     status.TokensPath,
-		VADPath:        status.VADPath,
-		DecodingMethod: cfg.Transcription.DecodingMethod,
-		MaxActivePaths: cfg.Transcription.MaxActivePaths,
-		Model:          cfg.Transcription.Model,
-		NumThreads:     threads,
+		EncoderPath:      status.EncoderPath,
+		DecoderPath:      status.DecoderPath,
+		JoinerPath:       status.JoinerPath,
+		TokensPath:       status.TokensPath,
+		VADPath:          status.VADPath,
+		DecodingMethod:   cfg.Transcription.DecodingMethod,
+		MaxActivePaths:   cfg.Transcription.MaxActivePaths,
+		Model:            cfg.Transcription.Model,
+		WhisperLanguages: cfg.Transcription.WhisperLanguages,
+		NumThreads:       threads,
 	}, status)
 	if err != nil {
 		return nil, fmt.Errorf("creating transcription engine: %w", err)

@@ -78,6 +78,14 @@ type TranscriptionConfig struct {
 	// "parakeet-v2-en" or "parakeet-v3" pick those instead, and
 	// "parakeet-v3" restores the previous behavior (models.ASRModels).
 	Model string `toml:"model"`
+	// WhisperLanguages are the languages the Whisper model may write
+	// (model = "whisper-turbo"). It detects the language of every
+	// utterance; on short or unclear ones it can pick an unrelated
+	// language and write it (Icelandic, Japanese...). An utterance
+	// detected as anything else is decoded again in the language of the
+	// last one that was in the list (the first entry until then). Empty:
+	// whatever it detects, unchecked.
+	WhisperLanguages []string `toml:"whisper_languages"`
 	// LiveModel is the streaming model for the live text shown while
 	// people speak (two_pass). "auto" is NeMo's streaming FastConformer:
 	// on two meetings it differed from the final text on 25-38% of words
@@ -393,11 +401,12 @@ func DefaultConfig() *Config {
 		MaxActivePaths: 4,
 		// Off, as on main: two-pass is opt-in until it has been
 		// tuned on real recordings (see `tomoe session replay`).
-		TwoPass:         false,
-		Threads:         2,
-		Model:           "auto",
-		LiveModel:       "auto",
-		DownloadMissing: true,
+		TwoPass:          false,
+		Threads:          2,
+		Model:            "auto",
+		WhisperLanguages: []string{"sv", "en"},
+		LiveModel:        "auto",
+		DownloadMissing:  true,
 	}
 	cfg.Meeting = MeetingConfig{
 		DefaultSources:          "both",

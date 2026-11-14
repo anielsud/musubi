@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strconv"
@@ -762,7 +763,7 @@ func (a *Recorder) reloadConfig() (control.Status, error) {
 // are only read when the recorder starts.
 func needsRestart(old, next *config.Config) []string {
 	var parts []string
-	if old.Transcription != next.Transcription {
+	if !reflect.DeepEqual(old.Transcription, next.Transcription) {
 		parts = append(parts, "transcription")
 	}
 	// The engines were built from models found with or without Tomoe's

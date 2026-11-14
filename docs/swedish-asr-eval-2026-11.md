@@ -68,10 +68,34 @@ Swedish there):
 4. **Speed:** turbo at ~30% of real time is fine for single-pass recording
    on this machine but 8x Parakeet's CPU.
 
-## Next step (not built)
+## Language guard (built, 2026-11-14)
 
-Whisper turbo with language detection limited to Swedish and English:
-decode with detection, and when the detected language is neither, decode the
-utterance again with the language forced (Swedish, or the meeting's last
-detected language). Behind a config key; `parakeet-v3` stays the fallback.
-Measure on A and B again, plus a meeting with many short interjections.
+`transcription.model = "whisper-turbo"` with `whisper_languages = ["sv",
+"en"]` (the default; `[]` turns the guard off). An utterance detected as
+anything else is decoded again with the language forced: Swedish for
+Norwegian, Danish, Icelandic or Faroese, else the last allowed language
+detected, else the first in the list. The Go binding (v1.13.8) can't change
+a recognizer's language, so each forced language is a second recognizer,
+loaded the first time it is needed (~1 GB for turbo).
+
+Replayed through the app's own engine path (`NewEngineSetFromConfig`), 8
+threads. Lines in a non-Latin script or Vietnamese, and lines with two or
+more Norwegian/Icelandic words or æ/ø/ð/þ:
+
+| A (sv) | non-Latin | Norwegian/Icelandic | decode time |
+|---|---|---|---|
+| Parakeet v3 | 0 | 0 | 3.4% |
+| Whisper turbo, unguarded | 2 | 8 | 28.3% |
+| guard, redo in last language | 0 | 1 | 29.1% |
+| guard, Nordic → Swedish | 0 | 0 | 29.0% |
+
+- On A, 13 of 179 lines differ from unguarded turbo. The first version redid
+  Swedish-heard-as-Norwegian in the last language detected (English then)
+  and made up English sentences; mapping the Nordic languages to Swedish
+  turned those into the Swedish that was said.
+- On B (mostly English) nothing was redone: the output is identical to
+  unguarded turbo. Decode time 35.0% (30.7% unguarded; noise, as no second
+  recognizer was loaded).
+- Left: Whisper's usual errors on fillers and crosstalk within the allowed
+  languages (a made-up short English or Swedish phrase), which the guard
+  can't see.

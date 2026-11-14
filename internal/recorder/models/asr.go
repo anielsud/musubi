@@ -15,14 +15,19 @@ type ASRModel struct {
 	Kind   string // ASRKindTransducer or ASRKindCohere: which engine loads it
 	Subdir string // directory the archive extracts to
 	URL    string
+	// Files are the model's files in Subdir when they aren't the usual
+	// names for its kind (Whisper archives prefix them with the model).
+	Files []string
 }
 
 // Model kinds: a Parakeet-style transducer (encoder, decoder, joiner,
-// tokens.txt; word timestamps) or Cohere Transcribe (encoder, decoder,
-// tokens.txt; no timestamps).
+// tokens.txt; word timestamps), Cohere Transcribe (encoder, decoder,
+// tokens.txt; no timestamps) or Whisper (encoder, decoder, tokens; no
+// timestamps; detects the language of each utterance).
 const (
 	ASRKindTransducer = "transducer"
 	ASRKindCohere     = "cohere"
+	ASRKindWhisper    = "whisper"
 )
 
 // Transcription model IDs. ASRModelAuto picks by language (see
@@ -32,6 +37,7 @@ const (
 	ASRModelParakeetV3   = "parakeet-v3"
 	ASRModelParakeetV2En = "parakeet-v2-en"
 	ASRModelCohere       = "cohere-transcribe"
+	ASRModelWhisperTurbo = "whisper-turbo"
 )
 
 // ASRModels are the selectable transcription models.
@@ -63,6 +69,20 @@ var ASRModels = []ASRModel{
 		Kind:   ASRKindCohere,
 		Subdir: "sherpa-onnx-cohere-transcribe-14-lang-int8-2026-04-01",
 		URL:    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-cohere-transcribe-14-lang-int8-2026-04-01.tar.bz2",
+	},
+	{
+		// For meetings in Swedish, or that switch between Swedish and
+		// English: the most accurate on Swedish of the models compared, on
+		// par with Parakeet on English, at ~30% of real time on 8 threads
+		// against Parakeet's ~4% (docs/swedish-asr-eval-2026-11.md). Its
+		// language is detected per utterance and kept to
+		// transcription.whisper_languages. MIT.
+		ID:     ASRModelWhisperTurbo,
+		Name:   "Whisper large-v3-turbo INT8 (Swedish + English, switches per line)",
+		Kind:   ASRKindWhisper,
+		Subdir: "sherpa-onnx-whisper-turbo",
+		URL:    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-turbo.tar.bz2",
+		Files:  []string{"turbo-encoder.int8.onnx", "turbo-decoder.int8.onnx", "turbo-tokens.txt"},
 	},
 }
 
@@ -99,6 +119,9 @@ func (s *Status) ASRModelDir(m ASRModel) string {
 
 // files are the model's files inside its folder.
 func (m ASRModel) files() []string {
+	if len(m.Files) > 0 {
+		return m.Files
+	}
 	if m.Kind == ASRKindCohere {
 		return []string{encoderFile, decoderFile, tokensFile}
 	}

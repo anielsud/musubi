@@ -329,18 +329,21 @@ func (s *Syncer) session(ctx context.Context, t target) (netip.AddrPort, string)
 	var conn *tls.Conn
 	var sum []byte
 	var used netip.AddrPort
-	var lastErr error
+	var errs []error
 	for _, ap := range t.addrs {
 		c, got, err := s.dialTLS(ctx, ap, t)
 		if err == nil {
 			conn, sum, used = c, got, ap
 			break
 		}
-		lastErr = err
+		errs = append(errs, err)
 		if errors.Is(err, errWrongCert) {
 			break
 		}
 	}
+	// Every address's error, not just the last: an IPv6 link-local
+	// "no route" hid why the phone's LAN address failed.
+	lastErr := errors.Join(errs...)
 	if conn == nil {
 		s.dialFailed(t, lastErr)
 		return used, ""

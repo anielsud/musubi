@@ -221,27 +221,51 @@ func (s *Syncer) followBrowse(ctx context.Context, proc dnssdProc) bool {
 }
 
 // follow runs dns-sd -L for one phone until ctx ends, considering it at
-// each resolution and, while it stays, every resyncVisible.
+// each resolution and, while it stays, every resyncVisible. A dns-sd that
+// ends by itself (or is killed) is started again: while the browse still
+// lists the phone, nothing else would dial it.
 func (s *Syncer) follow(ctx context.Context, instance string) {
-	proc, err := s.dnssd("-L", instance, ServiceType, "local.")
-	if err != nil {
-		return
-	}
-	defer proc.Stop()
 	tick := time.NewTicker(resyncVisible)
 	defer tick.Stop()
-	var pending, last *sighting
+	var last *sighting
+	wait := 2 * time.Second
 	for {
+		proc, err := s.dnssd("-L", instance, ServiceType, "local.")
+		if err == nil {
+			var ended bool
+			last, ended = s.followResolve(ctx, proc, tick, last)
+			proc.Stop()
+			if !ended {
+				return
+			}
+			s.cfg.Logf("phone: resolving a phone stopped by itself; starting it again")
+		} else if errors.Is(err, errDNSSDUnsupported) {
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
+		case <-time.After(wait):
+		}
+		wait = min(2*wait, time.Minute)
+	}
+}
+
+// followResolve reads one dns-sd -L until ctx ends (false) or dns-sd ends
+// (true), returning the latest sighting.
+func (s *Syncer) followResolve(ctx context.Context, proc dnssdProc, tick *time.Ticker, last *sighting) (*sighting, bool) {
+	var pending *sighting
+	for {
+		select {
+		case <-ctx.Done():
+			return last, false
 		case <-tick.C:
 			if last != nil {
 				s.consider(ctx, *last, true)
 			}
 		case line, ok := <-proc.Lines():
 			if !ok {
-				return
+				return last, true
 			}
 			if pending != nil && strings.HasPrefix(line, " ") {
 				pending.txt = parseTXT(line)

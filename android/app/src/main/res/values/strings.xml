@@ -5,4 +5,6 @@
     <string name="ad_hoc">Ad hoc meeting</string>
     <string name="stop">Stop</string>
     <string name="channel_recording">Recording</string>
+    <string name="ready_for_mac">Ready for your Mac</string>
+    <string name="ready_for_mac_text">Your Mac can collect the recording for a few minutes</string>
 </resources>

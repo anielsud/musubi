@@ -6,7 +6,8 @@ import android.os.Build
 import com.musubi.phone.core.AgendaStore
 import com.musubi.phone.core.RecordingStore
 import com.musubi.phone.rec.RecorderService
-import com.musubi.phone.sync.SyncScheduler
+import com.musubi.phone.sync.ListenWorker
+import com.musubi.phone.sync.PhoneSync
 import java.io.File
 
 class App : Application() {
@@ -25,7 +26,8 @@ class App : Application() {
         // A new process means no recorder is running: close anything a killed process left open.
         runCatching { store.recoverInterrupted() }
         RecorderService.createChannel(this)
-        SyncScheduler.schedulePeriodic(this)
+        PhoneSync.init(this)
+        ListenWorker.schedule(this)
     }
 
     private fun isLiveProcess(): Boolean {

@@ -23,18 +23,26 @@ import com.musubi.phone.core.ChunkWriter
 import com.musubi.phone.core.EventRef
 import com.musubi.phone.core.LiveModel
 import com.musubi.phone.core.RecordingMeta
-import com.musubi.phone.sync.SyncScheduler
+import com.musubi.phone.core.ListenWindows
+import com.musubi.phone.sync.PhoneSync
 import java.time.OffsetDateTime
 
 /**
  * Foreground service (type microphone) that owns one recording at a time: ongoing notification
  * with Stop, a partial wake lock, and the [AudioEngine]. Not sticky: if the process is killed,
  * the next launch closes the recording (RecordingStore.recoverInterrupted) and keeps its audio.
+ *
+ * When a recording stops and a Mac is paired, the service stays in the foreground for the
+ * 8-minute listening window, its type switched from microphone to dataSync, so the Mac can
+ * collect the recording. It never starts a foreground service from the background: the service
+ * is already in the foreground when it changes type.
  */
 class RecorderService : Service() {
     private var engine: AudioEngine? = null
     private var live: LiveTextController? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var syncWakeLock: PowerManager.WakeLock? = null
+    private var holdingForSync = false
     private val main = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -73,7 +81,7 @@ class RecorderService : Service() {
             id = RecordingMeta.newId(),
             start = OffsetDateTime.now(),
             end = null,
-            deviceName = com.musubi.phone.net.MacSettings.deviceName(),
+            deviceName = PhoneSync.deviceName(),
             event = event,
             chunks = emptyList(),
         )
@@ -151,8 +159,7 @@ class RecorderService : Service() {
         closeRecording(id)
         RecorderStatus.lastError = error
         engine = null
-        finish()
-        SyncScheduler.syncSoon(this)
+        finish(holdForSync = true)
     }
 
     /** Sets the end time once; a recording that captured nothing is removed. Idempotent. */
@@ -166,13 +173,58 @@ class RecorderService : Service() {
         }
     }
 
-    private fun finish() {
+    private fun finish(holdForSync: Boolean = false) {
         RecorderStatus.recordingId = null
         RecorderStatus.eventSubject = null
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
+        if (holdForSync && PhoneSync.openWindow(ListenWindows.Kind.AFTER_RECORDING, ListenWindows.AFTER_RECORDING_MS) && holdForSync()) return
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    /**
+     * Stays in the foreground (type dataSync) while the after-recording window is open. Returns
+     * false when Android refuses the type change; the window then stays open only as long as the
+     * process happens to live, and the periodic job is the fallback.
+     */
+    private fun holdForSync(): Boolean {
+        try {
+            ServiceCompat.startForeground(
+                this, NOTIFICATION_ID, syncNotification(),
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0,
+            )
+        } catch (e: Exception) {
+            return false
+        }
+        holdingForSync = true
+        syncWakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "musubi:sync")
+            .also { it.setReferenceCounted(false); it.acquire(ListenWindows.AFTER_RECORDING_MS + 2 * 60_000L) }
+        Thread({
+            PhoneSync.awaitWindowEnd(ListenWindows.Kind.AFTER_RECORDING, ListenWindows.AFTER_RECORDING_MS + 60_000L)
+            main.post { endSyncHold() }
+        }, "musubi-sync-hold").apply { isDaemon = true }.start()
+        return true
+    }
+
+    private fun endSyncHold() {
+        if (!holdingForSync) return
+        holdingForSync = false
+        syncWakeLock?.let { if (it.isHeld) it.release() }
+        syncWakeLock = null
+        // A new recording started meanwhile: it owns the foreground now.
+        if (engine != null) return
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    /** Android 15 caps dataSync time per day; when it ends the hold, the window ends with it. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        if (fgsType and ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC != 0 && holdingForSync) {
+            PhoneSync.closeWindow(ListenWindows.Kind.AFTER_RECORDING)
+            endSyncHold()
+        }
     }
 
     override fun onDestroy() {
@@ -185,6 +237,7 @@ class RecorderService : Service() {
             RecorderStatus.recordingId = null
         }
         wakeLock?.let { if (it.isHeld) it.release() }
+        syncWakeLock?.let { if (it.isHeld) it.release() }
         super.onDestroy()
     }
 
@@ -210,6 +263,22 @@ class RecorderService : Service() {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setContentIntent(open)
             .addAction(R.drawable.ic_stop, getString(R.string.stop), stop)
+            .build()
+    }
+
+    private fun syncNotification(): Notification {
+        val open = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_laptop)
+            .setContentTitle(getString(R.string.ready_for_mac))
+            .setContentText(getString(R.string.ready_for_mac_text))
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setContentIntent(open)
             .build()
     }
 

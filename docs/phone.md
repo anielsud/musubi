@@ -79,8 +79,8 @@ core, lifecycle, WorkManager, Material components).
   with a key tied to the lock screen. `allowBackup="false"` and data
   extraction rules exclude all files from cloud backup and device
   transfer.
-- The pairing token is encrypted with an AES-256-GCM key held in the
-  Android Keystore (not exportable).
+- The phone's TLS key lives in the Android Keystore (not exportable);
+  the paired Mac is a pinned certificate hash, not a secret.
 - Audio leaves the phone only to the paired Mac.
 
 **Live text** (owner's decision of 2026-11-13: build now, start/stop,
@@ -125,92 +125,135 @@ a light model)
   `android/release.sh` builds the same signed APK; `--publish` exists for
   emergencies only.
 
-**Finding the Mac** (owner's decision of 2026-11-13: no typed addresses)
-- The Mac advertises `_musubi._tcp` on the local network (Bonjour) while
-  phone access is on: instance name `Musubi on <computer name>`, port,
-  TXT `v=1` and `fp=<first 16 hex digits of the certificate
-  fingerprint>`.
-- The phone lists the Macs it finds (Android NSD). After pairing it keeps
-  the Mac's instance name and pinned fingerprint and finds its current
-  address the same way at every sync (the address may change); the last
-  address that worked is tried first. Bonjour does not cross Tailscale; a
-  manual address stays available under **Advanced**.
+**Sync: the Mac dials the phone** (owner's decision of 2026-11-13, after
+the first version met the Mac's firewall)
 
-**Sync** (WorkManager, when the Mac is reachable, and on **Sync now**)
-- Upload each finished recording's chunks, then complete it. Delete a
-  recording's audio from the phone only once the Mac reports it
-  `imported` (saved as a meeting session). Keep `meta.json` for 30 days
-  so the list shows what happened.
-- Fetch the agenda (events and briefs). Replace the phone's copy; drop
-  events that have ended more than a day ago.
+The work Mac's firewall refuses incoming connections to apps without an
+Apple-issued signature, so the Mac cannot be the server. It makes only
+outgoing connections, which the firewall does not filter; the phone is
+the server. (Routing around the firewall through some other signed
+program would sidestep the company's policy, so it is not an option.)
+
+- **Listening**: the phone runs a TLS server on port 47616 only in
+  windows: while the app is in the foreground; for up to 8 minutes after
+  a recording stops; and for up to 3 minutes in a periodic WorkManager
+  job (every 15 minutes, network connected; Android may space these out
+  when the phone is idle). A window ends early once a paired Mac has
+  finished a sync. Opening the app is the way to sync now.
+- **Advertising**: during a window the phone registers `_musubi-phone._tcp`
+  (Android NSD), instance `musubi-<first 8 hex digits of its certificate
+  SHA-256>` (no device or owner name: it is also seen on other
+  networks), TXT `v=2`, `fp=<first 16 hex digits>`, and `pair=1` only
+  while the owner has pairing open.
+- **Accepting**: only connections from private addresses (RFC 1918,
+  100.64.0.0/10 and fd7a:115c:a1e0::/48 for Tailscale, link-local,
+  loopback). Mutual TLS: outside pairing, a client must present the
+  paired Mac's certificate (pinned SHA-256); anything else fails the
+  handshake. At most one connection at a time.
+- **Phone certificate**: self-signed ECDSA P-256, made on first use, its
+  key generated in and never leaving the Android Keystore.
+- **Addresses for Tailscale**: the phone reports its current addresses
+  (including a Tailscale 100.x / fd7a: address when it has one) at every
+  sync; the Mac dials those when it doesn't see the phone on the local
+  network. That works only when the Mac runs Tailscale too.
+- **Recordings**: the phone serves finished recordings' `meta.json` and
+  chunks; the Mac fetches what it lacks and reports each recording's
+  state back. The phone deletes a recording's audio only when the Mac
+  reports it `imported`, and keeps `meta.json` 30 days.
+- **Agenda**: the Mac pushes the agenda (events and briefs) on every
+  sync; the phone replaces its copy and drops events ended more than a
+  day ago.
+- **Mac screen** on the phone: paired Mac's name, last sync and what it
+  did, **Pair with your Mac**, **Unpair**. No addresses to type.
+
+**Pairing, confirmed on both** (numeric comparison, as Bluetooth does)
+1. On the phone the owner taps **Pair with your Mac**: a window opens for
+   2 minutes and the advertisement carries `pair=1`.
+2. The Mac, with phone sync on, sees `pair=1`, connects (presenting its
+   certificate; during the pairing window the phone accepts any client
+   certificate, for the pairing ops only) and sends `pair_request`
+   `{mac_name, nonce}` (16 random bytes); the phone answers
+   `{device_name, nonce}` (16 of its own).
+3. Both compute the code: the first 4 bytes of SHA-256(`"musubi-pair-v2"`
+   ‖ Mac certificate SHA-256 (32 bytes) ‖ phone certificate SHA-256 (32
+   bytes) ‖ Mac nonce ‖ phone nonce) as a big-endian unsigned number, mod
+   1,000,000, zero-padded to 6 digits. Each side takes both certificates
+   from the TLS session itself, so a machine in the middle makes the
+   codes differ.
+4. Musubi brings its window forward: "Pair <device name>? Code 123 456",
+   **Allow** / **Deny**. The phone shows the code with **Confirm** /
+   **Cancel**. After Allow the Mac sends `pair_confirm` and waits (up to
+   2 minutes) on the same connection; the phone answers `{ok: true}` only
+   once its owner tapped Confirm, otherwise `{ok: false, error:
+   "cancelled" | "expired"}`. Deny sends `pair_cancel`.
+5. On success the Mac pins the phone's certificate (and stores its name,
+   addresses, dates); the phone pins the Mac's and its name. There are
+   no tokens.
+- The Mac shows one prompt at a time; after 3 denials of the same phone
+  certificate in 10 minutes it ignores that phone for 10 minutes.
+- Unpair on either side removes that side's pin; the other side's
+  connections then fail and it says so.
+
+**Protocol** (over the mutual-TLS connection; TLS 1.2 or 1.3, ECDHE with
+AES-GCM or ChaCha20). The Mac sends requests one at a time; the phone
+answers each. Every message is a 4-byte big-endian length, that many
+bytes of UTF-8 JSON (at most 64 KB), then, if the JSON has `"body": n`,
+n raw bytes (at most 64 MB). Requests are `{"op": …, …}`; replies are
+`{"ok": true, …}` or `{"ok": false, "error": "<short code>"}`. Unknown
+ops, oversize frames and malformed JSON close the connection.
+
+| op | request → reply |
+|---|---|
+| `hello` | `{v: 2, mac_name}` → `{v: 2, device_name, app_version, addresses: [ip…]}` |
+| `list` | → `{recordings: [{meta: <meta.json>, state: <last state the Mac reported> \| null}]}` (finished recordings only) |
+| `chunk` | `{rid, n}` → `{sha256}` + body (the chunk's bytes) |
+| `state` | `{rid, state: received \| waiting \| transcribing \| imported \| failed, session_id?, error?}` → `{}` |
+| `agenda` | `{body: n}` + the agenda JSON (the shape below) → `{}` |
+| `bye` | → `{}`; the phone closes its window if nothing else is pending |
+| `pair_request`, `pair_confirm`, `pair_cancel` | as in Pairing |
+
+Agenda JSON: `{events: [{id, start, end, subject, location, organizer,
+attendees: [{name}], brief: {text, made_at, sensitivity: {level, share,
+why}} | null}], drafting: n, made_at}`.
+
+`rid` is the phone's UUID, `n` 0–9999. The phone refuses `chunk` and
+`state` for unknown recordings.
 
 ### 2. The Mac side
 
-**Phone access server** (in the Musubi app, `internal/phone`): off until
-the owner turns on **Settings → Phone**. HTTPS only, on a fixed port
-(47615). Accepts connections only from private addresses (RFC 1918,
-100.64.0.0/10 for Tailscale, link-local, loopback); everything else is
-closed at accept.
+**Phone sync** (in the Musubi app, `internal/phone`): off until the owner
+turns on **Settings → Phone** (`[phone] enabled`). The Mac listens on no
+port.
 
-- **TLS**: a self-signed ECDSA P-256 certificate made on first use, kept
-  in the Musubi data folder (key file mode 0600). The phone pins its
-  SHA-256 fingerprint at pairing.
-- **Pairing, confirmed on both** (numeric comparison, as Bluetooth does):
-  1. The phone picks a Mac it found, connects (TLS, noting the
-     certificate's SHA-256; its first 16 hex digits must match the
-     advertised `fp`), and sends `POST /v1/pair/request {device_name,
-     nonce}` with 16 random bytes; the Mac answers `{request_id, nonce}`
-     with 16 of its own.
-  2. Both compute the same 6-digit code: the first 4 bytes of
-     SHA-256(`"musubi-pair-v1"` ‖ certificate SHA-256 (32 bytes) ‖ phone
-     nonce ‖ Mac nonce) as a big-endian unsigned number, mod 1,000,000,
-     zero-padded. A machine in the middle shows the phone a different
-     certificate, so the codes would differ.
-     Test vector (`TestPairCodeVector`): certificate SHA-256 = bytes
-     `00 01 … 1f`, phone nonce = `20 21 … 2f` (base64
-     `ICEiIyQlJicoKSorLC0uLw==`), Mac nonce = `30 31 … 3f` (base64
-     `MDEyMzQ1Njc4OTo7PD0+Pw==`) → SHA-256 `e99e1991…`, code **452561**.
-  3. Musubi brings its window forward with "Pair <device name>? Code
-     123 456" and **Allow** / **Deny**; the phone shows the code with
-     **Confirm** / **Cancel**. The phone's Confirm is
-     `POST /v1/pair/{request_id}/confirm`.
-  4. The phone polls `GET /v1/pair/{request_id}`: `pending`, `denied`,
-     `expired`, or, once both have confirmed, `{device_id, token}`
-     (returned once; the request is then gone).
-  - A request expires after 2 minutes. One pending request at a time;
-    at most 5 requests per 10 minutes; after 3 denials in 10 minutes
-    requests are refused for 10 minutes. The 8-digit code flow is
-    removed.
-- **Devices**: pairing issues a 32-byte random token. The Mac stores only
-  its SHA-256 and the device's name and dates. **Settings → Phone** lists
-  devices and revokes them. Tokens travel in `Authorization: Bearer`,
-  never in a URL. Every response is `Cache-Control: no-store`.
-- Pairing, revocation, upload completion and failures are logged without
-  tokens or codes.
+- **Finding phones**: while on, the Mac browses `_musubi-phone._tcp`
+  (Bonjour, the system `dns-sd`), resolves each phone it sees and dials
+  it if it is paired (by the advertised `fp` and then the pinned
+  certificate) or advertising `pair=1`. It also dials each paired
+  phone's last reported addresses every 10 minutes when it hasn't seen
+  it on the local network. It dials private addresses only.
+- **Certificate**: the Mac's self-signed ECDSA P-256 certificate (made on
+  first use, kept in the Musubi data folder, key 0600) is its client
+  certificate; it pins each phone's certificate at pairing and refuses
+  any other.
+- **A sync**: `hello` → `list` → for each recording the Mac lacks or
+  hasn't finished: fetch missing chunks (`chunk`, checked against
+  `meta.json`'s SHA-256 and size), join them into the recorder's inbox
+  and ask the recorder to import it (control op `import`) → `state` for
+  every recording whose state changed → `agenda` → `bye`. Chunks are
+  kept in a staging folder until the import is done, so an interrupted
+  sync resumes.
+- **Agenda**: owner scope, the next 10 days (at most 14); each sync also
+  starts drafting missing briefs in that window in the background (the
+  same drafting as the weekly pass, not during a live meeting), so the
+  next sync carries them.
+- **Devices**: **Settings → Phone** lists paired phones (name, last
+  sync, last addresses) with Unpair, shows whether the Mac is looking
+  for phones, and the last sync's outcome.
+- Pairing, unpairing, syncs and failures are logged without nonces,
+  codes or certificate keys.
 
-**API** (JSON unless noted; every call but the `pair` calls needs the token)
-
-| Call | Body → reply |
-|---|---|
-| `POST /v1/pair/request` | `{device_name, nonce}` (base64, 16 bytes) → `{request_id, nonce}` |
-| `POST /v1/pair/{request_id}/confirm` | → `204` |
-| `GET /v1/pair/{request_id}` | → `{state: pending \| denied \| expired}` or `{state: "paired", device_id, token}` |
-| `GET /v1/agenda?days=10` | → `{events: [{id, start, end, subject, location, organizer, attendees: [{name}], brief: {text, made_at, sensitivity: {level, share, why}} \| null}], drafting: n}` |
-| `PUT /v1/recordings/{rid}/chunks/{n}` | `audio/aac` body, header `X-Sha256` → `204`. Same chunk again: `204`; different bytes: `409`. At most 64 MB. |
-| `POST /v1/recordings/{rid}/complete` | the phone's `meta.json` → `202 {state}` |
-| `GET /v1/recordings/{rid}` | → `{state: received \| waiting \| transcribing \| imported \| failed, session_id, error}` |
-
-`rid` is a UUID made by the phone; `n` is 0–9999. The agenda is the owner's
-own (owner scope): the phone carries the same briefs the owner sees.
-`days` is capped at 14. An agenda request starts drafting any missing
-briefs in that window in the background (the same drafting as the weekly
-one, not during a live meeting); `drafting` says how many are left, and
-the phone asks again later.
-
-**Import**: on `complete`, the server checks every chunk against
-`meta.json`, joins the ADTS chunks into one file in the recorder's inbox,
-and asks the recorder to import it (control op `import`). It never runs
-while the recorder is recording a live meeting (state `waiting`).
+**Import**: the recorder imports a joined recording only when it isn't
+recording a live meeting (state `waiting` until then).
 
 **Recorder import** (`musubi-recorder import <file>` and control op
 `import`): creates a session from an outside audio file: start time from
@@ -226,11 +269,8 @@ event, that event is the link.
 
 ### 3. Musubi's screens on the phone (after this round)
 
-The Musubi app serves its own screens (the same frontend) to paired
-phones over the same server, for reading and Ask only: an allowlist of
-read methods plus Ask, events streamed over server-sent events, the
-session in an `HttpOnly; Secure; SameSite=Strict` cookie set by the app.
-Not built yet.
+Reading and Ask on the phone, through the connection the Mac opens (the
+Mac cannot accept connections). Not designed yet.
 
 ## Trade-offs
 
@@ -238,10 +278,13 @@ Not built yet.
   model: the Mac's transcript is the record.
 - Updates come from a public repo: the APK can be downloaded and read by
   anyone (no data or keys in it), as the Mac installers already can.
-- The Mac announces itself on the local network while phone access is
-  on, so others on that network can see a Musubi is there.
-- The Mac gains a network listener, off by default, private addresses
-  only, paired devices only. It is the one new attack surface.
+- The phone, not the Mac, accepts connections: in short windows, from
+  private addresses, mutual TLS with the pinned Mac only. Its
+  advertisement shows others on the same network (also on a conference
+  or hotel network) that a Musubi phone is there, without a name.
+- Sync in the background is as prompt as Android's job scheduling (about
+  every 15 minutes, less when idle); opening the app syncs at once.
+- Over Tailscale only when the Mac runs Tailscale too.
 - Audio and briefs sit on the phone until the next sync. Protection is
   Android's storage encryption and the lock screen. Revoking a phone
   stops it syncing; it does not wipe what is already on it.

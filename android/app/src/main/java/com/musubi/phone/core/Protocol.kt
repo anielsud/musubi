@@ -33,6 +33,8 @@ class SyncSession(
     private val pin: () -> ByteArray?,
     private val clock: Clock = Clock.systemDefaultZone(),
     private val random: SecureRandom = SecureRandom(),
+    /** Whether Explore may start now (the app is in the foreground). */
+    private val liveAllowed: () -> Boolean = { false },
 ) {
     enum class End {
         /** `bye` after a full sync (list and agenda, no errors, nothing left out) with nothing pending. */
@@ -45,6 +47,8 @@ class SyncSession(
         NOT_PAIRED,
         /** `hello` with a protocol version other than 2. */
         VERSION,
+        /** `live_start` accepted: the connection is Explore's from now on ([LiveLink]). */
+        LIVE,
     }
 
     /** What this connection did, for the Mac screen. Never holds codes, nonces or transcript text. */
@@ -96,6 +100,12 @@ class SyncSession(
                             "chunk" -> chunk(h.json, writer)
                             "state" -> state(h.json, writer)
                             "agenda" -> agenda(h, reader, writer)
+                            "live_start" -> if (liveAllowed()) {
+                                reply(writer, ok())
+                                return End.LIVE
+                            } else {
+                                reply(writer, error("not_live"))
+                            }
                         }
                     }
                 }
@@ -288,7 +298,7 @@ class SyncSession(
         const val MAX_ID = 200
         const val MAX_ERROR = 500
         private const val LIST_OVERHEAD = 64
-        val OPS = setOf("hello", "list", "chunk", "state", "agenda", "bye", "pair_request", "pair_confirm", "pair_cancel")
+        val OPS = setOf("hello", "list", "chunk", "state", "agenda", "bye", "pair_request", "pair_confirm", "pair_cancel", "live_start")
         val MAC_STATES = setOf("received", "waiting", "transcribing", "imported", "failed")
 
         /** A 16-byte nonce in base64 (standard or URL alphabet, padded or not). */

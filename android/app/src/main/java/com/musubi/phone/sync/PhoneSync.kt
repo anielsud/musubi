@@ -9,6 +9,7 @@ import com.musubi.phone.core.AddressFilter
 import com.musubi.phone.core.FrameWriter
 import com.musubi.phone.core.Hashing
 import com.musubi.phone.core.ListenWindows
+import com.musubi.phone.core.LiveLink
 import com.musubi.phone.core.PairingFlow
 import com.musubi.phone.core.PhoneInfo
 import com.musubi.phone.core.ProtocolViolation
@@ -77,6 +78,12 @@ object PhoneSync {
     @Volatile private var lastError: String? = null
     private val quiet = Object()
 
+    /** Explore's connection while the Mac holds one (docs/phone.md, part 3); null otherwise. */
+    @Volatile var live: LiveLink? = null
+        private set
+    /** Where the Mac's events go: the Explore screen's bridge, while it is open. */
+    @Volatile var liveEvents: ((name: String, dataJson: String) -> Unit)? = null
+
     fun init(context: Context) {
         app = context.applicationContext
         paired = PairedMac(app)
@@ -96,8 +103,13 @@ object PhoneSync {
 
     fun foreground(on: Boolean) {
         if (on) windows.open(ListenWindows.Kind.FOREGROUND) else windows.close(ListenWindows.Kind.FOREGROUND)
+        // Explore lasts only while the app is in front.
+        if (!on) live?.end()
         kick()
     }
+
+    /** Explore may start: a Mac is paired and the app is in the foreground. */
+    private fun liveAllowed(): Boolean = paired.isPaired && windows.isOpen(ListenWindows.Kind.FOREGROUND)
 
     /** Opens a window of [kind] for [ms] when a Mac is paired. Returns false when there is none. */
     fun openWindow(kind: ListenWindows.Kind, ms: Long): Boolean {
@@ -155,7 +167,7 @@ object PhoneSync {
                 val s = server ?: TlsServer(id, ClientTrust({ paired.pin }, { pairing.isOpen() }, ::refused), ::serve, ::idleMs).also { server = it }
                 if (!s.isRunning) s.start()
                 val adv = advertiser ?: Advertiser(app, id.sha256Hex, TlsServer.PORT).also { advertiser = it }
-                adv.update(on = true, pair = pairing.isOpen())
+                adv.update(on = true, pair = pairing.isOpen(), live = liveAllowed())
                 lastError = null
             } else {
                 advertiser?.update(on = false, pair = false)
@@ -167,6 +179,7 @@ object PhoneSync {
             advertiser?.update(on = false, pair = false)
             server?.stop()
         }
+        live?.expire()
         synchronized(quiet) { quiet.notifyAll() }
         if (want && !ticking) {
             ticking = true
@@ -175,8 +188,14 @@ object PhoneSync {
     }
 
     /** While a code is shown, the Mac waits for its owner (up to 2 minutes) before pair_confirm. */
-    private fun idleMs(): Int =
-        if (pairing.state() is PairingFlow.State.Code) (PairingFlow.DECIDE_MS + 30_000L).toInt() else TlsServer.IDLE_MS
+    private fun idleMs(): Int = when {
+        pairing.state() is PairingFlow.State.Code -> (PairingFlow.DECIDE_MS + 30_000L).toInt()
+        // The Mac pings every 30 seconds while Explore is open.
+        live != null -> LIVE_READ_MS
+        else -> TlsServer.IDLE_MS
+    }
+
+    private const val LIVE_READ_MS = 95_000
 
     private fun refused() {
         paired.lastResult = "Refused a Mac that is not the paired one"
@@ -196,18 +215,35 @@ object PhoneSync {
 
     /** Server thread: one connection. */
     private fun serve(socket: javax.net.ssl.SSLSocket, macFp: ByteArray, reader: com.musubi.phone.core.FrameReader) {
-        val session = SyncSession(App.store(app), App.agenda(app), pairing, info, macFp, { paired.pin })
+        val session = SyncSession(App.store(app), App.agenda(app), pairing, info, macFp, { paired.pin }, liveAllowed = ::liveAllowed)
+        val writer = FrameWriter(socket.outputStream.buffered())
         val end = try {
-            session.serve(reader, FrameWriter(socket.outputStream.buffered()))
+            session.serve(reader, writer)
         } catch (e: ProtocolViolation) {
             null
         } catch (e: java.io.IOException) {
             SyncSession.End.CLOSED
         }
-        record(session.summary, end)
+        record(session.summary, if (end == SyncSession.End.LIVE) SyncSession.End.BYE else end)
         if (end == SyncSession.End.SYNCED) windows.endEarly()
         runCatching { App.store(app).pruneImported() }
         kick()
+        if (end == SyncSession.End.LIVE) serveLive(reader, writer)
+    }
+
+    /** Server thread: Explore's connection, until either side ends it. */
+    private fun serveLive(reader: com.musubi.phone.core.FrameReader, writer: FrameWriter) {
+        val link = LiveLink(reader, writer, { name, data -> liveEvents?.invoke(name, data) })
+        live = link
+        kick()
+        try {
+            link.run()
+        } catch (e: java.io.IOException) {
+            // Closed by the Mac, a timeout or a protocol violation: Explore closes.
+        } finally {
+            live = null
+            kick()
+        }
     }
 
     private fun record(s: SyncSession.Summary, end: SyncSession.End?) {

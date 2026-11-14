@@ -25,6 +25,7 @@ import com.musubi.phone.rec.RecorderConfig
 import com.musubi.phone.rec.RecorderService
 import com.musubi.phone.rec.RecorderStatus
 import com.musubi.phone.ui.BriefScreen
+import com.musubi.phone.ui.ExploreScreen
 import com.musubi.phone.ui.MacScreen
 import com.musubi.phone.ui.RecordingScreen
 import com.musubi.phone.ui.RecordingsScreen
@@ -35,7 +36,10 @@ import com.musubi.phone.core.AgendaEvent
 import com.musubi.phone.sync.PhoneSync
 import com.musubi.phone.update.Updater
 
-/** The single activity: three tabs (Today, Recordings, Mac) plus pushed Recording and Brief screens. */
+/**
+ * The single activity: three tabs (Today, Recordings, Mac), a fourth (Explore) while the Mac holds
+ * Explore's connection, plus pushed Recording and Brief screens.
+ */
 class MainActivity : AppCompatActivity() {
     private lateinit var toolbar: MaterialToolbar
     private lateinit var content: FrameLayout
@@ -99,6 +103,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        // Explore lasts only while the app is in front: its page goes with it.
+        if (tab is ExploreScreen) nav.selectedItemId = TAB_TODAY
         PhoneSync.foreground(false)
         super.onStop()
     }
@@ -119,6 +125,7 @@ class MainActivity : AppCompatActivity() {
 
     private val ticker = object : Runnable {
         override fun run() {
+            syncExplore()
             current()?.tick()
             RecorderStatus.lastError?.let {
                 RecorderStatus.lastError = null
@@ -130,11 +137,27 @@ class MainActivity : AppCompatActivity() {
 
     private fun current(): Screen? = stack.lastOrNull() ?: tab
 
+    /** The Explore tab is there only while the Mac holds Explore's connection. */
+    private fun syncExplore() {
+        val link = PhoneSync.live
+        val shown = nav.menu.findItem(TAB_EXPLORE) != null
+        if (link != null && !shown) nav.menu.add(0, TAB_EXPLORE, 3, "Explore").setIcon(R.drawable.ic_explore)
+        if (link == null && shown) {
+            if (tab is ExploreScreen) nav.selectedItemId = TAB_TODAY
+            nav.menu.removeItem(TAB_EXPLORE)
+        }
+        // The Mac connected again: the page moves to the new connection.
+        val t = tab as? ExploreScreen
+        if (t != null && link != null && t.link !== link) showTab(TAB_EXPLORE)
+    }
+
     private fun showTab(id: Int) {
         stack.clear()
+        (tab as? ExploreScreen)?.dispose()
         tab = when (id) {
             TAB_RECORDINGS -> RecordingsScreen(this)
             TAB_MAC -> MacScreen(this)
+            TAB_EXPLORE -> ExploreScreen(this)
             else -> TodayScreen(this)
         }
         render()
@@ -211,5 +234,6 @@ class MainActivity : AppCompatActivity() {
         private const val TAB_TODAY = 1
         private const val TAB_RECORDINGS = 2
         private const val TAB_MAC = 3
+        private const val TAB_EXPLORE = 4
     }
 }

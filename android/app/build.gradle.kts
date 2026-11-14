@@ -12,8 +12,8 @@ android {
         applicationId = "com.musubi.phone"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 6
+        versionName = "0.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Smoke tests only (-PupdatesMockBase=https://10.0.2.2:8443 -PupdatesMockPin=<cert SHA-256>): a local mock of
         // the GitHub releases API. Empty in every real build; release.sh sets both empty.

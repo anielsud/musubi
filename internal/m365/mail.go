@@ -47,8 +47,11 @@ func SyncMail(ctx context.Context, c *Client, dir string, first time.Time, focus
 		since = first
 	}
 	q := url.Values{
-		"$filter":  {"lastModifiedDateTime ge " + since.UTC().Format(time.RFC3339)},
-		"$select":  {"id,conversationId,subject,from,toRecipients,ccRecipients,sentDateTime,body,sensitivity,inferenceClassification,isDraft"},
+		"$filter": {"lastModifiedDateTime ge " + since.UTC().Format(time.RFC3339)},
+		"$select": {"id,conversationId,subject,from,toRecipients,ccRecipients,sentDateTime,body,inferenceClassification,isDraft"},
+		// A message has no sensitivity property (selecting one fails the
+		// request); Outlook keeps it as PR_SENSITIVITY.
+		"$expand":  {"singleValueExtendedProperties($filter=id eq '" + prSensitivity + "')"},
 		"$top":     {"50"},
 		"$orderby": {"lastModifiedDateTime"},
 	}
@@ -61,12 +64,13 @@ func SyncMail(ctx context.Context, c *Client, dir string, first time.Time, focus
 		}
 		var page struct {
 			Value []struct {
-				ID, ConversationID, Subject, Sensitivity, InferenceClassification string
-				IsDraft                                                           bool
-				SentDateTime                                                      time.Time
-				From                                                              *struct{ EmailAddress emailAddress }
-				ToRecipients, CcRecipients                                        []struct{ EmailAddress emailAddress }
-				Body                                                              struct{ Content string }
+				ID, ConversationID, Subject, InferenceClassification string
+				IsDraft                                              bool
+				SingleValueExtendedProperties                        []struct{ ID, Value string }
+				SentDateTime                                         time.Time
+				From                                                 *struct{ EmailAddress emailAddress }
+				ToRecipients, CcRecipients                           []struct{ EmailAddress emailAddress }
+				Body                                                 struct{ Content string }
 			} `json:"value"`
 			Next string `json:"@odata.nextLink"`
 		}
@@ -90,7 +94,7 @@ func SyncMail(ctx context.Context, c *Client, dir string, first time.Time, focus
 				from = person{Name: m.From.EmailAddress.Name, Email: strings.ToLower(m.From.EmailAddress.Address)}
 			}
 			rec := map[string]any{"subject": m.Subject, "from": from, "to": addr(m.ToRecipients), "cc": addr(m.CcRecipients),
-				"sentAt": m.SentDateTime.UTC().Format(time.RFC3339), "body": m.Body.Content, "threadId": m.ConversationID, "sensitivity": m.Sensitivity}
+				"sentAt": m.SentDateTime.UTC().Format(time.RFC3339), "body": m.Body.Content, "threadId": m.ConversationID, "sensitivity": mailSensitivity(m.SingleValueExtendedProperties)}
 			wrote, err := WriteJSONIfChanged(filepath.Join(out, "m-"+shortHash(m.ID)+".json"), envelope{Kind: "email", Source: MailSource, Ref: m.ID, Record: rec})
 			if err != nil {
 				return rep, err
@@ -103,6 +107,32 @@ func SyncMail(ctx context.Context, c *Client, dir string, first time.Time, focus
 	}
 	save(now)
 	return rep, nil
+}
+
+// prSensitivity is the MAPI property Outlook stores a message's
+// sensitivity in: 0 normal, 1 personal, 2 private, 3 confidential.
+const prSensitivity = "Integer 0x0036"
+
+// mailSensitivity is a message's PR_SENSITIVITY in the words events use
+// ("normal", "personal", "private", "confidential"), or "" when it has
+// none. Graph returns the id normalised ("Integer 0x36").
+func mailSensitivity(props []struct{ ID, Value string }) string {
+	for _, p := range props {
+		if !strings.EqualFold(strings.ReplaceAll(p.ID, "0x00", "0x"), "Integer 0x36") {
+			continue
+		}
+		switch strings.TrimSpace(p.Value) {
+		case "0":
+			return "normal"
+		case "1":
+			return "personal"
+		case "2":
+			return "private"
+		case "3":
+			return "confidential"
+		}
+	}
+	return ""
 }
 
 // ChatReport counts what a chat sync wrote.

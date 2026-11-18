@@ -2,6 +2,7 @@ package transcribe
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/anielsud/musubi/internal/recorder/models"
 )
@@ -29,9 +30,15 @@ func NewEngineSetFromConfig(cfg Config, status *models.Status) (*EngineSet, erro
 
 	var parakeet Engine
 	var err error
-	if asr.Kind == models.ASRKindCohere {
+	switch asr.Kind {
+	case models.ASRKindCohere:
 		parakeet, err = NewCohereEngine(status.ASRModelDir(asr), defaultLang, cfg.NumThreads, cfg.VADPath)
-	} else {
+	case models.ASRKindWhisper:
+		dir := status.ASRModelDir(asr)
+		parakeet, err = NewWhisperEngine(WhisperFiles{
+			Encoder: filepath.Join(dir, asr.Files[0]), Decoder: filepath.Join(dir, asr.Files[1]), Tokens: filepath.Join(dir, asr.Files[2]),
+		}, cfg.WhisperLanguages, cfg.NumThreads, cfg.VADPath)
+	default:
 		parakeet, err = NewEngine(cfg)
 	}
 	if err != nil {

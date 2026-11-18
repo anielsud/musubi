@@ -18,22 +18,27 @@ import (
 var CandidateKinds = []string{"transducer", "whisper", "canary", "moonshine", "qwen3", "funasr-nano", "cohere"}
 
 // NewCandidateEngine loads the model in dir as an Engine. kind says which
-// family it is; the files are found by name (int8 preferred).
-func NewCandidateEngine(kind, dir string, threads int) (Engine, error) {
+// family it is; the files are found by name (int8 preferred). lang is the
+// spoken language for the families that take one: "" means English, as
+// before; "auto" lets Whisper detect it for every utterance, so a meeting
+// that switches between languages is decoded in each (other families
+// treat "auto" as English).
+func NewCandidateEngine(kind, dir string, threads int, lang string) (Engine, error) {
 	files, err := listFiles(dir)
 	if err != nil {
 		return nil, err
 	}
 	pick := func(parts ...string) string { return pickFile(files, parts...) }
+	fixed, whisperLang := candidateLangs(lang)
 	mc := sherpa.OfflineModelConfig{NumThreads: max(1, threads), Provider: "cpu", Tokens: pick("tokens.txt")}
 	switch kind {
 	case "transducer":
 		mc.Transducer = sherpa.OfflineTransducerModelConfig{Encoder: pick("encoder", ".onnx"), Decoder: pick("decoder", ".onnx"), Joiner: pick("joiner", ".onnx")}
 		mc.ModelType = "nemo_transducer"
 	case "whisper":
-		mc.Whisper = sherpa.OfflineWhisperModelConfig{Encoder: pick("encoder", ".onnx"), Decoder: pick("decoder", ".onnx"), Language: "en", Task: "transcribe", TailPaddings: -1}
+		mc.Whisper = sherpa.OfflineWhisperModelConfig{Encoder: pick("encoder", ".onnx"), Decoder: pick("decoder", ".onnx"), Language: whisperLang, Task: "transcribe", TailPaddings: -1}
 	case "canary":
-		mc.Canary = sherpa.OfflineCanaryModelConfig{Encoder: pick("encoder", ".onnx"), Decoder: pick("decoder", ".onnx"), SrcLang: "en", TgtLang: "en", UsePnc: 1}
+		mc.Canary = sherpa.OfflineCanaryModelConfig{Encoder: pick("encoder", ".onnx"), Decoder: pick("decoder", ".onnx"), SrcLang: fixed, TgtLang: fixed, UsePnc: 1}
 	case "moonshine":
 		mc.Moonshine = sherpa.OfflineMoonshineModelConfig{
 			Preprocessor: pick("preprocess"), Encoder: pick("encode"),
@@ -47,10 +52,10 @@ func NewCandidateEngine(kind, dir string, threads int) (Engine, error) {
 	case "funasr-nano":
 		mc.FunAsrNano = sherpa.OfflineFunASRNanoModelConfig{
 			EncoderAdaptor: pick("encoder", ".onnx"), LLM: pick("llm", ".onnx"), Embedding: pick("embedding", ".onnx"),
-			Tokenizer: pickDir(dir, "tokenizer", "Qwen"), MaxNewTokens: 512, Language: "en",
+			Tokenizer: pickDir(dir, "tokenizer", "Qwen"), MaxNewTokens: 512, Language: fixed,
 		}
 	case "cohere":
-		mc.CohereTranscribe = sherpa.OfflineCohereTranscribeModelConfig{Encoder: pick("encoder", ".onnx"), Decoder: pick("decoder", ".onnx"), Language: "en", UsePunct: 1, UseInverseTextNormalization: 1}
+		mc.CohereTranscribe = sherpa.OfflineCohereTranscribeModelConfig{Encoder: pick("encoder", ".onnx"), Decoder: pick("decoder", ".onnx"), Language: fixed, UsePunct: 1, UseInverseTextNormalization: 1}
 	default:
 		return nil, fmt.Errorf("unknown model kind %q (one of %s)", kind, strings.Join(CandidateKinds, ", "))
 	}
@@ -64,6 +69,20 @@ func NewCandidateEngine(kind, dir string, threads int) (Engine, error) {
 	}
 	sigfix.AfterSherpa()
 	return &parakeetEngine{recognizer: rec}, nil
+}
+
+// candidateLangs maps a candidate's language setting to the code the
+// fixed-language families take and the one Whisper takes ("" detects it).
+func candidateLangs(lang string) (fixed, whisper string) {
+	if lang == "" || lang == "auto" {
+		fixed = "en"
+	} else {
+		fixed = lang
+	}
+	if lang == "auto" {
+		return fixed, ""
+	}
+	return fixed, fixed
 }
 
 // listFiles lists the files in dir and one level below.

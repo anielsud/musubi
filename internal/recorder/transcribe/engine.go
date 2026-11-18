@@ -46,4 +46,7 @@ type Config struct {
 	// picks for the default language, if downloaded, in place of the
 	// paths above.
 	Model string
+	// WhisperLanguages are what a Whisper model may write (config
+	// transcription.whisper_languages); empty is unchecked.
+	WhisperLanguages []string
 }

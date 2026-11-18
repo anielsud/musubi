@@ -20,6 +20,10 @@ const sampleRate = 16000
 type parakeetEngine struct {
 	recognizer *sherpa.OfflineRecognizer
 	vadConfig  *sherpa.VadModelConfig
+	// decodeFn, when set, decodes in place of the recognizer alone (the
+	// Whisper language guard); closeFn frees what it holds.
+	decodeFn func([]float32) (*sherpa.OfflineRecognizerResult, error)
+	closeFn  func()
 }
 
 // NewEngine loads the NeMo transducer at cfg's paths on the CPU.
@@ -130,6 +134,9 @@ func (e *parakeetEngine) Close() {
 	if e.recognizer == nil {
 		return
 	}
+	if e.closeFn != nil {
+		e.closeFn()
+	}
 	sherpa.DeleteOfflineRecognizer(e.recognizer)
 	e.recognizer = nil
 }
@@ -139,13 +146,21 @@ var errNoStream = errors.New("failed to create offline stream")
 // decode runs the recognizer over one piece of audio. A nil result with a
 // nil error means the recognizer returned nothing.
 func (e *parakeetEngine) decode(samples []float32) (*sherpa.OfflineRecognizerResult, error) {
-	stream := sherpa.NewOfflineStream(e.recognizer)
+	if e.decodeFn != nil {
+		return e.decodeFn(samples)
+	}
+	return decodeWith(e.recognizer, samples)
+}
+
+// decodeWith runs rec over one piece of audio.
+func decodeWith(rec *sherpa.OfflineRecognizer, samples []float32) (*sherpa.OfflineRecognizerResult, error) {
+	stream := sherpa.NewOfflineStream(rec)
 	if stream == nil {
 		return nil, errNoStream
 	}
 	defer sherpa.DeleteOfflineStream(stream)
 	stream.AcceptWaveform(sampleRate, samples)
-	e.recognizer.Decode(stream)
+	rec.Decode(stream)
 	return stream.GetResult(), nil
 }
 

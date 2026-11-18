@@ -399,15 +399,16 @@ type engineBundle struct {
 // offline pipeline builds it (cmd/musubi-recorder/pipeline.go).
 func engineConfig(cfg *config.Config, status *models.Status) transcribe.Config {
 	return transcribe.Config{
-		EncoderPath:    status.EncoderPath,
-		DecoderPath:    status.DecoderPath,
-		JoinerPath:     status.JoinerPath,
-		TokensPath:     status.TokensPath,
-		VADPath:        status.VADPath,
-		DecodingMethod: cfg.Transcription.DecodingMethod,
-		MaxActivePaths: cfg.Transcription.MaxActivePaths,
-		Model:          cfg.Transcription.Model,
-		NumThreads:     cfg.Transcription.Threads,
+		EncoderPath:      status.EncoderPath,
+		DecoderPath:      status.DecoderPath,
+		JoinerPath:       status.JoinerPath,
+		TokensPath:       status.TokensPath,
+		VADPath:          status.VADPath,
+		DecodingMethod:   cfg.Transcription.DecodingMethod,
+		MaxActivePaths:   cfg.Transcription.MaxActivePaths,
+		Model:            cfg.Transcription.Model,
+		WhisperLanguages: cfg.Transcription.WhisperLanguages,
+		NumThreads:       cfg.Transcription.Threads,
 	}
 }
 

@@ -543,7 +543,7 @@ func (r *Runner) Knowledge(ctx context.Context, o KnowledgeOptions) (KnowledgeSt
 						// A failed gate call extracts: the gate only saves time.
 					}
 					tried++
-					ex, err := knowledge.Extract(ctx, o.LLM, r.Cfg.Owner.Name, j.title, lines, j.orgs)
+					ex, err := knowledge.Extract(ctx, o.LLM, r.Cfg.Owner.Name, j.title, lines, j.orgs, kc.ExtractMaxTokens)
 					if err != nil {
 						if ctx.Err() != nil {
 							return nil, err

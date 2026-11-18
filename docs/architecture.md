@@ -704,7 +704,9 @@ extraction, so embedding, linking and threads don't run; with
 `knowledge.skip_failed_items` such an item is logged, left unstamped (tried
 again next run) and counted in the summary, and the run goes on. A run in
 which no item extracts still fails: that is a broken model or cache, not
-nothing worth extracting (research-log.md, 2026-11-05).
+nothing worth extracting (research-log.md, 2026-11-05). Each reply is
+capped at `knowledge.extract_max_tokens` (1500; 700 before 2026-11-18,
+when dense automated mail was cut off mid-JSON on every run).
 
 Checks after extraction, all cheap and stored with the statement:
 - **quote and grounding**: the statement carries the words it came from;

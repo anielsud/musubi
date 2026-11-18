@@ -4,6 +4,7 @@
 package knowledge
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -101,6 +102,10 @@ func speakerName(s string) string {
 	return s
 }
 
+// DefaultExtractMaxTokens is the reply cap Extract used before it was
+// configurable (knowledge.extract_max_tokens).
+const DefaultExtractMaxTokens = 700
+
 // Extracted is a statement as the model returned it.
 type Extracted struct {
 	Line      int     `json:"line"`
@@ -117,8 +122,9 @@ type Extracted struct {
 
 // Extract asks the model for the statements in one passage. orgs maps
 // speakers from outside the company to their organisation, so "we" in a
-// customer's words resolves to the customer.
-func Extract(ctx context.Context, llm provider.LLM, owner, title string, lines []Line, orgs map[string]string) ([]Extracted, error) {
+// customer's words resolves to the customer. maxTokens caps the reply;
+// 0 means DefaultExtractMaxTokens.
+func Extract(ctx context.Context, llm provider.LLM, owner, title string, lines []Line, orgs map[string]string, maxTokens int) ([]Extracted, error) {
 	var b strings.Builder
 	if title != "" {
 		fmt.Fprintf(&b, "Source: %s\n\n", title)
@@ -137,7 +143,7 @@ func Extract(ctx context.Context, llm provider.LLM, owner, title string, lines [
 	out, err := llm.Complete(ctx, []provider.Message{
 		{Role: "system", Content: fmt.Sprintf(extractPrompt, owner)},
 		{Role: "user", Content: b.String()},
-	}, provider.ChatOptions{Schema: extractSchema, Temperature: 0, MaxTokens: 700}, nil)
+	}, provider.ChatOptions{Schema: extractSchema, Temperature: 0, MaxTokens: cmp.Or(maxTokens, DefaultExtractMaxTokens)}, nil)
 	if err != nil {
 		return nil, err
 	}

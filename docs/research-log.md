@@ -4148,3 +4148,46 @@ averaged 38% of a core (47% before). Only 7 minutes were measured, in a
 different meeting from the 47%, so how much people talked differs too.
 Two `sample`s showed ONNX Runtime still doing the same work, with less
 spinning.
+
+## 2026-11-18: statement extraction cut off at 700 tokens on dense mail
+
+**Symptom:** from 2026-11-15 03:10, every update's topics step failed
+(214 times in `musubi-gui.log` by 2026-11-17 17:05) with "extract: no
+item extracted, 5 failed on every passage … model reply isn't JSON:
+unexpected end of JSON input". `skip_failed_items` skips such items, but
+the only items queued for "statements" extraction on each run were
+those 5, so no item extracted and the run failed: 0 threaded, 0 statuses
+for about 2.5 days. The error was added to the status message after each
+update.
+
+**Cause:** `Extract` capped each reply at 700 tokens (`num_predict`).
+The failing items are automated notice mail, one passage of 28 lines,
+in which `qwen3:8b` treats nearly every sentence as a requirement.
+Measured on two of them, with the same title and owner the pipeline
+sends (temperature 0):
+
+| Item | Cap | Reply | Result |
+|---|---|---|---|
+| mail A | 700 | 1944 chars | cut off inside the array |
+| mail A | 1500 | 1971 chars | valid, complete |
+| mail B | 700 | 1930 chars | cut off inside the array |
+| mail B | 1500 | 1971 chars | valid, complete |
+
+At 700 the reply stops a few characters before the closing `]}`.
+
+**Change:** `knowledge.extract_max_tokens`, default 1500 (700 restores
+the earlier cap). `ExtractVersion` is not bumped: at temperature 0 the
+cap only stops generation, so a reply that finished under 700 tokens is
+the same at 1500, and stamped items stay valid. Items that failed were
+never stamped and extract on the next run.
+
+**Eval:** the synthetic eval's recorded replies are keyed on the request,
+so they were re-recorded (`make eval-record`). It now fails 4 claim cases
+(KC01, KC04, KC07, KC10) against 2 (KC01, KC04) with the old cache.
+Re-recording at the previous commit with the 700 cap fails the same 4,
+so KC07 and KC10 are drift in the local model's replies since the last
+recording, not this change.
+
+**Checked (2026-11-18, 01:47, first update on the new build):** topics
+finished with `5 threaded, 44 statuses, err=<nil>` (5m01s; the 2.5 days
+of statuses were rewritten).

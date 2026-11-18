@@ -318,6 +318,11 @@ type Knowledge struct {
 	// item fails the run after extraction, as before, so nothing is linked
 	// or threaded until it extracts (research-log.md, 2026-11-05).
 	SkipFailedItems bool `toml:"skip_failed_items"`
+	// ExtractMaxTokens caps each "statements" extraction reply. At 700 a
+	// dense passage (an automated notice where every sentence reads as a
+	// requirement) is cut off mid-JSON on every run, so the item never
+	// extracts (research-log.md, 2026-11-18). 700 restores the earlier cap.
+	ExtractMaxTokens int `toml:"extract_max_tokens"`
 	// Digest reads each meeting whole into a sectioned summary and its
 	// to-dos (knowledge.Digester).
 	Digest Digest `toml:"digest"`
@@ -807,7 +812,7 @@ func DefaultConfig() Config {
 		Phone:         Phone{Explore: true, Details: true},
 		MCP:           MCP{Enabled: true, MaxShare: "owner-only", Write: true},
 		M365:          M365{Enabled: true, Calendar: true, PastDays: 30, FutureDays: 14, FirstDays: 42, Reconnect: true, TomoeContext: true, Transcripts: true, TeamsNames: true, MeetingChat: true, People: true, MailDays: 14, MailFocusedOnly: true, ChatDays: 14},
-		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0, Extract: "lean", StrictLinks: true, ImportKeepProposed: true, Grouping: "threads", Threads: Threads{Chunk: 70, Parallel: 8, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true, ConsolidateWindow: 24, InsertOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: false, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 16}, Digest: Digest{Enabled: true, ToDos: true, ToDosFallback: true, Parallel: 4, MinTopicStatements: 3}, AllowHosted: true, OnUpdate: true, AutoMax: 5, ProposeAliases: true, ApplySpellings: true, HoldUpgrades: true},
+		Knowledge:     Knowledge{NameMeetings: true, Judge: "decide", MinWorth: 0, Extract: "lean", StrictLinks: true, ImportKeepProposed: true, Grouping: "threads", Threads: Threads{Chunk: 70, Parallel: 8, AuditFixes: true, Rewind: 3, Overlap: true, HoldOlder: true, ConsolidateWindow: 24, InsertOlder: true}, Points: Points{Think: true, Segment: 5, Parallel: 4}, Lean: Lean{Segment: 50, Context: 8, Parallel: 16}, PreferSource: []string{"tomoe", "bluedot", "teams"}, Stitch: true, StitchWaitHours: 2, WarmCache: false, Updates: "explicit", Label: Label{Enabled: true, MinP: 0.3}, Status: Status{Enabled: true, Parallel: 16}, Digest: Digest{Enabled: true, ToDos: true, ToDosFallback: true, Parallel: 4, MinTopicStatements: 3}, AllowHosted: true, OnUpdate: true, AutoMax: 5, ExtractMaxTokens: 1500, ProposeAliases: true, ApplySpellings: true, HoldUpgrades: true},
 		LLM:           LLM{Provider: "ollama", Model: "qwen3:8b", URL: "http://127.0.0.1:11434", StartOllama: true, PullMissing: true},
 		Live: Live{
 			TomoeSocket: filepath.Join(home, ".local", "share", "tomoe", "live.sock"),

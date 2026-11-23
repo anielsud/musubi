@@ -148,7 +148,14 @@ Pick a day in the calendar, or filter by words or people. A meeting shows:
 - what was said, subject by subject, with **where it was said**;
 - to-dos from the meeting, and their state now;
 - who spoke, with **rename** when a name is wrong;
-- **Copy notes** and **Download transcript**.
+- **Copy notes** and **Download transcript** (your lines carry your
+  name, so the file can be shared as it is).
+
+A call shows up as soon as recording starts (**recording now**, which
+opens Live), then **processing the transcript** after it ends, then
+**transcript ready · summary being written**: the transcript can be
+downloaded from then on, and the summary appears the moment it is
+written.
 
 **Prep for the next one** gathers what to bring to your next meeting:
 its subjects, what moved since, and what is still open.

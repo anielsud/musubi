@@ -83,3 +83,26 @@ func (v Views) MeetingPage(itemID string, minStatements int, quietAfter time.Dur
 func (v Views) MeetingList(limit int) ([]store.DigestedItem, error) {
 	return v.Store.DigestedItems(v.Scope, limit)
 }
+
+// pendingWindow is how far back the meeting list looks for recordings
+// still waiting for their summary: long enough for an update that runs
+// late, short enough that one whose summary failed doesn't linger.
+const pendingWindow = 48 * time.Hour
+
+// MeetingListPending is MeetingList with the recordings of the last two
+// days whose summary isn't written yet (knowledge.digest.list_pending).
+func (v Views) MeetingListPending(limit int) ([]store.DigestedItem, error) {
+	out, err := v.MeetingList(limit)
+	if err != nil {
+		return nil, err
+	}
+	now := v.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	pend, err := v.Store.PendingMeetings(v.Scope, now.Add(-pendingWindow), limit)
+	if err != nil {
+		return nil, err
+	}
+	return append(pend, out...), nil
+}

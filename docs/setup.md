@@ -123,6 +123,7 @@ price_out = 0.502
 enabled = true
 todos = true               # the To-do tab reads them instead of commitment statements
 todos_fallback = true      # items with no summary yet keep their commitment statements
+list_pending = true        # Meetings lists the call being recorded and recordings awaiting their summary
 [knowledge.digest.model]   # same fields as above; omitted: the threads model
 [ask.model]                # Ask and prep talking points: same fields
 [ask.fallback]             # when the hosted model fails

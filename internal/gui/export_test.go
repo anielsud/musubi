@@ -58,7 +58,7 @@ func TestTranscriptOwnerScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := transcriptText(tr)
+	got := transcriptText(tr, "")
 	want := "Juniper Weekly · Wed 4 Mar 2026, 14:05\n\n" +
 		"[00:05] Robin Vale: Shall we start with the roadmap?\n" +
 		"[01:05] You: Yes, the order first.\n" +
@@ -75,7 +75,7 @@ func TestTranscriptSharedScreenLeavesOutConfidential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := transcriptText(tr)
+	got := transcriptText(tr, "")
 	if strings.Contains(got, "offer") || strings.Contains(got, "Kim New") {
 		t.Fatalf("confidential passage exported under shared-screen:\n%s", got)
 	}
@@ -98,10 +98,27 @@ func TestTranscriptTextMarksOtherCopy(t *testing.T) {
 		{Speaker: "Robin Vale", Start: -3, Text: "Before you joined.", From: "teams"},
 		{Speaker: "", Start: 10, Text: "  "},
 		{Start: 12, Text: "No speaker."},
-	}})
+	}}, "")
 	want := "Meeting\n\n[00:00] Robin Vale: [teams transcript, not heard by you] Before you joined.\n[00:12] No speaker.\n"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestTranscriptTextNamesOwner(t *testing.T) {
+	tr := &store.Transcript{Title: "Sync", Lines: []item.Segment{
+		{Speaker: "You", Start: 1, Text: "Shall we start?"},
+		{Speaker: "Person 2 (Ana Example)", Start: 3, Text: "Yes."},
+		{Speaker: "Youssef Example", Start: 5, Text: "Me too."},
+	}}
+	got := transcriptText(tr, " Robin   Vale ")
+	want := "Sync\n\n[00:01] Robin Vale: Shall we start?\n[00:03] Ana Example: Yes.\n[00:05] Youssef Example: Me too.\n"
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+	// No owner name set: "You", as before.
+	if got := transcriptText(tr, ""); !strings.Contains(got, "[00:01] You: Shall we start?") {
+		t.Fatalf("no owner: got %q", got)
 	}
 }
 

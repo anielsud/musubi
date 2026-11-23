@@ -64,6 +64,11 @@ type KnowledgeOptions struct {
 	// DigestLLM reads meetings into digests; nil builds it from
 	// knowledge.digest.model, else uses the threads model.
 	DigestLLM provider.LLM
+	// OnMeeting, when set, is told each meeting whose summary was just
+	// written or that was just given a name, so a view can show it
+	// without waiting for threading and statuses. Called from the
+	// digesting goroutines: it must be quick and safe for concurrent use.
+	OnMeeting func(itemID string)
 	// Auto is the update that follows new data (knowledge.on_update): it
 	// takes only items that append in time order (see newerThan), at most
 	// knowledge.auto_max of them, and leaves the rest for a run someone

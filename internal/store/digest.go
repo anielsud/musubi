@@ -181,6 +181,38 @@ func (s *Store) DigestTodoTexts() (map[string][]string, error) {
 	return out, rows.Err()
 }
 
+// PendingMeetings returns recordings from since on that the scope can see
+// and that have no digest yet, newest first: the meeting list shows them
+// as "summary coming" so a just-saved meeting doesn't look lost. Copies
+// fetched from Teams are left out (the recording stands for the meeting).
+func (s *Store) PendingMeetings(sc sensitivity.Scope, since time.Time, limit int) ([]DigestedItem, error) {
+	vis, vargs := visExpr(sc, "il.level", "il.categories", "i.id")
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	args := append([]any{since.Unix()}, vargs...)
+	rows, err := s.rdb.Query(`SELECT i.id, `+displayTitle("i")+`, i.occurred_at, (SELECT count(*) FROM chunks c WHERE c.item_id = i.id)
+		FROM items i JOIN labels il ON il.item_id = i.id AND il.chunk_seq = -1
+		WHERE i.kind = 'meeting' AND i.source = 'tomoe' AND i.occurred_at >= ?
+		AND NOT EXISTS (SELECT 1 FROM meeting_digests x WHERE x.item_id = i.id) AND `+vis+`
+		ORDER BY i.occurred_at DESC LIMIT ?`, append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DigestedItem
+	for rows.Next() {
+		var x DigestedItem
+		var at int64
+		if err := rows.Scan(&x.ItemID, &x.Title, &at, &x.Lines); err != nil {
+			return nil, err
+		}
+		x.Start, x.Pending = time.Unix(at, 0), true
+		out = append(out, x)
+	}
+	return out, rows.Err()
+}
+
 // DigestTodos returns an item's to-dos, unscoped (pipeline side).
 func (s *Store) DigestTodos(itemID string) ([]DigestTodo, error) {
 	return s.scanDigestTodos(`WHERE x.item_id = ? ORDER BY x.n`, []any{itemID})
@@ -291,6 +323,11 @@ type DigestedItem struct {
 	Overview string    `json:"overview"`
 	Sections int       `json:"sections"`
 	Todos    int       `json:"todos"`
+	// Pending: a recording whose summary isn't written yet (no overview,
+	// sections or to-dos); Lines is how many passages its transcript has
+	// (0: not split into passages yet).
+	Pending bool `json:"pending,omitempty"`
+	Lines   int  `json:"lines,omitempty"`
 	// Label is the overview's effective sensitivity (the item's and its
 	// own).
 	Label sensitivity.Label `json:"-"`

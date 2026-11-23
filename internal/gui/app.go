@@ -154,7 +154,7 @@ func (a *App) openConfig(path, why string) (err error) {
 	log.Printf("opened %s in %s", path, time.Since(t).Round(time.Millisecond))
 	a.notReadyLogged.Store(false)
 	a.eng, a.cfgPath, a.err, a.releaseData = e, path, "", release
-	a.live = live.New(e, a.emit, func() { a.update("a meeting was saved") })
+	a.live = live.New(e, a.emit, func() { a.updateSoon("a meeting was saved") })
 	a.live.SetHidden(a.windowHidden)
 	lctx, cancel := context.WithCancel(a.ctx)
 	a.liveCancel = cancel
@@ -251,6 +251,9 @@ type AppStatus struct {
 	// "Tomoe" ([recorder] of_record).
 	LiveFrom string `json:"liveFrom"`
 	Dataset  string `json:"dataset"`
+	// ListPending: Meetings lists the call being recorded and recordings
+	// awaiting their summary (knowledge.digest.list_pending).
+	ListPending bool `json:"listPending"`
 	// What "Check for new meetings" does: sync Microsoft 365 (when on),
 	// then process up to AutoMax new meetings (0: all) when OnUpdate; and
 	// how often it runs by itself (minutes, 0: never).
@@ -283,6 +286,7 @@ func (a *App) Status() AppStatus {
 	}
 	st.Stats, _ = a.eng.Store.Stats()
 	st.Live = a.live.Status()
+	st.ListPending = a.eng.Cfg.Knowledge.Digest.ListPending
 	st.LiveFrom = "Tomoe"
 	if a.eng.Cfg.MusubiRecords() {
 		st.LiveFrom = "Musubi recorder"
@@ -327,7 +331,9 @@ func (a *App) update(why string) {
 			// rewritten, before the views reload.
 			a.emit("update:done", msg+"; updating topics…")
 			kstart := time.Now()
-			ks, kerr := a.eng.Knowledge(a.ctx, io.Discard, pipeline.KnowledgeOptions{Auto: true})
+			// Each meeting shows its summary as soon as it is written, not
+			// after threading and statuses.
+			ks, kerr := a.eng.Knowledge(a.ctx, io.Discard, pipeline.KnowledgeOptions{Auto: true, OnMeeting: func(id string) { a.emit("meeting:ready", id) }})
 			log.Printf("update: topics took %s: %d threaded, %d statuses, err=%v", time.Since(kstart).Round(time.Millisecond), ks.Threads.Items, ks.Statuses, kerr)
 			if kerr != nil {
 				msg += "; topics: " + kerr.Error()
@@ -353,7 +359,7 @@ func (a *App) update(why string) {
 		a.updateAgain = false
 		a.mu.Unlock()
 		if again {
-			a.update("again: a meeting was edited during the last one")
+			a.update("again: a meeting was saved or edited during the last one")
 		}
 	}()
 }

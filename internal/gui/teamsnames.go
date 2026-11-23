@@ -106,7 +106,7 @@ func (a *App) nameFromTeams() {
 			renamed = true
 		}
 		if renamed && !a.relabelRenamedSpeaker(id) {
-			a.updateSoon()
+			a.updateSoon("a meeting was edited")
 		}
 		done[id], changed = key, true
 	}

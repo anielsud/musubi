@@ -423,3 +423,61 @@ func TestDigestAsksAgainWithoutEvidence(t *testing.T) {
 		t.Errorf("the second reading wasn't kept: %+v", d.Todos)
 	}
 }
+
+// The meeting list shows a recent recording whose summary isn't written
+// yet as pending (until its summary is), but not a Teams copy, an old
+// recording or one the scope can't see.
+func TestMeetingListPending(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	now := time.Date(2026, 3, 10, 18, 0, 0, 0, time.UTC)
+	mk := func(source, ref string, at time.Time, lvl sensitivity.Level) string {
+		id := source + ":" + ref
+		it := item.Item{ID: id, Source: source, Ref: ref, Kind: item.KindMeeting, Title: "call " + ref, OccurredAt: at, Segments: []item.Segment{{Text: "said"}}}
+		if _, err := s.UpsertItem(it); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ReplaceChunks(id, "v", "h", []store.Chunk{{Seq: 0, SegTo: 1, Text: "said"}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ReplaceLabels(id, "v", "h", sensitivity.Label{Level: lvl}, nil, []string{"owner@corp.example"}); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	fresh := mk("tomoe", "fresh", now.Add(-time.Hour), 0)
+	mk("teams", "copy", now.Add(-time.Hour), 0)
+	mk("tomoe", "old", now.Add(-72*time.Hour), 0)
+	secret := mk("tomoe", "secret", now.Add(-2*time.Hour), sensitivity.Confidential)
+	done := mk("tomoe", "done", now.Add(-3*time.Hour), 0)
+	if err := s.ReplaceDigest(done, "d1", "h", "i", store.Digest{Overview: "o"}); err != nil {
+		t.Fatal(err)
+	}
+	list := func(sc sensitivity.Scope) map[string]store.DigestedItem {
+		xs, err := Views{Store: s, Scope: sc, Now: now}.MeetingListPending(50)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]store.DigestedItem{}
+		for _, x := range xs {
+			out[x.ItemID] = x
+		}
+		return out
+	}
+	got := list(sensitivity.Owner())
+	if len(got) != 3 || !got[fresh].Pending || got[fresh].Lines != 1 || !got[secret].Pending || got[done].Pending {
+		t.Fatalf("owner list: %+v", got)
+	}
+	if _, ok := list(sensitivity.SharedScreen())[secret]; ok {
+		t.Error("a confidential recording listed on a shared screen")
+	}
+	if err := s.ReplaceDigest(fresh, "d1", "h", "i", store.Digest{Overview: "o"}); err != nil {
+		t.Fatal(err)
+	}
+	if x := list(sensitivity.Owner())[fresh]; x.Pending || x.Overview != "o" {
+		t.Errorf("summarised recording still pending: %+v", x)
+	}
+}

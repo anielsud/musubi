@@ -250,7 +250,7 @@ func (a *App) RecorderSpeaker(op, session, label, name string) error {
 		if op == control.OpRenameSpeaker && a.relabelRenamedSpeaker(session) {
 			return nil
 		}
-		a.updateSoon()
+		a.updateSoon("a meeting was edited")
 	}
 	return nil
 }
@@ -498,9 +498,10 @@ func validSession(id string) bool {
 	return true
 }
 
-// updateSoon ingests an edited meeting: now, or after the update under
-// way (which may have read the file before the edit).
-func (a *App) updateSoon() {
+// updateSoon ingests a saved or edited meeting: now, or after the update
+// under way (which may have read the folder before the save or edit).
+// why says what asked, for the log.
+func (a *App) updateSoon(why string) {
 	a.mu.Lock()
 	busy := a.updating || a.running != ""
 	if busy {
@@ -508,7 +509,7 @@ func (a *App) updateSoon() {
 	}
 	a.mu.Unlock()
 	if !busy {
-		a.update("a meeting was edited")
+		a.update(why)
 	}
 }
 

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { api, fmtDate, on, speakerName } from '../api';
-import type { Hit, MeetingDetails, MeetingListItem, MeetingPage, MeetingToDo, PrepRequest, PrepTarget } from '../types';
+import type { Hit, LiveStatus, MeetingDetails, MeetingListItem, MeetingPage, MeetingToDo, PrepRequest, PrepTarget } from '../types';
 import { Empty, LabelBadge, Spinner } from './common';
 import { Names } from './people';
 import { PrepPage } from './PrepView';
@@ -20,9 +20,17 @@ const agreedWords: Record<MeetingToDo['agreed'], string> = {
   agreed: '', asked: 'asked, not accepted', floated: 'suggested, nobody took it on', declined: 'turned down',
 };
 
-// A row of the merged list: a past meeting with a summary, or one to
-// prepare for (upcoming on the calendar).
-interface Row { id: string; title: string; at: Date; upcoming: boolean; m?: MeetingListItem; people?: number; past?: boolean; rec?: string }
+// A row of the merged list: a past meeting with a summary (or, pending,
+// with its transcript and the summary still coming), one to prepare for
+// (upcoming on the calendar), or the call being recorded (now: live, or
+// ended and its transcript still being processed).
+interface Row { id: string; title: string; at: Date; upcoming: boolean; m?: MeetingListItem; people?: number; past?: boolean; rec?: string; now?: 'live' | 'processing' }
+
+// Recorded is the call Live followed last, kept after it ends until its
+// recording is in the list (or a while has passed: a recording too short
+// to keep never arrives).
+interface Recorded { id: string; title: string; at: Date; eventId?: string; ended?: Date }
+const processingFor = 60 * 60 * 1000;
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const dayWords = (d: Date) => {
@@ -58,11 +66,14 @@ type Sel = { kind: 'recap'; id: string } | { kind: 'prep'; req: PrepRequest; id?
 // calendar and list are on the left and the box and the open meeting on
 // the right (the next meeting open to start); narrow, a meeting opens in
 // place of the list.
-export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
+export function MeetingsView({ scope, onOpen, onTopic, req, active, live, onLive }: {
   scope: string; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void; req: { id: string; n: number } | null;
   // active: the tab is showing. The app mounts every tab hidden, and a
   // hidden list can't be scrolled, so centring on now waits for it.
   active: boolean;
+  // live: Live's state, for the call being recorded (null: not listed,
+  // knowledge.digest.list_pending off); onLive opens Live.
+  live: LiveStatus | null; onLive: () => void;
 }) {
   const [list, setList] = useState<MeetingListItem[] | null | undefined>(undefined);
   const [targets, setTargets] = useState<PrepTarget[]>([]);
@@ -76,6 +87,17 @@ export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
   const [pending, setPending] = useState<string | null>(null);
   const listEl = useRef<HTMLUListElement>(null);
   const wide = useWide();
+  // The call Live is following (not a replay), and once it ends, until
+  // its recording shows in the list.
+  const [recorded, setRecorded] = useState<Recorded | null>(null);
+  useEffect(() => {
+    const se = live?.session;
+    if (live?.mode === 'live' && se) {
+      setRecorded((r) => (r?.id === se.id && !r.ended && r.title === se.title ? r : { id: se.id, title: se.title, at: new Date(se.created_at), eventId: se.eventId }));
+    } else {
+      setRecorded((r) => (r && !r.ended ? { ...r, ended: new Date() } : r));
+    }
+  }, [live?.mode, live?.session?.id, live?.session?.title]);
 
   // Loaded when the tab shows, after each update (a saved recording shows
   // as soon as it is imported, not at the next 5-minute reload) and every
@@ -92,21 +114,34 @@ export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
     const offs = [
       on<string>('meetings:changed', (id) => { setSel((s) => (s?.kind === 'recap' && s.id === id ? null : s)); load(); }),
       on('update:done', load),
+      // A summary (or a name) was just written.
+      on('meeting:ready', load),
     ];
     return () => { clearTimeout(t); clearInterval(every); offs.forEach((f) => f()); };
   }, [scope, active]);
   useEffect(() => { if (req) setSel({ kind: 'recap', id: req.id }); }, [req]);
 
+  // The call being recorded, until its recording is in the list.
+  const recNow = useMemo(() => {
+    if (!recorded) return null;
+    if ((list ?? []).some((m) => m.itemId === 'tomoe:' + recorded.id)) return null;
+    if (recorded.ended && Date.now() - recorded.ended.getTime() > processingFor) return null;
+    return { ...recorded, now: (recorded.ended ? 'processing' : 'live') as Row['now'] };
+  }, [recorded, list]);
   const rows = useMemo(() => {
-    const up: Row[] = targets.filter((t) => t.upcoming).map((t) => ({ id: t.itemId, title: t.title, at: new Date(t.at), upcoming: true, people: t.people }));
+    // The call's calendar event stands for it: marked, not listed twice.
+    const forCall = (id: string) => !!recNow?.eventId && recNow.eventId === id;
+    const up: Row[] = targets.filter((t) => t.upcoming).map((t) => ({ id: t.itemId, title: t.title, at: new Date(t.at), upcoming: !forCall(t.itemId), people: t.people, now: forCall(t.itemId) ? recNow!.now : undefined }));
     const past: Row[] = (list ?? []).map((m) => ({ id: m.itemId, title: m.title || m.itemId, at: new Date(m.start), upcoming: false, m }));
-    // A calendar event that has happened stands until its recording's
-    // recap is written; then the recap's row takes its place.
+    // A calendar event that has happened stands until its recording is
+    // in the list; then the recording's row takes its place.
     const recapped = new Set((list ?? []).map((m) => m.itemId));
     const happened: Row[] = targets.filter((t) => t.past && t.upcoming !== true && !(t.recordingId && recapped.has(t.recordingId)))
-      .map((t) => ({ id: t.itemId, title: t.title, at: new Date(t.at), upcoming: false, past: true, rec: t.recordingId, people: t.people }));
-    return [...up, ...past, ...happened].sort((x, y) => x.at.getTime() - y.at.getTime());
-  }, [list, targets]);
+      .map((t) => ({ id: t.itemId, title: t.title, at: new Date(t.at), upcoming: false, past: true, rec: t.recordingId, people: t.people, now: forCall(t.itemId) ? recNow!.now : undefined }));
+    const call: Row[] = recNow && !(recNow.eventId && targets.some((t) => t.itemId === recNow.eventId))
+      ? [{ id: 'live:' + recNow.id, title: recNow.title || 'Call', at: recNow.at, upcoming: false, now: recNow.now }] : [];
+    return [...up, ...past, ...happened, ...call].sort((x, y) => x.at.getTime() - y.at.getTime());
+  }, [list, targets, recNow]);
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   // A filter searches every meeting; otherwise the list keeps to its days.
   const ahead = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 8); return d; }, []);
@@ -170,7 +205,8 @@ export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
 
   // Coming up: its prep. Happened: its recap (the recording's), never prep.
   const open = (r: Row) => {
-    if (r.upcoming) setSel({ kind: 'prep', req: { template: r.id }, id: r.id });
+    if (r.now) onLive();
+    else if (r.upcoming) setSel({ kind: 'prep', req: { template: r.id }, id: r.id });
     else if (r.m) setSel({ kind: 'recap', id: r.id });
     else if (r.rec) setSel({ kind: 'recap', id: r.rec });
   };
@@ -182,7 +218,8 @@ export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
 
   const detail = sel && (sel.kind === 'prep'
     ? <PrepPage key={JSON.stringify(sel.req)} req={sel.req} scope={scope} onBack={back} onOpen={onOpen} onTopic={onTopic} />
-    : <MeetingPageView id={sel.id} scope={scope} onBack={back} onOpen={onOpen} onTopic={onTopic} onPrep={() => setSel({ kind: 'prep', req: { template: sel.id } })} />);
+    : <MeetingPageView id={sel.id} scope={scope} onBack={back} onOpen={onOpen} onTopic={onTopic} onPrep={() => setSel({ kind: 'prep', req: { template: sel.id } })}
+      pending={(list ?? []).find((m) => m.itemId === sel.id && m.pending)} />);
 
   const box = (
     <form className="meetings-box" onSubmit={(e) => { e.preventDefault(); prepPeople(); }}>
@@ -193,10 +230,14 @@ export function MeetingsView({ scope, onOpen, onTopic, req, active }: {
 
   const rowView = (r: Row) => (
     <li key={r.id}>
-      <button className={'meeting-row' + (r.upcoming ? ' upcoming' : '') + (r.past ? ' happened' : '') + (wide && isSel(r) ? ' on' : '')} onClick={() => open(r)}
-        disabled={r.past && !r.rec}>
-        <div className="meeting-head"><span className="mtg-title">{r.title}</span><span className="dim small">{timeWords(r.at)}</span></div>
-        {r.m ? (
+      <button className={'meeting-row' + (r.upcoming ? ' upcoming' : '') + (r.past && !r.now ? ' happened' : '') + (r.now ? ' now-' + r.now : '') + (wide && isSel(r) ? ' on' : '')} onClick={() => open(r)}
+        disabled={r.past && !r.rec && !r.now}>
+        <div className="meeting-head"><span className="mtg-title">{r.now === 'live' && <span className="live-dot" />}{r.title}</span><span className="dim small">{timeWords(r.at)}</span></div>
+        {r.now ? (
+          <div className="dim small">{r.now === 'live' ? 'recording now · open Live' : 'call ended · processing the transcript…'}</div>
+        ) : r.m?.pending ? (
+          <div className="dim small">{r.m.lines ? 'transcript ready · summary being written…' : 'processing the transcript…'}</div>
+        ) : r.m ? (
           <>
             <div className="meeting-overview small">{r.m.overview}</div>
             <div className="dim small">{r.m.sections} subjects · {r.m.todos} to-dos</div>
@@ -307,15 +348,21 @@ function MonthGrid({ month, setMonth, byDay, day, onDay }: {
   );
 }
 
-function MeetingPageView({ id, scope, onBack, onOpen, onTopic, onPrep }: {
+function MeetingPageView({ id, scope, onBack, onOpen, onTopic, onPrep, pending }: {
   id: string; scope: string; onBack?: () => void; onOpen: (h: Hit, scope: string) => void; onTopic: (id: number) => void; onPrep: () => void;
+  // pending: the list's row for a recording whose summary isn't written
+  // yet; its page offers the transcript meanwhile.
+  pending?: MeetingListItem;
 }) {
   const [page, setPage] = useState<MeetingPage | null | undefined>(undefined);
   const [err, setErr] = useState('');
   useEffect(() => {
     setPage(undefined);
     setErr('');
-    api.meetingPage(id, scope).then((p) => setPage(p ?? null), (e) => { setErr(String(e)); setPage(null); });
+    const load = () => api.meetingPage(id, scope).then((p) => setPage(p ?? null), (e) => { setErr(String(e)); setPage(null); });
+    load();
+    // The summary shows as soon as it is written.
+    return on<string>('meeting:ready', (x) => { if (x === id) load(); });
   }, [id, scope]);
   const src = (chunkId: number) => onOpen({ itemId: id, chunkId } as unknown as Hit, scope);
   const todos = page?.todos ?? [];
@@ -327,11 +374,18 @@ function MeetingPageView({ id, scope, onBack, onOpen, onTopic, onPrep }: {
       </div>
       {err && <div className="error small">{err}</div>}
       {page === undefined && <div className="empty"><Spinner /></div>}
-      {page === null && !err && <Empty>No summary for this meeting yet (it's written once the meeting has been processed), or none that is fine to show here.</Empty>}
+      {page === null && !err && pending && (
+        <>
+          <h2 className="meeting-h">{pending.title || pending.itemId} <span className="dim small">{fmtDate(pending.start)}</span></h2>
+          {(pending.lines ?? 0) > 0 && <MeetingExport itemId={id} scope={scope} />}
+          <Empty>{(pending.lines ?? 0) > 0 ? 'The summary is being written; it shows here as soon as it is ready. The transcript is ready now.' : 'The transcript is being processed.'}</Empty>
+        </>
+      )}
+      {page === null && !err && !pending && <Empty>No summary for this meeting yet (it's written once the meeting has been processed), or none that is fine to show here.</Empty>}
       {page && (
         <>
           <h2 className="meeting-h">{page.title || page.itemId} <span className="dim small">{fmtDate(page.start)}</span></h2>
-          <MeetingExport page={page} scope={scope} />
+          <MeetingExport itemId={page.itemId} page={page} scope={scope} />
           <p className="meeting-overview">{page.overview}</p>
           {(page.topics?.length ?? 0) > 0 && (
             <div className="chips" title="Threads this meeting's statements are in">
@@ -465,8 +519,9 @@ function notesMarkdown(page: MeetingPage, speakers: string[]): string {
 }
 
 // MeetingExport copies the page's notes and saves its transcript, each
-// under the page's scope.
-function MeetingExport({ page, scope }: { page: MeetingPage; scope: string }) {
+// under the page's scope; with no page (summary not written yet), only
+// the transcript.
+function MeetingExport({ itemId, page, scope }: { itemId: string; page?: MeetingPage; scope: string }) {
   const [note, setNote] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -476,6 +531,7 @@ function MeetingExport({ page, scope }: { page: MeetingPage; scope: string }) {
     return () => clearTimeout(t);
   }, [note]);
   const copy = async () => {
+    if (!page) return;
     setErr(''); setNote('');
     try {
       // The Speakers section is on the page in owner scope only.
@@ -486,11 +542,11 @@ function MeetingExport({ page, scope }: { page: MeetingPage; scope: string }) {
   };
   const save = () => {
     setErr(''); setNote(''); setBusy(true);
-    api.saveTranscript(page.itemId, scope).then((path) => { setBusy(false); if (path) setNote('Saved'); }, (e) => { setBusy(false); setErr(String(e)); });
+    api.saveTranscript(itemId, scope).then((path) => { setBusy(false); if (path) setNote('Saved'); }, (e) => { setBusy(false); setErr(String(e)); });
   };
   return (
     <div className="meeting-export">
-      <button className="link small" onClick={copy} title={scope === 'owner' ? 'Copy this page as Markdown' : 'Copy this page as Markdown: what the shared screen shows'}>Copy notes</button>
+      {page && <button className="link small" onClick={copy} title={scope === 'owner' ? 'Copy this page as Markdown' : 'Copy this page as Markdown: what the shared screen shows'}>Copy notes</button>}
       <button className="link small" onClick={save} disabled={busy} title={scope === 'owner' ? 'Save the transcript as a text file' : 'Save the transcript as a text file: the passages fine for a shared screen'}>Download transcript</button>
       {note && <span className="ok-text small">{note}</span>}
       {err && <span className="error small">{err}</span>}

@@ -732,6 +732,11 @@ code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); 
 .meeting-row.upcoming { border-style: dashed; }
 .meeting-row.happened { opacity: 0.8; }
 .meeting-row:disabled { cursor: default; }
+.meeting-row.now-live { border-color: #e5484d; }
+.meeting-row.now-processing { border-style: dashed; }
+.live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #e5484d; margin-right: 6px; vertical-align: middle; animation: live-pulse 1.6s ease-in-out infinite; }
+@keyframes live-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
 .now-line { display: flex; align-items: center; gap: 8px; color: var(--accent); font-size: 11px; margin: 2px 0; }
 .now-line::before, .now-line::after { content: ''; flex: 1; height: 1px; background: var(--accent); }
 .page-nav { display: flex; justify-content: space-between; }

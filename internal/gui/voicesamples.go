@@ -149,7 +149,7 @@ func (a *App) SplitSpeakerByVoice(session, label string, into []SplitTarget, pre
 	if !preview && out.Batch != "" {
 		a.emit("voices:changed", nil)
 		a.emit("meetings:changed", "")
-		a.updateSoon()
+		a.updateSoon("a meeting was edited")
 	}
 	return &out, nil
 }
@@ -168,6 +168,6 @@ func (a *App) UndoSplit(batch string) error {
 	}
 	a.emit("voices:changed", nil)
 	a.emit("meetings:changed", "")
-	a.updateSoon()
+	a.updateSoon("a meeting was edited")
 	return nil
 }

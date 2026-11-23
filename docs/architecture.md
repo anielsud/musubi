@@ -1171,7 +1171,14 @@ extraction does), deleted with the item.
   merges and splits (a thread holding one statement was judged "not here";
   weight predicts relevance). A summary is what was said in that meeting; it
   is never shown as where a subject stands now, and Ask doesn't read it
-  (untested).
+  (untested). With `knowledge.digest.list_pending` the list also shows
+  the call Live is following (from Live's status, not the store: nothing
+  is written mid-call) and recordings of the last 48 hours with no digest
+  yet (`Store.PendingMeetings`; Teams copies left out), whose page offers
+  the transcript. The app emits `meeting:ready` as each digest or name is
+  written (`KnowledgeOptions.OnMeeting`), so a summary shows before
+  threading and statuses finish; a save during an update or run is
+  queued (`updateSoon`), not dropped.
 - **Run**: in the normal knowledge run after labels, or alone with
   `musubi knowledge --digest-only [--plan]`; model `knowledge.digest.model`
   (else the threads model); hosted needs `knowledge.allow_hosted`.

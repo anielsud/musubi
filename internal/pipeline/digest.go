@@ -203,6 +203,9 @@ func (r *Runner) digestMeetings(ctx context.Context, o KnowledgeOptions, items [
 				r.logf("digest: %d of %d meetings read", ks.Digested, len(jobs))
 			}
 			mu.Unlock()
+			if o.OnMeeting != nil {
+				o.OnMeeting(j.it.ID)
+			}
 		}()
 	}
 	wg.Wait()

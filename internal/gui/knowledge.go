@@ -94,11 +94,16 @@ func (a *App) ToDos(proposals bool, scope string) ([]knowledge.ToDo, error) {
 }
 
 // MeetingList lists the meetings with a summary, newest first, as far as
-// the scope may see them (knowledge.digest).
+// the scope may see them (knowledge.digest), and with
+// knowledge.digest.list_pending the recent recordings still waiting for
+// theirs (marked pending).
 func (a *App) MeetingList(scope string, limit int) ([]store.DigestedItem, error) {
 	v, err := a.views(scope)
 	if err != nil {
 		return nil, err
+	}
+	if a.eng.Cfg.Knowledge.Digest.ListPending {
+		return v.MeetingListPending(limit)
 	}
 	return v.MeetingList(limit)
 }

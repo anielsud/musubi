@@ -72,7 +72,7 @@ func (a *App) SaveTranscript(itemID, scope string) (string, error) {
 		return "", err
 	}
 	// The transcript is meeting text: readable by the owner only.
-	if err := os.WriteFile(path, []byte(transcriptText(t)), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(transcriptText(t, a.eng.Cfg.Owner.Name)), 0o600); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -101,8 +101,11 @@ var tomoeLabel = regexp.MustCompile(`^(?:Person|Speaker) \d+ \((.+)\)$`)
 // transcriptText is the transcript as text: a header line with the title
 // and when, then "[mm:ss] Speaker: text" per line, minutes counting on
 // past the hour. A line taken from another copy of the meeting is marked
-// as the source view marks it.
-func transcriptText(t *store.Transcript) string {
+// as the source view marks it. The owner's lines ("You") carry owner, their
+// name, when set: the file is made to be shared, and "You" would read as
+// whoever opens it.
+func transcriptText(t *store.Transcript, owner string) string {
+	owner = oneLine(owner)
 	var b strings.Builder
 	title := oneLine(t.Title)
 	if title == "" {
@@ -123,6 +126,8 @@ func transcriptText(t *store.Transcript) string {
 		if who := oneLine(s.Speaker); who != "" {
 			if m := tomoeLabel.FindStringSubmatch(who); m != nil {
 				who = m[1]
+			} else if who == "You" && owner != "" {
+				who = owner
 			}
 			b.WriteString(who + ": ")
 		}

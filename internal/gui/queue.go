@@ -134,7 +134,13 @@ func (a *App) RunKnowledge(kind string) error {
 		runMu.Unlock()
 		a.mu.Lock()
 		a.running = ""
+		again := a.updateAgain
+		a.updateAgain = false
 		a.mu.Unlock()
+		// A meeting saved or edited during the run waited for it.
+		if again {
+			defer a.update("again: a meeting was saved or edited during a run")
+		}
 		msg := fmt.Sprintf("%d extracted, %d threaded%s", ks.Items, ks.Threads.Items, counts)
 		if err != nil {
 			msg = err.Error() + counts

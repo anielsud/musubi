@@ -167,7 +167,7 @@ func (a *App) ReturnVoiceMeeting(model, id, session string) (*ReturnVoiceResult,
 		done()
 		a.afterRelabel()
 		if reimport {
-			a.updateSoon()
+			a.updateSoon("a meeting was edited")
 		}
 	}()
 

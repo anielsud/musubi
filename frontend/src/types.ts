@@ -201,6 +201,9 @@ export interface Stats {
 
 export interface AppStatus {
   error?: string;
+  // Meetings lists the call being recorded and recordings awaiting their
+  // summary (knowledge.digest.list_pending).
+  listPending?: boolean;
   owner: string;
   ollamaUp: boolean;
   chatModel: string;
@@ -622,7 +625,9 @@ export interface MeetingPage {
   topics: MeetingTopic[] | null;
 }
 
-export interface MeetingListItem { itemId: string; title: string; start: string; overview: string; sections: number; todos: number }
+// pending: a recording whose summary isn't written yet (no overview,
+// sections or to-dos); lines, how many passages its transcript has.
+export interface MeetingListItem { itemId: string; title: string; start: string; overview: string; sections: number; todos: number; pending?: boolean; lines?: number }
 
 export interface M365View {
   enabled: boolean;

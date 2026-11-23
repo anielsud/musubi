@@ -96,6 +96,9 @@ func (r *Runner) nameMeetings(ctx context.Context, o KnowledgeOptions, items []i
 			return err
 		}
 		ks.Named++
+		if o.OnMeeting != nil {
+			o.OnMeeting(it.ID)
+		}
 	}
 	ks.Outdated.Names = held
 	if !o.Plan && ctx.Err() == nil {
